@@ -80,7 +80,6 @@ identity.
 
 1. **Create a Supabase project** and link it: `npx supabase link --project-ref <ref>`.
 2. **Push the schema**: `npx supabase db push` (applies `supabase/migrations/`).
-   Seed production data as appropriate (don't use the local `seed.sql` test users).
 3. **Enable the auth hook**: in the Supabase dashboard → Authentication → Hooks,
    set the *Custom Access Token* hook to `public.custom_access_token_hook`
    (mirrors `[auth.hook.custom_access_token]` in `config.toml`).
@@ -94,3 +93,19 @@ identity.
 6. **Bootstrap the first manager**: create the user in the Supabase dashboard and
    insert a `profiles` row with `role = 'league_manager'`, then use **People &
    Roles** in-app to add everyone else.
+
+### Test / staging deploy (one-click dev login on)
+
+For a still-in-test deploy where you want the seeded demo data and the one-click
+quick sign-in available to testers:
+
+- After step 2, seed the demo data + test accounts against the hosted DB:
+  `npx supabase db push` already ran the migrations; run `psql "$DB_URL" -f supabase/seed.sql`
+  then `SUPABASE_SECRET_KEY=… NEXT_PUBLIC_SUPABASE_URL=… npm run seed:users`.
+- Add one more Vercel env var: **`ENABLE_DEV_LOGIN=true`** — this keeps the
+  one-click Manager/Scorekeeper/Captain panel on `/login` even though it's a
+  production build.
+
+⚠️ While `ENABLE_DEV_LOGIN=true`, **anyone with the URL can sign in as any role**
+— only share the link with people you trust. For real production, **remove the
+`ENABLE_DEV_LOGIN` var** (and seed real data instead of `seed.sql`).

@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
+import { devLoginEnabled } from "@/lib/auth/dev-login";
 
 export type AuthActionState = { ok: boolean; message: string } | null;
 
@@ -37,12 +38,12 @@ export async function signOut() {
 }
 
 /**
- * LOCAL-ONLY quick sign-in for testing the staff tools. Uses the seeded
- * password (set by `npm run seed:users`). Hard-disabled outside development so
- * it can never be used in production.
+ * Quick sign-in for testing the staff tools, using the seeded password (set by
+ * `npm run seed:users`). On in local dev; in a deployed build only when
+ * ENABLE_DEV_LOGIN=true (see devLoginEnabled). Off = unavailable.
  */
 export async function devSignIn(formData: FormData) {
-  if (process.env.NODE_ENV === "production") return;
+  if (!devLoginEnabled()) return;
   const email = String(formData.get("email") ?? "").trim();
   if (!email) return;
   const supabase = await createClient();

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { LoginForm } from "./login-form";
 import { devSignIn } from "@/lib/actions/auth";
+import { devLoginEnabled } from "@/lib/auth/dev-login";
 import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "Staff sign in" };
@@ -18,7 +19,7 @@ export default async function LoginPage({
   searchParams: Promise<{ dev_error?: string; error?: string }>;
 }) {
   const { dev_error, error } = await searchParams;
-  const isDev = process.env.NODE_ENV !== "production";
+  const showDevLogin = devLoginEnabled();
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
@@ -39,10 +40,10 @@ export default async function LoginPage({
         ) : null}
         <LoginForm />
 
-        {isDev ? (
+        {showDevLogin ? (
           <div className="space-y-2 rounded-lg border border-dashed p-3">
             <p className="text-muted-foreground text-center text-xs font-medium">
-              Dev quick sign-in (local only)
+              Quick sign-in (test mode)
             </p>
             <div className="flex gap-2">
               {DEV_ACCOUNTS.map((a) => (
