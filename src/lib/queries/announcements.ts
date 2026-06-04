@@ -16,6 +16,7 @@ export async function getAnnouncements(
     .eq("is_published", true)
     .order("published_at", { ascending: false });
   if (limit) q = q.limit(limit);
-  const { data } = await q;
+  const { data, error } = await q;
+  if (error) console.error("getAnnouncements failed:", error.message);
   return data ?? [];
 }

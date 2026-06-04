@@ -10,6 +10,7 @@ export function StaffRowActions({ id, role }: { id: string; role: string }) {
         <input type="hidden" name="id" value={id} />
         <select
           name="role"
+          aria-label="Change role"
           defaultValue={role}
           onChange={(e) => e.currentTarget.form?.requestSubmit()}
           className="border-input bg-background h-8 rounded-md border px-2 text-sm"

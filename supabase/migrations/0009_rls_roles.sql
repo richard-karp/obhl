@@ -1,4 +1,10 @@
 -- Role/write RLS layered on top of the public-read policies from 0008.
+--
+-- NOTE: roles are GLOBAL/instance-wide, not league-scoped — a scorekeeper or
+-- manager can write any league's games in a multi-league instance. This is
+-- acceptable for a single organizer running their own leagues; if leagues ever
+-- need to be isolated tenants, add a profile_leagues(profile_id, league_id, role)
+-- table and join through it in these policies.
 
 -- Coarse role from the caller's profile (always fresh; no JWT staleness).
 create or replace function public.auth_role()
@@ -69,15 +75,21 @@ create policy "scorekeeper write game_rosters" on game_rosters
   for all to authenticated
   using (public.auth_role() = 'scorekeeper')
   with check (public.auth_role() = 'scorekeeper');
-create policy "captain write game_rosters" on game_rosters
-  for all to authenticated
+-- A captain may VIEW their own team's roster for any of its games, and
+-- add/remove dressed players (insert/delete) only before the game is finalized —
+-- but NOT update rows, so they can't touch the goal/assist/PIM counters. Scoring
+-- stays scorekeeper/manager-only (enforced at the DB level, not just the UI).
+create policy "captain read game_rosters" on game_rosters
+  for select to authenticated
   using (
     exists (
       select 1 from games g
-      where g.id = game_rosters.game_id and g.finalized_at is null
+      where g.id = game_rosters.game_id
         and public.is_captain_of(game_rosters.team_id, g.season_id)
     )
-  )
+  );
+create policy "captain insert game_rosters" on game_rosters
+  for insert to authenticated
   with check (
     exists (
       select 1 from games g
@@ -85,11 +97,15 @@ create policy "captain write game_rosters" on game_rosters
         and public.is_captain_of(game_rosters.team_id, g.season_id)
     )
   );
-
--- Scoring (goals/assists/PIM) lives on game_rosters counters, covered by the
--- game_rosters policies above: the scorekeeper bumps them while the game is not
--- finalized. Captains set the dressed lineup but the UI does not expose the
--- stat counters to them.
+create policy "captain delete game_rosters" on game_rosters
+  for delete to authenticated
+  using (
+    exists (
+      select 1 from games g
+      where g.id = game_rosters.game_id and g.finalized_at is null
+        and public.is_captain_of(game_rosters.team_id, g.season_id)
+    )
+  );
 
 -- Profiles: own row read/update; managers read & manage all.
 create policy "own profile read" on profiles

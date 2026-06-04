@@ -22,7 +22,6 @@ export default async function ManageLayout({
     <div className="flex min-h-full flex-col">
       <ManageNav
         role={user.role}
-        email={user.email}
         leagues={leagues}
         currentSlug={current?.slug ?? ""}
       />

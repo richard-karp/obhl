@@ -9,14 +9,14 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { NoSeason } from "@/components/public/no-season";
-import { formatLongDate } from "@/lib/format";
+import { formatLongDate, leagueDateKey } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Schedule" };
 
 function groupByDate(games: GameWithTeams[]) {
   const groups: { key: string; label: string; games: GameWithTeams[] }[] = [];
   for (const g of games) {
-    const key = g.scheduled_at ? g.scheduled_at.slice(0, 10) : "tbd";
+    const key = g.scheduled_at ? leagueDateKey(g.scheduled_at) : "tbd";
     let last = groups[groups.length - 1];
     if (!last || last.key !== key) {
       last = {

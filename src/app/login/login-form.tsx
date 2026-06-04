@@ -30,6 +30,8 @@ export function LoginForm() {
       </Button>
       {state ? (
         <p
+          role="status"
+          aria-live="polite"
           className={
             state.ok
               ? "text-sm text-emerald-600 dark:text-emerald-400"

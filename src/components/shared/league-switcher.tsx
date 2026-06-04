@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 /**
  * Header league picker. Cookie-backed (see lib/actions/league.ts); changing it
  * re-renders the whole app for the chosen league. Renders nothing when there's
- * only one league. Submits on change and works without JS (it's a real form).
+ * only one league. Requires JS: changing the select calls the server action via
+ * a transition (a bare select wouldn't submit the form on its own).
  */
 export function LeagueSwitcher({
   leagues,

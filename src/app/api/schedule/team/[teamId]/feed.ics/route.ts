@@ -8,6 +8,11 @@ export async function GET(
   { params }: { params: Promise<{ teamId: string }> },
 ) {
   const { teamId } = await params;
+  // teamId is interpolated into a PostgREST filter below — require a UUID so it
+  // can't inject extra filter syntax.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teamId)) {
+    return new Response("Not found", { status: 404 });
+  }
   const supabase = await createClient();
   const { data: games } = await supabase
     .from("games")

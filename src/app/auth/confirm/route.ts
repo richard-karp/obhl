@@ -8,7 +8,9 @@ import { createClient } from "@/utils/supabase/server";
  */
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
-  const next = searchParams.get("next") ?? "/dashboard";
+  // Only allow same-origin relative paths (block "//evil.com" and absolute URLs).
+  const rawNext = searchParams.get("next") ?? "/dashboard";
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;

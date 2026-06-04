@@ -94,43 +94,66 @@ export async function createTeamForSeason(
     return { ok: false, message: tErr.message };
   }
 
-  await admin.from("season_teams").insert({ season_id, team_id: team.id });
+  // Enroll the team. If this fails, roll back the team so we don't leave an
+  // orphan, and don't report success.
+  const { error: enrollErr } = await admin
+    .from("season_teams")
+    .insert({ season_id, team_id: team.id });
+  if (enrollErr) {
+    await admin.from("teams").delete().eq("id", team.id);
+    return { ok: false, message: `Couldn't enroll the team: ${enrollErr.message}` };
+  }
 
+  // Captain is optional and secondary: if a captain step fails, the team still
+  // exists (a valid state), so report the partial outcome honestly instead of
+  // rolling the whole team back or claiming full success.
   if (captainName) {
     const [first, ...rest] = captainName.split(/\s+/);
-    const { data: player } = await admin
+    const { data: player, error: pErr } = await admin
       .from("players")
       .insert({ first_name: first, last_name: rest.join(" ") })
       .select("id")
       .single();
-    if (player) {
-      await admin.from("team_players").insert({
-        season_id,
-        team_id: team.id,
-        player_id: player.id,
-        is_captain: true,
-        position: "F",
-      });
+    if (pErr || !player) {
+      revalidatePath(`/seasons/${season_id}`);
+      return { ok: false, message: `Added ${name}, but couldn't create the captain (${pErr?.message ?? "unknown"}). Add them under Rosters.` };
+    }
 
-      if (captainEmail) {
-        let userId: string | undefined;
-        const { data: created, error: uErr } = await admin.auth.admin.createUser({
-          email: captainEmail,
-          email_confirm: true,
+    const { error: tpErr } = await admin.from("team_players").insert({
+      season_id,
+      team_id: team.id,
+      player_id: player.id,
+      is_captain: true,
+      position: "F",
+    });
+    if (tpErr) {
+      await admin.from("players").delete().eq("id", player.id);
+      revalidatePath(`/seasons/${season_id}`);
+      return { ok: false, message: `Added ${name}, but couldn't set the captain (${tpErr.message}).` };
+    }
+
+    if (captainEmail) {
+      let userId: string | undefined;
+      const { data: created, error: uErr } = await admin.auth.admin.createUser({
+        email: captainEmail,
+        email_confirm: true,
+      });
+      if (uErr) {
+        const { data: list } = await admin.auth.admin.listUsers({ perPage: 1000 });
+        userId = list?.users.find((u) => u.email === captainEmail)?.id;
+      } else {
+        userId = created.user.id;
+      }
+      if (userId) {
+        const { error: profErr } = await admin.from("profiles").upsert({
+          id: userId,
+          role: "captain",
+          player_id: player.id,
+          display_name: captainName,
         });
-        if (uErr) {
-          const { data: list } = await admin.auth.admin.listUsers();
-          userId = list.users.find((u) => u.email === captainEmail)?.id;
-        } else {
-          userId = created.user.id;
-        }
-        if (userId) {
-          await admin.from("profiles").upsert({
-            id: userId,
-            role: "captain",
-            player_id: player.id,
-            display_name: captainName,
-          });
+        if (profErr) {
+          revalidatePath(`/seasons/${season_id}`);
+          return { ok: false, message: `Added ${name} with captain ${captainName}, but couldn't create their login (${profErr.message}).` };
         }
       }
     }
@@ -148,22 +171,22 @@ export async function setActiveSeason(formData: FormData) {
   const admin = createAdminClient();
   const id = String(formData.get("id"));
   const leagueId = await getLeagueId(admin);
-  // Unset the current active first (one-active-per-league partial unique index).
-  await admin.from("seasons").update({ is_active: false }).eq("league_id", leagueId);
-  await admin.from("seasons").update({ is_active: true }).eq("id", id);
+  // Unset the current active first (one-active-per-league partial unique index),
+  // then activate the chosen season — scoped to this league so a stray id can't
+  // activate another league's season.
+  const { error: e1 } = await admin
+    .from("seasons")
+    .update({ is_active: false })
+    .eq("league_id", leagueId);
+  if (e1) throw new Error(`Deactivating seasons failed: ${e1.message}`);
+  const { error: e2 } = await admin
+    .from("seasons")
+    .update({ is_active: true })
+    .eq("id", id)
+    .eq("league_id", leagueId);
+  if (e2) throw new Error(`Activating season failed: ${e2.message}`);
   revalidatePath("/seasons");
   revalidatePath("/", "layout");
-}
-
-export async function enrollTeam(formData: FormData) {
-  await requireManager();
-  const admin = createAdminClient();
-  const season_id = String(formData.get("season_id"));
-  const team_id = String(formData.get("team_id"));
-  await admin
-    .from("season_teams")
-    .upsert({ season_id, team_id }, { onConflict: "season_id,team_id" });
-  revalidatePath(`/seasons/${season_id}`);
 }
 
 export async function unenrollTeam(formData: FormData) {

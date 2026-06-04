@@ -62,12 +62,10 @@ function Links({ links }: { links: { href: string; label: string }[] }) {
 
 export function ManageNav({
   role,
-  email,
   leagues,
   currentSlug,
 }: {
   role: AppRole | null;
-  email: string | null;
   leagues: LeagueOption[];
   currentSlug: string;
 }) {

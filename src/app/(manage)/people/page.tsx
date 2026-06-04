@@ -30,7 +30,7 @@ export default async function PeoplePage() {
   const ctx = await getActiveContext();
 
   const [{ data: usersList }, { data: profiles }] = await Promise.all([
-    admin.auth.admin.listUsers(),
+    admin.auth.admin.listUsers({ perPage: 1000 }),
     admin.from("profiles").select("id, role, display_name"),
   ]);
 

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 import { requireRole } from "@/lib/auth/guards";
+import { leagueOffset } from "@/lib/format";
 
 // Scoring writes go through the USER's session client, so RLS enforces who can
 // do what (captain: own-team lineup; scorekeeper: stats; manager: all).
@@ -11,6 +12,11 @@ const PUBLIC_PATHS = ["/", "/standings", "/stats", "/schedule"];
 const STAT_COLS = new Set(["goals", "assists", "pim"]);
 
 type UserClient = Awaited<ReturnType<typeof createClient>>;
+
+/** Surface a DB/RLS error instead of silently "succeeding" with nothing saved. */
+function check(error: { message: string } | null, what: string) {
+  if (error) throw new Error(`${what} failed: ${error.message}`);
+}
 
 function revalidateAfterScore(gameId: string, alsoPublic = false) {
   revalidatePath(`/score/${gameId}`);
@@ -44,10 +50,11 @@ async function syncFinalScore(
       .filter((r) => r.team_id === teamId)
       .reduce((s, r) => s + (r.goals ?? 0), 0);
 
-  await supabase
+  const { error } = await supabase
     .from("games")
     .update({ home_goals: sum(game.home_team_id), away_goals: sum(game.away_team_id) })
     .eq("id", gameId);
+  check(error, "Sync score");
   return true;
 }
 
@@ -76,12 +83,14 @@ export async function setLineup(formData: FormData) {
     .map((r) => r.id);
 
   if (toAdd.length) {
-    await supabase
+    const { error } = await supabase
       .from("game_rosters")
       .insert(toAdd.map((player_id) => ({ game_id, team_id, player_id })));
+    check(error, "Update lineup");
   }
   if (toRemove.length) {
-    await supabase.from("game_rosters").delete().in("id", toRemove);
+    const { error } = await supabase.from("game_rosters").delete().in("id", toRemove);
+    check(error, "Update lineup");
   }
   const wasFinal = await syncFinalScore(supabase, game_id);
   revalidateAfterScore(game_id, wasFinal);
@@ -89,8 +98,8 @@ export async function setLineup(formData: FormData) {
 
 /**
  * Increment/decrement a dressed player's goals/assists/pim by 1 (scorekeeper /
- * manager). Counters never go below 0. First change bumps the game to
- * in_progress.
+ * manager). Atomic via an RPC (`greatest(0, col + delta)`) so concurrent taps
+ * can't lose an increment. First change bumps the game to in_progress.
  */
 export async function bumpStat(formData: FormData) {
   await requireRole("scorekeeper", "league_manager");
@@ -101,18 +110,12 @@ export async function bumpStat(formData: FormData) {
   const delta = Number(formData.get("delta")) >= 0 ? 1 : -1;
   if (!id || !STAT_COLS.has(col)) return;
 
-  const { data: row } = await supabase
-    .from("game_rosters")
-    .select("goals, assists, pim")
-    .eq("id", id)
-    .single();
-  if (!row) return;
-  const cur = (row as Record<string, number>)[col] ?? 0;
-  const next = Math.max(0, cur + delta);
-  const patch: { goals?: number; assists?: number; pim?: number } = {
-    [col]: next,
-  };
-  await supabase.from("game_rosters").update(patch).eq("id", id);
+  const { error } = await supabase.rpc("bump_game_roster_stat", {
+    p_id: id,
+    p_col: col,
+    p_delta: delta,
+  });
+  check(error, "Update stat");
 
   await supabase
     .from("games")
@@ -145,7 +148,7 @@ export async function finalizeGame(formData: FormData) {
       .filter((r) => r.team_id === teamId)
       .reduce((s, r) => s + (r.goals ?? 0), 0);
 
-  await supabase
+  const { error } = await supabase
     .from("games")
     .update({
       status: "final",
@@ -156,6 +159,7 @@ export async function finalizeGame(formData: FormData) {
       finalized_by: user.id,
     })
     .eq("id", game_id);
+  check(error, "Finalize game");
 
   revalidateAfterScore(game_id, true);
 }
@@ -169,10 +173,11 @@ export async function reopenGame(formData: FormData) {
   await requireRole("scorekeeper", "league_manager");
   const supabase = await createClient();
   const game_id = String(formData.get("game_id"));
-  await supabase
+  const { error } = await supabase
     .from("games")
     .update({ status: "in_progress", finalized_at: null, finalized_by: null })
     .eq("id", game_id);
+  check(error, "Reopen game");
   revalidateAfterScore(game_id, true);
 }
 
@@ -183,7 +188,8 @@ async function setStatus(
   status: "scheduled" | "cancelled" | "postponed",
 ) {
   const supabase = await createClient();
-  await supabase.from("games").update({ status }).eq("id", game_id);
+  const { error } = await supabase.from("games").update({ status }).eq("id", game_id);
+  check(error, "Update game status");
   revalidateAfterScore(game_id, true);
 }
 
@@ -212,10 +218,11 @@ export async function rescheduleGame(formData: FormData) {
   const game_id = String(formData.get("game_id"));
   const dt = String(formData.get("scheduled_at") ?? "").trim();
   if (!dt) return;
-  // datetime-local "YYYY-MM-DDTHH:MM" -> Eastern, matching the seed/builder.
-  await supabase
+  // datetime-local "YYYY-MM-DDTHH:MM" interpreted in the league zone (DST-aware).
+  const { error } = await supabase
     .from("games")
-    .update({ scheduled_at: `${dt}:00-04:00`, status: "scheduled" })
+    .update({ scheduled_at: `${dt}:00${leagueOffset(dt)}`, status: "scheduled" })
     .eq("id", game_id);
+  check(error, "Reschedule game");
   revalidateAfterScore(game_id, true);
 }

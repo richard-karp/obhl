@@ -35,7 +35,7 @@ export async function createStaffAccount(
     email_confirm: true,
   });
   if (error) {
-    const { data: list } = await admin.auth.admin.listUsers();
+    const { data: list } = await admin.auth.admin.listUsers({ perPage: 1000 });
     userId = list.users.find((u) => u.email === email)?.id;
     if (!userId) return { ok: false, message: error.message };
   } else {

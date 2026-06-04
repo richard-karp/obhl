@@ -37,7 +37,8 @@ export async function getSchedule(
   if (teamId) {
     q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
   }
-  const { data } = await q;
+  const { data, error } = await q;
+  if (error) console.error("schedule query failed:", error.message);
   return (data ?? []) as unknown as GameWithTeams[];
 }
 
@@ -58,7 +59,8 @@ export async function getUpcoming(
     .order("scheduled_at", { ascending: true })
     .limit(limit);
   if (teamId) q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
-  const { data } = await q;
+  const { data, error } = await q;
+  if (error) console.error("schedule query failed:", error.message);
   return (data ?? []) as unknown as GameWithTeams[];
 }
 
@@ -77,6 +79,7 @@ export async function getRecentResults(
     .order("scheduled_at", { ascending: false })
     .limit(limit);
   if (teamId) q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
-  const { data } = await q;
+  const { data, error } = await q;
+  if (error) console.error("schedule query failed:", error.message);
   return (data ?? []) as unknown as GameWithTeams[];
 }

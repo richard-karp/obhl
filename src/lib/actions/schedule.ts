@@ -6,10 +6,8 @@ import { requireManager } from "@/lib/auth/guards";
 import { roundRobin } from "@/lib/schedule/roundRobin";
 import { assignNights, type Night } from "@/lib/schedule/assignNights";
 import { resolveCurrentLeague } from "@/lib/league/current";
+import { leagueOffset } from "@/lib/format";
 import type { TablesInsert } from "@/lib/db/helpers";
-
-// Local timezone offset appended to naive slot times (Eastern, matching seed).
-const TZ_OFFSET = "-04:00";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -104,7 +102,9 @@ export async function generateSchedule(formData: FormData) {
         season_id: seasonId,
         home_team_id: g.home,
         away_team_id: g.away,
-        scheduled_at: `${g.scheduledAt}${TZ_OFFSET}`,
+        // Per-game offset so games on either side of the DST switch keep the
+        // right wall-clock time.
+        scheduled_at: `${g.scheduledAt}${leagueOffset(g.scheduledAt)}`,
         status: "scheduled" as const,
         round: g.round,
         is_draft: true,
@@ -225,8 +225,8 @@ export async function scheduleSpecialGame(
     .select("home_team_id, away_team_id")
     .eq("season_id", seasonId)
     .neq("status", "cancelled")
-    .gte("scheduled_at", `${date}T00:00:00${TZ_OFFSET}`)
-    .lte("scheduled_at", `${date}T23:59:59${TZ_OFFSET}`);
+    .gte("scheduled_at", `${date}T00:00:00${leagueOffset(date)}`)
+    .lte("scheduled_at", `${date}T23:59:59${leagueOffset(date)}`);
   const busy = new Set<string>();
   for (const g of dayGames ?? []) {
     busy.add(g.home_team_id);
@@ -243,7 +243,7 @@ export async function scheduleSpecialGame(
     season_id: seasonId,
     home_team_id: d.home,
     away_team_id: d.away,
-    scheduled_at: `${date}T${desSlots[i]}:00${TZ_OFFSET}`,
+    scheduled_at: `${date}T${desSlots[i]}:00${leagueOffset(date)}`,
     status: "scheduled",
     label: d.label,
   }));
@@ -257,7 +257,7 @@ export async function scheduleSpecialGame(
         season_id: seasonId,
         home_team_id: others[i],
         away_team_id: others[i + 1],
-        scheduled_at: `${date}T${fillerSlots[si]}:00${TZ_OFFSET}`,
+        scheduled_at: `${date}T${fillerSlots[si]}:00${leagueOffset(date)}`,
         status: "scheduled",
       });
       fillers++;

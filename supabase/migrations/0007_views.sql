@@ -4,7 +4,9 @@
 -- directly without extra joins.
 
 -- One row per team per FINAL game, from that team's perspective.
-create view v_team_game_results as
+-- security_invoker so the view honors the querying role's RLS (private-league
+-- data stays hidden from anon) instead of running as the owner.
+create view v_team_game_results with (security_invoker = true) as
 select
   g.id as game_id,
   g.season_id,
@@ -38,7 +40,7 @@ from games g
 where g.status = 'final';
 
 -- Standings raw aggregates per enrolled team (0-0-0 until games are final).
-create view v_standings_raw as
+create view v_standings_raw with (security_invoker = true) as
 select
   st.season_id,
   st.team_id,
@@ -71,7 +73,7 @@ group by st.season_id, st.team_id, tm.name, tm.slug, tm.color;
 
 -- Skater stats per player from FINAL games. GP = final games dressed; G/A/PIM
 -- are summed from the per-game roster counters the scorekeeper records.
-create view v_skater_stats as
+create view v_skater_stats with (security_invoker = true) as
 with finals as (
   select id, season_id from games where status = 'final'
 ),
@@ -109,12 +111,15 @@ left join team_players tp
   on tp.season_id = agg.season_id and tp.team_id = agg.team_id and tp.player_id = agg.player_id;
 
 -- Goalie stats: the dressed position='G' player credited with the team result.
-create view v_goalie_stats as
+create view v_goalie_stats with (security_invoker = true) as
 with finals as (
   select id, season_id from games where status = 'final'
 ),
+-- Credit exactly ONE goalie per team per game (lowest player_id if a team ever
+-- dresses two), so goals-against / W-L / shutouts aren't double-counted.
 goalie_appearances as (
-  select f.season_id, gr.player_id, gr.game_id, gr.team_id
+  select distinct on (gr.game_id, gr.team_id)
+    f.season_id, gr.player_id, gr.game_id, gr.team_id
   from game_rosters gr
   join finals f on f.id = gr.game_id
   join team_players tp
@@ -122,6 +127,7 @@ goalie_appearances as (
    and tp.team_id = gr.team_id
    and tp.player_id = gr.player_id
   where tp.position = 'G'
+  order by gr.game_id, gr.team_id, gr.player_id
 ),
 with_result as (
   select ga.season_id, ga.player_id, ga.team_id, r.outcome, r.ga as goals_against

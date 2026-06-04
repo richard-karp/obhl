@@ -21,7 +21,7 @@ import { Label } from "@/components/ui/label";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ScheduleFinalForm } from "@/components/manage/schedule-final-form";
-import { formatLongDate, formatGameTime } from "@/lib/format";
+import { formatLongDate, formatGameTime, leagueDateKey } from "@/lib/format";
 
 const WEEKDAYS = [
   { value: 1, label: "Mon" },
@@ -59,7 +59,7 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
   // Group by night + build a balance report.
   const byDate = new Map<string, any[]>();
   for (const g of drafts ?? []) {
-    const d = (g.scheduled_at ?? "").slice(0, 10);
+    const d = g.scheduled_at ? leagueDateKey(g.scheduled_at) : "tbd";
     (byDate.get(d) ?? byDate.set(d, []).get(d)!).push(g);
   }
   const nameOf = new Map<string, string>();
@@ -104,6 +104,15 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
   const teamRows = [...gp.keys()].sort((a, b) =>
     (nameOf.get(a) ?? "").localeCompare(nameOf.get(b) ?? ""),
   );
+
+  // Warn if the draft doesn't cover every team evenly (some matchups didn't fit
+  // the date range / ice times) — the generator silently drops the overflow.
+  const enrolledCount = enrolledTeams.length;
+  const gpVals = teamRows.map((t) => gp.get(t) ?? 0);
+  const scheduleIncomplete =
+    (drafts?.length ?? 0) > 0 &&
+    (teamRows.length < enrolledCount ||
+      (gpVals.length > 0 && Math.max(...gpVals) - Math.min(...gpVals) > 1));
 
   return (
     <div className="space-y-6">
@@ -218,6 +227,14 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
             </form>
           </div>
 
+          {scheduleIncomplete ? (
+            <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border px-3 py-2 text-sm">
+              ⚠ This draft doesn&apos;t cover every team evenly — some matchups
+              didn&apos;t fit the date range and ice times. Widen the dates, add
+              game nights or ice slots, then regenerate.
+            </div>
+          ) : null}
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Balance report</CardTitle>
@@ -266,9 +283,10 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
                 </Table>
               </div>
               <p className="text-muted-foreground mt-2 text-xs">
-                GP should be equal across teams; the Slot and night-of-week
-                columns should each be evenly spread (no team stuck with the late
-                slot, and a fair share of every game night).
+                GP should be equal across teams and the Slot columns evenly
+                spread. Night-of-week balance is automatic when there are at least
+                as many ice slots as games per night (teams ÷ 2); with fewer
+                slots, check the night columns here.
               </p>
             </CardContent>
           </Card>

@@ -5,7 +5,7 @@ type Node = {
   type: string;
   content?: Node[];
   text?: string;
-  marks?: { type: string }[];
+  marks?: { type: string; attrs?: Record<string, any> }[];
   attrs?: Record<string, any>;
 };
 
@@ -16,6 +16,17 @@ function renderText(node: Node, key: number): React.ReactNode {
     else if (mark.type === "italic") el = <em>{el}</em>;
     else if (mark.type === "code")
       el = <code className="bg-muted rounded px-1 py-0.5 text-sm">{el}</code>;
+    else if (mark.type === "link" && mark.attrs?.href)
+      el = (
+        <a
+          href={mark.attrs.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-primary hover:underline"
+        >
+          {el}
+        </a>
+      );
   }
   return <Fragment key={key}>{el}</Fragment>;
 }

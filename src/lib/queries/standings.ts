@@ -11,14 +11,18 @@ export type RankedStanding = StandingRow & {
 /** Fetches raw standings + finalized games, returns them fully ranked. */
 export async function getStandings(seasonId: string): Promise<RankedStanding[]> {
   const supabase = await createClient();
-  const [{ data: raw }, { data: finals }] = await Promise.all([
-    supabase.from("v_standings_raw").select("*").eq("season_id", seasonId),
-    supabase
-      .from("games")
-      .select("home_team_id, away_team_id, home_goals, away_goals")
-      .eq("season_id", seasonId)
-      .eq("status", "final"),
-  ]);
+  const [{ data: raw, error: rawErr }, { data: finals, error: finErr }] =
+    await Promise.all([
+      supabase.from("v_standings_raw").select("*").eq("season_id", seasonId),
+      supabase
+        .from("games")
+        .select("home_team_id, away_team_id, home_goals, away_goals")
+        .eq("season_id", seasonId)
+        .eq("status", "final"),
+    ]);
+  if (rawErr || finErr) {
+    console.error("getStandings failed:", (rawErr ?? finErr)?.message);
+  }
 
   const enriched = (raw ?? []).map((r) => ({
     ...r,

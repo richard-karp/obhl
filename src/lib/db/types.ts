@@ -674,6 +674,10 @@ export type Database = {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
       }
+      bump_game_roster_stat: {
+        Args: { p_col: string; p_delta: number; p_id: string }
+        Returns: undefined
+      }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       game_is_public_final: { Args: { p_game: string }; Returns: boolean }
       is_captain_of: {
@@ -681,6 +685,7 @@ export type Database = {
         Returns: boolean
       }
       league_is_public: { Args: { p_league: string }; Returns: boolean }
+      player_is_public: { Args: { p_player: string }; Returns: boolean }
       season_is_public: { Args: { p_season: string }; Returns: boolean }
     }
     Enums: {

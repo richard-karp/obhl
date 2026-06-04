@@ -15,9 +15,9 @@ const DEV_ACCOUNTS = [
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ dev_error?: string }>;
+  searchParams: Promise<{ dev_error?: string; error?: string }>;
 }) {
-  const { dev_error } = await searchParams;
+  const { dev_error, error } = await searchParams;
   const isDev = process.env.NODE_ENV !== "production";
 
   return (
@@ -29,6 +29,14 @@ export default async function LoginPage({
             For league managers, captains, and scorekeepers.
           </p>
         </div>
+        {error === "link" ? (
+          <p
+            role="alert"
+            className="text-destructive bg-destructive/10 rounded-md px-3 py-2 text-center text-sm"
+          >
+            That sign-in link is invalid or expired — request a new one below.
+          </p>
+        ) : null}
         <LoginForm />
 
         {isDev ? (

@@ -17,12 +17,13 @@ export async function getActiveContext(): Promise<
   const league = await resolveCurrentLeague(supabase);
   if (!league) return null;
 
-  const { data: season } = await supabase
+  const { data: season, error } = await supabase
     .from("seasons")
     .select("*")
     .eq("league_id", league.id)
     .eq("is_active", true)
     .maybeSingle();
+  if (error) console.error("getActiveContext (season) failed:", error.message);
 
   return { league, season: season ?? null };
 }

@@ -24,6 +24,19 @@ returns boolean language sql stable security definer set search_path = public as
   ), false);
 $$;
 
+-- A player is publicly visible only if they appear on a roster in some PUBLIC
+-- league (players are a global table with no league_id of their own).
+create or replace function public.player_is_public(p_player uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1
+    from team_players tp
+    join seasons s on s.id = tp.season_id
+    join leagues l on l.id = s.league_id
+    where tp.player_id = p_player and l.is_public
+  );
+$$;
+
 -- Enable RLS (default deny) on every base table.
 alter table leagues       enable row level security;
 alter table seasons       enable row level security;
@@ -50,10 +63,10 @@ create policy "public read divisions" on divisions
 create policy "public read teams" on teams
   for select to anon, authenticated using (public.league_is_public(league_id));
 
--- Players are global people (no league_id). Names appear publicly on rosters,
--- box scores, and stats for any public league, so they are publicly readable.
+-- Players are global people (no league_id). Expose a player only if they're on
+-- a roster in a public league — otherwise private-league members' names leak.
 create policy "public read players" on players
-  for select to anon, authenticated using (true);
+  for select to anon, authenticated using (public.player_is_public(id));
 
 create policy "public read season_teams" on season_teams
   for select to anon, authenticated using (public.season_is_public(season_id));
@@ -74,8 +87,8 @@ create policy "public read games" on games
 create policy "public read final game_rosters" on game_rosters
   for select to anon, authenticated using (public.game_is_public_final(game_id));
 
--- Base table privileges (rows still gated by RLS above). Views run with owner
--- privileges, so granting SELECT on them exposes aggregates without exposing
--- the underlying scoresheet rows.
+-- Base table privileges (rows still gated by RLS above). The reporting views in
+-- 0007 are security_invoker, so reading through them still enforces these
+-- policies (private-league / non-final data stays hidden).
 grant usage on schema public to anon, authenticated;
 grant select on all tables in schema public to anon, authenticated;

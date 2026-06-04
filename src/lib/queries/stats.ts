@@ -17,7 +17,8 @@ export async function getSkaterLeaders(
     .order("pts", { ascending: false })
     .order("g", { ascending: false });
   if (limit) q = q.limit(limit);
-  const { data } = await q;
+  const { data, error } = await q;
+  if (error) console.error("getSkaterLeaders failed:", error.message);
   return data ?? [];
 }
 
@@ -33,6 +34,7 @@ export async function getGoalieLeaders(
     .eq("season_id", seasonId)
     .order("gaa", { ascending: true });
   if (limit) q = q.limit(limit);
-  const { data } = await q;
+  const { data, error } = await q;
+  if (error) console.error("getGoalieLeaders failed:", error.message);
   return data ?? [];
 }
