@@ -21,6 +21,7 @@ const LINKS: Record<AppRole, { href: string; label: string }[]> = {
     { href: "/score", label: "Games" },
     { href: "/announcements", label: "Announcements" },
     { href: "/rules/edit", label: "Rules" },
+    { href: "/import", label: "Import" },
   ],
   scorekeeper: [
     { href: "/dashboard", label: "Dashboard" },
