@@ -101,7 +101,7 @@ async function fetchPage(
 
 /** Available seasons from the `sel_ChildSeason` dropdown present on every page. */
 function parseSeasons($: cheerio.CheerioAPI): EsportsdeskSeason[] {
-  return $('select[name="sel_ChildSeason"] option')
+  const all = $('select[name="sel_ChildSeason"] option')
     .map((_, o) => ({
       id: ($(o).attr("value") || "").trim(),
       label: $(o).text().replace(/\s+/g, " ").trim(),
@@ -109,6 +109,8 @@ function parseSeasons($: cheerio.CheerioAPI): EsportsdeskSeason[] {
     }))
     .get()
     .filter((s) => s.id);
+  // Some pages render the season <select> twice; keep one entry per id.
+  return [...new Map(all.map((s) => [s.id, s])).values()];
 }
 
 /** League name, team IDs, and selectable seasons from teams.cfm. */
@@ -211,10 +213,10 @@ export async function fetchEsportsdeskLeague(
     leagueId,
     season,
   );
-  const teams: ParsedTeam[] = [];
-  for (const id of teamIds) {
-    teams.push(await fetchTeamRoster(clientId, leagueId, id, season));
-  }
+  // Rosters are independent pages — fetch them concurrently (order preserved).
+  const teams = await Promise.all(
+    teamIds.map((id) => fetchTeamRoster(clientId, leagueId, id, season)),
+  );
   const current = seasons.find((s) => s.current)?.id ?? season ?? null;
   return { clientId, leagueId, leagueName, season: current, seasons, teams };
 }
