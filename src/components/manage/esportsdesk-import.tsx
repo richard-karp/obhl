@@ -75,6 +75,35 @@ export function EsportsdeskImport() {
                 ? `${preview.gameCount} games (final results)`
                 : "no schedule found"}
             </p>
+
+            {/* Season picker — for leagues with multiple seasons, reloads the
+                preview for the chosen season (esportsdesk childSeasonID). */}
+            {preview.preview.seasons.length > 1 ? (
+              <form action={previewAction} className="flex flex-wrap items-end gap-2">
+                <input type="hidden" name="url" value={preview.url} />
+                <div className="space-y-1">
+                  <Label htmlFor="season">Season</Label>
+                  <select
+                    id="season"
+                    name="season"
+                    key={preview.preview.season ?? ""}
+                    defaultValue={preview.preview.season ?? ""}
+                    onChange={(e) => e.currentTarget.form?.requestSubmit()}
+                    className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+                  >
+                    {preview.preview.seasons.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {previewing ? (
+                  <span className="text-muted-foreground pb-2 text-xs">Loading…</span>
+                ) : null}
+              </form>
+            ) : null}
+
             <div className="divide-y rounded-lg border">
               {preview.preview.teams.map((t) => {
                 const caps = t.players.filter((p) => p.isCaptain);
@@ -101,6 +130,7 @@ export function EsportsdeskImport() {
             ) : (
               <form action={runAction} className="grid gap-3 sm:grid-cols-2 sm:items-end">
                 <input type="hidden" name="url" value={preview.url} />
+                <input type="hidden" name="season" value={preview.preview.season ?? ""} />
                 <div className="space-y-1">
                   <Label htmlFor="league_name">New league name</Label>
                   <Input id="league_name" name="league_name" required defaultValue={preview.preview.leagueName} />
@@ -117,8 +147,8 @@ export function EsportsdeskImport() {
                     <p role="alert" className="text-destructive text-sm">{run.message}</p>
                   ) : null}
                   <span className="text-muted-foreground text-xs">
-                    Creates a new inactive league + season. Positions default to
-                    Forward (esportsdesk has none) — set goalies in Rosters.
+                    Imports the selected season as a new inactive league. Set any
+                    goalie positions in Rosters (esportsdesk rarely records them).
                   </span>
                 </div>
               </form>

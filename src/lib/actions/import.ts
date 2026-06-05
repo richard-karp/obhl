@@ -31,6 +31,8 @@ export async function previewEsportsdeskImport(
 ): Promise<ImportPreviewState> {
   await requireManager();
   const url = String(formData.get("url") ?? "").trim();
+  // The esportsdesk childSeasonID to scrape; empty = the league's current season.
+  const sourceSeason = String(formData.get("season") ?? "").trim() || null;
   const ids = parseEsportsdeskUrl(url);
   if (!ids) {
     return {
@@ -39,7 +41,11 @@ export async function previewEsportsdeskImport(
     };
   }
   try {
-    const preview = await fetchEsportsdeskLeague(ids.clientId, ids.leagueId);
+    const preview = await fetchEsportsdeskLeague(
+      ids.clientId,
+      ids.leagueId,
+      sourceSeason,
+    );
     if (preview.teams.length === 0) {
       return { ok: false, message: "No teams found at that URL." };
     }
@@ -50,6 +56,7 @@ export async function previewEsportsdeskImport(
         ids.clientId,
         ids.leagueId,
         preview.teams.map((t) => t.name),
+        preview.season,
       );
       gameCount = schedule.length;
     } catch {
@@ -81,6 +88,8 @@ export async function runEsportsdeskImport(
   const leagueName = String(formData.get("league_name") ?? "").trim();
   const seasonName =
     String(formData.get("season_name") ?? "").trim() || "Imported Season";
+  // esportsdesk childSeasonID to import (empty = the league's current season).
+  const sourceSeason = String(formData.get("season") ?? "").trim() || null;
   const ids = parseEsportsdeskUrl(url);
   if (!ids || !leagueName) {
     return { ok: false, message: "Missing the source URL or a league name." };
@@ -89,7 +98,7 @@ export async function runEsportsdeskImport(
   const admin = createAdminClient();
   let parsed: ParsedLeague;
   try {
-    parsed = await fetchEsportsdeskLeague(ids.clientId, ids.leagueId);
+    parsed = await fetchEsportsdeskLeague(ids.clientId, ids.leagueId, sourceSeason);
   } catch (e) {
     return { ok: false, message: `Fetch failed: ${(e as Error).message}` };
   }
@@ -146,37 +155,49 @@ export async function runEsportsdeskImport(
     teamCount++;
     teamIdByName.set(t.name.toLowerCase(), team.id);
     await admin.from("season_teams").insert({ season_id: season.id, team_id: team.id });
+    if (t.players.length === 0) continue;
 
-    for (const p of t.players) {
-      const { data: player } = await admin
-        .from("players")
-        .insert({ first_name: p.firstName, last_name: p.lastName })
-        .select("id")
-        .single();
-      if (!player) continue;
+    // Bulk-insert this team's players, then their roster rows — two calls per
+    // team instead of two per player (a real import is hundreds of players).
+    // PostgREST returns inserted rows in input order, so indexes line up.
+    const { data: inserted, error: pErr } = await admin
+      .from("players")
+      .insert(
+        t.players.map((p) => ({ first_name: p.firstName, last_name: p.lastName })),
+      )
+      .select("id");
+    if (pErr || !inserted || inserted.length !== t.players.length) continue;
 
-      const row = {
+    // A jersey is unique per team, so only the first wearer keeps the number and
+    // later repeats get null (the bulk insert can't lean on a per-row retry).
+    const usedJerseys = new Set<number>();
+    const rosterRows = t.players.map((p, i) => {
+      let jersey = p.number;
+      if (jersey != null) {
+        if (usedJerseys.has(jersey)) jersey = null;
+        else usedJerseys.add(jersey);
+      }
+      return {
         season_id: season.id,
         team_id: team.id,
-        player_id: player.id,
-        jersey_number: p.number,
-        position: "F" as const,
+        player_id: inserted[i].id,
+        jersey_number: jersey,
+        position: p.position,
         is_captain: p.isCaptain,
       };
-      const { error: tpErr } = await admin.from("team_players").insert(row);
-      // Duplicate jersey within the team — keep the player but drop the number.
-      if (tpErr?.code === "23505") {
-        await admin.from("team_players").insert({ ...row, jersey_number: null });
-      }
-      if (p.number != null) {
-        playerIdByKey.set(`${team.id}|j${p.number}`, player.id);
-      }
+    });
+    await admin.from("team_players").insert(rosterRows);
+
+    // Stats rows are matched back to these players by name (preferred) or jersey.
+    t.players.forEach((p, i) => {
+      const id = inserted[i].id;
+      if (p.number != null) playerIdByKey.set(`${team.id}|j${p.number}`, id);
       playerIdByKey.set(
         `${team.id}|n${normName(`${p.firstName}${p.lastName}`)}`,
-        player.id,
+        id,
       );
-      playerCount++;
-    }
+    });
+    playerCount += t.players.length;
   }
 
   // Schedule + final results. Best-effort scrape; only games whose two teams
@@ -188,6 +209,7 @@ export async function runEsportsdeskImport(
       ids.clientId,
       ids.leagueId,
       parsed.teams.map((t) => t.name),
+      parsed.season,
     );
     const finalizedAt = new Date().toISOString();
     const slotByDate = new Map<string, number>();
@@ -198,7 +220,9 @@ export async function runEsportsdeskImport(
         if (!home || !away) return null;
         const slot = slotByDate.get(g.date) ?? 0;
         slotByDate.set(g.date, slot + 1);
-        const mins = 19 * 60 + 75 * slot; // 7:00pm + 75-min slots
+        // 7:00pm + 75-min slots, clamped to 9:45pm so a night with many games
+        // can't roll an hour past 23:59 into an invalid timestamp.
+        const mins = Math.min(19 * 60 + 75 * slot, 23 * 60 + 45);
         const hh = String(Math.floor(mins / 60)).padStart(2, "0");
         const mm = String(mins % 60).padStart(2, "0");
         return {
@@ -229,7 +253,7 @@ export async function runEsportsdeskImport(
     revalidatePath("/", "layout");
     return {
       ok: true,
-      message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}, but the schedule import failed (${(e as Error).message}). The season is inactive; you can re-run or build the schedule manually.`,
+      message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}, but the schedule import failed (${(e as Error).message}). Delete this league and re-run to retry, or build the schedule manually.`,
     };
   }
 
@@ -243,13 +267,15 @@ export async function runEsportsdeskImport(
       ids.clientId,
       ids.leagueId,
       parsed.teams.map((t) => t.name),
+      parsed.season,
     );
-    const { data: gameRows } = await admin
+    const { data: gameRows, error: gqErr } = await admin
       .from("games")
       .select("id, home_team_id, away_team_id, home_goals, away_goals")
       .eq("season_id", season.id)
       .eq("game_type", "regular")
       .order("scheduled_at", { ascending: true });
+    if (gqErr) throw new Error(gqErr.message);
 
     const rosterRows: {
       game_id: string;
@@ -317,7 +343,7 @@ export async function runEsportsdeskImport(
     revalidatePath("/", "layout");
     return {
       ok: true,
-      message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}, but player stats failed (${(e as Error).message}). Standings are complete; you can re-run for stats.`,
+      message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}, but player stats failed (${(e as Error).message}). Standings are complete; delete this league and re-run to retry the stats.`,
     };
   }
 
@@ -325,6 +351,6 @@ export async function runEsportsdeskImport(
   revalidatePath("/", "layout");
   return {
     ok: true,
-    message: `Imported ${teamCount} teams, ${playerCount} players, ${gameCount} games, and ${statRowCount} stat lines into "${leagueName}" — ${seasonName}. It's inactive; set it active when ready, and fix goalie positions in Rosters (esportsdesk doesn't provide positions).`,
+    message: `Imported ${teamCount} teams, ${playerCount} players, ${gameCount} games, and ${statRowCount} stat lines into "${leagueName}" — ${seasonName}. It's inactive; set it active when ready, and set any goalie positions in Rosters (esportsdesk rarely records them).`,
   };
 }
