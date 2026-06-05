@@ -5,15 +5,17 @@ import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
 import {
   fetchEsportsdeskLeague,
+  fetchEsportsdeskSchedule,
   parseEsportsdeskUrl,
   type ParsedLeague,
 } from "@/lib/import/esportsdesk";
+import { leagueOffset } from "@/lib/format";
 
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
 export type ImportPreviewState =
-  | { ok: true; preview: ParsedLeague; url: string }
+  | { ok: true; preview: ParsedLeague; url: string; gameCount: number }
   | { ok: false; message: string }
   | null;
 
@@ -36,7 +38,19 @@ export async function previewEsportsdeskImport(
     if (preview.teams.length === 0) {
       return { ok: false, message: "No teams found at that URL." };
     }
-    return { ok: true, preview, url };
+    // Schedule is best-effort; a parse failure shouldn't block the roster preview.
+    let gameCount = 0;
+    try {
+      const schedule = await fetchEsportsdeskSchedule(
+        ids.clientId,
+        ids.leagueId,
+        preview.teams.map((t) => t.name),
+      );
+      gameCount = schedule.length;
+    } catch {
+      gameCount = 0;
+    }
+    return { ok: true, preview, url, gameCount };
   } catch (e) {
     return {
       ok: false,
@@ -107,6 +121,7 @@ export async function runEsportsdeskImport(
   let teamCount = 0;
   let playerCount = 0;
   let ci = 0;
+  const teamIdByName = new Map<string, string>();
 
   for (const t of parsed.teams) {
     const { data: team } = await admin
@@ -121,6 +136,7 @@ export async function runEsportsdeskImport(
       .single();
     if (!team) continue;
     teamCount++;
+    teamIdByName.set(t.name.toLowerCase(), team.id);
     await admin.from("season_teams").insert({ season_id: season.id, team_id: team.id });
 
     for (const p of t.players) {
@@ -148,10 +164,64 @@ export async function runEsportsdeskImport(
     }
   }
 
+  // Schedule + final results. Best-effort scrape; only games whose two teams
+  // both matched the imported rosters are created. Times aren't on the source,
+  // so each night's games get default 7:00 / 8:15 / 9:30 slots in date order.
+  let gameCount = 0;
+  try {
+    const schedule = await fetchEsportsdeskSchedule(
+      ids.clientId,
+      ids.leagueId,
+      parsed.teams.map((t) => t.name),
+    );
+    const finalizedAt = new Date().toISOString();
+    const slotByDate = new Map<string, number>();
+    const rows = schedule
+      .map((g) => {
+        const home = teamIdByName.get(g.homeName.toLowerCase());
+        const away = teamIdByName.get(g.awayName.toLowerCase());
+        if (!home || !away) return null;
+        const slot = slotByDate.get(g.date) ?? 0;
+        slotByDate.set(g.date, slot + 1);
+        const mins = 19 * 60 + 75 * slot; // 7:00pm + 75-min slots
+        const hh = String(Math.floor(mins / 60)).padStart(2, "0");
+        const mm = String(mins % 60).padStart(2, "0");
+        return {
+          season_id: season.id,
+          home_team_id: home,
+          away_team_id: away,
+          scheduled_at: `${g.date}T${hh}:${mm}:00${leagueOffset(g.date)}`,
+          status: "final" as const,
+          game_type: (g.isPlayoff ? "playoff" : "regular") as
+            | "playoff"
+            | "regular",
+          home_goals: g.homeGoals,
+          away_goals: g.awayGoals,
+          result_type: "regulation" as const,
+          finalized_at: finalizedAt,
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+    if (rows.length) {
+      const { error: gErr } = await admin.from("games").insert(rows);
+      if (gErr) throw new Error(gErr.message);
+      gameCount = rows.length;
+    }
+  } catch (e) {
+    // Rosters already imported successfully; surface the schedule failure but
+    // don't roll back the (useful) teams + players.
+    revalidatePath("/seasons");
+    revalidatePath("/", "layout");
+    return {
+      ok: true,
+      message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}, but the schedule import failed (${(e as Error).message}). The season is inactive; you can re-run or build the schedule manually.`,
+    };
+  }
+
   revalidatePath("/seasons");
   revalidatePath("/", "layout");
   return {
     ok: true,
-    message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}. It's inactive; set it active when ready, and fix goalie positions in Rosters (esportsdesk doesn't provide positions).`,
+    message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}. It's inactive; set it active when ready, and fix goalie positions in Rosters (esportsdesk doesn't provide positions).`,
   };
 }

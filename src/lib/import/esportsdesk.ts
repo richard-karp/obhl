@@ -29,6 +29,21 @@ export type ParsedLeague = {
   leagueName: string;
   teams: ParsedTeam[];
 };
+export type ParsedGame = {
+  /** League-local calendar date, "YYYY-MM-DD". */
+  date: string;
+  /** Team names exactly as they appear in `teams` (the roster import). */
+  homeName: string;
+  awayName: string;
+  homeGoals: number;
+  awayGoals: number;
+  isPlayoff: boolean;
+};
+
+const MONTHS: Record<string, number> = {
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+  july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+};
 
 /** Pull clientID + leagueID out of any esportsdesk league URL. */
 export function parseEsportsdeskUrl(
@@ -135,4 +150,135 @@ export async function fetchEsportsdeskLeague(
     teams.push(await fetchTeamRoster(clientId, leagueId, id));
   }
   return { clientId, leagueId, leagueName, teams };
+}
+
+/** Two-digit zero-pad for date parts. */
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/**
+ * Final game results from schedule.cfm.
+ *
+ * The page has no per-game dates in the rows, no game IDs, and renders a
+ * dateless "highlights" block plus a date-grouped full list (each date in a
+ * heading element between the game tables). We walk the document in order:
+ * index every element, collect the date headings and the game rows separately,
+ * then assign each row the most recent *preceding* date heading. Rows before the
+ * first date (the highlights block) have no date and are dropped, which also
+ * removes the duplicate render. A team never appears twice on one date in the
+ * result, confirming the de-duplication. The season's start year comes from the
+ * selected season option ("… 2025-2026"); months Jul–Dec use the first year,
+ * Jan–Jun the second.
+ *
+ * Best-effort scrape of one site's layout — not a general esportsdesk parser.
+ */
+export async function fetchEsportsdeskSchedule(
+  clientId: string,
+  leagueId: string,
+  teamNames: string[],
+): Promise<ParsedGame[]> {
+  const html = await fetchPage("schedule.cfm", {
+    clientID: clientId,
+    leagueID: leagueId,
+  });
+  const $ = cheerio.load(html);
+
+  // Season start year. Prefer the latest "20xx-20xx" on the page (the current
+  // season is the most recent); fall back to the current-ish default.
+  const yearPairs = [...html.matchAll(/(20\d{2})-(20\d{2})/g)].map((m) => m[0]);
+  const latestPair = yearPairs.sort().at(-1) ?? "";
+  const startYear = Number(latestPair.slice(0, 4)) || new Date().getFullYear();
+
+  // Known team names, lower-cased → canonical, so we recognise game rows and
+  // emit the same names the roster import created.
+  const known = new Map(teamNames.map((n) => [n.toLowerCase(), n]));
+  const isTeam = (s: string) => known.has((s ?? "").toLowerCase());
+  const isScore = (s: string) => /^\d{1,2}$/.test(s ?? "");
+
+  // Index every element in document order so dates and games can be merged.
+  const order = new Map<unknown, number>();
+  let idx = 0;
+  $("*").each((_, el) => {
+    order.set(el, idx++);
+  });
+
+  // Date headings: an element whose *own* (non-descendant) short text contains
+  // "Month DD". Restricting to direct text avoids matching big container nodes.
+  const dateRe =
+    /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})/i;
+  const dates: { pos: number; mo: number; day: number }[] = [];
+  $("*").each((_, el) => {
+    const direct = $(el)
+      .contents()
+      .filter((_, n) => n.type === "text")
+      .text()
+      .replace(/\s+/g, " ")
+      .trim();
+    if (direct.length > 40) return;
+    const m = direct.match(dateRe);
+    if (m) {
+      dates.push({
+        pos: order.get(el) ?? 0,
+        mo: MONTHS[m[1].toLowerCase()],
+        day: Number(m[2]),
+      });
+    }
+  });
+  const sortedDates = [...new Map(dates.map((d) => [d.pos, d])).values()].sort(
+    (a, b) => a.pos - b.pos,
+  );
+
+  // Game rows: a <tr> with cells team | score | team | score. The cell before
+  // the first team (when present) is the game type ("PO" = playoff).
+  type Row = { pos: number; type: string; h: string; hg: number; a: string; ag: number };
+  const rows: Row[] = [];
+  $("tr").each((_, tr) => {
+    const cells = $(tr)
+      .find("td")
+      .map((_, td) => $(td).text().replace(/\s+/g, " ").trim())
+      .get();
+    for (let i = 0; i < cells.length - 3; i++) {
+      if (
+        isTeam(cells[i]) &&
+        isScore(cells[i + 1]) &&
+        isTeam(cells[i + 2]) &&
+        isScore(cells[i + 3])
+      ) {
+        rows.push({
+          pos: order.get(tr) ?? 0,
+          type: i > 0 ? cells[i - 1] : "",
+          h: cells[i],
+          hg: Number(cells[i + 1]),
+          a: cells[i + 2],
+          ag: Number(cells[i + 3]),
+        });
+        break; // one game per row
+      }
+    }
+  });
+
+  const seen = new Set<string>();
+  const games: ParsedGame[] = [];
+  for (const r of rows) {
+    // Most recent date heading before this row.
+    let cur: { mo: number; day: number } | null = null;
+    for (const d of sortedDates) {
+      if (d.pos < r.pos) cur = d;
+      else break;
+    }
+    if (!cur) continue; // dateless highlights block → drop (also de-dupes)
+    const year = cur.mo >= 7 ? startYear : startYear + 1;
+    const date = `${year}-${pad2(cur.mo)}-${pad2(cur.day)}`;
+    const key = `${date}|${r.h.toLowerCase()}|${r.hg}|${r.a.toLowerCase()}|${r.ag}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    games.push({
+      date,
+      homeName: known.get(r.h.toLowerCase())!,
+      awayName: known.get(r.a.toLowerCase())!,
+      homeGoals: r.hg,
+      awayGoals: r.ag,
+      isPlayoff: r.type.toUpperCase() === "PO",
+    });
+  }
+  return games;
 }

@@ -8,7 +8,7 @@ export default async function ImportPage() {
     <div className="space-y-6">
       <PageHeader
         title="Import from esportsdesk"
-        description="Migrate a league's teams and rosters from an esportsdesk site by URL."
+        description="Migrate a league's teams, rosters, and final results from an esportsdesk site by URL."
       />
       <EsportsdeskImport />
     </div>

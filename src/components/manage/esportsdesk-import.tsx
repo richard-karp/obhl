@@ -46,7 +46,8 @@ export function EsportsdeskImport() {
             </div>
             <p className="text-muted-foreground text-xs">
               Any esportsdesk page URL works as long as it has clientID and
-              leagueID. Pulls teams + rosters (one-time migration).
+              leagueID. Pulls teams, rosters, and the schedule with final
+              results (one-time migration).
             </p>
             {preview && !preview.ok ? (
               <p role="alert" aria-live="polite" className="text-destructive text-sm">
@@ -69,7 +70,10 @@ export function EsportsdeskImport() {
             <p className="text-muted-foreground text-sm">
               {preview.preview.teams.length} teams ·{" "}
               {preview.preview.teams.reduce((n, t) => n + t.players.length, 0)}{" "}
-              players
+              players ·{" "}
+              {preview.gameCount > 0
+                ? `${preview.gameCount} games (final results)`
+                : "no schedule found"}
             </p>
             <div className="divide-y rounded-lg border">
               {preview.preview.teams.map((t) => {
