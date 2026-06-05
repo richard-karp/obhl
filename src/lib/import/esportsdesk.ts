@@ -39,6 +39,16 @@ export type ParsedGame = {
   awayGoals: number;
   isPlayoff: boolean;
 };
+export type ParsedStat = {
+  name: string;
+  jersey: number;
+  /** Team name as in `teams` (the roster import). */
+  team: string;
+  gp: number;
+  g: number;
+  a: number;
+  pim: number;
+};
 
 const MONTHS: Record<string, number> = {
   january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
@@ -281,4 +291,71 @@ export async function fetchEsportsdeskSchedule(
     });
   }
   return games;
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Regular-season skater totals from stats_hockey.cfm (showGameType=2), paged 20
+ * at a time via start_row. The page nests tables so deep that per-cell parsing
+ * is hopeless, but each player renders as a flat, well-ordered run of text:
+ * `rank Name jersey pos Team GP G A PTS P/G PIM`. We match that with a regex
+ * anchored on a known team name and the trailing numbers, and keep only rows
+ * where PTS = G + A (rejects spurious matches from menus/footers).
+ *
+ * These are the league's *official* published totals — which in this league are
+ * intentionally incomplete (many goals have no recorded scorer, so the player
+ * totals sum to well under the team's goals-for). We reproduce them as-is.
+ */
+export async function fetchEsportsdeskStats(
+  clientId: string,
+  leagueId: string,
+  teamNames: string[],
+): Promise<ParsedStat[]> {
+  const teamAlt = teamNames.map(escapeRe).join("|");
+  // rank · name · jersey · pos · TEAM · GP · G · A · PTS · P/G · PIM.
+  // The name is constrained to actual name characters (letters, spaces, .'-) so
+  // it can't stretch across the page's leading cookie/ad JavaScript and swallow
+  // the first real rows — that blob has digits and braces a name never does.
+  const re = new RegExp(
+    `(\\d{1,3})\\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .'\\-]{1,38}?)\\s+(\\d{1,2})\\s+\\S{1,3}\\s+(${teamAlt})` +
+      `\\s+(\\d{1,2})\\s+(\\d{1,3})\\s+(\\d{1,3})\\s+(\\d{1,3})\\s+([\\d.]+)\\s+(\\d{1,3})`,
+    "gi",
+  );
+  const known = new Map(teamNames.map((n) => [n.toLowerCase(), n]));
+  const seen = new Set<string>();
+  const out: ParsedStat[] = [];
+  // start_row is 1-indexed, 20 rows/page; stop when a page yields no new rows.
+  for (let startRow = 1; startRow <= 1000; startRow += 20) {
+    const html = await fetchPage("stats_hockey.cfm", {
+      clientID: clientId,
+      leagueID: leagueId,
+      statType: "Player",
+      showGameType: "2",
+      sortby: "PTS1",
+      start_row: String(startRow),
+    });
+    const text = cheerio.load(html)("body").text().replace(/\s+/g, " ");
+    let m: RegExpExecArray | null;
+    let found = 0;
+    re.lastIndex = 0;
+    while ((m = re.exec(text)) !== null) {
+      const name = m[2].trim();
+      const jersey = Number(m[3]);
+      const team = known.get(m[4].toLowerCase());
+      const gp = Number(m[5]);
+      const g = Number(m[6]);
+      const a = Number(m[7]);
+      const pts = Number(m[8]);
+      const pim = Number(m[10]);
+      if (!team || pts !== g + a) continue; // integrity guard
+      const key = `${name.toLowerCase()}|${team.toLowerCase()}|${jersey}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ name, jersey, team, gp, g, a, pim });
+      found++;
+    }
+    if (found === 0) break;
+  }
+  return out;
 }

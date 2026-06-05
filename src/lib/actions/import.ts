@@ -6,10 +6,15 @@ import { requireManager } from "@/lib/auth/guards";
 import {
   fetchEsportsdeskLeague,
   fetchEsportsdeskSchedule,
+  fetchEsportsdeskStats,
   parseEsportsdeskUrl,
   type ParsedLeague,
 } from "@/lib/import/esportsdesk";
+import { distributeStats } from "@/lib/import/distribute";
 import { leagueOffset } from "@/lib/format";
+
+/** Normalize a name for matching across esportsdesk pages (roster vs stats). */
+const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -122,6 +127,9 @@ export async function runEsportsdeskImport(
   let playerCount = 0;
   let ci = 0;
   const teamIdByName = new Map<string, string>();
+  // `${teamId}|j${jersey}` and `${teamId}|n${normName}` → player id, for
+  // matching the (separately-scraped) stats rows back to roster players.
+  const playerIdByKey = new Map<string, string>();
 
   for (const t of parsed.teams) {
     const { data: team } = await admin
@@ -160,6 +168,13 @@ export async function runEsportsdeskImport(
       if (tpErr?.code === "23505") {
         await admin.from("team_players").insert({ ...row, jersey_number: null });
       }
+      if (p.number != null) {
+        playerIdByKey.set(`${team.id}|j${p.number}`, player.id);
+      }
+      playerIdByKey.set(
+        `${team.id}|n${normName(`${p.firstName}${p.lastName}`)}`,
+        player.id,
+      );
       playerCount++;
     }
   }
@@ -218,10 +233,98 @@ export async function runEsportsdeskImport(
     };
   }
 
+  // Player stats. esportsdesk publishes season totals only, so distributeStats
+  // spreads each player's line into synthetic per-game box scores (exact season
+  // totals; no game shows more skater goals than its final score). Best-effort:
+  // standings are already complete, so a stats failure doesn't roll anything back.
+  let statRowCount = 0;
+  try {
+    const stats = await fetchEsportsdeskStats(
+      ids.clientId,
+      ids.leagueId,
+      parsed.teams.map((t) => t.name),
+    );
+    const { data: gameRows } = await admin
+      .from("games")
+      .select("id, home_team_id, away_team_id, home_goals, away_goals")
+      .eq("season_id", season.id)
+      .eq("game_type", "regular")
+      .order("scheduled_at", { ascending: true });
+
+    const rosterRows: {
+      game_id: string;
+      team_id: string;
+      player_id: string;
+      goals: number;
+      assists: number;
+      pim: number;
+    }[] = [];
+
+    for (const t of parsed.teams) {
+      const teamId = teamIdByName.get(t.name.toLowerCase());
+      if (!teamId || !gameRows) continue;
+      const teamGames = gameRows
+        .filter((g) => g.home_team_id === teamId || g.away_team_id === teamId)
+        .map((g) => ({
+          id: g.id,
+          cap: (g.home_team_id === teamId ? g.home_goals : g.away_goals) ?? 0,
+        }));
+      if (!teamGames.length) continue;
+
+      const seenPid = new Set<string>();
+      const matched = stats
+        .filter((s) => s.team.toLowerCase() === t.name.toLowerCase())
+        .map((s) => {
+          // Name first: jerseys aren't unique (a team can dress two players on
+          // the same number across a season), but names are.
+          const pid =
+            playerIdByKey.get(`${teamId}|n${normName(s.name)}`) ??
+            playerIdByKey.get(`${teamId}|j${s.jersey}`);
+          return pid ? { pid, gp: s.gp, g: s.g, a: s.a, pim: s.pim } : null;
+        })
+        .filter((m): m is NonNullable<typeof m> => m !== null)
+        // One roster line per player (guards the game_rosters unique constraint).
+        .filter((m) => (seenPid.has(m.pid) ? false : (seenPid.add(m.pid), true)));
+      if (!matched.length) continue;
+
+      const dist = distributeStats(
+        teamGames.map((g) => ({ cap: g.cap })),
+        matched.map((m) => ({ gp: m.gp, g: m.g, a: m.a, pim: m.pim })),
+      );
+      matched.forEach((m, pi) => {
+        for (const [gi, c] of dist[pi]) {
+          rosterRows.push({
+            game_id: teamGames[gi].id,
+            team_id: teamId,
+            player_id: m.pid,
+            goals: c.goals,
+            assists: c.assists,
+            pim: c.pim,
+          });
+        }
+      });
+    }
+
+    for (let i = 0; i < rosterRows.length; i += 500) {
+      const { error: rErr } = await admin
+        .from("game_rosters")
+        .insert(rosterRows.slice(i, i + 500));
+      if (rErr) throw new Error(rErr.message);
+    }
+    statRowCount = rosterRows.length;
+  } catch (e) {
+    revalidatePath("/seasons");
+    revalidatePath("/", "layout");
+    return {
+      ok: true,
+      message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}, but player stats failed (${(e as Error).message}). Standings are complete; you can re-run for stats.`,
+    };
+  }
+
   revalidatePath("/seasons");
   revalidatePath("/", "layout");
   return {
     ok: true,
-    message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}. It's inactive; set it active when ready, and fix goalie positions in Rosters (esportsdesk doesn't provide positions).`,
+    message: `Imported ${teamCount} teams, ${playerCount} players, ${gameCount} games, and ${statRowCount} stat lines into "${leagueName}" — ${seasonName}. It's inactive; set it active when ready, and fix goalie positions in Rosters (esportsdesk doesn't provide positions).`,
   };
 }
