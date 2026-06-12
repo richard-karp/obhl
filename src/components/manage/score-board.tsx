@@ -1,4 +1,12 @@
-import { setLineup, bumpStat, finalizeGame, reopenGame } from "@/lib/actions/games";
+import {
+  setLineup,
+  bumpStat,
+  finalizeGame,
+  reopenGame,
+  setGoalie,
+  bumpEmptyNet,
+  setSubstitutes,
+} from "@/lib/actions/games";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { GameStatusBadge } from "@/components/shared/game-status-badge";
@@ -6,6 +14,9 @@ import { TeamLogo } from "@/components/shared/team-logo";
 
 export type DressedLine = {
   rosterId: string;
+  playerId: string | null;
+  /** True for the single aggregate "Substitute" row (no individual player). */
+  isSub: boolean;
   number: number | null;
   goals: number;
   assists: number;
@@ -18,10 +29,15 @@ export type RosterCheck = {
 };
 export type TeamBoard = {
   id: string;
+  side: "home" | "away";
   name: string;
   color: string | null;
   dressed: DressedLine[];
   roster: RosterCheck[];
+  /** Goalie of record (explicit pick); null falls back to the dressed goalie. */
+  goalieId: string | null;
+  /** Empty-net goals scored against this team — excluded from its goalie GAA. */
+  emptyNetAgainst: number;
 };
 export type ScoreBoardData = {
   gameId: string;
@@ -104,31 +120,125 @@ function StatCell({
 }
 
 function LineupEditor({ gameId, board }: { gameId: string; board: TeamBoard }) {
+  const hasSub = board.dressed.some((l) => l.isSub);
   return (
-    <form action={setLineup} className="space-y-2">
-      <input type="hidden" name="game_id" value={gameId} />
-      <input type="hidden" name="team_id" value={board.id} />
-      <p className="text-muted-foreground text-xs font-semibold uppercase">
-        Lineup
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        {board.roster.map((p) => (
-          <label
-            key={p.playerId}
-            className="border-input has-[:checked]:bg-secondary has-[:checked]:border-secondary-foreground/30 flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-sm font-medium tabular-nums select-none"
-          >
-            <input
-              type="checkbox"
-              name="player_ids"
-              value={p.playerId}
-              defaultChecked={p.dressed}
-            />
-            {p.number ?? "—"}
-          </label>
-        ))}
+    <div className="space-y-2">
+      <form action={setLineup} className="space-y-2">
+        <input type="hidden" name="game_id" value={gameId} />
+        <input type="hidden" name="team_id" value={board.id} />
+        <p className="text-muted-foreground text-xs font-semibold uppercase">
+          Lineup
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {board.roster.map((p) => (
+            <label
+              key={p.playerId}
+              className="border-input has-[:checked]:bg-secondary has-[:checked]:border-secondary-foreground/30 flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-sm font-medium tabular-nums select-none"
+            >
+              <input
+                type="checkbox"
+                name="player_ids"
+                value={p.playerId}
+                defaultChecked={p.dressed}
+              />
+              {p.number ?? "—"}
+            </label>
+          ))}
+        </div>
+        <Button type="submit" size="sm" variant="secondary">
+          Save lineup
+        </Button>
+      </form>
+      <form action={setSubstitutes}>
+        <input type="hidden" name="game_id" value={gameId} />
+        <input type="hidden" name="team_id" value={board.id} />
+        <input type="hidden" name="present" value={hasSub ? "0" : "1"} />
+        <Button type="submit" size="sm" variant="ghost" className="h-7 text-xs">
+          {hasSub ? "− Remove substitutes" : "+ Add substitutes row"}
+        </Button>
+      </form>
+    </div>
+  );
+}
+
+/** Goalie of record + empty-net-goals-against (scorekeeper/manager). */
+function GoalieAndEmptyNet({ data, board }: { data: ScoreBoardData; board: TeamBoard }) {
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
+        <form action={setGoalie} className="space-y-1">
+          <span className="text-muted-foreground block text-[0.7rem] font-semibold uppercase">
+            Goalie
+          </span>
+          <div className="flex items-center gap-1.5">
+            <select
+              name="goalie_id"
+              key={board.goalieId ?? "none"}
+              defaultValue={board.goalieId ?? ""}
+              className="border-input bg-background h-7 rounded-md border px-2 text-sm tabular-nums"
+              aria-label={`${board.name} goalie of record`}
+            >
+              <option value="">—</option>
+              {board.dressed
+                .filter((l) => !l.isSub)
+                .map((l) => (
+                  <option key={l.rosterId} value={l.playerId ?? ""}>
+                    #{l.number ?? "—"}
+                  </option>
+                ))}
+            </select>
+            <input type="hidden" name="game_id" value={data.gameId} />
+            <input type="hidden" name="side" value={board.side} />
+            <Button type="submit" size="sm" variant="secondary" className="h-7">
+              Set
+            </Button>
+          </div>
+        </form>
+
+        <div className="space-y-1">
+          <span className="text-muted-foreground block text-[0.7rem] font-semibold uppercase">
+            Empty-net GA
+          </span>
+          <div className="flex items-center gap-1.5">
+            <EmptyNetButton gameId={data.gameId} side={board.side} sign="−" />
+            <span className="w-5 text-center text-sm font-semibold tabular-nums">
+              {board.emptyNetAgainst}
+            </span>
+            <EmptyNetButton gameId={data.gameId} side={board.side} sign="+" />
+          </div>
+        </div>
       </div>
-      <Button type="submit" size="sm" variant="secondary">
-        Save lineup
+      <p className="text-muted-foreground text-xs">
+        Goalie of record gets this game&apos;s W/L; leave blank to use the rostered
+        goalie. Empty-net GA = goals scored against this team&apos;s empty net —
+        excluded from its goalie&apos;s GAA.
+      </p>
+    </div>
+  );
+}
+
+function EmptyNetButton({
+  gameId,
+  side,
+  sign,
+}: {
+  gameId: string;
+  side: string;
+  sign: "+" | "−";
+}) {
+  return (
+    <form action={bumpEmptyNet}>
+      <input type="hidden" name="game_id" value={gameId} />
+      <input type="hidden" name="side" value={side} />
+      <input type="hidden" name="delta" value={sign === "+" ? "1" : "-1"} />
+      <Button
+        type="submit"
+        variant="outline"
+        size="icon"
+        className="size-7 text-base leading-none"
+        aria-label={`${sign === "+" ? "Add" : "Remove"} empty-net goal against ${side}`}
+      >
+        {sign}
       </Button>
     </form>
   );
@@ -179,7 +289,11 @@ function TeamPanel({ data, board }: { data: ScoreBoardData; board: TeamBoard }) 
                 {board.dressed.map((line) => (
                   <div key={line.rosterId} className="flex items-center gap-3 py-1.5">
                     <span className="w-10 shrink-0 text-lg font-bold tabular-nums">
-                      {line.number ?? "—"}
+                      {line.isSub ? (
+                        <span className="text-xs uppercase">Subs</span>
+                      ) : (
+                        (line.number ?? "—")
+                      )}
                     </span>
                     <div className="flex items-center gap-2">
                       {STAT_COLS.map((s) => (
@@ -199,6 +313,8 @@ function TeamPanel({ data, board }: { data: ScoreBoardData; board: TeamBoard }) 
             </div>
           )
         ) : null}
+
+        {data.canScore ? <GoalieAndEmptyNet data={data} board={board} /> : null}
       </CardContent>
     </Card>
   );

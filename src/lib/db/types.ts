@@ -107,8 +107,9 @@ export type Database = {
           game_id: string
           goals: number
           id: string
+          is_substitute: boolean
           pim: number
-          player_id: string
+          player_id: string | null
           team_id: string
         }
         Insert: {
@@ -116,8 +117,9 @@ export type Database = {
           game_id: string
           goals?: number
           id?: string
+          is_substitute?: boolean
           pim?: number
-          player_id: string
+          player_id?: string | null
           team_id: string
         }
         Update: {
@@ -125,8 +127,9 @@ export type Database = {
           game_id?: string
           goals?: number
           id?: string
+          is_substitute?: boolean
           pim?: number
-          player_id?: string
+          player_id?: string | null
           team_id?: string
         }
         Relationships: [
@@ -155,6 +158,8 @@ export type Database = {
       }
       games: {
         Row: {
+          away_empty_net_against: number
+          away_goalie_id: string | null
           away_goals: number
           away_team_id: string
           created_at: string
@@ -162,6 +167,8 @@ export type Database = {
           finalized_at: string | null
           finalized_by: string | null
           game_type: Database["public"]["Enums"]["game_type"]
+          home_empty_net_against: number
+          home_goalie_id: string | null
           home_goals: number
           home_team_id: string
           id: string
@@ -175,6 +182,8 @@ export type Database = {
           week: number | null
         }
         Insert: {
+          away_empty_net_against?: number
+          away_goalie_id?: string | null
           away_goals?: number
           away_team_id: string
           created_at?: string
@@ -182,6 +191,8 @@ export type Database = {
           finalized_at?: string | null
           finalized_by?: string | null
           game_type?: Database["public"]["Enums"]["game_type"]
+          home_empty_net_against?: number
+          home_goalie_id?: string | null
           home_goals?: number
           home_team_id: string
           id?: string
@@ -195,6 +206,8 @@ export type Database = {
           week?: number | null
         }
         Update: {
+          away_empty_net_against?: number
+          away_goalie_id?: string | null
           away_goals?: number
           away_team_id?: string
           created_at?: string
@@ -202,6 +215,8 @@ export type Database = {
           finalized_at?: string | null
           finalized_by?: string | null
           game_type?: Database["public"]["Enums"]["game_type"]
+          home_empty_net_against?: number
+          home_goalie_id?: string | null
           home_goals?: number
           home_team_id?: string
           id?: string
@@ -216,6 +231,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "games_away_goalie_id_fkey"
+            columns: ["away_goalie_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "games_away_team_id_fkey"
             columns: ["away_team_id"]
             isOneToOne: false
@@ -227,6 +249,13 @@ export type Database = {
             columns: ["division_id"]
             isOneToOne: false
             referencedRelation: "divisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "games_home_goalie_id_fkey"
+            columns: ["home_goalie_id"]
+            isOneToOne: false
+            referencedRelation: "players"
             referencedColumns: ["id"]
           },
           {
@@ -555,29 +584,7 @@ export type Database = {
           ties: number | null
           wins: number | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "game_rosters_player_id_fkey"
-            columns: ["player_id"]
-            isOneToOne: false
-            referencedRelation: "players"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "game_rosters_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "teams"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "games_season_id_fkey"
-            columns: ["season_id"]
-            isOneToOne: false
-            referencedRelation: "seasons"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       v_skater_stats: {
         Row: {

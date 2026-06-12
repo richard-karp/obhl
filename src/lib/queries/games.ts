@@ -32,7 +32,7 @@ export async function getGameBoxScore(gameId: string) {
     supabase
       .from("game_rosters")
       .select(
-        "team_id, player_id, goals, assists, pim, player:players!game_rosters_player_id_fkey(first_name, last_name)",
+        "team_id, player_id, goals, assists, pim, is_substitute, player:players!game_rosters_player_id_fkey(first_name, last_name)",
       )
       .eq("game_id", gameId),
     supabase
@@ -48,7 +48,11 @@ export async function getGameBoxScore(gameId: string) {
   const lines: BoxLine[] = (rosters ?? []).map((r: any) => ({
     team_id: r.team_id,
     number: jersey.get(r.player_id) ?? null,
-    name: r.player ? `${r.player.first_name} ${r.player.last_name}` : "",
+    name: r.is_substitute
+      ? "Substitutes"
+      : r.player
+        ? `${r.player.first_name} ${r.player.last_name}`
+        : "",
     goals: r.goals ?? 0,
     assists: r.assists ?? 0,
     pim: r.pim ?? 0,

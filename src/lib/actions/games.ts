@@ -70,16 +70,19 @@ export async function setLineup(formData: FormData) {
   const team_id = String(formData.get("team_id"));
   const checked = new Set(formData.getAll("player_ids").map(String));
 
+  // Only real players are reconciled here; the substitute row (player_id null)
+  // is managed by setSubstitutes and must not be touched by a lineup save.
   const { data: current } = await supabase
     .from("game_rosters")
     .select("id, player_id")
     .eq("game_id", game_id)
-    .eq("team_id", team_id);
+    .eq("team_id", team_id)
+    .eq("is_substitute", false);
   const currentSet = new Set((current ?? []).map((r) => r.player_id));
 
   const toAdd = [...checked].filter((p) => !currentSet.has(p));
   const toRemove = (current ?? [])
-    .filter((r) => !checked.has(r.player_id))
+    .filter((r) => r.player_id && !checked.has(r.player_id))
     .map((r) => r.id);
 
   if (toAdd.length) {
@@ -91,6 +94,43 @@ export async function setLineup(formData: FormData) {
   if (toRemove.length) {
     const { error } = await supabase.from("game_rosters").delete().in("id", toRemove);
     check(error, "Update lineup");
+  }
+  const wasFinal = await syncFinalScore(supabase, game_id);
+  revalidateAfterScore(game_id, wasFinal);
+}
+
+/**
+ * Add or remove a team's single "Substitute" roster row for a game (captain
+ * own-team / scorekeeper / manager). The row has no player_id, so its goals
+ * count toward the team score/standings but never roll up to an individual
+ * player's season stats (v_skater_stats inner-joins players).
+ */
+export async function setSubstitutes(formData: FormData) {
+  await requireRole("captain", "scorekeeper", "league_manager");
+  const supabase = await createClient();
+  const game_id = String(formData.get("game_id"));
+  const team_id = String(formData.get("team_id"));
+  const present = String(formData.get("present")) === "1";
+
+  const { data: existing } = await supabase
+    .from("game_rosters")
+    .select("id")
+    .eq("game_id", game_id)
+    .eq("team_id", team_id)
+    .eq("is_substitute", true)
+    .maybeSingle();
+
+  if (present && !existing) {
+    const { error } = await supabase
+      .from("game_rosters")
+      .insert({ game_id, team_id, player_id: null, is_substitute: true });
+    check(error, "Add substitutes");
+  } else if (!present && existing) {
+    const { error } = await supabase
+      .from("game_rosters")
+      .delete()
+      .eq("id", existing.id);
+    check(error, "Remove substitutes");
   }
   const wasFinal = await syncFinalScore(supabase, game_id);
   revalidateAfterScore(game_id, wasFinal);
@@ -124,6 +164,59 @@ export async function bumpStat(formData: FormData) {
     .eq("status", "scheduled");
   const wasFinal = await syncFinalScore(supabase, game_id);
   revalidateAfterScore(game_id, wasFinal);
+}
+
+/**
+ * Set the goalie of record for one side of a game (scorekeeper / manager). A
+ * team can use different goalies game to game, so this is per game; an empty
+ * value clears it (the goalie stats then fall back to the dressed position='G'
+ * player). Affects goalie stats only, so revalidate the public pages.
+ */
+export async function setGoalie(formData: FormData) {
+  await requireRole("scorekeeper", "league_manager");
+  const supabase = await createClient();
+  const game_id = String(formData.get("game_id"));
+  const side = String(formData.get("side"));
+  const goalie_id = String(formData.get("goalie_id") ?? "") || null;
+  if (side !== "home" && side !== "away") return;
+
+  const patch =
+    side === "home" ? { home_goalie_id: goalie_id } : { away_goalie_id: goalie_id };
+  const { error } = await supabase.from("games").update(patch).eq("id", game_id);
+  check(error, "Set goalie");
+  revalidateAfterScore(game_id, true);
+}
+
+/**
+ * Adjust the count of empty-net goals scored against one team in a game
+ * (scorekeeper / manager). These goals still count in the score/standings, but
+ * are excluded from that team's goalie's GA/GAA.
+ */
+export async function bumpEmptyNet(formData: FormData) {
+  await requireRole("scorekeeper", "league_manager");
+  const supabase = await createClient();
+  const game_id = String(formData.get("game_id"));
+  const side = String(formData.get("side"));
+  const delta = Number(formData.get("delta")) >= 0 ? 1 : -1;
+  if (side !== "home" && side !== "away") return;
+
+  const { data: g } = await supabase
+    .from("games")
+    .select("home_empty_net_against, away_empty_net_against")
+    .eq("id", game_id)
+    .single();
+  const cur =
+    side === "home"
+      ? (g?.home_empty_net_against ?? 0)
+      : (g?.away_empty_net_against ?? 0);
+  const next = Math.max(0, cur + delta);
+  const patch =
+    side === "home"
+      ? { home_empty_net_against: next }
+      : { away_empty_net_against: next };
+  const { error } = await supabase.from("games").update(patch).eq("id", game_id);
+  check(error, "Update empty-net goals");
+  revalidateAfterScore(game_id, true);
 }
 
 /** Finalize: set the official score from goal counters, lock the game, propagate. */

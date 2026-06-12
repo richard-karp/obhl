@@ -38,6 +38,7 @@ export default async function ScoreGamePage({
     .from("games")
     .select(
       `id, status, scheduled_at, home_goals, away_goals, finalized_at, season_id,
+       home_goalie_id, away_goalie_id, home_empty_net_against, away_empty_net_against,
        home_team:teams!games_home_team_id_fkey(id, name, color),
        away_team:teams!games_away_team_id_fkey(id, name, color)`,
     )
@@ -58,7 +59,7 @@ export default async function ScoreGamePage({
       .order("jersey_number", { ascending: true }),
     supabase
       .from("game_rosters")
-      .select("id, player_id, team_id, goals, assists, pim")
+      .select("id, player_id, team_id, goals, assists, pim, is_substitute")
       .eq("game_id", gameId),
   ]);
 
@@ -85,12 +86,15 @@ export default async function ScoreGamePage({
   }
 
   const buildBoard = (t: any): TeamBoard => {
+    const side: "home" | "away" = t.id === homeT.id ? "home" : "away";
     const dressedRows = (dressed ?? []).filter((d) => d.team_id === t.id);
     const dressedSet = new Set(dressedRows.map((d) => d.player_id));
     const lines: DressedLine[] = dressedRows
       .map((d) => ({
         rosterId: d.id,
-        number: numberOf.get(d.player_id) ?? null,
+        playerId: d.player_id,
+        isSub: d.is_substitute,
+        number: numberOf.get(d.player_id ?? "") ?? null,
         goals: d.goals ?? 0,
         assists: d.assists ?? 0,
         pim: d.pim ?? 0,
@@ -104,7 +108,19 @@ export default async function ScoreGamePage({
         dressed: dressedSet.has(r.player_id),
       }))
       .sort(byNumber);
-    return { id: t.id, name: t.name, color: t.color, dressed: lines, roster: rosterChecks };
+    return {
+      id: t.id,
+      side,
+      name: t.name,
+      color: t.color,
+      dressed: lines,
+      roster: rosterChecks,
+      goalieId: side === "home" ? game.home_goalie_id : game.away_goalie_id,
+      emptyNetAgainst:
+        side === "home"
+          ? game.home_empty_net_against
+          : game.away_empty_net_against,
+    };
   };
 
   const canScore = user.role === "scorekeeper" || user.role === "league_manager";
