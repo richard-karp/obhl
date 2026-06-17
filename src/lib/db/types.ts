@@ -160,6 +160,7 @@ export type Database = {
         Row: {
           away_empty_net_against: number
           away_goalie_id: string | null
+          away_goalie_is_sub: boolean
           away_goals: number
           away_team_id: string
           created_at: string
@@ -169,6 +170,7 @@ export type Database = {
           game_type: Database["public"]["Enums"]["game_type"]
           home_empty_net_against: number
           home_goalie_id: string | null
+          home_goalie_is_sub: boolean
           home_goals: number
           home_team_id: string
           id: string
@@ -184,6 +186,7 @@ export type Database = {
         Insert: {
           away_empty_net_against?: number
           away_goalie_id?: string | null
+          away_goalie_is_sub?: boolean
           away_goals?: number
           away_team_id: string
           created_at?: string
@@ -193,6 +196,7 @@ export type Database = {
           game_type?: Database["public"]["Enums"]["game_type"]
           home_empty_net_against?: number
           home_goalie_id?: string | null
+          home_goalie_is_sub?: boolean
           home_goals?: number
           home_team_id: string
           id?: string
@@ -208,6 +212,7 @@ export type Database = {
         Update: {
           away_empty_net_against?: number
           away_goalie_id?: string | null
+          away_goalie_is_sub?: boolean
           away_goals?: number
           away_team_id?: string
           created_at?: string
@@ -217,6 +222,7 @@ export type Database = {
           game_type?: Database["public"]["Enums"]["game_type"]
           home_empty_net_against?: number
           home_goalie_id?: string | null
+          home_goalie_is_sub?: boolean
           home_goals?: number
           home_team_id?: string
           id?: string

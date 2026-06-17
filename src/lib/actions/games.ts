@@ -177,11 +177,17 @@ export async function setGoalie(formData: FormData) {
   const supabase = await createClient();
   const game_id = String(formData.get("game_id"));
   const side = String(formData.get("side"));
-  const goalie_id = String(formData.get("goalie_id") ?? "") || null;
+  // "sub" = substitute goalie (no individual record); "" = clear (fallback to
+  // dressed G); any uuid = an individual goalie of record.
+  const raw = String(formData.get("goalie_id") ?? "");
+  const isSub = raw === "sub";
+  const goalie_id = isSub || raw === "" ? null : raw;
   if (side !== "home" && side !== "away") return;
 
   const patch =
-    side === "home" ? { home_goalie_id: goalie_id } : { away_goalie_id: goalie_id };
+    side === "home"
+      ? { home_goalie_id: goalie_id, home_goalie_is_sub: isSub }
+      : { away_goalie_id: goalie_id, away_goalie_is_sub: isSub };
   const { error } = await supabase.from("games").update(patch).eq("id", game_id);
   check(error, "Set goalie");
   revalidateAfterScore(game_id, true);

@@ -36,6 +36,8 @@ export type TeamBoard = {
   roster: RosterCheck[];
   /** Goalie of record (explicit pick); null falls back to the dressed goalie. */
   goalieId: string | null;
+  /** True when the goalie of record was a substitute — no individual GA/W-L. */
+  goalieIsSub: boolean;
   /** Empty-net goals scored against this team — excluded from its goalie GAA. */
   emptyNetAgainst: number;
 };
@@ -173,12 +175,13 @@ function GoalieAndEmptyNet({ data, board }: { data: ScoreBoardData; board: TeamB
           <div className="flex items-center gap-1.5">
             <select
               name="goalie_id"
-              key={board.goalieId ?? "none"}
-              defaultValue={board.goalieId ?? ""}
+              key={`${board.goalieId ?? "none"}-${board.goalieIsSub}`}
+              defaultValue={board.goalieIsSub ? "sub" : (board.goalieId ?? "")}
               className="border-input bg-background h-7 rounded-md border px-2 text-sm tabular-nums"
               aria-label={`${board.name} goalie of record`}
             >
               <option value="">—</option>
+              <option value="sub">Substitute</option>
               {board.dressed
                 .filter((l) => !l.isSub)
                 .map((l) => (

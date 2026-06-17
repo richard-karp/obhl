@@ -38,7 +38,9 @@ export default async function ScoreGamePage({
     .from("games")
     .select(
       `id, status, scheduled_at, home_goals, away_goals, finalized_at, season_id,
-       home_goalie_id, away_goalie_id, home_empty_net_against, away_empty_net_against,
+       home_goalie_id, away_goalie_id,
+       home_goalie_is_sub, away_goalie_is_sub,
+       home_empty_net_against, away_empty_net_against,
        home_team:teams!games_home_team_id_fkey(id, name, color),
        away_team:teams!games_away_team_id_fkey(id, name, color)`,
     )
@@ -116,6 +118,8 @@ export default async function ScoreGamePage({
       dressed: lines,
       roster: rosterChecks,
       goalieId: side === "home" ? game.home_goalie_id : game.away_goalie_id,
+      goalieIsSub:
+        side === "home" ? game.home_goalie_is_sub : game.away_goalie_is_sub,
       emptyNetAgainst:
         side === "home"
           ? game.home_empty_net_against
