@@ -75,6 +75,42 @@ export type Database = {
           },
         ]
       }
+      audit_log: {
+        Row: {
+          action: string
+          created_at: string | null
+          entity_id: string
+          entity_type: string
+          id: string
+          new_data: Json | null
+          old_data: Json | null
+          session_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string | null
+          entity_id: string
+          entity_type: string
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          session_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string | null
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          session_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       divisions: {
         Row: {
           id: string
@@ -158,6 +194,7 @@ export type Database = {
       }
       games: {
         Row: {
+          ai_recap: string | null
           away_empty_net_against: number
           away_goalie_id: string | null
           away_goalie_is_sub: boolean
@@ -181,9 +218,11 @@ export type Database = {
           scheduled_at: string | null
           season_id: string
           status: Database["public"]["Enums"]["game_status"]
+          three_stars: Json | null
           week: number | null
         }
         Insert: {
+          ai_recap?: string | null
           away_empty_net_against?: number
           away_goalie_id?: string | null
           away_goalie_is_sub?: boolean
@@ -207,9 +246,11 @@ export type Database = {
           scheduled_at?: string | null
           season_id: string
           status?: Database["public"]["Enums"]["game_status"]
+          three_stars?: Json | null
           week?: number | null
         }
         Update: {
+          ai_recap?: string | null
           away_empty_net_against?: number
           away_goalie_id?: string | null
           away_goalie_is_sub?: boolean
@@ -233,6 +274,7 @@ export type Database = {
           scheduled_at?: string | null
           season_id?: string
           status?: Database["public"]["Enums"]["game_status"]
+          three_stars?: Json | null
           week?: number | null
         }
         Relationships: [
@@ -482,7 +524,10 @@ export type Database = {
       team_players: {
         Row: {
           id: string
+          injury_notes: string | null
           is_captain: boolean
+          is_rookie: boolean
+          is_suspended: boolean
           jersey_number: number | null
           player_id: string
           position: Database["public"]["Enums"]["player_position"]
@@ -491,7 +536,10 @@ export type Database = {
         }
         Insert: {
           id?: string
+          injury_notes?: string | null
           is_captain?: boolean
+          is_rookie?: boolean
+          is_suspended?: boolean
           jersey_number?: number | null
           player_id: string
           position?: Database["public"]["Enums"]["player_position"]
@@ -500,7 +548,10 @@ export type Database = {
         }
         Update: {
           id?: string
+          injury_notes?: string | null
           is_captain?: boolean
+          is_rookie?: boolean
+          is_suspended?: boolean
           jersey_number?: number | null
           player_id?: string
           position?: Database["public"]["Enums"]["player_position"]

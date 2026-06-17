@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 import { devLoginEnabled } from "@/lib/auth/dev-login";
 
@@ -52,5 +53,12 @@ export async function devSignIn(formData: FormData) {
     password: "hockey123",
   });
   if (error) redirect(`/login?dev_error=${encodeURIComponent(error.message)}`);
+  const cookieStore = await cookies();
+  cookieStore.set("audit_session", crypto.randomUUID(), {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7,
+  });
   redirect("/dashboard");
 }

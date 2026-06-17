@@ -2,6 +2,16 @@ import { type NextRequest, NextResponse } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
 
+function withAuditSession(response: NextResponse): NextResponse {
+  response.cookies.set("audit_session", crypto.randomUUID(), {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7,
+  });
+  return response;
+}
+
 /**
  * Completes a magic-link sign-in. Handles both the PKCE code flow
  * (?code=...) and the token_hash flow (?token_hash=...&type=...).
@@ -19,10 +29,10 @@ export async function GET(request: NextRequest) {
 
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return NextResponse.redirect(`${origin}${next}`);
+    if (!error) return withAuditSession(NextResponse.redirect(`${origin}${next}`));
   } else if (tokenHash && type) {
     const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
-    if (!error) return NextResponse.redirect(`${origin}${next}`);
+    if (!error) return withAuditSession(NextResponse.redirect(`${origin}${next}`));
   }
 
   return NextResponse.redirect(`${origin}/login?error=link`);
