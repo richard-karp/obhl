@@ -20,8 +20,9 @@ export async function revertAuditEntries(
 
   const { data: entries } = await admin
     .from("audit_log")
-    .select("id, action, entity_type, entity_id, new_data, old_data")
-    .in("id", auditIds);
+    .select("id, action, entity_type, entity_id, new_data, old_data, created_at")
+    .in("id", auditIds)
+    .order("created_at", { ascending: false });
 
   const errors: string[] = [];
 
@@ -58,7 +59,10 @@ export async function revertAuditEntries(
         case "add_player": {
           const playerId = typeof nd?.player_id === "string" ? nd.player_id : null;
           const teamId = typeof nd?.team_id === "string" ? nd.team_id : null;
-          if (playerId && teamId) {
+          if (!playerId) {
+            throw new Error("Cannot revert add_player: entry missing player_id (predates revert support).");
+          }
+          if (teamId) {
             const { data: gameRows } = await admin
               .from("game_rosters")
               .select("id")
