@@ -2,8 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { requireRole } from "@/lib/auth/guards";
 import { leagueOffset } from "@/lib/format";
+import { computeThreeStars } from "@/lib/utils/three-stars";
+import { logAudit } from "@/lib/audit";
 
 // Scoring writes go through the USER's session client, so RLS enforces who can
 // do what (captain: own-team lineup; scorekeeper: stats; manager: all).
@@ -228,14 +231,34 @@ export async function finalizeGame(formData: FormData) {
     .single();
   if (!game) return;
 
-  const { data: rosters } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: rostersRaw } = await (supabase as any)
     .from("game_rosters")
-    .select("team_id, goals")
+    .select(
+      "team_id, goals, assists, pim, is_substitute, player_id, " +
+      "players:players!game_rosters_player_id_fkey(first_name, last_name)",
+    )
     .eq("game_id", game_id);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rosters: any[] = rostersRaw ?? [];
+
   const sum = (teamId: string) =>
-    (rosters ?? [])
+    rosters
       .filter((r) => r.team_id === teamId)
-      .reduce((s, r) => s + (r.goals ?? 0), 0);
+      .reduce((s: number, r) => s + (r.goals ?? 0), 0);
+
+  const threeStars = computeThreeStars(
+    rosters
+      .filter((r) => !r.is_substitute && r.player_id)
+      .map((r) => ({
+        player_id: r.player_id,
+        first_name: r.players?.first_name ?? "",
+        last_name: r.players?.last_name ?? "",
+        goals: r.goals ?? 0,
+        assists: r.assists ?? 0,
+        pim: r.pim ?? 0,
+      })),
+  );
 
   const { error } = await supabase
     .from("games")
@@ -246,9 +269,18 @@ export async function finalizeGame(formData: FormData) {
       result_type: "regulation",
       finalized_at: new Date().toISOString(),
       finalized_by: user.id,
+      three_stars: threeStars as unknown as never,
     })
     .eq("id", game_id);
   check(error, "Finalize game");
+
+  void logAudit({
+    user_id: user.id,
+    action: "finalize_game",
+    entity_type: "game",
+    entity_id: game_id,
+    new_data: { home_goals: sum(game.home_team_id), away_goals: sum(game.away_team_id) },
+  });
 
   revalidateAfterScore(game_id, true);
 }
@@ -259,7 +291,7 @@ export async function finalizeGame(formData: FormData) {
  * working on it before re-completing.
  */
 export async function reopenGame(formData: FormData) {
-  await requireRole("scorekeeper", "league_manager");
+  const user = await requireRole("scorekeeper", "league_manager");
   const supabase = await createClient();
   const game_id = String(formData.get("game_id"));
   const { error } = await supabase
@@ -267,7 +299,104 @@ export async function reopenGame(formData: FormData) {
     .update({ status: "in_progress", finalized_at: null, finalized_by: null })
     .eq("id", game_id);
   check(error, "Reopen game");
+  void logAudit({
+    user_id: user.id,
+    action: "reopen_game",
+    entity_type: "game",
+    entity_id: game_id,
+  });
   revalidateAfterScore(game_id, true);
+}
+
+/**
+ * Generate an AI game recap using Claude and store it in games.ai_recap.
+ * Requires ANTHROPIC_API_KEY env var. Manager-only.
+ */
+export async function generateGameRecap(formData: FormData) {
+  const user = await requireRole("league_manager");
+  const game_id = String(formData.get("game_id"));
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured.");
+
+  const supabase = await createClient();
+  const admin = createAdminClient();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: gameRaw } = await (supabase as any)
+    .from("games")
+    .select(
+      "id, scheduled_at, home_goals, away_goals, " +
+      "home_team:teams!games_home_team_id_fkey(name), " +
+      "away_team:teams!games_away_team_id_fkey(name)",
+    )
+    .eq("id", game_id)
+    .eq("status", "final")
+    .maybeSingle();
+  if (!gameRaw) throw new Error("Game not found or not final.");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const g = gameRaw as any;
+
+  const { data: rosters } = await supabase
+    .from("game_rosters")
+    .select("team_id, player_id, goals, assists, pim, is_substitute")
+    .eq("game_id", game_id);
+
+  const playerIds = (rosters ?? [])
+    .filter((r) => r.player_id && !r.is_substitute)
+    .map((r) => r.player_id!);
+
+  const { data: players } = playerIds.length
+    ? await supabase.from("players").select("id, first_name, last_name").in("id", playerIds)
+    : { data: [] };
+
+  const nameOf = new Map((players ?? []).map((p) => [p.id, `${p.first_name} ${p.last_name}`]));
+
+  const lines = (rosters ?? [])
+    .filter((r) => r.player_id && !r.is_substitute)
+    .map((r) => {
+      const teamName =
+        r.team_id === g.home_team?.id ? g.home_team.name : g.away_team.name;
+      return `${nameOf.get(r.player_id!) ?? "Unknown"} (${teamName}): ${r.goals}G ${r.assists}A ${r.pim}PIM`;
+    });
+
+  const prompt = [
+    `Write a short, energetic 2-3 sentence game recap for a recreational adult hockey league.`,
+    `Game: ${g.away_team?.name} at ${g.home_team?.name}`,
+    `Final score: ${g.away_team?.name} ${g.away_goals} – ${g.home_team?.name} ${g.home_goals}`,
+    lines.length ? `Player stats:\n${lines.join("\n")}` : "",
+    `Keep it fun and casual. No filler phrases like "In a thrilling matchup".`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
+  const client = new Anthropic({ apiKey });
+  const msg = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 300,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const recap =
+    msg.content[0].type === "text" ? msg.content[0].text.trim() : "";
+  if (!recap) throw new Error("AI returned empty recap.");
+
+  const { error } = await admin
+    .from("games")
+    .update({ ai_recap: recap } as never)
+    .eq("id", game_id);
+  if (error) throw new Error(`Save recap failed: ${error.message}`);
+
+  void logAudit({
+    user_id: user.id,
+    action: "generate_recap",
+    entity_type: "game",
+    entity_id: game_id,
+  });
+
+  revalidateAfterScore(game_id, true);
+  revalidatePath("/");
 }
 
 // --- Game-day status changes (scorekeeper / manager): cancel, postpone, etc. ---

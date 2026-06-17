@@ -4,13 +4,14 @@ import { getStandings } from "@/lib/queries/standings";
 import { getSkaterLeaders } from "@/lib/queries/stats";
 import { getUpcoming, getRecentResults } from "@/lib/queries/schedule";
 import { getAnnouncements } from "@/lib/queries/announcements";
+import { getLatestGameWithRecapData } from "@/lib/queries/games";
 import { StandingsTable } from "@/components/public/standings-table";
 import { GameRow } from "@/components/public/game-row";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { NoSeason } from "@/components/public/no-season";
-import { formatLongDate } from "@/lib/format";
+import { formatLongDate, formatGameDate } from "@/lib/format";
 
 function SectionLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
@@ -25,13 +26,15 @@ export default async function HomePage() {
   if (!ctx?.season) return <NoSeason />;
   const { league, season } = ctx;
 
-  const [standings, leaders, upcoming, recent, announcements] = await Promise.all([
-    getStandings(season.id),
-    getSkaterLeaders(season.id, 8),
-    getUpcoming(season.id, 5),
-    getRecentResults(season.id, 5),
-    getAnnouncements(league.id, 3),
-  ]);
+  const [standings, leaders, upcoming, recent, announcements, latestGame] =
+    await Promise.all([
+      getStandings(season.id),
+      getSkaterLeaders(season.id, 8),
+      getUpcoming(season.id, 5),
+      getRecentResults(season.id, 5),
+      getAnnouncements(league.id, 3),
+      getLatestGameWithRecapData(season.id),
+    ]);
 
   return (
     <div className="space-y-8">
@@ -142,6 +145,57 @@ export default async function HomePage() {
           </CardContent>
         </Card>
       </div>
+
+      {latestGame && latestGame.three_stars && latestGame.three_stars.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              3 Stars —{" "}
+              <span className="text-muted-foreground font-normal text-sm">
+                {latestGame.away_team_name} {latestGame.away_goals} –{" "}
+                {latestGame.home_goals} {latestGame.home_team_name},{" "}
+                {formatGameDate(latestGame.scheduled_at)}
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-6">
+              {latestGame.three_stars.map((star, i) => (
+                <Link
+                  key={star.player_id}
+                  href={`/players/${star.player_id}`}
+                  className="hover:bg-muted/40 flex items-center gap-3 rounded-lg p-3 transition-colors"
+                >
+                  <span className="text-muted-foreground text-2xl font-bold tabular-nums w-6 text-center">
+                    {i + 1}
+                  </span>
+                  <div>
+                    <div className="font-semibold hover:underline">
+                      {star.first_name} {star.last_name}
+                    </div>
+                    <div className="text-muted-foreground text-xs tabular-nums">
+                      {star.g}G · {star.a}A · {star.pim}PIM
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {latestGame?.ai_recap && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Game Recap</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground text-sm leading-relaxed italic">
+              &ldquo;{latestGame.ai_recap}&rdquo;
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

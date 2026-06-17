@@ -1,4 +1,5 @@
 import { createClient } from "@/utils/supabase/server";
+import type { ThreeStarEntry } from "@/lib/utils/three-stars";
 
 export type BoxLine = {
   team_id: string;
@@ -60,4 +61,48 @@ export async function getGameBoxScore(gameId: string) {
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   return { game, lines };
+}
+
+export type LatestRecapGame = {
+  id: string;
+  scheduled_at: string;
+  home_goals: number;
+  away_goals: number;
+  home_team_name: string;
+  away_team_name: string;
+  three_stars: ThreeStarEntry[] | null;
+  ai_recap: string | null;
+};
+
+export async function getLatestGameWithRecapData(
+  seasonId: string,
+): Promise<LatestRecapGame | null> {
+  const supabase = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (supabase as any)
+    .from("games")
+    .select(
+      "id, scheduled_at, home_goals, away_goals, three_stars, ai_recap, " +
+      "home_team:teams!games_home_team_id_fkey(name), " +
+      "away_team:teams!games_away_team_id_fkey(name)",
+    )
+    .eq("season_id", seasonId)
+    .eq("status", "final")
+    .order("scheduled_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!data) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d = data as any;
+  return {
+    id: d.id,
+    scheduled_at: d.scheduled_at,
+    home_goals: d.home_goals ?? 0,
+    away_goals: d.away_goals ?? 0,
+    home_team_name: d.home_team?.name ?? "",
+    away_team_name: d.away_team?.name ?? "",
+    three_stars: (d.three_stars as ThreeStarEntry[]) ?? null,
+    ai_recap: d.ai_recap ?? null,
+  };
 }

@@ -12,6 +12,7 @@ import {
   postponeGame,
   restoreGame,
   rescheduleGame,
+  generateGameRecap,
 } from "@/lib/actions/games";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ export default async function ScoreGamePage({
        home_goalie_id, away_goalie_id,
        home_goalie_is_sub, away_goalie_is_sub,
        home_empty_net_against, away_empty_net_against,
+       ai_recap,
        home_team:teams!games_home_team_id_fkey(id, name, color),
        away_team:teams!games_away_team_id_fkey(id, name, color)`,
     )
@@ -162,6 +164,29 @@ export default async function ScoreGamePage({
         description={formatGameDateTime(game.scheduled_at)}
       />
       <ScoreBoard data={data} />
+
+      {canManage && game.status === "final" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">AI Game Recap</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {game.ai_recap ? (
+              <p className="text-muted-foreground text-sm leading-relaxed italic">
+                &ldquo;{game.ai_recap}&rdquo;
+              </p>
+            ) : (
+              <p className="text-muted-foreground text-sm">No recap generated yet.</p>
+            )}
+            <form action={generateGameRecap}>
+              <input type="hidden" name="game_id" value={gameId} />
+              <Button type="submit" size="sm" variant="secondary">
+                {game.ai_recap ? "Regenerate Recap" : "Generate Recap"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       {canScore && game.status !== "final" ? (
         <Card>
