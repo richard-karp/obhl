@@ -14,7 +14,7 @@ import type { PlayerGameLogRow } from "@/lib/queries/players";
 
 function shortDate(iso: string) {
   const d = new Date(iso);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
 }
 
 export function PlayerGameChart({ games }: { games: PlayerGameLogRow[] }) {

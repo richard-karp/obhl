@@ -269,7 +269,7 @@ export async function finalizeGame(formData: FormData) {
       result_type: "regulation",
       finalized_at: new Date().toISOString(),
       finalized_by: user.id,
-      three_stars: threeStars as unknown as never,
+      three_stars: threeStars as unknown as import("@/lib/db/types").Json,
     })
     .eq("id", game_id);
   check(error, "Finalize game");
@@ -326,7 +326,7 @@ export async function generateGameRecap(formData: FormData) {
   const { data: gameRaw } = await (supabase as any)
     .from("games")
     .select(
-      "id, scheduled_at, home_goals, away_goals, " +
+      "id, scheduled_at, home_goals, away_goals, home_team_id, away_team_id, " +
       "home_team:teams!games_home_team_id_fkey(name), " +
       "away_team:teams!games_away_team_id_fkey(name)",
     )
@@ -356,7 +356,7 @@ export async function generateGameRecap(formData: FormData) {
     .filter((r) => r.player_id && !r.is_substitute)
     .map((r) => {
       const teamName =
-        r.team_id === g.home_team?.id ? g.home_team.name : g.away_team.name;
+        r.team_id === g.home_team_id ? g.home_team.name : g.away_team.name;
       return `${nameOf.get(r.player_id!) ?? "Unknown"} (${teamName}): ${r.goals}G ${r.assists}A ${r.pim}PIM`;
     });
 
@@ -379,12 +379,14 @@ export async function generateGameRecap(formData: FormData) {
   });
 
   const recap =
-    msg.content[0].type === "text" ? msg.content[0].text.trim() : "";
+    msg.content.length > 0 && msg.content[0].type === "text"
+      ? msg.content[0].text.trim()
+      : "";
   if (!recap) throw new Error("AI returned empty recap.");
 
   const { error } = await admin
     .from("games")
-    .update({ ai_recap: recap } as never)
+    .update({ ai_recap: recap })
     .eq("id", game_id);
   if (error) throw new Error(`Save recap failed: ${error.message}`);
 
