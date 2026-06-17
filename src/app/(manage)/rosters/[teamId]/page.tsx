@@ -3,7 +3,7 @@ import { requireManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { getActiveContext } from "@/lib/queries/season";
 import { AddPlayerForm } from "@/components/manage/add-player-form";
-import { removeRosterPlayer, toggleCaptain } from "@/lib/actions/rosters";
+import { removeRosterPlayer, toggleCaptain, updatePlayerStatus } from "@/lib/actions/rosters";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -46,7 +46,7 @@ export default async function RosterEditorPage({
   const { data: roster } = await admin
     .from("team_players")
     .select(
-      "id, player_id, jersey_number, position, is_captain, players!team_players_player_id_fkey(first_name, last_name)",
+      "id, player_id, jersey_number, position, is_captain, is_rookie, injury_notes, is_suspended, players!team_players_player_id_fkey(first_name, last_name)",
     )
     .eq("season_id", ctx.season.id)
     .eq("team_id", teamId)
@@ -105,6 +105,7 @@ export default async function RosterEditorPage({
                 <TableHead className="w-12 text-center">#</TableHead>
                 <TableHead>Player</TableHead>
                 <TableHead>Position</TableHead>
+                <TableHead className="text-center">Status</TableHead>
                 <TableHead className="text-right">Manage</TableHead>
               </TableRow>
             </TableHeader>
@@ -121,9 +122,60 @@ export default async function RosterEditorPage({
                         C
                       </Badge>
                     ) : null}
+                    {r.is_rookie ? (
+                      <Badge variant="outline" className="ml-1 px-1.5 py-0 text-[0.65rem]">
+                        R
+                      </Badge>
+                    ) : null}
+                    {r.is_suspended ? (
+                      <Badge variant="destructive" className="ml-1 px-1.5 py-0 text-[0.65rem]">
+                        SUSP
+                      </Badge>
+                    ) : null}
+                    {r.injury_notes ? (
+                      <Badge variant="destructive" className="ml-1 px-1.5 py-0 text-[0.65rem]">
+                        INJ
+                      </Badge>
+                    ) : null}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {POS[r.position] ?? r.position}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap items-center justify-center gap-1">
+                      <form action={updatePlayerStatus}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <input type="hidden" name="team_id" value={team.id} />
+                        <input type="hidden" name="field" value="is_rookie" />
+                        <input type="hidden" name="value" value={r.is_rookie ? "0" : "1"} />
+                        <Button type="submit" variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                          {r.is_rookie ? "Unset Rookie" : "Rookie"}
+                        </Button>
+                      </form>
+                      <form action={updatePlayerStatus}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <input type="hidden" name="team_id" value={team.id} />
+                        <input type="hidden" name="field" value="is_suspended" />
+                        <input type="hidden" name="value" value={r.is_suspended ? "0" : "1"} />
+                        <Button type="submit" variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                          {r.is_suspended ? "Lift Susp." : "Suspend"}
+                        </Button>
+                      </form>
+                      <form action={updatePlayerStatus} className="flex items-center gap-1">
+                        <input type="hidden" name="id" value={r.id} />
+                        <input type="hidden" name="team_id" value={team.id} />
+                        <input type="hidden" name="field" value="injury_notes" />
+                        <input
+                          name="value"
+                          defaultValue={r.injury_notes ?? ""}
+                          placeholder="Injury notes…"
+                          className="h-7 w-28 rounded border px-2 text-xs"
+                        />
+                        <Button type="submit" variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                          Set
+                        </Button>
+                      </form>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-2">

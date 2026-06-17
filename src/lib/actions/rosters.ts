@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
+import { logAudit } from "@/lib/audit";
 
 export type RosterActionState = { ok: boolean; message: string } | null;
 
@@ -10,12 +11,11 @@ export async function addRosterPlayer(
   _prev: RosterActionState,
   formData: FormData,
 ): Promise<RosterActionState> {
-  await requireManager();
+  const manager = await requireManager();
   const admin = createAdminClient();
 
   const season_id = String(formData.get("season_id"));
   const team_id = String(formData.get("team_id"));
-  // Optional: reuse an existing global person (shared identity across leagues).
   const existing_id = String(formData.get("player_id") ?? "").trim();
   const first = String(formData.get("first_name") ?? "").trim();
   const last = String(formData.get("last_name") ?? "").trim();
@@ -34,8 +34,6 @@ export async function addRosterPlayer(
         message: "Pick an existing person, or enter a first and last name.",
       };
     }
-    // Players are global people (no league_id). The same person can be added
-    // to teams in more than one league.
     const { data: player, error: pErr } = await admin
       .from("players")
       .insert({ first_name: first, last_name: last })
@@ -46,35 +44,91 @@ export async function addRosterPlayer(
     label = `${first} ${last}`;
   }
 
-  const { error } = await admin.from("team_players").insert({
-    season_id,
-    team_id,
-    player_id,
-    jersey_number: jersey,
-    position: position as "F" | "D" | "G",
-    is_captain,
-  });
+  const { data: inserted, error } = await admin
+    .from("team_players")
+    .insert({
+      season_id,
+      team_id,
+      player_id,
+      jersey_number: jersey,
+      position: position as "F" | "D" | "G",
+      is_captain,
+    })
+    .select("id")
+    .single();
   if (error) return { ok: false, message: error.message };
+
+  void logAudit({
+    user_id: manager.id,
+    action: "add_player",
+    entity_type: "team_player",
+    entity_id: inserted.id,
+    new_data: { player_id, team_id, season_id, position },
+  });
 
   revalidatePath(`/rosters/${team_id}`);
   return { ok: true, message: `${label} added to the roster.` };
 }
 
 export async function removeRosterPlayer(formData: FormData) {
-  await requireManager();
+  const manager = await requireManager();
   const admin = createAdminClient();
   const id = String(formData.get("id"));
   const team_id = String(formData.get("team_id"));
   await admin.from("team_players").delete().eq("id", id);
+  void logAudit({
+    user_id: manager.id,
+    action: "remove_player",
+    entity_type: "team_player",
+    entity_id: id,
+    old_data: { team_id },
+  });
   revalidatePath(`/rosters/${team_id}`);
 }
 
 export async function toggleCaptain(formData: FormData) {
-  await requireManager();
+  const manager = await requireManager();
   const admin = createAdminClient();
   const id = String(formData.get("id"));
   const team_id = String(formData.get("team_id"));
   const make = formData.get("make") === "1";
   await admin.from("team_players").update({ is_captain: make }).eq("id", id);
+  void logAudit({
+    user_id: manager.id,
+    action: "toggle_captain",
+    entity_type: "team_player",
+    entity_id: id,
+    new_data: { is_captain: make },
+  });
+  revalidatePath(`/rosters/${team_id}`);
+}
+
+export async function updatePlayerStatus(formData: FormData) {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+  const id = String(formData.get("id"));
+  const team_id = String(formData.get("team_id"));
+  const field = String(formData.get("field"));
+
+  if (field === "injury_notes") {
+    const raw = String(formData.get("value") ?? "").trim();
+    await admin.from("team_players").update({ injury_notes: raw || null }).eq("id", id);
+  } else if (field === "is_rookie") {
+    const val = formData.get("value") === "1";
+    await admin.from("team_players").update({ is_rookie: val }).eq("id", id);
+  } else if (field === "is_suspended") {
+    const val = formData.get("value") === "1";
+    await admin.from("team_players").update({ is_suspended: val }).eq("id", id);
+  } else {
+    return;
+  }
+
+  void logAudit({
+    user_id: manager.id,
+    action: "update_player_status",
+    entity_type: "team_player",
+    entity_id: id,
+    new_data: { field, value: formData.get("value") },
+  });
   revalidatePath(`/rosters/${team_id}`);
 }
