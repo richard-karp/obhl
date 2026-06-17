@@ -9,6 +9,10 @@
 --     empty-net goals against, and subtract it from the goalie's goals-against
 --     when computing GA / GAA / shutouts. These goals still count in the score
 --     and standings — only the goalie's personal GA excludes them.
+--  3. A substitute goalie has no individual record (no GA/GAA, no W/L). We
+--     mark this with home/away_goalie_is_sub, which also suppresses the
+--     dressed-goalie fallback so a rostered goalie dressed as an unused backup
+--     is never charged.
 
 alter table games
   add column home_goalie_id uuid references players(id) on delete set null,
@@ -16,30 +20,36 @@ alter table games
   add column home_empty_net_against int not null default 0
     check (home_empty_net_against >= 0),
   add column away_empty_net_against int not null default 0
-    check (away_empty_net_against >= 0);
+    check (away_empty_net_against >= 0),
+  add column home_goalie_is_sub boolean not null default false,
+  add column away_goalie_is_sub boolean not null default false;
 
 comment on column games.home_goalie_id is
-  'Goalie of record for the home team this game; NULL falls back to the dressed position=G player.';
+  'Goalie of record for the home team this game; NULL falls back to the dressed position=G player (unless home_goalie_is_sub is true).';
 comment on column games.home_empty_net_against is
   'Goals scored against the home team''s empty net — excluded from its goalie''s GA/GAA.';
+comment on column games.home_goalie_is_sub is
+  'The home goalie of record was a substitute — credit no individual goalie (team standings still count the goals).';
 
 create or replace view v_goalie_stats with (security_invoker = true) as
 with finals as (
   select id, season_id, home_team_id, away_team_id,
          home_goalie_id, away_goalie_id,
+         home_goalie_is_sub, away_goalie_is_sub,
          home_empty_net_against, away_empty_net_against
   from games
   where status = 'final' and game_type = 'regular'
 ),
--- Goalie of record per (game, team): the explicit pick when set, otherwise the
--- single dressed position='G' player (lowest player_id if a team ever dresses
--- two and made no pick).
+-- Goalie of record per (game, team):
+--   1. Explicit pick (individual) when set and not flagged as sub.
+--   2. No attribution when goalie_is_sub is true (sub goalie, no individual record).
+--   3. Dressed position='G' fallback when no explicit pick and not flagged as sub.
 goalie_appearances as (
   select season_id, home_goalie_id as player_id, id as game_id, home_team_id as team_id
-    from finals where home_goalie_id is not null
+    from finals where home_goalie_id is not null and not home_goalie_is_sub
   union all
   select season_id, away_goalie_id, id, away_team_id
-    from finals where away_goalie_id is not null
+    from finals where away_goalie_id is not null and not away_goalie_is_sub
   union all
   -- wrapped so the distinct on / order by stay scoped to this branch, not the union
   select * from (
@@ -53,8 +63,8 @@ goalie_appearances as (
      and tp.player_id = gr.player_id
     where tp.position = 'G'
       and (
-        (gr.team_id = f.home_team_id and f.home_goalie_id is null) or
-        (gr.team_id = f.away_team_id and f.away_goalie_id is null)
+        (gr.team_id = f.home_team_id and f.home_goalie_id is null and not f.home_goalie_is_sub) or
+        (gr.team_id = f.away_team_id and f.away_goalie_id is null and not f.away_goalie_is_sub)
       )
     order by gr.game_id, gr.team_id, gr.player_id
   ) fallback

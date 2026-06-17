@@ -206,21 +206,11 @@ export async function bumpEmptyNet(formData: FormData) {
   const delta = Number(formData.get("delta")) >= 0 ? 1 : -1;
   if (side !== "home" && side !== "away") return;
 
-  const { data: g } = await supabase
-    .from("games")
-    .select("home_empty_net_against, away_empty_net_against")
-    .eq("id", game_id)
-    .single();
-  const cur =
-    side === "home"
-      ? (g?.home_empty_net_against ?? 0)
-      : (g?.away_empty_net_against ?? 0);
-  const next = Math.max(0, cur + delta);
-  const patch =
-    side === "home"
-      ? { home_empty_net_against: next }
-      : { away_empty_net_against: next };
-  const { error } = await supabase.from("games").update(patch).eq("id", game_id);
+  const { error } = await supabase.rpc("bump_game_empty_net", {
+    p_game: game_id,
+    p_side: side,
+    p_delta: delta,
+  });
   check(error, "Update empty-net goals");
   revalidateAfterScore(game_id, true);
 }

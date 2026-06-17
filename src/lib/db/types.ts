@@ -687,6 +687,10 @@ export type Database = {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
       }
+      bump_game_empty_net: {
+        Args: { p_delta: number; p_game: string; p_side: string }
+        Returns: undefined
+      }
       bump_game_roster_stat: {
         Args: { p_col: string; p_delta: number; p_id: string }
         Returns: undefined
