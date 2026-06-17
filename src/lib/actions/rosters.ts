@@ -75,13 +75,21 @@ export async function removeRosterPlayer(formData: FormData) {
   const admin = createAdminClient();
   const id = String(formData.get("id"));
   const team_id = String(formData.get("team_id"));
+
+  // Capture full row before deletion so revert can restore it
+  const { data: existing } = await admin
+    .from("team_players")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
   await admin.from("team_players").delete().eq("id", id);
   void logAudit({
     user_id: manager.id,
     action: "remove_player",
     entity_type: "team_player",
     entity_id: id,
-    old_data: { team_id },
+    old_data: existing ?? { team_id },
   });
   revalidatePath(`/rosters/${team_id}`);
 }
@@ -110,6 +118,13 @@ export async function updatePlayerStatus(formData: FormData) {
   const team_id = String(formData.get("team_id"));
   const field = String(formData.get("field"));
 
+  // Capture current value before update so revert can restore it
+  const { data: currentRow } = await admin
+    .from("team_players")
+    .select("is_rookie, is_suspended, injury_notes")
+    .eq("id", id)
+    .maybeSingle();
+
   if (field === "injury_notes") {
     const raw = String(formData.get("value") ?? "").trim();
     await admin.from("team_players").update({ injury_notes: raw || null }).eq("id", id);
@@ -123,11 +138,19 @@ export async function updatePlayerStatus(formData: FormData) {
     return;
   }
 
+  let oldVal: unknown;
+  if (currentRow) {
+    if (field === "injury_notes") oldVal = currentRow.injury_notes;
+    else if (field === "is_rookie") oldVal = currentRow.is_rookie;
+    else if (field === "is_suspended") oldVal = currentRow.is_suspended;
+  }
+
   void logAudit({
     user_id: manager.id,
     action: "update_player_status",
     entity_type: "team_player",
     entity_id: id,
+    old_data: oldVal !== undefined ? { [field]: oldVal } : null,
     new_data: { field, value: formData.get("value") },
   });
   revalidatePath(`/rosters/${team_id}`);

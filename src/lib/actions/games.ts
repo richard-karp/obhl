@@ -221,13 +221,18 @@ export async function bumpEmptyNet(formData: FormData) {
 /** Finalize: set the official score from goal counters, lock the game, propagate. */
 export async function finalizeGame(formData: FormData) {
   const user = await requireRole("scorekeeper", "league_manager");
-  const supabase = await createClient();
   const game_id = String(formData.get("game_id"));
+  await finalizeGameById(game_id, user.id);
+}
+
+/** Internal helper — all DB work for finalization. Callable by form action and revert. */
+export async function finalizeGameById(gameId: string, userId: string) {
+  const supabase = await createClient();
 
   const { data: game } = await supabase
     .from("games")
     .select("id, home_team_id, away_team_id")
-    .eq("id", game_id)
+    .eq("id", gameId)
     .single();
   if (!game) return;
 
@@ -238,7 +243,7 @@ export async function finalizeGame(formData: FormData) {
       "team_id, goals, assists, pim, is_substitute, player_id, " +
       "players:players!game_rosters_player_id_fkey(first_name, last_name)",
     )
-    .eq("game_id", game_id);
+    .eq("game_id", gameId);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rosters: any[] = rostersRaw ?? [];
 
@@ -268,21 +273,21 @@ export async function finalizeGame(formData: FormData) {
       away_goals: sum(game.away_team_id),
       result_type: "regulation",
       finalized_at: new Date().toISOString(),
-      finalized_by: user.id,
+      finalized_by: userId,
       three_stars: threeStars as unknown as import("@/lib/db/types").Json,
     })
-    .eq("id", game_id);
+    .eq("id", gameId);
   check(error, "Finalize game");
 
   void logAudit({
-    user_id: user.id,
+    user_id: userId,
     action: "finalize_game",
     entity_type: "game",
-    entity_id: game_id,
+    entity_id: gameId,
     new_data: { home_goals: sum(game.home_team_id), away_goals: sum(game.away_team_id) },
   });
 
-  revalidateAfterScore(game_id, true);
+  revalidateAfterScore(gameId, true);
 }
 
 /**
@@ -292,20 +297,25 @@ export async function finalizeGame(formData: FormData) {
  */
 export async function reopenGame(formData: FormData) {
   const user = await requireRole("scorekeeper", "league_manager");
-  const supabase = await createClient();
   const game_id = String(formData.get("game_id"));
+  await reopenGameById(game_id, user.id);
+}
+
+/** Internal helper — all DB work for reopening. Callable by form action and revert. */
+export async function reopenGameById(gameId: string, userId: string) {
+  const supabase = await createClient();
   const { error } = await supabase
     .from("games")
     .update({ status: "in_progress", finalized_at: null, finalized_by: null })
-    .eq("id", game_id);
+    .eq("id", gameId);
   check(error, "Reopen game");
   void logAudit({
-    user_id: user.id,
+    user_id: userId,
     action: "reopen_game",
     entity_type: "game",
-    entity_id: game_id,
+    entity_id: gameId,
   });
-  revalidateAfterScore(game_id, true);
+  revalidateAfterScore(gameId, true);
 }
 
 /**
