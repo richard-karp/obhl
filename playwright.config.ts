@@ -1,6 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
 import { config } from "dotenv";
-// @ts-ignore — resolved via e2e/tsconfig.json at runtime
 
 config({ path: ".env.local" });
 

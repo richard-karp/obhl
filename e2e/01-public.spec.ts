@@ -79,7 +79,7 @@ test.describe("Path 2 — Stats tables and sorting", () => {
 
     // Click G column header — sort by goals
     await page.getByRole("columnheader", { name: /^G$/ }).first().click();
-    await page.waitForTimeout(200);
+    await page.waitForLoadState("networkidle");
 
     const g0Text = await tab.locator("table tbody tr").nth(0).locator("td").nth(3).innerText();
     const g1Text = await tab.locator("table tbody tr").nth(1).locator("td").nth(3).innerText();

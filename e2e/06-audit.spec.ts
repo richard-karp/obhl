@@ -70,19 +70,10 @@ test.describe("Path 12 — Audit log", () => {
     await page.waitForLoadState("networkidle");
 
     await page.goto("/audit");
-    // The session-card UI shows "Revert selected"; check if it's present
-    // (this passes only when session cards are rendered with the current session expanded)
     const revertBtn = page.getByRole("button", { name: /revert selected/i }).first();
-    const hasRevert = await revertBtn.isVisible().catch(() => false);
-    if (hasRevert) {
-      await revertBtn.click();
-      await page.waitForLoadState("networkidle");
-      await expect(page.getByText(/reverted successfully/i)).toBeVisible();
-    } else {
-      // Raw table UI — just verify the action was logged
-      await expect(
-        page.getByText(/update_player_status/i).first(),
-      ).toBeVisible();
-    }
+    await expect(revertBtn).toBeVisible();
+    await revertBtn.click();
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByText(/reverted successfully/i)).toBeVisible();
   });
 });
