@@ -1,5 +1,6 @@
 "use server";
 
+import Anthropic from "@anthropic-ai/sdk";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
@@ -273,7 +274,6 @@ export async function generateLeagueSummary(formData: FormData) {
     .filter(Boolean)
     .join("\n\n");
 
-  const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const client = new Anthropic({ apiKey });
   const msg = await client.messages.create({
     model: "claude-sonnet-4-6",
