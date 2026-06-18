@@ -196,6 +196,19 @@ export default async function HomePage() {
           </CardContent>
         </Card>
       )}
+
+      {season.ai_summary && (
+        <Card>
+          <CardHeader>
+            <CardTitle>League Update</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground text-sm leading-relaxed italic">
+              &ldquo;{season.ai_summary}&rdquo;
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   setActiveSeason,
   carryForwardEnrollment,
   unenrollTeam,
+  generateLeagueSummary,
 } from "@/lib/actions/seasons";
 import { AddTeamForm } from "@/components/manage/add-team-form";
 import { ScheduleBuilderPanel } from "@/components/manage/schedule-builder-panel";
@@ -66,7 +67,7 @@ export default async function SeasonSetupPage({
 
   const { data: season } = await admin
     .from("seasons")
-    .select("id, name, league_id, is_active, starts_on, ends_on")
+    .select("id, name, league_id, is_active, starts_on, ends_on, ai_summary")
     .eq("id", seasonId)
     .maybeSingle();
   if (!season) notFound();
@@ -206,6 +207,32 @@ export default async function SeasonSetupPage({
                 </TableBody>
               </Table>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* League summary */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-base">League Summary</CardTitle>
+            <form action={generateLeagueSummary}>
+              <input type="hidden" name="season_id" value={seasonId} />
+              <Button type="submit" variant="outline" size="sm">
+                {season.ai_summary ? "Regenerate" : "Generate"}
+              </Button>
+            </form>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {season.ai_summary ? (
+            <p className="text-muted-foreground text-sm leading-relaxed italic">
+              &ldquo;{season.ai_summary}&rdquo;
+            </p>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              No summary yet. Click Generate to create an AI-written league update.
+            </p>
           )}
         </CardContent>
       </Card>

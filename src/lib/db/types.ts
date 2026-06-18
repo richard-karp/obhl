@@ -482,6 +482,7 @@ export type Database = {
       }
       seasons: {
         Row: {
+          ai_summary: string | null
           created_at: string
           ends_on: string | null
           id: string
@@ -492,6 +493,7 @@ export type Database = {
           starts_on: string | null
         }
         Insert: {
+          ai_summary?: string | null
           created_at?: string
           ends_on?: string | null
           id?: string
@@ -502,6 +504,7 @@ export type Database = {
           starts_on?: string | null
         }
         Update: {
+          ai_summary?: string | null
           created_at?: string
           ends_on?: string | null
           id?: string

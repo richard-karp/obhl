@@ -202,6 +202,101 @@ export async function unenrollTeam(formData: FormData) {
   revalidatePath(`/seasons/${season_id}`);
 }
 
+/**
+ * Generate an AI league summary using Claude and store it in seasons.ai_summary.
+ * Pulls current standings, top scorers, and recent results. Manager-only.
+ */
+export async function generateLeagueSummary(formData: FormData) {
+  await requireManager();
+  const admin = createAdminClient();
+  const season_id = String(formData.get("season_id"));
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured.");
+
+  const [standingsRes, scorersRes, gamesRes, seasonRes] = await Promise.all([
+    admin
+      .from("v_standings_raw")
+      .select("team_name, gp, wins, losses, ties, points")
+      .eq("season_id", season_id)
+      .order("points", { ascending: false })
+      .limit(6),
+    admin
+      .from("v_skater_stats")
+      .select("first_name, last_name, team_name, g, a, pts")
+      .eq("season_id", season_id)
+      .order("pts", { ascending: false })
+      .order("g", { ascending: false })
+      .limit(5),
+    admin
+      .from("games")
+      .select(
+        "scheduled_at, home_goals, away_goals, " +
+        "home_team:teams!games_home_team_id_fkey(name), " +
+        "away_team:teams!games_away_team_id_fkey(name)",
+      )
+      .eq("season_id", season_id)
+      .eq("status", "final")
+      .order("scheduled_at", { ascending: false })
+      .limit(3),
+    admin.from("seasons").select("name").eq("id", season_id).maybeSingle(),
+  ]);
+
+  const standings = standingsRes.data ?? [];
+  const scorers = scorersRes.data ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recentGames = (gamesRes.data ?? []) as any[];
+  const seasonName = seasonRes.data?.name ?? "Current Season";
+
+  const standingsLines = standings.map(
+    (r) =>
+      `${r.team_name}: ${r.wins}W-${r.losses}L-${r.ties}T, ${r.points} pts (${r.gp} GP)`,
+  );
+  const scorerLines = scorers.map(
+    (r) => `${r.first_name} ${r.last_name} (${r.team_name ?? ""}): ${r.g}G ${r.a}A ${r.pts ?? 0}PTS`,
+  );
+  const gameLines = recentGames.map((g) => {
+    const away = g.away_team?.name ?? "Away";
+    const home = g.home_team?.name ?? "Home";
+    return `${away} ${g.away_goals} – ${g.home_goals} ${home}`;
+  });
+
+  const prompt = [
+    `Write a short 2-3 sentence league news update for a recreational adult hockey league.`,
+    `Season: ${seasonName}`,
+    standings.length ? `Standings:\n${standingsLines.join("\n")}` : "",
+    scorers.length ? `Top scorers:\n${scorerLines.join("\n")}` : "",
+    recentGames.length ? `Recent results:\n${gameLines.join("\n")}` : "",
+    `Highlight the standings leader, a standout player, and recent results. Keep it casual and fun.`,
+    `No filler phrases like "The league is heating up" or "In an exciting development".`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
+  const client = new Anthropic({ apiKey });
+  const msg = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 300,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const summary =
+    msg.content.length > 0 && msg.content[0].type === "text"
+      ? msg.content[0].text.trim()
+      : "";
+  if (!summary) throw new Error("AI returned empty summary.");
+
+  const { error } = await admin
+    .from("seasons")
+    .update({ ai_summary: summary })
+    .eq("id", season_id);
+  if (error) throw new Error(`Save summary failed: ${error.message}`);
+
+  revalidatePath("/");
+  revalidatePath(`/seasons/${season_id}`);
+}
+
 /** Copies enrollment from the most recent prior season that had any. */
 export async function carryForwardEnrollment(formData: FormData) {
   await requireManager();
