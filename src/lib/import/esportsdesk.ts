@@ -171,22 +171,26 @@ async function fetchTeamRoster(
 
   const players: ParsedPlayer[] = [];
   $("tr").each((_, tr) => {
+    // Use children() not find() — the page uses a nested two-column table
+    // layout; find() descends into nested tables and the outer layout rows
+    // accumulate all player cells as descendants, producing false duplicates.
     const cells = $(tr)
-      .find("td")
+      .children("td")
       .map((_, td) => $(td).text().trim())
       .get()
       .filter(Boolean);
     for (let i = 0; i < cells.length - 1; i++) {
       const next = cells[i + 1];
       if (
-        /^\d{1,2}$/.test(cells[i]) &&
-        /^[A-Za-z][A-Za-z .'-]+$/.test(next) &&
+        /^\d{1,3}$/.test(cells[i]) &&
+        /^[\p{L}][\p{L} .'-]+$/u.test(next) &&
         next.length > 2 &&
         next.length < 30
       ) {
-        const posCell = cells.slice(i + 2).find((c) => /^[GD]$/i.test(c));
-        const position = posCell
-          ? (posCell.toUpperCase() as "F" | "D" | "G")
+        // Position is the cell immediately after the name, not a distant scan.
+        const posRaw = cells[i + 2] ?? "";
+        const position = /^[GD]$/i.test(posRaw)
+          ? (posRaw.toUpperCase() as "F" | "D" | "G")
           : "F";
         players.push({
           number: Number(cells[i]),
