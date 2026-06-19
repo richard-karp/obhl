@@ -61,24 +61,62 @@ export async function getPlayerBio(
     .maybeSingle();
 
   if (error) console.error("getPlayerBio failed:", error.message);
-  if (!data) return null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const d = data as any;
+
+  if (data) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const d = data as any;
+    return {
+      player_id: playerId,
+      first_name: d.players?.first_name ?? "",
+      last_name: d.players?.last_name ?? "",
+      jersey_number: d.jersey_number ?? null,
+      position: d.position,
+      is_captain: d.is_captain,
+      is_rookie: d.is_rookie,
+      injury_notes: d.injury_notes ?? null,
+      is_suspended: d.is_suspended,
+      team_id: d.teams?.id ?? "",
+      team_name: d.teams?.name ?? "",
+      team_slug: d.teams?.slug ?? "",
+      team_color: d.teams?.color ?? null,
+      team_logo_path: d.teams?.logo_path ?? null,
+    };
+  }
+
+  // Fallback: player appeared in game_rosters (e.g. as a substitute) but has
+  // no team_players row for this season. Pull name from players table and
+  // team/position from v_skater_stats; status flags default to safe values.
+  const [{ data: player }, { data: stat }] = await Promise.all([
+    supabase
+      .from("players")
+      .select("first_name, last_name")
+      .eq("id", playerId)
+      .maybeSingle(),
+    supabase
+      .from("v_skater_stats")
+      .select("team_id, team_name, team_slug, team_color, position, jersey_number")
+      .eq("player_id", playerId)
+      .eq("season_id", seasonId)
+      .maybeSingle(),
+  ]);
+
+  if (!player) return null;
+
   return {
     player_id: playerId,
-    first_name: d.players?.first_name ?? "",
-    last_name: d.players?.last_name ?? "",
-    jersey_number: d.jersey_number ?? null,
-    position: d.position,
-    is_captain: d.is_captain,
-    is_rookie: d.is_rookie,
-    injury_notes: d.injury_notes ?? null,
-    is_suspended: d.is_suspended,
-    team_id: d.teams?.id ?? "",
-    team_name: d.teams?.name ?? "",
-    team_slug: d.teams?.slug ?? "",
-    team_color: d.teams?.color ?? null,
-    team_logo_path: d.teams?.logo_path ?? null,
+    first_name: player.first_name,
+    last_name: player.last_name,
+    jersey_number: stat?.jersey_number ?? null,
+    position: (stat?.position as PlayerBio["position"]) ?? "F",
+    is_captain: false,
+    is_rookie: false,
+    injury_notes: null,
+    is_suspended: false,
+    team_id: stat?.team_id ?? "",
+    team_name: stat?.team_name ?? "",
+    team_slug: stat?.team_slug ?? "",
+    team_color: stat?.team_color ?? null,
+    team_logo_path: null,
   };
 }
 
