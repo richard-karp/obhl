@@ -524,11 +524,58 @@ export type Database = {
           },
         ]
       }
+      team_goalie_days: {
+        Row: {
+          day_of_week: number
+          id: string
+          player_id: string
+          season_id: string
+          team_id: string
+        }
+        Insert: {
+          day_of_week: number
+          id?: string
+          player_id: string
+          season_id: string
+          team_id: string
+        }
+        Update: {
+          day_of_week?: number
+          id?: string
+          player_id?: string
+          season_id?: string
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_goalie_days_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_goalie_days_season_id_fkey"
+            columns: ["season_id"]
+            isOneToOne: false
+            referencedRelation: "seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_goalie_days_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       team_players: {
         Row: {
           id: string
           injury_notes: string | null
           is_captain: boolean
+          is_default_goalie: boolean
           is_rookie: boolean
           is_suspended: boolean
           jersey_number: number | null
@@ -541,6 +588,7 @@ export type Database = {
           id?: string
           injury_notes?: string | null
           is_captain?: boolean
+          is_default_goalie?: boolean
           is_rookie?: boolean
           is_suspended?: boolean
           jersey_number?: number | null
@@ -553,6 +601,7 @@ export type Database = {
           id?: string
           injury_notes?: string | null
           is_captain?: boolean
+          is_default_goalie?: boolean
           is_rookie?: boolean
           is_suspended?: boolean
           jersey_number?: number | null

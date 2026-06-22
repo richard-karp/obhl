@@ -176,16 +176,42 @@ export async function bumpStat(formData: FormData) {
  * player). Affects goalie stats only, so revalidate the public pages.
  */
 export async function setGoalie(formData: FormData) {
-  await requireRole("scorekeeper", "league_manager");
+  const user = await requireRole("scorekeeper", "league_manager", "captain");
   const supabase = await createClient();
   const game_id = String(formData.get("game_id"));
   const side = String(formData.get("side"));
+  if (side !== "home" && side !== "away") return;
+
+  // Captains may only set the goalie for their own team's side.
+  if (user.role === "captain") {
+    const { data: game } = await supabase
+      .from("games")
+      .select("home_team_id, away_team_id, finalized_at")
+      .eq("id", game_id)
+      .maybeSingle();
+    if (!game || game.finalized_at) return;
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("player_id")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (!prof?.player_id) return;
+    const { data: tp } = await supabase
+      .from("team_players")
+      .select("team_id")
+      .eq("player_id", prof.player_id)
+      .eq("is_captain", true)
+      .maybeSingle();
+    const captainTeamId = tp?.team_id;
+    const sideTeamId = side === "home" ? game.home_team_id : game.away_team_id;
+    if (captainTeamId !== sideTeamId) return;
+  }
+
   // "sub" = substitute goalie (no individual record); "" = clear (fallback to
   // dressed G); any uuid = an individual goalie of record.
   const raw = String(formData.get("goalie_id") ?? "");
   const isSub = raw === "sub";
   const goalie_id = isSub || raw === "" ? null : raw;
-  if (side !== "home" && side !== "away") return;
 
   const patch =
     side === "home"

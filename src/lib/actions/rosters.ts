@@ -111,6 +111,63 @@ export async function toggleCaptain(formData: FormData) {
   revalidatePath(`/rosters/${team_id}`);
 }
 
+export async function setDefaultGoalie(formData: FormData) {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+  const id = String(formData.get("id")); // team_players.id
+  const team_id = String(formData.get("team_id"));
+  const season_id = String(formData.get("season_id"));
+  const make = formData.get("make") === "1";
+
+  // Clear any existing default on this team/season first, then set the new one.
+  await admin
+    .from("team_players")
+    .update({ is_default_goalie: false })
+    .eq("team_id", team_id)
+    .eq("season_id", season_id);
+  if (make) {
+    await admin.from("team_players").update({ is_default_goalie: true }).eq("id", id);
+  }
+  void logAudit({
+    user_id: manager.id,
+    action: "set_default_goalie",
+    entity_type: "team_player",
+    entity_id: id,
+    new_data: { is_default_goalie: make },
+  });
+  revalidatePath(`/rosters/${team_id}`);
+}
+
+export async function setGoalieDay(formData: FormData) {
+  const manager = await requireManager();
+  const admin = createAdminClient();
+  const team_id = String(formData.get("team_id"));
+  const season_id = String(formData.get("season_id"));
+  const day_of_week = Number(formData.get("day_of_week"));
+  const player_id = String(formData.get("player_id") ?? "").trim();
+
+  if (player_id) {
+    await admin
+      .from("team_goalie_days")
+      .upsert({ team_id, season_id, day_of_week, player_id }, { onConflict: "team_id,season_id,day_of_week" });
+  } else {
+    await admin
+      .from("team_goalie_days")
+      .delete()
+      .eq("team_id", team_id)
+      .eq("season_id", season_id)
+      .eq("day_of_week", day_of_week);
+  }
+  void logAudit({
+    user_id: manager.id,
+    action: "set_goalie_day",
+    entity_type: "team",
+    entity_id: team_id,
+    new_data: { day_of_week, player_id: player_id || null },
+  });
+  revalidatePath(`/rosters/${team_id}`);
+}
+
 export async function updatePlayerStatus(formData: FormData) {
   const manager = await requireManager();
   const admin = createAdminClient();

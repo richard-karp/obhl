@@ -53,11 +53,18 @@ export default async function ScoreGamePage({
   const homeT = game.home_team as any;
   const awayT = game.away_team as any;
 
+  // day_of_week in America/Chicago (where games are played)
+  const gameDay = game.scheduled_at
+    ? new Date(
+        new Date(game.scheduled_at).toLocaleString("en-US", { timeZone: "America/Chicago" }),
+      ).getDay()
+    : -1;
+
   // Scorekeepers identify players by number only — no names are fetched.
-  const [{ data: roster }, { data: dressed }] = await Promise.all([
+  const [{ data: roster }, { data: dressed }, { data: goalieDays }] = await Promise.all([
     supabase
       .from("team_players")
-      .select("player_id, team_id, jersey_number")
+      .select("player_id, team_id, jersey_number, position, is_default_goalie")
       .eq("season_id", game.season_id)
       .in("team_id", [homeT.id, awayT.id])
       .order("jersey_number", { ascending: true }),
@@ -65,6 +72,12 @@ export default async function ScoreGamePage({
       .from("game_rosters")
       .select("id, player_id, team_id, goals, assists, pim, is_substitute")
       .eq("game_id", gameId),
+    (supabase as any)
+      .from("team_goalie_days")
+      .select("team_id, player_id")
+      .eq("season_id", game.season_id)
+      .in("team_id", [homeT.id, awayT.id])
+      .eq("day_of_week", gameDay),
   ]);
 
   const numberOf = new Map<string, number | null>();
@@ -112,6 +125,13 @@ export default async function ScoreGamePage({
         dressed: dressedSet.has(r.player_id),
       }))
       .sort(byNumber);
+    const goalies = (roster ?? [])
+      .filter((r) => r.team_id === t.id && (r as any).position === "G")
+      .map((r) => ({ playerId: r.player_id, number: r.jersey_number, isDefault: !!(r as any).is_default_goalie }))
+      .sort(byNumber);
+    const dayGoalie = (goalieDays ?? []).find((d: any) => d.team_id === t.id);
+    const defaultGoalie = goalies.find((g) => g.isDefault);
+    const suggestedGoalieId = dayGoalie?.player_id ?? defaultGoalie?.playerId ?? null;
     return {
       id: t.id,
       side,
@@ -119,6 +139,8 @@ export default async function ScoreGamePage({
       color: t.color,
       dressed: lines,
       roster: rosterChecks,
+      goalies,
+      suggestedGoalieId,
       goalieId: side === "home" ? game.home_goalie_id : game.away_goalie_id,
       goalieIsSub:
         side === "home" ? game.home_goalie_is_sub : game.away_goalie_is_sub,

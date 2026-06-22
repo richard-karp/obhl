@@ -34,6 +34,10 @@ export type TeamBoard = {
   color: string | null;
   dressed: DressedLine[];
   roster: RosterCheck[];
+  /** Rostered goalies (position='G') — the only choices for goalie of record. */
+  goalies: { playerId: string; number: number | null; isDefault: boolean }[];
+  /** Suggested goalie from day-of-week schedule or team default; null if none configured. */
+  suggestedGoalieId: string | null;
   /** Goalie of record (explicit pick); null falls back to the dressed goalie. */
   goalieId: string | null;
   /** True when the goalie of record was a substitute — no individual GA/W-L. */
@@ -163,58 +167,71 @@ function LineupEditor({ gameId, board }: { gameId: string; board: TeamBoard }) {
   );
 }
 
-/** Goalie of record + empty-net-goals-against (scorekeeper/manager). */
-function GoalieAndEmptyNet({ data, board }: { data: ScoreBoardData; board: TeamBoard }) {
+/** Goalie of record + empty-net-goals-against (scorekeeper/manager/captain). */
+function GoalieAndEmptyNet({ data, board, editGoalie }: { data: ScoreBoardData; board: TeamBoard; editGoalie: boolean }) {
+  // Explicit pick takes priority; fall back to the configured suggestion.
+  const activeValue = board.goalieId
+    ? (board.goalieIsSub ? "sub" : board.goalieId)
+    : (board.suggestedGoalieId ?? "");
+  const options: { value: string; label: string }[] = [
+    ...board.goalies.map((g) => ({
+      value: g.playerId,
+      label: `#${g.number ?? "—"}`,
+    })),
+    { value: "sub", label: "Sub" },
+  ];
   return (
     <div className="space-y-2 border-t pt-3">
       <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
-        <form action={setGoalie} className="space-y-1">
+        <div className="space-y-1">
           <span className="text-muted-foreground block text-[0.7rem] font-semibold uppercase">
             Goalie
           </span>
-          <div className="flex items-center gap-1.5">
-            <select
-              name="goalie_id"
-              key={`${board.goalieId ?? "none"}-${board.goalieIsSub}`}
-              defaultValue={board.goalieIsSub ? "sub" : (board.goalieId ?? "")}
-              className="border-input bg-background h-7 rounded-md border px-2 text-sm tabular-nums"
-              aria-label={`${board.name} goalie of record`}
-            >
-              <option value="">—</option>
-              <option value="sub">Substitute</option>
-              {board.dressed
-                .filter((l) => !l.isSub)
-                .map((l) => (
-                  <option key={l.rosterId} value={l.playerId ?? ""}>
-                    #{l.number ?? "—"}
-                  </option>
-                ))}
-            </select>
-            <input type="hidden" name="game_id" value={data.gameId} />
-            <input type="hidden" name="side" value={board.side} />
-            <Button type="submit" size="sm" variant="secondary" className="h-7">
-              Set
-            </Button>
-          </div>
-        </form>
-
-        <div className="space-y-1">
-          <span className="text-muted-foreground block text-[0.7rem] font-semibold uppercase">
-            Empty-net GA
-          </span>
-          <div className="flex items-center gap-1.5">
-            <EmptyNetButton gameId={data.gameId} side={board.side} sign="−" />
-            <span className="w-5 text-center text-sm font-semibold tabular-nums">
-              {board.emptyNetAgainst}
-            </span>
-            <EmptyNetButton gameId={data.gameId} side={board.side} sign="+" />
+          <div className="flex flex-wrap gap-1.5">
+            {options.map((opt) => (
+              editGoalie ? (
+                <form key={opt.value} action={setGoalie}>
+                  <input type="hidden" name="game_id" value={data.gameId} />
+                  <input type="hidden" name="side" value={board.side} />
+                  <input type="hidden" name="goalie_id" value={opt.value} />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant={activeValue === opt.value ? "default" : "outline"}
+                    className="h-7 tabular-nums"
+                  >
+                    {opt.label}
+                  </Button>
+                </form>
+              ) : (
+                <span
+                  key={opt.value}
+                  className={`inline-flex h-7 items-center rounded-md border px-3 text-sm tabular-nums ${activeValue === opt.value ? "bg-primary text-primary-foreground border-primary" : "border-input text-muted-foreground"}`}
+                >
+                  {opt.label}
+                </span>
+              )
+            ))}
           </div>
         </div>
+
+        {data.canScore ? (
+          <div className="space-y-1">
+            <span className="text-muted-foreground block text-[0.7rem] font-semibold uppercase">
+              Empty-net GA
+            </span>
+            <div className="flex items-center gap-1.5">
+              <EmptyNetButton gameId={data.gameId} side={board.side} sign="−" />
+              <span className="w-5 text-center text-sm font-semibold tabular-nums">
+                {board.emptyNetAgainst}
+              </span>
+              <EmptyNetButton gameId={data.gameId} side={board.side} sign="+" />
+            </div>
+          </div>
+        ) : null}
       </div>
       <p className="text-muted-foreground text-xs">
-        Goalie of record gets this game&apos;s W/L; leave blank to use the rostered
-        goalie. Empty-net GA = goals scored against this team&apos;s empty net —
-        excluded from its goalie&apos;s GAA.
+        Tap a goalie to set who&apos;s in net (W/L credit). &quot;Sub&quot; = substitute goalie, no individual stats.{data.canScore ? " Empty-net GA = goals against an empty net — excluded from the goalie’s GAA." : ""}
       </p>
     </div>
   );
@@ -252,6 +269,8 @@ function TeamPanel({ data, board }: { data: ScoreBoardData; board: TeamBoard }) 
   // mistakes); captains can only set the lineup before it's finalized.
   const editStats = data.canScore;
   const editLineup =
+    data.canScore || (!data.finalized && data.captainTeamId === board.id);
+  const editGoalie =
     data.canScore || (!data.finalized && data.captainTeamId === board.id);
   const total = board.dressed.reduce((s, l) => s + l.goals, 0);
 
@@ -317,7 +336,7 @@ function TeamPanel({ data, board }: { data: ScoreBoardData; board: TeamBoard }) 
           )
         ) : null}
 
-        {data.canScore ? <GoalieAndEmptyNet data={data} board={board} /> : null}
+        {editGoalie ? <GoalieAndEmptyNet data={data} board={board} editGoalie={editGoalie} /> : null}
       </CardContent>
     </Card>
   );
