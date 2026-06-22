@@ -168,7 +168,7 @@ function LineupEditor({ gameId, board }: { gameId: string; board: TeamBoard }) {
 }
 
 /** Goalie of record + empty-net-goals-against (scorekeeper/manager/captain). */
-function GoalieAndEmptyNet({ data, board, editGoalie }: { data: ScoreBoardData; board: TeamBoard; editGoalie: boolean }) {
+function GoalieAndEmptyNet({ data, board }: { data: ScoreBoardData; board: TeamBoard }) {
   // Explicit pick takes priority; fall back to the configured suggestion.
   const activeValue = board.goalieId
     ? (board.goalieIsSub ? "sub" : board.goalieId)
@@ -189,28 +189,19 @@ function GoalieAndEmptyNet({ data, board, editGoalie }: { data: ScoreBoardData; 
           </span>
           <div className="flex flex-wrap gap-1.5">
             {options.map((opt) => (
-              editGoalie ? (
-                <form key={opt.value} action={setGoalie}>
-                  <input type="hidden" name="game_id" value={data.gameId} />
-                  <input type="hidden" name="side" value={board.side} />
-                  <input type="hidden" name="goalie_id" value={opt.value} />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    variant={activeValue === opt.value ? "default" : "outline"}
-                    className="h-7 tabular-nums"
-                  >
-                    {opt.label}
-                  </Button>
-                </form>
-              ) : (
-                <span
-                  key={opt.value}
-                  className={`inline-flex h-7 items-center rounded-md border px-3 text-sm tabular-nums ${activeValue === opt.value ? "bg-primary text-primary-foreground border-primary" : "border-input text-muted-foreground"}`}
+              <form key={opt.value} action={setGoalie}>
+                <input type="hidden" name="game_id" value={data.gameId} />
+                <input type="hidden" name="side" value={board.side} />
+                <input type="hidden" name="goalie_id" value={opt.value} />
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant={activeValue === opt.value ? "default" : "outline"}
+                  className="h-7 tabular-nums"
                 >
                   {opt.label}
-                </span>
-              )
+                </Button>
+              </form>
             ))}
           </div>
         </div>
@@ -269,8 +260,6 @@ function TeamPanel({ data, board }: { data: ScoreBoardData; board: TeamBoard }) 
   // mistakes); captains can only set the lineup before it's finalized.
   const editStats = data.canScore;
   const editLineup =
-    data.canScore || (!data.finalized && data.captainTeamId === board.id);
-  const editGoalie =
     data.canScore || (!data.finalized && data.captainTeamId === board.id);
   const total = board.dressed.reduce((s, l) => s + l.goals, 0);
 
@@ -336,7 +325,7 @@ function TeamPanel({ data, board }: { data: ScoreBoardData; board: TeamBoard }) 
           )
         ) : null}
 
-        {editGoalie ? <GoalieAndEmptyNet data={data} board={board} editGoalie={editGoalie} /> : null}
+        {editLineup ? <GoalieAndEmptyNet data={data} board={board} /> : null}
       </CardContent>
     </Card>
   );

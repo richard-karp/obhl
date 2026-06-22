@@ -53,7 +53,7 @@ export default async function RosterEditorPage({
       .eq("season_id", season.id)
       .eq("team_id", teamId)
       .order("jersey_number", { ascending: true }),
-    (admin as any)
+    admin
       .from("team_goalie_days")
       .select("day_of_week, player_id")
       .eq("season_id", season.id)

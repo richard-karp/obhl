@@ -72,7 +72,7 @@ export default async function ScoreGamePage({
       .from("game_rosters")
       .select("id, player_id, team_id, goals, assists, pim, is_substitute")
       .eq("game_id", gameId),
-    (supabase as any)
+    supabase
       .from("team_goalie_days")
       .select("team_id, player_id")
       .eq("season_id", game.season_id)

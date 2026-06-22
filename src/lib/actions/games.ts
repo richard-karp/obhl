@@ -186,7 +186,7 @@ export async function setGoalie(formData: FormData) {
   if (user.role === "captain") {
     const { data: game } = await supabase
       .from("games")
-      .select("home_team_id, away_team_id, finalized_at")
+      .select("home_team_id, away_team_id, finalized_at, season_id")
       .eq("id", game_id)
       .maybeSingle();
     if (!game || game.finalized_at) return;
@@ -201,6 +201,7 @@ export async function setGoalie(formData: FormData) {
       .select("team_id")
       .eq("player_id", prof.player_id)
       .eq("is_captain", true)
+      .eq("season_id", game.season_id)
       .maybeSingle();
     const captainTeamId = tp?.team_id;
     const sideTeamId = side === "home" ? game.home_team_id : game.away_team_id;
