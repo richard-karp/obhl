@@ -2,6 +2,7 @@ import { createAdminClient } from "@/utils/supabase/admin";
 import { publishSchedule, discardSchedule } from "@/lib/actions/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { weekdayOf } from "@/lib/schedule/assignNights";
+import { spacingReport, type PlacedGame } from "@/lib/schedule/spacing";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -108,7 +109,7 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
 
   // Derived summary + overrun check (the regular season should finish before the
   // season's playoff-inclusive end date).
-  const draftDates = [...byDate.keys()].filter(Boolean).sort();
+  const draftDates = [...byDate.keys()].filter((d) => d && d !== "tbd").sort();
   const firstDate = draftDates[0];
   const lastDate = draftDates.at(-1);
   const gamesPerTeamLabel =
@@ -119,6 +120,25 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
         : `${Math.min(...gpVals)}–${Math.max(...gpVals)}`;
   const overrunsSeason =
     !!season?.ends_on && !!lastDate && lastDate > season.ends_on;
+
+  // Spacing checks — reconstruct placement (night order + slot order) from the
+  // draft games so managers can verify bye/rematch/ice-time spacing.
+  const spacingNights = draftDates.map((d) => ({ date: d, slots: [] as string[] }));
+  const nightIndexOf = new Map(draftDates.map((d, i) => [d, i]));
+  const placed: PlacedGame[] = [];
+  for (const [date, arr] of byDate) {
+    if (!nightIndexOf.has(date)) continue;
+    arr.forEach((g, slotIndex) => {
+      placed.push({
+        home: g.home_team_id,
+        away: g.away_team_id,
+        nightIndex: nightIndexOf.get(date)!,
+        slotIndex,
+      });
+    });
+  }
+  const spacing =
+    placed.length > 0 ? spacingReport(placed, spacingNights, teamRows) : null;
 
   return (
     <div className="space-y-6">
@@ -256,6 +276,48 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
               </p>
             </CardContent>
           </Card>
+
+          {spacing ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Spacing checks</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="grid gap-1.5 text-sm sm:grid-cols-2">
+                  {(
+                    [
+                      ["Weeks a team misses every game night", spacing.byesMultiWeek],
+                      ["Teams byeing two weeks in a row", spacing.byesConsecWeek],
+                      ["…on the same weekday", spacing.byesConsecWeekSameDay],
+                      ["Same opponents in one week", spacing.rematchSameWeek],
+                      ["Same opponents back-to-back nights", spacing.rematchAdjNight],
+                      ["Same opponents in consecutive weeks", spacing.rematchConsecWeek],
+                      ["Back-to-back games in the same ice time", spacing.slotConsecutive],
+                    ] as const
+                  ).map(([label, count]) => (
+                    <li key={label} className="flex items-center gap-2">
+                      <span
+                        className={
+                          count === 0
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-amber-600 dark:text-amber-400"
+                        }
+                      >
+                        {count === 0 ? "✓" : count}
+                      </span>
+                      <span className="text-muted-foreground">{label}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-muted-foreground mt-2 text-xs">
+                  Byes and repeated matchups are minimized after an even schedule
+                  is fixed. Some are unavoidable when there are fewer ice slots
+                  than half the teams (so not everyone plays every night) — add ice
+                  times or game nights to drive these to zero.
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <div className="space-y-6">
             {[...byDate.entries()].map(([date, arr]) => (
