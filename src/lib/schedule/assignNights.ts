@@ -1,4 +1,12 @@
 import type { Pairing } from "./roundRobin";
+import {
+  buildNightMeta,
+  teamSpacingCost,
+  matchupSpacingCost,
+  spacingReport,
+  type NightMeta,
+  type SpacingReport,
+} from "./spacing";
 
 /**
  * Assigns pairings onto concrete game nights + ice-time slots, then polishes the
@@ -39,6 +47,7 @@ export type BalanceReport = {
   nightShareByTeam: { team: string; counts: number[] }[];
   pairingCounts: { matchup: string; count: number }[];
   minRematchGapNights: number | null;
+  spacing: SpacingReport;
 };
 
 const matchupKey = (a: string, b: string) => [a, b].sort().join("|");
@@ -57,15 +66,27 @@ const REMATCH_W = 300;
 const ROUND_W = 0.001;
 // Small earlier-slot bias — must be < 1 so integer slot-count balance wins.
 const SLOT_BIAS = 0.1;
-// Iterated-local-search budget. Small instances get full optimization; large
-// ones (which can't reach a perfect ≤1 spread anyway) get fewer restarts so a
-// full-season "By end date" generate stays fast. Each hill-climb pass is O(G²),
-// so the restart count is the main runtime lever.
+// Weekday-balance weight in the unified optimizer — priority #1 is never traded
+// for spacing. Invariant: it must exceed the largest spacing-penalty swing a
+// single swap can produce (≤4 affected teams × their SPACING_W terms, realistically
+// well under ~30k), so any swap that worsens a team's weekday spread by 1 (costing
+// BALANCE_W) can never be justified by spacing gains. Keep this comfortably above
+// the sum of SPACING_W weights if those grow.
+const BALANCE_W = 100_000;
+// Iterated-local-search budget for the spacing pass. Each candidate swap now
+// re-evaluates O(weeks)-cost spacing terms, and every hill-climb pass is O(G²),
+// so the restart count is the dominant runtime lever — keep it small and scale
+// it down hard as the game count grows so a large-league generate stays fast.
+// The search starts from an already-balanced greedy, so few restarts suffice.
 const HILLCLIMB_PASSES = 30;
 function ilsRestartsFor(gameCount: number): number {
-  if (gameCount <= 150) return 60;
-  if (gameCount <= 350) return 16;
-  return 6;
+  // Small leagues are cheap per restart, so keep enough to reliably converge
+  // weekday balance (#1); large leagues cost O(G²·weeks) per restart, so cut
+  // hard to stay well under a second.
+  if (gameCount <= 80) return 40;
+  if (gameCount <= 120) return 10;
+  if (gameCount <= 200) return 4;
+  return 2;
 }
 
 /** Deterministic PRNG so a given input always yields the same schedule. */
@@ -228,62 +249,6 @@ function vectorsOf(games: ScheduledGame[], teamIds: string[], meta: Meta) {
 
 const sq = (a: number[]) => a.reduce((s, x) => s + x * x, 0);
 const spread = (a: number[]) => (a.length ? Math.max(...a) - Math.min(...a) : 0);
-// Steep penalty per unit of spread beyond 1 — makes the hill-climb actively
-// clear "one team a game over on a weekday/slot" cases that squared imbalance
-// alone barely registers.
-const SPREAD_PENALTY = 60;
-const spreadCost = (a: number[]) => Math.max(0, spread(a) - 1) * SPREAD_PENALTY;
-
-/** Smallest gap (in nights) between any pair's consecutive meetings. */
-function minRematchGap(games: ScheduledGame[]): number | null {
-  const meetings = new Map<string, number[]>();
-  for (const g of games) {
-    const mk = matchupKey(g.home, g.away);
-    (meetings.get(mk) ?? meetings.set(mk, []).get(mk)!).push(g.nightIndex);
-  }
-  let min: number | null = null;
-  for (const nis of meetings.values()) {
-    if (nis.length < 2) continue;
-    nis.sort((a, b) => a - b);
-    for (let i = 1; i < nis.length; i++) {
-      const gap = nis[i] - nis[i - 1];
-      min = min == null ? gap : Math.min(min, gap);
-    }
-  }
-  return min;
-}
-
-/**
- * Lexicographic quality of a placement (lower is better): worst weekday spread,
- * worst ice-time spread, total squared imbalance, then rematch tightness. The
- * first two are what the user cares about most, so they dominate.
- */
-function scoreTuple(
-  games: ScheduledGame[],
-  teamIds: string[],
-  meta: Meta,
-): number[] {
-  const { slot, wd } = vectorsOf(games, teamIds, meta);
-  let maxWd = 0;
-  let maxSlot = 0;
-  let sumSq = 0;
-  for (const t of teamIds) {
-    maxWd = Math.max(maxWd, spread(wd.get(t)!));
-    maxSlot = Math.max(maxSlot, spread(slot.get(t)!));
-    sumSq += sq(wd.get(t)!) + sq(slot.get(t)!);
-  }
-  // Balance first (worst weekday spread, worst slot spread, total imbalance),
-  // then prefer wider rematch spacing among equally balanced schedules.
-  const gap = minRematchGap(games);
-  return [maxWd, maxSlot, sumSq, -Math.min(gap ?? 99, 99)];
-}
-
-function lessThan(a: number[], b: number[]): boolean {
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return a[i] < b[i];
-  }
-  return false;
-}
 
 /** Would swapping the two games' (night, slot) positions be legal? */
 function swapLegal(
@@ -334,77 +299,6 @@ function nightTeamsOf(games: ScheduledGame[], nights: Night[]): Set<string>[] {
   return nt;
 }
 
-/**
- * Hill-climb to a local optimum: repeatedly apply the first position-swap that
- * lowers total squared imbalance (covers both weekday and ice-time balance).
- */
-function hillclimb(games: ScheduledGame[], nights: Night[], teamIds: string[], meta: Meta): void {
-  const { slot, wd } = vectorsOf(games, teamIds, meta);
-  const nightTeams = nightTeamsOf(games, nights);
-  const cost = (t: string) =>
-    sq(slot.get(t)!) +
-    sq(wd.get(t)!) +
-    spreadCost(slot.get(t)!) +
-    spreadCost(wd.get(t)!);
-  const moveSlot = (t: string, from: number, to: number) => {
-    slot.get(t)![from]--;
-    slot.get(t)![to]++;
-  };
-  const moveWd = (t: string, from: number, to: number) => {
-    wd.get(t)![from]--;
-    wd.get(t)![to]++;
-  };
-
-  let improved = true;
-  let guard = 0;
-  while (improved && guard++ < HILLCLIMB_PASSES) {
-    improved = false;
-    for (let i = 0; i < games.length; i++) {
-      for (let j = i + 1; j < games.length; j++) {
-        const g1 = games[i];
-        const g2 = games[j];
-        if (!swapLegal(g1, g2, nights, nightTeams)) continue;
-        const n1 = g1.nightIndex;
-        const n2 = g2.nightIndex;
-        const s1 = g1.slotIndex;
-        const s2 = g2.slotIndex;
-        const w1 = meta.nightW[n1];
-        const w2 = meta.nightW[n2];
-        const affected = [...new Set([g1.home, g1.away, g2.home, g2.away])];
-        const before = affected.reduce((s, t) => s + cost(t), 0);
-
-        moveSlot(g1.home, s1, s2);
-        moveSlot(g1.away, s1, s2);
-        moveSlot(g2.home, s2, s1);
-        moveSlot(g2.away, s2, s1);
-        if (w1 !== w2) {
-          moveWd(g1.home, w1, w2);
-          moveWd(g1.away, w1, w2);
-          moveWd(g2.home, w2, w1);
-          moveWd(g2.away, w2, w1);
-        }
-        const after = affected.reduce((s, t) => s + cost(t), 0);
-
-        if (after < before - 1e-9) {
-          doSwap(g1, g2, nights, nightTeams);
-          improved = true;
-        } else {
-          moveSlot(g1.home, s2, s1);
-          moveSlot(g1.away, s2, s1);
-          moveSlot(g2.home, s1, s2);
-          moveSlot(g2.away, s1, s2);
-          if (w1 !== w2) {
-            moveWd(g1.home, w2, w1);
-            moveWd(g1.away, w2, w1);
-            moveWd(g2.home, w1, w2);
-            moveWd(g2.away, w1, w2);
-          }
-        }
-      }
-    }
-  }
-}
-
 /** Random legal position-swaps to kick out of a local optimum. */
 function perturb(
   games: ScheduledGame[],
@@ -441,6 +335,179 @@ function restore(
   }
 }
 
+/**
+ * Second-stage refinement (priority #2–#4): improve bye distribution, rematch
+ * spacing, and ice-time spread via position swaps — but only swaps that do NOT
+ * worsen any team's weekday spread, so the #1 even-schedule balance is preserved.
+ */
+function refineSpacing(
+  games: ScheduledGame[],
+  nights: Night[],
+  teamIds: string[],
+  bmeta: Meta,
+  smeta: NightMeta,
+): void {
+  if (games.length < 2 || smeta.sortedWeeks.length === 0) return;
+  const numSlots = bmeta.numSlots;
+  const wd = new Map<string, number[]>(
+    teamIds.map((t) => [t, bmeta.usedWeekdays.map(() => 0)]),
+  );
+  const slotByNight = new Map<string, Map<number, number>>(
+    teamIds.map((t) => [t, new Map()]),
+  );
+  const matchupNights = new Map<string, number[]>();
+  const nightTeams = nightTeamsOf(games, nights);
+  for (const g of games) {
+    wd.get(g.home)![bmeta.nightW[g.nightIndex]]++;
+    wd.get(g.away)![bmeta.nightW[g.nightIndex]]++;
+    slotByNight.get(g.home)!.set(g.nightIndex, g.slotIndex);
+    slotByNight.get(g.away)!.set(g.nightIndex, g.slotIndex);
+    const k = matchupKey(g.home, g.away);
+    (matchupNights.get(k) ?? matchupNights.set(k, []).get(k)!).push(g.nightIndex);
+  }
+
+  // Unified per-team cost: weekday balance (#1) dominates via a huge weight, so
+  // the search never trades an even schedule for spacing; ice-time/bye spacing
+  // (#2–#4) ride underneath in teamSpacingCost.
+  const tCost = (t: string) => {
+    const v = wd.get(t)!;
+    return (
+      BALANCE_W * Math.max(0, spread(v) - 1) +
+      sq(v) +
+      teamSpacingCost(slotByNight.get(t)!, numSlots, smeta)
+    );
+  };
+  const mCost = (k: string) => matchupSpacingCost(matchupNights.get(k)!, smeta);
+  const totalCost = () =>
+    teamIds.reduce((s, t) => s + tCost(t), 0) +
+    [...matchupNights.keys()].reduce((s, k) => s + mCost(k), 0);
+  const replace = (arr: number[], from: number, to: number) => {
+    const i = arr.indexOf(from);
+    if (i >= 0) arr[i] = to;
+  };
+
+  // One hill-climb to a local optimum: apply balance-preserving swaps that lower
+  // the spacing penalty.
+  const climb = () => {
+    let improved = true;
+    let pass = 0;
+    while (improved && pass++ < HILLCLIMB_PASSES) {
+      improved = false;
+      for (let i = 0; i < games.length; i++) {
+        for (let j = i + 1; j < games.length; j++) {
+          const g1 = games[i];
+          const g2 = games[j];
+          if (!swapLegal(g1, g2, nights, nightTeams)) continue;
+          const n1 = g1.nightIndex;
+          const n2 = g2.nightIndex;
+          const s1 = g1.slotIndex;
+          const s2 = g2.slotIndex;
+          const w1 = bmeta.nightW[n1];
+          const w2 = bmeta.nightW[n2];
+          const k1 = matchupKey(g1.home, g1.away);
+          const k2 = matchupKey(g2.home, g2.away);
+          const teams = [...new Set([g1.home, g1.away, g2.home, g2.away])];
+          // k1 === k2 would mean swapping two meetings of the same pair; that's
+          // always rejected by swapLegal (a team can't move to a night it already
+          // plays), so the branch below is defensive. It also guarantees a
+          // matchup's night list never holds a duplicate of the night being
+          // moved in, so replace()'s indexOf targets the right entry.
+          const mkeys = k1 === k2 ? [k1] : [k1, k2];
+          const before =
+            teams.reduce((s, t) => s + tCost(t), 0) +
+            mkeys.reduce((s, k) => s + mCost(k), 0);
+
+          const applyTracking = () => {
+            for (const t of [g1.home, g1.away]) {
+              wd.get(t)![w1]--;
+              wd.get(t)![w2]++;
+              slotByNight.get(t)!.delete(n1);
+              slotByNight.get(t)!.set(n2, s2);
+            }
+            for (const t of [g2.home, g2.away]) {
+              wd.get(t)![w2]--;
+              wd.get(t)![w1]++;
+              slotByNight.get(t)!.delete(n2);
+              slotByNight.get(t)!.set(n1, s1);
+            }
+            if (k1 !== k2) {
+              replace(matchupNights.get(k1)!, n1, n2);
+              replace(matchupNights.get(k2)!, n2, n1);
+            }
+          };
+          const revertTracking = () => {
+            for (const t of [g1.home, g1.away]) {
+              wd.get(t)![w2]--;
+              wd.get(t)![w1]++;
+              slotByNight.get(t)!.delete(n2);
+              slotByNight.get(t)!.set(n1, s1);
+            }
+            for (const t of [g2.home, g2.away]) {
+              wd.get(t)![w1]--;
+              wd.get(t)![w2]++;
+              slotByNight.get(t)!.delete(n1);
+              slotByNight.get(t)!.set(n2, s2);
+            }
+            if (k1 !== k2) {
+              replace(matchupNights.get(k1)!, n2, n1);
+              replace(matchupNights.get(k2)!, n1, n2);
+            }
+          };
+
+          applyTracking();
+          const after =
+            teams.reduce((s, t) => s + tCost(t), 0) +
+            mkeys.reduce((s, k) => s + mCost(k), 0);
+          if (after < before - 1e-9) {
+            doSwap(g1, g2, nights, nightTeams);
+            improved = true;
+          } else {
+            revertTracking();
+          }
+        }
+      }
+    }
+  };
+
+  const rnd = mulberry32(teamIds.length * 6151 + games.length * 233 + 7);
+  const restarts = ilsRestartsFor(games.length);
+  climb();
+  let bestSnap = snapshot(games);
+  let bestTotal = totalCost();
+  for (let iter = 0; iter < restarts; iter++) {
+    restore(games, bestSnap, nights);
+    rebuild();
+    perturb(games, nights, rnd, 3);
+    rebuild();
+    climb();
+    const total = totalCost();
+    if (total < bestTotal) {
+      bestTotal = total;
+      bestSnap = snapshot(games);
+    }
+  }
+  restore(games, bestSnap, nights);
+
+  function rebuild() {
+    for (const t of teamIds) {
+      wd.get(t)!.fill(0);
+      slotByNight.get(t)!.clear();
+    }
+    matchupNights.clear();
+    for (const s of nightTeams) s.clear();
+    for (const g of games) {
+      wd.get(g.home)![bmeta.nightW[g.nightIndex]]++;
+      wd.get(g.away)![bmeta.nightW[g.nightIndex]]++;
+      slotByNight.get(g.home)!.set(g.nightIndex, g.slotIndex);
+      slotByNight.get(g.away)!.set(g.nightIndex, g.slotIndex);
+      const k = matchupKey(g.home, g.away);
+      (matchupNights.get(k) ?? matchupNights.set(k, []).get(k)!).push(g.nightIndex);
+      nightTeams[g.nightIndex].add(g.home);
+      nightTeams[g.nightIndex].add(g.away);
+    }
+  }
+}
+
 export function assignNights(
   pairings: Pairing[],
   nights: Night[],
@@ -449,31 +516,12 @@ export function assignNights(
   const meta = buildMeta(nights);
   const { games, unscheduled } = greedyAssign(pairings, nights, teamIds, meta);
 
-  // Iterated local search: climb, then kick-and-reclimb, keeping the best.
-  hillclimb(games, nights, teamIds, meta);
-  let best = snapshot(games);
-  let bestScore = scoreTuple(games, teamIds, meta);
-  const rnd = mulberry32(teamIds.length * 7919 + games.length * 104729 + 1);
-  const imbalanced = () => {
-    const { slot, wd } = vectorsOf(games, teamIds, meta);
-    return teamIds.filter(
-      (t) => spread(slot.get(t)!) > 1 || spread(wd.get(t)!) > 1,
-    ).length;
-  };
-  const restarts = ilsRestartsFor(games.length);
-  for (let iter = 0; iter < restarts; iter++) {
-    if (bestScore[0] <= 1 && bestScore[1] <= 1) break; // already even everywhere
-    perturb(games, nights, rnd, Math.max(2, imbalanced()));
-    hillclimb(games, nights, teamIds, meta);
-    const sc = scoreTuple(games, teamIds, meta);
-    if (lessThan(sc, bestScore)) {
-      best = snapshot(games);
-      bestScore = sc;
-    } else {
-      restore(games, best, nights);
-    }
-  }
-  restore(games, best, nights);
+  // Single iterated local search over one objective: weekday balance (#1,
+  // dominant) plus bye/rematch/ice-time spacing (#2–#4). Scoring both together
+  // means bye- or rematch-clustering placements are never accepted in the first
+  // place, rather than created by a balance-only pass and patched afterward.
+  const smeta = buildNightMeta(nights);
+  refineSpacing(games, nights, teamIds, meta, smeta);
 
   // Derive the report from the final placement.
   const { slot: finalSlot, wd: nightTally } = vectorsOf(games, teamIds, meta);
@@ -512,6 +560,7 @@ export function assignNights(
         count,
       })),
       minRematchGapNights: minGap,
+      spacing: spacingReport(games, nights, teamIds),
     },
   };
 }

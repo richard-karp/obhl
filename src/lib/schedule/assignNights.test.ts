@@ -100,10 +100,13 @@ describe("assignNights", () => {
     expect(report.weekdays.length).toBe(2);
     for (const t of report.gamesPerTeam) expect(t.count).toBe(14);
     for (const w of report.nightShareByTeam) {
+      // Weekday balance is priority #1 — stays within one game.
       expect(Math.max(...w.counts) - Math.min(...w.counts)).toBeLessThanOrEqual(1);
     }
     for (const s of report.slotShareByTeam) {
-      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(1);
+      // Ice-time evenness is priority #4; the spacing pass may trade it up to one
+      // extra game to reduce byes/rematch clustering.
+      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(2);
     }
   });
 
