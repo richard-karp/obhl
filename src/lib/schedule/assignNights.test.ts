@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { roundRobin } from "./roundRobin";
+import { roundRobin, buildBalancedPairings } from "./roundRobin";
 import { assignNights, type Night } from "./assignNights";
 
 const teams = (n: number) => Array.from({ length: n }, (_, i) => `t${i + 1}`);
@@ -87,5 +87,59 @@ describe("assignNights", () => {
     const { report } = assignNights(roundRobin(ts, 1), nights(2), ts);
     expect(report.unscheduled).toBeGreaterThan(0);
     expect(report.totalScheduled).toBeLessThan(15);
+  });
+
+  it("balances weekday and slot share when slots < teams/2 (spilled rounds)", () => {
+    const ts = teams(8);
+    // 8 teams, 2 slots/night, Tue+Thu for 14 weeks = 28 nights x 2 = 56 slots.
+    // Double round-robin = 14 games each = 56 games -> exact fit, rounds spill
+    // across nights (a round is 4 games but a night holds only 2).
+    const ns = twoNightsPerWeek(14, ["19:00", "20:15"]);
+    const { report } = assignNights(buildBalancedPairings(ts, 14), ns, ts);
+    expect(report.unscheduled).toBe(0);
+    expect(report.weekdays.length).toBe(2);
+    for (const t of report.gamesPerTeam) expect(t.count).toBe(14);
+    for (const w of report.nightShareByTeam) {
+      expect(Math.max(...w.counts) - Math.min(...w.counts)).toBeLessThanOrEqual(1);
+    }
+    for (const s of report.slotShareByTeam) {
+      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("gives every team an equal number of byes", () => {
+    const ts = teams(8);
+    const ns = twoNightsPerWeek(14, ["19:00", "20:15"]);
+    const { games } = assignNights(buildBalancedPairings(ts, 14), ns, ts);
+    const played = new Map<string, Set<number>>(ts.map((t) => [t, new Set()]));
+    for (const g of games) {
+      played.get(g.home)!.add(g.nightIndex);
+      played.get(g.away)!.add(g.nightIndex);
+    }
+    const byes = ts.map((t) => ns.length - played.get(t)!.size);
+    expect(Math.max(...byes) - Math.min(...byes)).toBe(0);
+  });
+
+  it("keeps each team's times balanced and shares the worst time evenly", () => {
+    const ts = teams(6);
+    // 6 teams single RR = 5 games each; 3 slots -> 5 not divisible by 3.
+    const { report } = assignNights(roundRobin(ts, 1), nights(5), ts);
+    // Each team's own slot spread stays tight.
+    for (const s of report.slotShareByTeam) {
+      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(1);
+    }
+    // The latest (worst) time is shared evenly across teams — no team eats it
+    // much more than another.
+    const last = report.slotShareByTeam[0].counts.length - 1;
+    const worst = report.slotShareByTeam.map((s) => s.counts[last]);
+    expect(Math.max(...worst) - Math.min(...worst)).toBeLessThanOrEqual(1);
+  });
+
+  it("spreads rematches apart (never on back-to-back game nights)", () => {
+    const ts = teams(6);
+    const { report } = assignNights(roundRobin(ts, 2), nights(10), ts);
+    expect(report.unscheduled).toBe(0);
+    expect(report.minRematchGapNights).not.toBeNull();
+    expect(report.minRematchGapNights!).toBeGreaterThanOrEqual(2);
   });
 });
