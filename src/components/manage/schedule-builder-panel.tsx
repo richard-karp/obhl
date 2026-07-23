@@ -1,9 +1,5 @@
 import { createAdminClient } from "@/utils/supabase/admin";
-import {
-  generateSchedule,
-  publishSchedule,
-  discardSchedule,
-} from "@/lib/actions/schedule";
+import { publishSchedule, discardSchedule } from "@/lib/actions/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { weekdayOf } from "@/lib/schedule/assignNights";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,22 +12,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ScheduleFinalForm } from "@/components/manage/schedule-final-form";
+import { ScheduleGenerateForm } from "@/components/manage/schedule-generate-form";
 import { formatLongDate, formatGameTime, leagueDateKey } from "@/lib/format";
 
-const WEEKDAYS = [
-  { value: 1, label: "Mon" },
-  { value: 2, label: "Tue" },
-  { value: 3, label: "Wed" },
-  { value: 4, label: "Thu" },
-  { value: 5, label: "Fri" },
-  { value: 6, label: "Sat" },
-  { value: 0, label: "Sun" },
-];
 const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -42,6 +28,12 @@ const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  */
 export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
   const admin = createAdminClient();
+
+  const { data: season } = await admin
+    .from("seasons")
+    .select("starts_on, ends_on")
+    .eq("id", seasonId)
+    .maybeSingle();
 
   const { data: drafts } = await admin
     .from("games")
@@ -114,6 +106,20 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
     (teamRows.length < enrolledCount ||
       (gpVals.length > 0 && Math.max(...gpVals) - Math.min(...gpVals) > 1));
 
+  // Derived summary + overrun check (the regular season should finish before the
+  // season's playoff-inclusive end date).
+  const draftDates = [...byDate.keys()].filter(Boolean).sort();
+  const firstDate = draftDates[0];
+  const lastDate = draftDates.at(-1);
+  const gamesPerTeamLabel =
+    gpVals.length === 0
+      ? ""
+      : Math.min(...gpVals) === Math.max(...gpVals)
+        ? `${gpVals[0]}`
+        : `${Math.min(...gpVals)}–${Math.max(...gpVals)}`;
+  const overrunsSeason =
+    !!season?.ends_on && !!lastDate && lastDate > season.ends_on;
+
   return (
     <div className="space-y-6">
       <Card>
@@ -121,71 +127,12 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
           <CardTitle className="text-base">Generate a balanced schedule</CardTitle>
         </CardHeader>
         <CardContent>
-          <form action={generateSchedule} className="grid gap-4 sm:grid-cols-4 sm:items-end">
-            <input type="hidden" name="season_id" value={seasonId} />
-            <div className="space-y-1">
-              <Label htmlFor="start_date">First game night</Label>
-              <Input id="start_date" name="start_date" type="date" required />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="end_date">Last game night</Label>
-              <Input id="end_date" name="end_date" type="date" required />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="cycles">Round-robin cycles</Label>
-              <select
-                id="cycles"
-                name="cycles"
-                defaultValue="1"
-                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
-              >
-                <option value="1">Single (play each once)</option>
-                <option value="2">Double (home & away)</option>
-              </select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="slot_times">Ice-time slots</Label>
-              <Input id="slot_times" name="slot_times" defaultValue="19:00, 20:15, 21:30" />
-            </div>
-
-            <div className="space-y-1.5 sm:col-span-4">
-              <Label>Game nights</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {WEEKDAYS.map((d) => (
-                  <label
-                    key={d.value}
-                    className="border-input has-[:checked]:bg-secondary has-[:checked]:border-secondary-foreground/30 flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm font-medium select-none"
-                  >
-                    <input type="checkbox" name="weekdays" value={d.value} />
-                    {d.label}
-                  </label>
-                ))}
-              </div>
-              <p className="text-muted-foreground text-xs">
-                Pick one or more nights per week. Each team gets a balanced share
-                of each night and each ice time.
-              </p>
-            </div>
-
-            <div className="space-y-1 sm:col-span-4">
-              <Label htmlFor="excluded_dates">Weeks off / skip dates</Label>
-              <Input
-                id="excluded_dates"
-                name="excluded_dates"
-                placeholder="2026-05-26, 2026-07-03"
-              />
-              <p className="text-muted-foreground text-xs">
-                Optional. Comma-separated dates to skip (holidays, breaks).
-              </p>
-            </div>
-
-            <div className="sm:col-span-4">
-              <Button type="submit">Generate draft</Button>
-              <span className="text-muted-foreground ml-3 text-xs">
-                Replaces any existing draft. Review below, then publish.
-              </span>
-            </div>
-          </form>
+          <ScheduleGenerateForm
+            seasonId={seasonId}
+            seasonStart={season?.starts_on ?? null}
+            seasonEnd={season?.ends_on ?? null}
+            teamCount={enrolledCount}
+          />
         </CardContent>
       </Card>
 
@@ -227,11 +174,29 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
             </form>
           </div>
 
+          <p className="text-muted-foreground text-sm">
+            <span className="text-foreground font-medium">
+              {gamesPerTeamLabel} games per team
+            </span>{" "}
+            · {drafts!.length} games ·{" "}
+            {firstDate ? formatLongDate(firstDate) : "?"} →{" "}
+            {lastDate ? formatLongDate(lastDate) : "?"}
+          </p>
+
           {scheduleIncomplete ? (
             <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border px-3 py-2 text-sm">
               ⚠ This draft doesn&apos;t cover every team evenly — some matchups
               didn&apos;t fit the date range and ice times. Widen the dates, add
               game nights or ice slots, then regenerate.
+            </div>
+          ) : null}
+
+          {overrunsSeason ? (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+              ⚠ The regular season runs past the season&apos;s end date
+              ({formatLongDate(season!.ends_on!)}), leaving no room for playoffs.
+              Shorten it (fewer games per team or an earlier end date) or extend
+              the season.
             </div>
           ) : null}
 
@@ -283,10 +248,11 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
                 </Table>
               </div>
               <p className="text-muted-foreground mt-2 text-xs">
-                GP should be equal across teams and the Slot columns evenly
-                spread. Night-of-week balance is automatic when there are at least
-                as many ice slots as games per night (teams ÷ 2); with fewer
-                slots, check the night columns here.
+                GP is equal across teams, and each team&apos;s games are spread as
+                evenly as possible across the ice-time (Slot) and night-of-week
+                columns — in tightly-constrained schedules a team may differ by one
+                game. Any uneven ice time is biased toward the earlier (Slot 1)
+                times, so no team gets stuck with the latest slot more than others.
               </p>
             </CardContent>
           </Card>
