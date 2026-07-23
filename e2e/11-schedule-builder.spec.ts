@@ -1,6 +1,6 @@
 /**
- * Path 17: Schedule Builder — page structure and form fields (read-only;
- * does not generate a draft to avoid overwriting the seeded schedule).
+ * Path 17: Schedule Builder — page structure, the balanced generator, and
+ * manager-only access.
  */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -19,17 +19,24 @@ test.describe("Path 17 — Schedule Builder", () => {
 
   test("page loads with heading and active season description", async ({ page }) => {
     await expect(page.getByText("Schedule Builder")).toBeVisible();
-    // Description contains "(active)" to confirm it found the active season
     await expect(page.getByText(/active/)).toBeVisible();
   });
 
-  test("generate form has all required fields", async ({ page }) => {
+  test("generate form has the length toggle and core fields", async ({ page }) => {
     await expect(page.getByText("Generate a balanced schedule")).toBeVisible();
     await expect(page.getByLabel("First game night")).toBeVisible();
-    await expect(page.getByLabel("Last game night")).toBeVisible();
-    await expect(page.getByLabel("Round-robin cycles")).toBeVisible();
-    await expect(page.getByLabel("Ice-time slots").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Generate draft" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "By games per team" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "By end date" })).toBeVisible();
+    await expect(page.getByLabel("Games per team")).toBeVisible();
+    await expect(page.getByLabel(/Ice-time slots/).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Generate schedule" })).toBeVisible();
+  });
+
+  test("length toggle swaps games-per-team for an end date", async ({ page }) => {
+    await expect(page.getByLabel("Games per team")).toBeVisible();
+    await page.getByRole("button", { name: "By end date" }).click();
+    await expect(page.getByLabel("Last regular-season night")).toBeVisible();
+    await expect(page.getByLabel("Games per team")).toHaveCount(0);
   });
 
   test("weekday checkboxes are all present", async ({ page }) => {
@@ -38,12 +45,38 @@ test.describe("Path 17 — Schedule Builder", () => {
     }
   });
 
-  test("one-off game scheduling card is present with enrolled teams", async ({ page }) => {
+  test("one-off game scheduling card is present", async ({ page }) => {
     await expect(page.getByText("Schedule a one-off game")).toBeVisible();
   });
 
-  test("empty draft state shows when no draft exists", async ({ page }) => {
-    // Seeded schedule has published games, not draft games
+  test("empty draft state shows before a draft is generated", async ({ page }) => {
+    await expect(page.getByText("No draft schedule")).toBeVisible();
+  });
+
+  test("generates a balanced draft with equal games per team", async ({ page }) => {
+    // The active season runs May–Jun 2026; start within it.
+    await page.getByLabel("First game night").fill("2026-05-12");
+    await page.getByLabel("Games per team").fill("4");
+    // Two game nights so weekday balance is exercised.
+    await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
+    await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
+
+    await page.getByRole("button", { name: "Generate schedule" }).click();
+
+    // Draft preview appears: balance report and a Publish button.
+    await expect(page.getByText("Balance report")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Publish \d+ games/ })).toBeVisible();
+
+    // Every team's GP cell should read 4 (equal games per team).
+    const gpCells = page.locator("tbody tr td:nth-child(2)");
+    const count = await gpCells.count();
+    expect(count).toBeGreaterThan(1);
+    for (let i = 0; i < count; i++) {
+      await expect(gpCells.nth(i)).toHaveText("4");
+    }
+
+    // Clean up so later runs still see the empty-draft state.
+    await page.getByRole("button", { name: "Discard draft" }).click();
     await expect(page.getByText("No draft schedule")).toBeVisible();
   });
 

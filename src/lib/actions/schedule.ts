@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
-import { roundRobin } from "@/lib/schedule/roundRobin";
-import { assignNights, type Night } from "@/lib/schedule/assignNights";
+import { buildBalancedPairings } from "@/lib/schedule/roundRobin";
+import { assignNights } from "@/lib/schedule/assignNights";
+import { enumerateNights } from "@/lib/schedule/capacity";
 import { resolveCurrentLeague } from "@/lib/league/current";
 import { leagueOffset } from "@/lib/format";
 import type { TablesInsert } from "@/lib/db/helpers";
@@ -40,16 +41,35 @@ async function targetSeason(admin: Admin, formData?: FormData) {
   return season?.id ?? null;
 }
 
-/** Generate a balanced draft schedule (replaces any existing drafts). */
+/**
+ * Generate a balanced draft schedule (replaces any existing drafts). The regular
+ * season starts at the season's start date and is sized either by a target
+ * games-per-team or by an explicit last regular-season night — the season's own
+ * end date is the playoff-inclusive boundary and only bounds/warns, it doesn't
+ * size the schedule.
+ */
 export async function generateSchedule(formData: FormData) {
   await requireManager();
   const admin = createAdminClient();
   const seasonId = await targetSeason(admin, formData);
   if (!seasonId) return;
 
-  const cycles = Math.max(1, Number(formData.get("cycles") ?? 1));
-  const startDate = String(formData.get("start_date") ?? "");
-  const endDate = String(formData.get("end_date") ?? "");
+  const { data: season } = await admin
+    .from("seasons")
+    .select("starts_on, ends_on")
+    .eq("id", seasonId)
+    .maybeSingle();
+
+  const lengthMode = String(formData.get("length_mode") ?? "games"); // "games" | "date"
+  // First game night defaults to the season's start; season end is the outer
+  // (playoff-inclusive) bound.
+  const startDate = String(formData.get("start_date") ?? "") || season?.starts_on || "";
+  const seasonEnd = season?.ends_on ?? "";
+  const regSeasonEnd = String(formData.get("reg_season_end") ?? "");
+  const gamesPerTeam = Math.max(
+    0,
+    Math.min(60, Math.floor(Number(formData.get("games_per_team") ?? 0))),
+  );
   // Recurring weeknights the league plays (0=Sun..6=Sat) — one or more.
   const weekdays = new Set(formData.getAll("weekdays").map((d) => Number(d)));
   // Dates to skip (weeks off / holidays).
@@ -63,9 +83,7 @@ export async function generateSchedule(formData: FormData) {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  if (!startDate || !endDate || weekdays.size === 0 || slotTimes.length === 0) {
-    return;
-  }
+  if (!startDate || weekdays.size === 0 || slotTimes.length === 0) return;
 
   const { data: enrolled } = await admin
     .from("season_teams")
@@ -74,25 +92,49 @@ export async function generateSchedule(formData: FormData) {
   const teamIds = (enrolled ?? []).map((e) => e.team_id);
   if (teamIds.length < 2) return;
 
-  // Build the chronological night list: every selected weekday in [start, end],
-  // minus excluded dates. UTC arithmetic so DST never shifts a day.
-  const [sy, sm, sd] = startDate.split("-").map(Number);
-  const [ey, em, ed] = endDate.split("-").map(Number);
-  const endU = Date.UTC(ey, em - 1, ed);
-  const nights: Night[] = [];
-  for (
-    let cur = Date.UTC(sy, sm - 1, sd), guard = 0;
-    cur <= endU && guard < 730;
-    cur += 86400000, guard++
-  ) {
-    const date = new Date(cur).toISOString().slice(0, 10);
-    if (weekdays.has(new Date(cur).getUTCDay()) && !excluded.has(date)) {
-      nights.push({ date, slots: slotTimes });
-    }
-  }
-  if (nights.length === 0) return;
+  const perNightCap = Math.min(slotTimes.length, Math.floor(teamIds.length / 2));
+  let games;
 
-  const { games } = assignNights(roundRobin(teamIds, cycles), nights, teamIds);
+  if (lengthMode === "date") {
+    // Fill the window up to the last regular-season night. Derive games-per-team
+    // by placement: start from the capacity estimate and step down until every
+    // pairing fits (so the draft is never reported as incomplete).
+    if (!regSeasonEnd) return;
+    const nights = enumerateNights(startDate, {
+      weekdays,
+      slotTimes,
+      excluded,
+      endDate: regSeasonEnd,
+    });
+    if (nights.length === 0) return;
+    let g = Math.max(1, Math.floor((2 * nights.length * perNightCap) / teamIds.length));
+    let result = assignNights(buildBalancedPairings(teamIds, g), nights, teamIds);
+    // The estimate is an upper bound; step down until everything fits. Capped so
+    // a bad estimate can't trigger many expensive placement runs — a remaining
+    // shortfall just surfaces the "incomplete" banner.
+    for (let tries = 0; tries < 8 && g > 1 && result.report.unscheduled > 0; tries++) {
+      g -= 1;
+      result = assignNights(buildBalancedPairings(teamIds, g), nights, teamIds);
+    }
+    games = result.games;
+  } else {
+    // Size by target games-per-team; the last game date falls out of placement.
+    if (gamesPerTeam < 1) return;
+    const nightsNeeded =
+      Math.ceil((gamesPerTeam * teamIds.length) / (2 * perNightCap)) + 4;
+    const nights = enumerateNights(startDate, {
+      weekdays,
+      slotTimes,
+      excluded,
+      // Don't schedule past the playoff-inclusive season end when it's set;
+      // otherwise walk far enough to fit the requested games.
+      endDate: seasonEnd || undefined,
+      maxNights: seasonEnd ? undefined : nightsNeeded,
+    });
+    if (nights.length === 0) return;
+    games = assignNights(buildBalancedPairings(teamIds, gamesPerTeam), nights, teamIds)
+      .games;
+  }
 
   // Replace existing drafts.
   await admin.from("games").delete().eq("season_id", seasonId).eq("is_draft", true);
@@ -112,6 +154,7 @@ export async function generateSchedule(formData: FormData) {
     );
   }
   revalidatePath("/schedule-builder");
+  revalidatePath(`/seasons/${seasonId}`);
 }
 
 /** Publish the draft schedule (drafts become live games). */
