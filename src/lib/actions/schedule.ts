@@ -120,20 +120,31 @@ export async function generateSchedule(formData: FormData) {
   } else {
     // Size by target games-per-team; the last game date falls out of placement.
     if (gamesPerTeam < 1) return;
-    const nightsNeeded =
-      Math.ceil((gamesPerTeam * teamIds.length) / (2 * perNightCap)) + 4;
-    const nights = enumerateNights(startDate, {
-      weekdays,
-      slotTimes,
-      excluded,
-      // Don't schedule past the playoff-inclusive season end when it's set;
-      // otherwise walk far enough to fit the requested games.
-      endDate: seasonEnd || undefined,
-      maxNights: seasonEnd ? undefined : nightsNeeded,
-    });
-    if (nights.length === 0) return;
-    games = assignNights(buildBalancedPairings(teamIds, gamesPerTeam), nights, teamIds)
-      .games;
+    const pairings = buildBalancedPairings(teamIds, gamesPerTeam);
+    // Use exactly the nights the games need — surplus nights only create byes
+    // (empty ice a team sits out). Grow slightly only if placement can't fit,
+    // and never schedule past the playoff-inclusive season end.
+    const minNights = Math.ceil(
+      (gamesPerTeam * teamIds.length) / (2 * perNightCap),
+    );
+    let result: ReturnType<typeof assignNights> | undefined;
+    let prevCount = -1;
+    for (let extra = 0; extra <= 8; extra += 2) {
+      const nights = enumerateNights(startDate, {
+        weekdays,
+        slotTimes,
+        excluded,
+        endDate: seasonEnd || undefined,
+        maxNights: minNights + extra,
+      });
+      if (nights.length === 0) return;
+      if (nights.length === prevCount) break; // capped by season end; more won't help
+      prevCount = nights.length;
+      result = assignNights(pairings, nights, teamIds);
+      if (result.report.unscheduled === 0) break;
+    }
+    if (!result) return;
+    games = result.games;
   }
 
   // Replace existing drafts.
