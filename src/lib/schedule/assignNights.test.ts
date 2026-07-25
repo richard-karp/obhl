@@ -4,11 +4,21 @@ import { assignNights, type Night } from "./assignNights";
 
 const teams = (n: number) => Array.from({ length: n }, (_, i) => `t${i + 1}`);
 
+// `count` game nights in a realistic weekly cadence — two distinct weeknights
+// (Tue + Fri) per calendar week. The generator groups games by calendar week, so
+// tests must feed weekly-spaced nights, not consecutive calendar days.
 function nights(count: number, slots = ["19:00", "20:15", "21:30"]): Night[] {
-  return Array.from({ length: count }, (_, i) => ({
-    date: `2026-09-${String(1 + i).padStart(2, "0")}`,
-    slots,
-  }));
+  const ns: Night[] = [];
+  const base = Date.UTC(2026, 8, 1); // Tue 2026-09-01
+  outer: for (let w = 0; ; w++) {
+    for (const off of [0, 3]) {
+      // Tue, Fri
+      if (ns.length >= count) break outer;
+      const d = new Date(base + (w * 7 + off) * 86400000);
+      ns.push({ date: d.toISOString().slice(0, 10), slots });
+    }
+  }
+  return ns;
 }
 
 // Two recurring weeknights (e.g. Tue + Thu) for `weeks` weeks, chronological.
