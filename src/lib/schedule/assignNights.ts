@@ -7,29 +7,39 @@ import {
   type NightMeta,
   type SpacingReport,
 } from "./spacing";
+import {
+  byeRuleCost,
+  solveParticipation,
+  type Participation,
+  type ParticipationNight,
+} from "./participation";
+import { assignMatchups } from "./matchups";
+import { assignSlots } from "./slots";
 
 /**
- * Assigns pairings onto concrete game nights + ice-time slots. Two phases keep
- * the week-level fairness (byes, rematch spacing) decoupled from the within-week
- * fairness (weekday split, ice-time share) — optimizing one in a single flat
- * search wrecks the other, so they are handled at their natural granularities:
+ * Assigns pairings onto concrete game nights + ice-time slots.
  *
- *   Phase W (assignToWeeks): assign each game to a calendar week so every team
- *     plays every week (no full-week byes), no matchup repeats within a week, and
- *     a pair's meetings stay far apart. A week-level swap repair drives those to
- *     their best. This fixes priorities #2 (byes) and #3 (rematch spacing).
+ * Two independent planners run, and the better schedule wins (`rankSchedule`
+ * compares them in the league's priority order: weekday balance ▸ byes ▸ rematch
+ * spacing ▸ ice time). Keeping both matters because they fail in different
+ * places.
  *
- *   Phase N (placeWeek + balanceWeekdays + refineSpacing): drop each week's games
- *     onto that week's nights and ice slots. balanceWeekdays drives every team's
- *     weekday split to as even as the week assignment allows — an exact
- *     branch-and-bound for the ideal split, falling back to local search when the
- *     calendar makes it infeasible (priority #1). refineSpacing then polishes
- *     ice-time share and consecutiveness with weekday-preserving swaps (#4).
+ *   planByParticipation — the primary. It decides *who plays which night* first
+ *     (Phase P), then who they play (Phase M), then ice times (Phase S). The
+ *     participation matrix alone determines weekday balance and all three bye
+ *     rules, so a branch-and-bound over it settles priorities #1 and #2 exactly
+ *     instead of hill-climbing at them. It declines — returning null — when it
+ *     can't reproduce the caller's matchups exactly or the calendar won't take
+ *     the games.
  *
- * Every team plays the same number of games (all pairings are placed), so byes
- * come out even too. Any unavoidable weekday imbalance is a structural property
- * of an asymmetric calendar (e.g. a season that opens on a lone weeknight), not a
- * search failure; ice-time imbalance is biased onto the later/worse slots.
+ *   planByWeeks — the fallback, and the only planner for the cases above. It
+ *     assigns games to calendar weeks (Phase W) and then to nights within each
+ *     week (Phase N). Working over placed games means moving one team's weekday
+ *     count drags three others along, so weekday balance and bye spacing pull
+ *     against each other; it gets close but can stall short of both optima.
+ *
+ * Invariants either way: every pairing is placed (so games-played stays equal),
+ * and no team plays twice a night.
  */
 
 export type Night = { date: string; slots: string[] }; // slots are "HH:MM"
@@ -1139,13 +1149,16 @@ function placeWeek(
   return stranded;
 }
 
-export function assignNights(
+type Plan = { games: ScheduledGame[]; unscheduled: number };
+
+/** The original week-then-night pipeline (Phase W + Phase N). */
+function planByWeeks(
   pairings: Pairing[],
   nights: Night[],
   teamIds: string[],
-): { games: ScheduledGame[]; report: BalanceReport } {
-  const meta = buildMeta(nights);
-  const smeta = buildNightMeta(nights);
+  meta: Meta,
+  smeta: NightMeta,
+): Plan {
   const weekCaps = weekCapacities(nights, smeta);
 
   // Phase W: assign games to weeks (byes/same-week/rematch spacing structural).
@@ -1167,6 +1180,216 @@ export function assignNights(
   // swaps. Both are same-week only, so Phase W's bye/rematch structure is fixed.
   balanceWeekdays(games, nights, meta, smeta, teamIds);
   refineSpacing(games, nights, teamIds, meta, smeta);
+  return { games, unscheduled: unscheduled + stranded };
+}
+
+/**
+ * Spread `total` games over nights as evenly as the per-night caps allow, so no
+ * night is crammed while another sits half-empty. Null when they don't all fit.
+ */
+function distributeGames(caps: number[], total: number): number[] | null {
+  const n = caps.length;
+  if (n === 0) return total === 0 ? [] : null;
+  // Bresenham-style even split: night i gets the games between two exact cuts.
+  const out = caps.map((_, i) =>
+    Math.floor(((i + 1) * total) / n) - Math.floor((i * total) / n),
+  );
+  let overflow = 0;
+  for (let i = 0; i < n; i++) {
+    if (out[i] > caps[i]) {
+      overflow += out[i] - caps[i];
+      out[i] = caps[i];
+    }
+  }
+  for (let i = 0; i < n && overflow > 0; i++) {
+    const room = Math.min(caps[i] - out[i], overflow);
+    out[i] += room;
+    overflow -= room;
+  }
+  return overflow > 0 ? null : out;
+}
+
+/**
+ * Participation-first planner: Phase P (who plays when) → Phase M (who plays
+ * whom) → Phase S (ice times). Returns null when it can't honour the caller's
+ * exact matchups, leaving `planByWeeks` to handle it.
+ */
+function planByParticipation(
+  pairings: Pairing[],
+  nights: Night[],
+  teamIds: string[],
+  meta: Meta,
+  smeta: NightMeta,
+): Plan | null {
+  const T = teamIds.length;
+  const N = nights.length;
+  if (T < 2 || N === 0 || pairings.length === 0) return null;
+
+  const index = new Map(teamIds.map((t, i) => [t, i]));
+  const gamesPerTeam = new Array(T).fill(0);
+  const targets = Array.from({ length: T }, () => new Array<number>(T).fill(0));
+  // Instances of each matchup, kept in round order so the caller's home/away
+  // alternation survives into the placed schedule.
+  const queues = new Map<string, Pairing[]>();
+  for (const p of pairings) {
+    const a = index.get(p.home);
+    const b = index.get(p.away);
+    if (a === undefined || b === undefined) return null; // unknown team: bail
+    gamesPerTeam[a]++;
+    gamesPerTeam[b]++;
+    targets[a][b]++;
+    targets[b][a]++;
+    const k = matchupKey(p.home, p.away);
+    (queues.get(k) ?? queues.set(k, []).get(k)!).push(p);
+  }
+  for (const q of queues.values()) q.sort((x, y) => x.round - y.round);
+
+  const caps = nights.map((n) => Math.min(n.slots.length, Math.floor(T / 2)));
+  const perNight = distributeGames(caps, pairings.length);
+  if (!perNight) return null;
+
+  const pnights: ParticipationNight[] = nights.map((n, i) => ({
+    week: smeta.week[i],
+    weekday: meta.nightW[i],
+    games: perNight[i],
+  }));
+
+  // Weekday balance is priority #1, so only loosen the target split if a
+  // perfectly even one is arithmetically out of reach for this calendar. A rung
+  // that can't work is almost always refuted by arithmetic in under a
+  // millisecond, so in practice only the rung that succeeds costs real time.
+  const solve = (timeBudgetMs: number): Participation | null => {
+    for (let slack = 0; slack <= 2; slack++) {
+      const p = solveParticipation({
+        teamCount: T,
+        nights: pnights,
+        gamesPerTeam,
+        weekdayCount: meta.usedWeekdays.length,
+        weekdaySlack: slack,
+        timeBudgetMs,
+      });
+      if (p) return p;
+    }
+    return null;
+  };
+  const match = (p: Participation) => {
+    const m = assignMatchups({
+      teamCount: T,
+      plays: p.plays,
+      nightWeek: smeta.week,
+      nightWeekday: smeta.weekday,
+      targets,
+      restarts: pairings.length <= 200 ? 12 : 4,
+    });
+    // A non-zero error means some pair would meet more or fewer times than the
+    // caller asked for; that's opponent balance, so the matrix is unusable.
+    return m && m.multiplicityError === 0 ? m : null;
+  };
+
+  // Phase P is the expensive step, and a participation matrix Phase M can't pair
+  // up is worthless however good its bye metrics are. So take a cheap one first
+  // and check it can be paired at all; only buy the long search once that's
+  // known — otherwise a calendar that was never going to work burns the whole
+  // budget on its way to being thrown away.
+  let part = solve(300);
+  if (!part) return null;
+  let matched = match(part);
+  if (!matched) return null;
+  if (!part.optimal) {
+    const better = solve(4_000);
+    if (better && byeRuleCost(better) < byeRuleCost(part)) {
+      const m = match(better);
+      if (m) {
+        part = better;
+        matched = m;
+      }
+    }
+  }
+
+  const slotOf = assignSlots({
+    teamCount: T,
+    pairsByNight: matched.pairsByNight,
+    slotsPerNight: nights.map((n) => n.slots.length),
+    restarts: 2_000,
+    timeBudgetMs: 400,
+  });
+
+  const games: ScheduledGame[] = [];
+  matched.pairsByNight.forEach((pairs, ni) => {
+    pairs.forEach(([a, b], gi) => {
+      const p = queues.get(matchupKey(teamIds[a], teamIds[b]))!.shift();
+      if (!p) return;
+      const s = slotOf[ni][gi];
+      games.push({
+        home: p.home,
+        away: p.away,
+        round: p.round,
+        scheduledAt: `${nights[ni].date}T${nights[ni].slots[s]}:00`,
+        nightIndex: ni,
+        slotIndex: s,
+      });
+    });
+  });
+  if (games.length !== pairings.length) return null;
+  return { games, unscheduled: 0 };
+}
+
+/**
+ * Schedule quality as a lexicographic tuple, lowest wins, ordered by the
+ * league's stated priorities: everything placed ▸ weekday balance ▸ byes ▸
+ * rematch spacing ▸ ice time.
+ */
+function rankSchedule(
+  plan: Plan,
+  nights: Night[],
+  teamIds: string[],
+  meta: Meta,
+): number[] {
+  const r = spacingReport(plan.games, nights, teamIds);
+  const { slot, wd } = vectorsOf(plan.games, teamIds, meta);
+  const sum = (f: (t: string) => number) => teamIds.reduce((s, t) => s + f(t), 0);
+  return [
+    plan.unscheduled,
+    sum((t) => spread(wd.get(t)!)),
+    r.byesMultiWeek,
+    r.byesConsecWeekSameDay,
+    r.byesConsecWeek,
+    r.rematchSameWeek,
+    r.rematchAdjNight,
+    r.rematchConsecWeekSameDay,
+    r.rematchConsecWeek,
+    sum((t) => spread(slot.get(t)!)),
+    r.slotConsecutive,
+  ];
+}
+
+function rankLess(a: number[], b: number[]): boolean {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] < b[i];
+  }
+  return false;
+}
+
+export function assignNights(
+  pairings: Pairing[],
+  nights: Night[],
+  teamIds: string[],
+): { games: ScheduledGame[]; report: BalanceReport } {
+  const meta = buildMeta(nights);
+  const smeta = buildNightMeta(nights);
+
+  let plan = planByWeeks(pairings, nights, teamIds, meta, smeta);
+  const exact = planByParticipation(pairings, nights, teamIds, meta, smeta);
+  if (
+    exact &&
+    rankLess(
+      rankSchedule(exact, nights, teamIds, meta),
+      rankSchedule(plan, nights, teamIds, meta),
+    )
+  ) {
+    plan = exact;
+  }
+  const { games, unscheduled } = plan;
 
   // Derive the report from the final placement.
   const { slot: finalSlot, wd: nightTally } = vectorsOf(games, teamIds, meta);
@@ -1195,7 +1418,7 @@ export function assignNights(
     games,
     report: {
       totalScheduled: games.length,
-      unscheduled: unscheduled + stranded,
+      unscheduled,
       gamesPerTeam: teamIds.map((t) => ({ team: t, count: finalGp.get(t)! })),
       slotShareByTeam: teamIds.map((t) => ({ team: t, counts: finalSlot.get(t)! })),
       weekdays: meta.usedWeekdays.map((d) => WEEKDAY[d]),
