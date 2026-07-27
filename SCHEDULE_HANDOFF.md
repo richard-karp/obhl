@@ -19,9 +19,9 @@ an exact fit):
 | **Bye rule 3** — no byes in consecutive weeks at all | `byeConsecWeek=1` | **0** |
 | Rematch: same week / adjacent night / consecutive week | 0 / 0 / 1 | **0 / 0 / 0** |
 | Ice-time share per team | spread 2 | **spread 0** (12/12/12) |
-| Ice-time repeats (`slotConsecutive`) | 69 | **46** |
+| Ice-time repeats (`slotConsecutive`) | 69 | **41** |
 | Games per team / unscheduled | 36 all / 0 | 36 all / 0 |
-| Generate time | ~475 ms | ~900 ms |
+| Generate time | ~475 ms | ~5.5 s (Phase S is given a long budget on purpose) |
 
 Byes are still exactly 12 per team, now exactly 6 Mon / 6 Thu, and perfectly
 alternating.
@@ -129,12 +129,14 @@ Same-or-better than the old pipeline everywhere tested; never worse.
 | 8t/2slot/28n/14gp, 4t/2slot | tie — e.g. with only 4 of 8 teams playing a night every team byes every week, so rule 3 is genuinely unreachable (`byeConsecWeek=104` is the floor) |
 | 7t/3slot/11n, 12t/6slot/24n, over-capacity | tie — participation path declines, fallback handles them |
 
-Generate time: ~900 ms for the reference (was ~475 ms). Two awkward calendars —
-Mon/Wed/Fri and one with a 3-week mid-season gap — spend ~2.6 s, because they are
-the cases where the long search actually buys something (it clears a rule-1
-breach on the first and takes `byeConsecWeek` 3→1 on the second). Everything else
-is under ~900 ms. Both planners always run; that is the cost of the guarantee
-that the result is never worse than before.
+Generate time: ~5.5 s for the reference, of which ~5 s is Phase S deliberately
+grinding ice-time repeats down from 46 to 41 (see §5). The rest of the pipeline
+is ~500 ms. Two awkward calendars — Mon/Wed/Fri and one with a 3-week mid-season
+gap — add ~2 s in Phase P, where the long search also buys something real (a
+rule-1 breach cleared on the first, `byeConsecWeek` 3→1 on the second). Both
+planners always run; that is the cost of the guarantee that the result is never
+worse than before. `OBHL_SLOT_BUDGET_MS` and `OBHL_SLOT_RESTARTS` tune the Phase
+S effort if a deployment needs a faster round trip.
 
 ---
 
@@ -160,10 +162,21 @@ are fixed; see §3. What follows are choices, not oversights.
   scores zero on every soft metric. Note the server action's retry loops only
   fire when games are left unscheduled, and in that case Phase P declines on
   arithmetic in well under a millisecond — so retries stay cheap.
-- **Ice-time repeats have a little headroom left.** The reference sits at
-  `slotConsecutive = 46`; raising Phase S from 2 000 restarts to 20 000 reaches
-  41, but costs ~5.6 s. Not taken: it is the lowest-ranked metric and 46 is
-  already well under half what a random slotting gives.
+- **Ice-time repeats are at the search's plateau.** Phase S runs 20 000 restarts
+  under a 5 s budget, reaching `slotConsecutive = 41` on the reference. 15 s buys
+  nothing further. Simulated annealing was tried in place of the restart-driven
+  descent and is worse (62 at the same budget, and at temperatures low enough to
+  beat 41 it only does so by breaking the even ice-time share) — the descent's
+  weakness is real but annealing is not the fix. Beating 41 likely needs a
+  compound move that swaps slots across two nights at once, restoring each
+  team's share in the same step.
+- **Perfect ice-time balance needs a season that exactly fills the ice.** An
+  under-filled night drops its latest slot, so that slot runs on fewer nights and
+  equal per-team counts stop being arithmetically possible. Measured on the
+  reference calendar at 46–52 nights: exact fits (48, 52) give spread 0, the rest
+  give 1 or 2, and each is already at its arithmetic floor — 49 nights provably
+  cannot beat 2. The schedule builder now says so on screen rather than leaving
+  it to look like a search failure.
 - **Some ties are genuine floors, not failures.** `byeConsecWeek = 104` on
   8 teams / 2 sheets and `rematchConsecWeek = 22` on a 4-team league are forced
   by the calendar; no search will improve them. Adding a sheet of ice, or teams,

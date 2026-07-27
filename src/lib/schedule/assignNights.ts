@@ -83,6 +83,22 @@ export const weekdayOf = (date: string): number => {
 // BALANCE_W) can never be justified by spacing gains. Keep this comfortably above
 // the sum of SPACING_W weights if those grow.
 const BALANCE_W = 100_000;
+// Phase S effort. Ice time is the lowest-ranked goal, but it is also the one
+// with real headroom left: the search keeps finding better slot assignments well
+// past the point the other phases have converged, so it gets a budget sized for
+// a once-a-season job rather than for a fast round trip.
+// Overridable so a deployment can trade schedule quality for a faster round
+// trip without a code change. Anything missing, blank or unparseable falls back
+// to the default: a typo in an environment variable must not quietly turn the
+// search off, which is worse than never having offered the knob.
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw == null || raw === "") return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+const SLOT_RESTARTS = envInt("OBHL_SLOT_RESTARTS", 20_000);
+const SLOT_BUDGET_MS = envInt("OBHL_SLOT_BUDGET_MS", 5_000);
 // Iterated-local-search budget for the spacing pass. Each candidate swap now
 // re-evaluates O(weeks)-cost spacing terms, and every hill-climb pass is O(G²),
 // so the restart count is the dominant runtime lever — keep it small and scale
@@ -1326,8 +1342,8 @@ function planByParticipation(
     teamCount: T,
     pairsByNight: matched.pairsByNight,
     slotsPerNight: nights.map((n) => n.slots.length),
-    restarts: 2_000,
-    timeBudgetMs: 400,
+    restarts: SLOT_RESTARTS,
+    timeBudgetMs: SLOT_BUDGET_MS,
   });
 
   const games: ScheduledGame[] = [];
