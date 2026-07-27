@@ -61,6 +61,28 @@ describe("solveParticipation", () => {
     expect(describeParticipation(plays, nights)).toEqual(metrics);
   });
 
+  // The ladder in planByParticipation falls back to these unpinned rungs when a
+  // calendar's optimal per-weekday quotas can't be packed onto nights, so the
+  // path needs to hold up on its own even though the pinned rungs usually win.
+  it("solves with the per-weekday quotas left unpinned", () => {
+    const nights = twoNightWeeks(12, 3);
+    const res = solveParticipation({
+      teamCount: 8,
+      nights,
+      gamesPerTeam: new Array(8).fill(18),
+      weekdayCount: 2,
+      exactWeekdayTargets: false,
+    });
+    expect(res).not.toBeNull();
+    for (const row of res!.plays) expect(row.filter(Boolean).length).toBe(18);
+    nights.forEach((n, i) => {
+      expect(res!.plays.filter((row) => row[i]).length).toBe(2 * n.games);
+    });
+    // The slack band alone still pins 18 games to a 9/9 weekday split.
+    expect(res!.weekdaySpread).toBe(0);
+    expect(res!.byeMultiWeek).toBe(0);
+  });
+
   it("still solves when a holiday gap splits the season into two runs", () => {
     // Weeks 0–5 then 8–13: byes either side of the gap aren't "consecutive".
     const nights: ParticipationNight[] = [];
