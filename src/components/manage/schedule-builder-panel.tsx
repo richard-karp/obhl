@@ -140,6 +140,22 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
   const spacing =
     placed.length > 0 ? spacingReport(placed, spacingNights, teamRows) : null;
 
+  // Nights that run fewer games than the fullest one. Those nights drop their
+  // latest slot, so it gets used on fewer nights than the earlier ones and equal
+  // per-team ice-time counts stop being arithmetically reachable — no amount of
+  // shuffling fixes it, so say so rather than let it read as a bug. Scoped to
+  // dated nights (not `maxSlots`, which counts undated games too), and stated
+  // only in terms of what the placed games show: the season's configured ice
+  // slots aren't stored, so a slot left unused all season is invisible here.
+  const fullestNight = Math.max(
+    0,
+    ...draftDates.map((d) => byDate.get(d)?.length ?? 0),
+  );
+  const shortNights = draftDates.filter(
+    (d) => (byDate.get(d)?.length ?? 0) < fullestNight,
+  ).length;
+  const spareIceSlots = fullestNight * draftDates.length - placed.length;
+
   return (
     <div className="space-y-6">
       <Card>
@@ -274,6 +290,17 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
                 game. Any uneven ice time is biased toward the earlier (Slot 1)
                 times, so no team gets stuck with the latest slot more than others.
               </p>
+              {shortNights > 0 ? (
+                <p className="text-muted-foreground mt-2 text-xs">
+                  {shortNights} of {draftDates.length} nights run fewer games than
+                  the fullest night, leaving {spareIceSlots} ice slot
+                  {spareIceSlots === 1 ? "" : "s"} unused — so the latest time runs
+                  on fewer nights than the earlier ones. Equal ice-time counts are
+                  only reachable when every night is equally full, so a difference
+                  of one game here is expected rather than a scheduling fault.
+                  Adding or removing a game night is what evens it out.
+                </p>
+              ) : null}
             </CardContent>
           </Card>
 
