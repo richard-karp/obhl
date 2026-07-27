@@ -286,7 +286,7 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
                 <ul className="grid gap-1.5 text-sm sm:grid-cols-2">
                   {(
                     [
-                      ["Weeks a team misses every game night", spacing.byesMultiWeek],
+                      ["Weeks a team misses 2+ game nights", spacing.byesMultiWeek],
                       ["Teams byeing two weeks in a row", spacing.byesConsecWeek],
                       ["…on the same weekday", spacing.byesConsecWeekSameDay],
                       ["Same opponents in one week", spacing.rematchSameWeek],

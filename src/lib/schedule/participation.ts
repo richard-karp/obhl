@@ -179,6 +179,11 @@ function chooseWeekdayByeTargets(
 
   // Polish with 2×2 exchanges: they move byes between two teams and two
   // weekdays at once, so both the row and column totals survive untouched.
+  // Spread is the goal; sum-of-squares only breaks ties between equal spreads.
+  // Games on a weekday can't exceed that weekday's nights, so Σ nightsPerWd² is
+  // a hard ceiling on the tiebreak — weighting one step of spread above it makes
+  // the ordering provably lexicographic instead of merely true at league sizes.
+  const spreadWeight = 1 + nightsPerWd.reduce((s, n) => s + n * n, 0);
   const cost = (t: number) => {
     let mx = -Infinity;
     let mn = Infinity;
@@ -189,7 +194,7 @@ function chooseWeekdayByeTargets(
       mn = Math.min(mn, g);
       sq += g * g;
     }
-    return (mx - mn) * 1000 + sq;
+    return (mx - mn) * spreadWeight + sq;
   };
   for (let pass = 0; pass < 200; pass++) {
     let improved = false;
@@ -267,6 +272,10 @@ export function solveParticipation(
   } = opts;
   const N = nights.length;
   if (T < 2 || N === 0 || D === 0) return null;
+  // A night can't put more than half the league on the ice. Checked per night
+  // because the column check further down only sees each weekday's total, where
+  // an over-full night would be masked by a quiet one on the same weekday.
+  if (nights.some((n) => T - 2 * n.games < 0)) return null;
 
   const weeks = buildWeeks(nights, T);
   const W = weeks.length;
@@ -397,21 +406,33 @@ export function solveParticipation(
   // alone would grind through the whole tree).
   const globalLowerBound = remainingLowerBound(0, new Array(T).fill(false));
 
-  const dfs = (i: number, cost: number, prevByeWd: (number[] | null)[]): void => {
-    if (done) return;
+  /**
+   * Charge one search step against the budgets; true once the search must stop.
+   * Called from the combination enumeration as well as the week recursion — a
+   * week with large per-night bye quotas can explore a wide combination tree
+   * between two week-level calls, and only counting the latter lets the
+   * deadline overshoot.
+   */
+  const tick = (): boolean => {
+    if (done) return true;
     if (++nodes > nodeBudget) {
       done = true;
       cutOff = true;
-      return;
+      return true;
     }
     if ((nodes & 0x3ff) === 0) {
       const now = Date.now();
       if (now > deadline || (best !== null && now - lastImproved > stallMs)) {
         done = true;
         cutOff = true;
-        return;
+        return true;
       }
     }
+    return false;
+  };
+
+  const dfs = (i: number, cost: number, prevByeWd: (number[] | null)[]): void => {
+    if (tick()) return;
     if (cost >= bestCost) return;
     if (i === W) {
       for (let t = 0; t < T; t++) {
@@ -474,7 +495,7 @@ export function solveParticipation(
 
       const chosen: number[] = [];
       const pick = (start: number, extra: number): void => {
-        if (done || cost + addedCost + extra >= bestCost) return;
+        if (tick() || cost + addedCost + extra >= bestCost) return;
         if (chosen.length === quota) {
           fillSlot(k + 1, addedCost + extra);
           return;

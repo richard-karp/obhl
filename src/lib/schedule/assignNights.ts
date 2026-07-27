@@ -1254,19 +1254,38 @@ function planByParticipation(
     games: perNight[i],
   }));
 
-  // Weekday balance is priority #1, so only loosen the target split if a
-  // perfectly even one is arithmetically out of reach for this calendar. A rung
-  // that can't work is almost always refuted by arithmetic in under a
-  // millisecond, so in practice only the rung that succeeds costs real time.
-  const solve = (timeBudgetMs: number): Participation | null => {
-    for (let slack = 0; slack <= 2; slack++) {
+  // Weekday balance is priority #1, so loosen the target split only as far as
+  // each rung fails. Pinned quotas first (the evenest split the totals allow),
+  // widening the tolerance for them; then the same tolerances without pinning.
+  // Those last three matter because the pinned quotas don't depend on slack —
+  // without them, a calendar whose optimal quotas can't be packed onto nights
+  // fails all three pinned rungs identically and the planner is thrown away
+  // when a looser per-team split would still have worked.
+  const rungs = [
+    { slack: 0, exact: true },
+    { slack: 1, exact: true },
+    { slack: 2, exact: true },
+    { slack: 0, exact: false },
+    { slack: 1, exact: false },
+    { slack: 2, exact: false },
+  ];
+  // One deadline for the whole ladder, not one per rung: a rung that can't work
+  // is almost always refuted by arithmetic in under a millisecond, so in
+  // practice the rung that succeeds still gets the full budget — but a rung
+  // that does burn time can no longer multiply the ladder's cost by six.
+  const solve = (budgetMs: number): Participation | null => {
+    const until = Date.now() + budgetMs;
+    for (const { slack, exact } of rungs) {
+      const remaining = until - Date.now();
+      if (remaining <= 0) break;
       const p = solveParticipation({
         teamCount: T,
         nights: pnights,
         gamesPerTeam,
         weekdayCount: meta.usedWeekdays.length,
         weekdaySlack: slack,
-        timeBudgetMs,
+        exactWeekdayTargets: exact,
+        timeBudgetMs: remaining,
       });
       if (p) return p;
     }
@@ -1291,7 +1310,7 @@ function planByParticipation(
   // and check it can be paired at all; only buy the long search once that's
   // known — otherwise a calendar that was never going to work burns the whole
   // budget on its way to being thrown away.
-  let part = solve(300);
+  const part = solve(300);
   if (!part) return null;
   let matched = match(part);
   if (!matched) return null;
@@ -1299,10 +1318,7 @@ function planByParticipation(
     const better = solve(4_000);
     if (better && byeRuleCost(better) < byeRuleCost(part)) {
       const m = match(better);
-      if (m) {
-        part = better;
-        matched = m;
-      }
+      if (m) matched = m;
     }
   }
 

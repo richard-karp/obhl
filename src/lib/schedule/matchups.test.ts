@@ -76,10 +76,8 @@ describe("assignMatchups", () => {
 describe("assignSlots", () => {
   it("uses each of a night's slots exactly once", () => {
     const { T, plays, nightWeek, nightWeekday } = scenario(24);
-    const targets = Array.from({ length: T }, (_, a) =>
-      Array.from({ length: T }, (_, b) => (a === b ? 0 : 0)),
-    );
     // Targets are irrelevant here; we just need a valid pairing to slot.
+    const targets = Array.from({ length: T }, () => new Array(T).fill(0));
     const m = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
     const slotOf = assignSlots({
       teamCount: T,

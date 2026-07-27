@@ -103,9 +103,14 @@ sometimes ties.
   them reliably misses the meeting targets, so it declines rather than guess;
 - Phase M can't reproduce the caller's exact matchup multiset.
 
-Every phase has a wall-clock budget, so a hard instance degrades to the fallback
-rather than hanging — but see §5: those budgets are per call, not per generate,
-and nothing currently bounds their total.
+Phase P tries a ladder of six rungs, stopping at the first that solves: the
+evenest per-team weekday quotas pinned exactly, at widening tolerance, then the
+same tolerances with the quotas left free. The last three matter because the
+pinned quotas don't depend on tolerance — without them a calendar whose optimal
+quotas can't be packed onto nights would fail every pinned rung identically. The
+whole ladder shares one deadline, so a rung that runs long can't multiply its
+cost; every phase is bounded, and a hard instance degrades to the fallback
+rather than hanging.
 
 ---
 
@@ -125,35 +130,20 @@ Same-or-better than the old pipeline everywhere tested; never worse.
 | 7t/3slot/11n, 12t/6slot/24n, over-capacity | tie — participation path declines, fallback handles them |
 
 Generate time: ~900 ms for the reference (was ~475 ms). Two awkward calendars —
-Mon/Wed/Fri and one with a 3-week mid-season gap — spend 3.5–4.5 s, because they
-are the cases where the long search actually buys something (it clears a rule-1
+Mon/Wed/Fri and one with a 3-week mid-season gap — spend ~2.6 s, because they are
+the cases where the long search actually buys something (it clears a rule-1
 breach on the first and takes `byeConsecWeek` 3→1 on the second). Everything else
 is under ~900 ms. Both planners always run; that is the cost of the guarantee
 that the result is never worse than before.
 
 ---
 
-## 5. Known limits
+## 5. Known limits (all deliberate)
 
-The first two came out of a code review of this work and are **open defects, not
-design trade-offs** — they should be fixed. The rest are deliberate choices or
-genuine floors.
+A code review of this work turned up two defects — the slack ladder computing
+identical quotas on every rung, and nothing bounding Phase P's total time. Both
+are fixed; see §3. What follows are choices, not oversights.
 
-- **The weekday slack ladder never loosens the search.** `planByParticipation`
-  retries `solveParticipation` at slack 0, 1, 2, but `chooseWeekdayByeTargets`
-  pins each team's per-weekday bye quota from the row and column totals, none of
-  which depend on slack — so every rung computes *identical* targets and slack
-  only widens the check that accepts them. If those quotas can't be packed onto
-  nights, all three rungs fail the same way and the planner is discarded for a
-  calendar it could likely still handle. `exactWeekdayTargets: false` exists for
-  exactly this and is never passed. Fix: add band-only rungs after the exact ones.
-- **Nothing bounds Phase P's total time.** `timeBudgetMs` is per
-  `solveParticipation` call, but the ladder runs up to 3 rungs and the two-stage
-  retry runs the ladder twice — a worst case near 13 s, and `generateSchedule`
-  can call `assignNights` up to 9 times. Not reproducible in any config tried
-  (the arithmetic pre-check refutes bad rungs in 0 ms, and the worst measured is
-  4.9 s), but the bound is real and unguarded. Fix: one absolute deadline per
-  `planByParticipation`, with each rung given the time remaining.
 - **12+ teams playing per night**: Phase M declines. `planByWeeks` already
   produces a perfect schedule for that shape, so nothing is lost — but a league
   that grows into a case where it *doesn't* would need Phase M to handle larger
