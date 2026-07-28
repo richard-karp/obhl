@@ -4,10 +4,13 @@ import { assignNights, weekdayOf, type Night } from "./assignNights";
 import {
   planOneOff,
   checkOneOffWrite,
+  buildOneOffRows,
   iceTimeSpread,
+  type BuildRowsOptions,
   type CheckWriteOptions,
   type OneOffNight,
   type OneOffPlan,
+  type OneOffRow,
 } from "./oneOff";
 import { homeAwaySpread } from "./homeAway";
 
@@ -431,5 +434,252 @@ describe("checkOneOffWrite", () => {
     const o = base();
     o.changes = [o.changes[1]];
     expect(checkOneOffWrite(o)).toMatch(/doesn't include the game/);
+  });
+
+  it("rejects an unenrolled team elsewhere on the one-off night", () => {
+    // Unenrolling a team leaves its games scheduled. On the relabel path the
+    // row builder maps that night's games back through `teamIds`, and a team
+    // with no index there would reach the write as a row with no team on it.
+    const o = base();
+    o.nights[1].games[1] = ["E", "B"];
+    expect(
+      checkOneOffWrite({ ...o, forcedPairs: [["A", "D"]], changes: [] }),
+    ).toMatch(/isn't enrolled/);
+  });
+});
+
+describe("buildOneOffRows", () => {
+  // Four teams over two ice times, two nights. The 5th already hosted the
+  // semifinals, so a prior round's labels are sitting on real rows — which is
+  // how a label gets a chance to survive, or to go stale.
+  const teamIds = ["A", "B", "C", "D"]; // A=0, B=1, C=2, D=3
+  const at = (date: string, time: string) => `${date}T${time}:00-05:00`;
+
+  const base = (): BuildRowsOptions => ({
+    teamIds,
+    date: "2027-01-07",
+    round: "final",
+    label: "Championship",
+    forcedPairs: [["A", "C"]],
+    nights: [
+      {
+        date: "2027-01-05",
+        games: [
+          {
+            id: "g1",
+            homeTeamId: "A",
+            awayTeamId: "B",
+            scheduledAt: at("2027-01-05", "19:00"),
+            label: "Semifinal 1",
+          },
+          {
+            id: "g2",
+            homeTeamId: "C",
+            awayTeamId: "D",
+            scheduledAt: at("2027-01-05", "20:15"),
+            label: "Semifinal 2",
+          },
+        ],
+      },
+      {
+        date: "2027-01-07",
+        games: [
+          {
+            id: "g3",
+            homeTeamId: "A",
+            awayTeamId: "D",
+            scheduledAt: at("2027-01-07", "19:00"),
+            label: null,
+          },
+          {
+            id: "g4",
+            homeTeamId: "B",
+            awayTeamId: "C",
+            scheduledAt: at("2027-01-07", "20:15"),
+            label: null,
+          },
+        ],
+      },
+    ],
+    // A–C onto the 7th, leaving B and D to each other.
+    changes: [{ date: "2027-01-07", to: [[0, 2], [1, 3]] }],
+  });
+
+  const byId = (rows: OneOffRow[]) => new Map(rows.map((r) => [r.id, r]));
+
+  it("rewrites a night's games in place, keeping each row's ice time", () => {
+    const rows = buildOneOffRows(base());
+    expect(rows).toEqual([
+      {
+        id: "g3",
+        homeTeamId: "A",
+        awayTeamId: "C",
+        label: "Championship",
+        scheduledAt: at("2027-01-07", "19:00"),
+      },
+      {
+        id: "g4",
+        homeTeamId: "B",
+        awayTeamId: "D",
+        label: null,
+        scheduledAt: at("2027-01-07", "20:15"),
+      },
+    ]);
+  });
+
+  it("takes the i-th planned game onto the i-th ice time", () => {
+    const o = base();
+    // The same two games, ordered the other way round.
+    o.changes = [{ date: "2027-01-07", to: [[1, 3], [0, 2]] }];
+    const rows = byId(buildOneOffRows(o));
+    expect(rows.get("g3")).toMatchObject({ homeTeamId: "B", awayTeamId: "D" });
+    expect(rows.get("g4")).toMatchObject({ homeTeamId: "A", awayTeamId: "C" });
+  });
+
+  it("clears the label of a game whose matchup changed", () => {
+    const o = base();
+    o.nights[1].games[1].label = "Consolation";
+    o.changes = [
+      { date: "2027-01-07", to: [[0, 2], [1, 3]] },
+      { date: "2027-01-05", to: [[0, 3], [1, 2]] },
+    ];
+    const rows = byId(buildOneOffRows(o));
+    expect(rows.get("g4")?.label).toBeNull(); // B–C became B–D
+    expect(rows.get("g1")?.label).toBeNull(); // A–B became A–D
+    expect(rows.get("g2")?.label).toBeNull(); // C–D became B–C
+  });
+
+  it("keeps a label when only home and away swap", () => {
+    const o = base();
+    o.changes.push({ date: "2027-01-05", to: [[1, 0], [2, 3]] });
+    const rows = byId(buildOneOffRows(o));
+    expect(rows.get("g1")).toMatchObject({
+      homeTeamId: "B",
+      awayTeamId: "A",
+      label: "Semifinal 1",
+    });
+  });
+
+  it("writes no row for a game the plan leaves exactly as it was", () => {
+    const o = base();
+    o.changes.push({ date: "2027-01-05", to: [[1, 0], [2, 3]] });
+    // C–D on the 5th is untouched, home side and all.
+    expect(byId(buildOneOffRows(o)).has("g2")).toBe(false);
+  });
+
+  it("labels only the one-off night, never a matching pair elsewhere", () => {
+    const o = base();
+    o.forcedPairs = [["A", "B"]];
+    o.changes = [
+      { date: "2027-01-07", to: [[0, 1], [2, 3]] },
+      // A and B still meet on the 5th, with the sides swapped.
+      { date: "2027-01-05", to: [[1, 0], [2, 3]] },
+    ];
+    const rows = byId(buildOneOffRows(o));
+    expect(rows.get("g3")?.label).toBe("Championship");
+    expect(rows.get("g1")?.label).toBe("Semifinal 1");
+  });
+
+  it("numbers semifinals in the order the games were given", () => {
+    const o = base();
+    o.round = "semifinals";
+    o.label = "";
+    o.forcedPairs = [["B", "D"], ["A", "C"]];
+    const rows = byId(buildOneOffRows(o));
+    expect(rows.get("g4")?.label).toBe("Semifinal 1"); // B–D, given first
+    expect(rows.get("g3")?.label).toBe("Semifinal 2"); // A–C, given second
+  });
+
+  it("falls back to Final when no label was typed", () => {
+    const o = base();
+    o.label = "   ";
+    expect(byId(buildOneOffRows(o)).get("g3")?.label).toBe("Final");
+  });
+
+  it("labels the existing row when the pair already meets that night", () => {
+    // The relabel path: the plan carries no changes at all.
+    const o = base();
+    o.forcedPairs = [["A", "D"]];
+    o.changes = [];
+    const rows = buildOneOffRows(o);
+    expect(rows).toEqual([
+      {
+        id: "g3",
+        homeTeamId: "A",
+        awayTeamId: "D",
+        label: "Championship",
+        scheduledAt: at("2027-01-07", "19:00"),
+      },
+    ]);
+  });
+
+  it("leaves another round's labels alone on a shared night", () => {
+    // Six teams over three ice times: the semifinals and the final can land on
+    // the same night, and scheduling the final must not erase the semifinals.
+    const rows = byId(
+      buildOneOffRows({
+        teamIds: ["A", "B", "C", "D", "E", "F"],
+        date: "2027-02-04",
+        round: "final",
+        label: "Championship",
+        forcedPairs: [["E", "F"]],
+        changes: [],
+        nights: [
+          {
+            date: "2027-02-04",
+            games: [
+              { id: "s1", homeTeamId: "A", awayTeamId: "B", scheduledAt: at("2027-02-04", "19:00"), label: "Semifinal 1" },
+              { id: "s2", homeTeamId: "C", awayTeamId: "D", scheduledAt: at("2027-02-04", "20:15"), label: "Semifinal 2" },
+              { id: "f1", homeTeamId: "E", awayTeamId: "F", scheduledAt: at("2027-02-04", "21:30"), label: null },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(rows.get("f1")?.label).toBe("Championship");
+    expect(rows.has("s1")).toBe(false); // untouched, so not written at all
+    expect(rows.has("s2")).toBe(false);
+  });
+
+  it("clears a stale semifinal but keeps a final when semifinals re-run", () => {
+    // The same rule the other way round. Both labels sit on games this run
+    // isn't labelling, so the round's ownership is what decides each one.
+    const rows = byId(
+      buildOneOffRows({
+        teamIds: ["A", "B", "C", "D", "E", "F", "G", "H"],
+        date: "2027-02-04",
+        round: "semifinals",
+        label: "",
+        forcedPairs: [["E", "F"], ["G", "H"]],
+        changes: [],
+        nights: [
+          {
+            date: "2027-02-04",
+            games: [
+              { id: "x1", homeTeamId: "A", awayTeamId: "B", scheduledAt: at("2027-02-04", "18:00"), label: "Semifinal 1" },
+              { id: "x2", homeTeamId: "C", awayTeamId: "D", scheduledAt: at("2027-02-04", "19:00"), label: "Championship" },
+              { id: "x3", homeTeamId: "E", awayTeamId: "F", scheduledAt: at("2027-02-04", "20:15"), label: null },
+              { id: "x4", homeTeamId: "G", awayTeamId: "H", scheduledAt: at("2027-02-04", "21:30"), label: null },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(rows.get("x3")?.label).toBe("Semifinal 1");
+    expect(rows.get("x4")?.label).toBe("Semifinal 2");
+    expect(rows.get("x1")?.label).toBeNull(); // stale semifinal, this round's
+    expect(rows.has("x2")).toBe(false); // the final's label is not
+  });
+
+  it("clears a stale label left on the one-off night by an earlier run", () => {
+    // The final was scheduled here once already, then moved to the other game
+    // on the same night. Two games labelled "Championship" is not a schedule.
+    const o = base();
+    o.nights[1].games[0].label = "Championship";
+    o.forcedPairs = [["B", "C"]];
+    o.changes = [];
+    const rows = byId(buildOneOffRows(o));
+    expect(rows.get("g4")?.label).toBe("Championship");
+    expect(rows.get("g3")?.label).toBeNull();
   });
 });

@@ -278,6 +278,17 @@ export function checkOneOffWrite(opts: CheckWriteOptions): string | null {
   if (oneOff.locked) {
     return `${oneOff.date} has already been played — pick another night.`;
   }
+  // On the relabel path the row builder writes this night's games straight back,
+  // mapping their team ids through `teamIds`. A game for a team no longer
+  // enrolled — unenrolling doesn't delete the games already scheduled — has no
+  // index to map to, and would otherwise reach the write as a row with no team
+  // on it. Preview rejects the same schedule; apply re-reads, so it has to too.
+  const enrolled = new Set(teamIds);
+  for (const [h, a] of oneOff.games) {
+    if (!enrolled.has(h) || !enrolled.has(a)) {
+      return `${oneOff.date} has a game for a team that isn't enrolled this season.`;
+    }
+  }
 
   const seen = new Set<string>();
   for (const c of changes) {
@@ -320,6 +331,143 @@ export function checkOneOffWrite(opts: CheckWriteOptions): string | null {
   }
 
   return null;
+}
+
+export type OneOffRound = "final" | "semifinals";
+
+/** Label for the i-th labelled game of a round. */
+const labelFor = (round: OneOffRound, label: string, i: number) =>
+  round === "semifinals" ? `Semifinal ${i + 1}` : label.trim() || "Final";
+
+const SEMIFINAL_LABEL = /^Semifinal \d+$/;
+
+/**
+ * Whether a label already on the one-off night is this round's to clear.
+ *
+ * A round owns the labels it can itself produce: re-running semifinals clears
+ * stale `Semifinal N`s, and a final clears a stale final whatever wording the
+ * manager gave it. The other round's labels are left alone, so semifinals and a
+ * final can share a night — three ice times, six teams — without erasing each
+ * other.
+ *
+ * This is why it matches on the wording rather than on which round wrote the
+ * row: `games` has no column saying which round a label came from. The cost is
+ * that a final can't tell a stale final from any other custom label, so on a
+ * final's night anything that isn't a `Semifinal N` is treated as its own.
+ */
+const roundOwnsLabel = (round: OneOffRound, label: string | null) =>
+  label !== null &&
+  (round === "semifinals"
+    ? SEMIFINAL_LABEL.test(label)
+    : !SEMIFINAL_LABEL.test(label));
+
+/** A published game, as the write path reads it back. */
+export type RowGame = {
+  id: string;
+  homeTeamId: string;
+  awayTeamId: string;
+  scheduledAt: string;
+  label: string | null;
+};
+
+export type RowNight = { date: string; games: RowGame[] };
+
+/** One game to write: the same row, re-pointed at its new matchup. */
+export type OneOffRow = RowGame;
+
+export type BuildRowsOptions = {
+  /** The season's nights as read back, each night's games in ice-time order. */
+  nights: RowNight[];
+  /** Team ids by planner index — how `changes` refers to teams. */
+  teamIds: string[];
+  /** The night the labelled game goes on. */
+  date: string;
+  round: OneOffRound;
+  /** The manager's wording for a final; ignored for semifinals. */
+  label: string;
+  forcedPairs: [string, string][];
+  changes: { date: string; to: [number, number][] }[];
+};
+
+/**
+ * The rows a chosen plan writes.
+ *
+ * A night's games keep their existing rows in ice-time order and only their
+ * matchups move — the i-th planned game onto the i-th ice time — so "the set of
+ * times per night is unchanged" holds structurally rather than by assertion.
+ * Rows the plan leaves exactly as they were are omitted, so a quiet plan writes
+ * little.
+ *
+ * Labels follow the game, not the row: one survives only where its matchup did,
+ * and on the one-off night the round owns every label — the labelled games get
+ * theirs, and anything else is cleared, which is what stops a second run leaving
+ * two games called "Final".
+ *
+ * Pure, and separate from the action, so every one of those rules can be tested
+ * without a database. Call it only on a payload `checkOneOffWrite` has passed:
+ * it trusts that each change names a real night with a matching game count and
+ * in-range team indices.
+ */
+export function buildOneOffRows(opts: BuildRowsOptions): OneOffRow[] {
+  const { nights, teamIds, date, round, label, forcedPairs, changes } = opts;
+
+  const nightOn = new Map(nights.map((n) => [n.date, n]));
+  const oneOff = nightOn.get(date);
+  if (!oneOff) return [];
+
+  const indexOf = new Map(teamIds.map((id, i) => [id, i]));
+  const forced = forcedPairs.map(([h, a]) => idKey(h, a));
+
+  // The one-off night is always rewritten, even when the plan doesn't list it:
+  // that's the relabel case, where the two teams already meet and the only edit
+  // is the label. Standing in its current arrangement lets one loop handle both,
+  // and the unchanged-row skip below keeps it from writing anything it needn't.
+  const all = changes.some((c) => c.date === date)
+    ? changes
+    : [
+        ...changes,
+        {
+          date,
+          to: oneOff.games.map(
+            (g) =>
+              [indexOf.get(g.homeTeamId)!, indexOf.get(g.awayTeamId)!] as [
+                number,
+                number,
+              ],
+          ),
+        },
+      ];
+
+  const rows: OneOffRow[] = [];
+  for (const c of all) {
+    const night = nightOn.get(c.date);
+    // `checkOneOffWrite` rejects a change naming a night that isn't there, so
+    // reaching this means it was bypassed. Loud beats a half-written plan.
+    if (!night) throw new Error(`No game night on ${c.date}.`);
+    c.to.forEach(([h, a], i) => {
+      const row = night.games[i];
+      const home = teamIds[h];
+      const away = teamIds[a];
+      const key = idKey(home, away);
+      const kept = key === idKey(row.homeTeamId, row.awayTeamId);
+      const labelIndex = c.date === date ? forced.indexOf(key) : -1;
+      const next =
+        labelIndex >= 0
+          ? labelFor(round, label, labelIndex)
+          : !kept || (c.date === date && roundOwnsLabel(round, row.label))
+            ? null
+            : row.label;
+      if (kept && row.homeTeamId === home && row.label === next) return;
+      rows.push({
+        id: row.id,
+        homeTeamId: home,
+        awayTeamId: away,
+        label: next,
+        scheduledAt: row.scheduledAt,
+      });
+    });
+  }
+  return rows;
 }
 
 export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
