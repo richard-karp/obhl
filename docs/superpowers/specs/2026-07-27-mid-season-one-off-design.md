@@ -385,6 +385,18 @@ so anything already pointing at a game — `game_rosters`, links a captain has
 been sent — survives the repair. Delete-and-insert would silently drop attached
 rows via `on delete cascade`.
 
+Labels follow the game, not the row. One survives only where its matchup did, so
+a re-paired game never inherits the name of the game it displaced. On the one-off
+night a round additionally owns the labels *it* could have written: the labelled
+games get theirs, and a leftover of the same kind is cleared — otherwise
+scheduling a final, then moving it to the other game on the same night, leaves
+two games called "Final". The other round's labels are left alone, so semifinals
+and a final can share a night without erasing each other. Ownership is decided by
+the wording (`Semifinal N` versus anything else) because `games` has no column
+recording which round a label came from; the cost is that on a final's night any
+custom label that isn't a `Semifinal N` is treated as a stale final. Rows the plan
+leaves exactly as they were are not written at all.
+
 ---
 
 ## 5. Testing

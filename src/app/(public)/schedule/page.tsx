@@ -65,7 +65,7 @@ export default async function SchedulePage({
 
   const teams = await getEnrolledTeams(ctx.season.id);
   const selected = team ? teams.find((t) => t.slug === team) : undefined;
-  const games = await getSchedule(ctx.season.id, selected?.id);
+  const games = await getSchedule(ctx.season.id, { teamId: selected?.id });
 
   // Anchor on "now": upcoming games first (next up), then recent results
   // (most recently played first) — instead of opening at the season's start.

@@ -148,7 +148,7 @@ async function CaptainPanel({
     );
   }
 
-  const games = (await getSchedule(seasonId!, team.id)).filter(
+  const games = (await getSchedule(seasonId!, { teamId: team.id })).filter(
     (g) => g.status !== "final" && g.status !== "cancelled",
   );
 

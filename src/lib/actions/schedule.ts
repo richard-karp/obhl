@@ -10,8 +10,10 @@ import { resolveCurrentLeague } from "@/lib/league/current";
 import {
   planOneOff,
   checkOneOffWrite,
+  buildOneOffRows,
   type OneOffNight,
   type OneOffPlan,
+  type OneOffRound,
 } from "@/lib/schedule/oneOff";
 import { getSeasonNights, type SeasonNight } from "@/lib/queries/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
@@ -92,11 +94,9 @@ export async function generateSchedule(formData: FormData) {
     .filter(Boolean);
   if (!startDate || weekdays.size === 0 || slotTimes.length === 0) return;
 
-  const { data: enrolled } = await admin
-    .from("season_teams")
-    .select("team_id")
-    .eq("season_id", seasonId);
-  const teamIds = (enrolled ?? []).map((e) => e.team_id);
+  // Alphabetical, so the same enrolment always feeds the generator in the same
+  // order and a re-run is reproducible.
+  const teamIds = (await getEnrolledTeams(seasonId, { client: admin })).map((t) => t.id);
   if (teamIds.length < 2) return;
 
   const perNightCap = Math.min(slotTimes.length, Math.floor(teamIds.length / 2));
@@ -205,7 +205,10 @@ export async function discardSchedule(formData: FormData) {
 
 /* ------------------------------------------------------------------ one-off */
 
-export type OneOffRound = "final" | "semifinals";
+// `OneOffRound` lives in `@/lib/schedule/oneOff` alongside the labelling it
+// drives. Declaring a type here is fine (see `OneOffInput` below), but
+// *re-exporting* one — `export type { OneOffRound }` — is not: in a "use server"
+// module it compiles, then fails the build as a missing server action.
 
 export type OneOffInput = {
   seasonId: string;
@@ -235,21 +238,19 @@ export type OneOffState =
   | { ok: true; kind: "preview"; preview: OneOffPreview }
   | { ok: true; kind: "applied"; message: string };
 
-const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
-
-/** Label for the i-th labelled game of a round. */
-const labelFor = (round: OneOffRound, label: string, i: number) =>
-  round === "semifinals" ? `Semifinal ${i + 1}` : label.trim() || "Final";
-
 /**
  * Everything both actions need: the season's nights, its enrolled teams, and the
  * index mapping the planner works in. Read fresh on both sides, so apply
  * validates against the schedule as it is now, not as it was at preview.
  */
-async function loadContext(seasonId: string) {
+async function loadContext(seasonId: string, admin: Admin) {
+  // Read as the admin client, not under RLS. Both actions are manager-gated and
+  // work on a season the manager named, so RLS adds nothing — while a season
+  // the public-read policies don't cover would come back empty rather than
+  // erroring, and the repair would silently plan against an empty schedule.
   const [enrolled, nights] = await Promise.all([
-    getEnrolledTeams(seasonId),
-    getSeasonNights(seasonId),
+    getEnrolledTeams(seasonId, { client: admin }),
+    getSeasonNights(seasonId, { client: admin }),
   ]);
   const teams = enrolled.map((t) => ({ id: t.id, name: t.name }));
   const indexOf = new Map(teams.map((t, i) => [t.id, i]));
@@ -303,7 +304,7 @@ export async function previewOneOffGame(
   const seasonId = await targetSeason(admin, input.seasonId);
   if (!seasonId) return { ok: false, message: "No season selected." };
 
-  const { teams, indexOf, nights } = await loadContext(seasonId);
+  const { teams, indexOf, nights } = await loadContext(seasonId, admin);
   const bad = readInput(input, indexOf);
   if (bad) return { ok: false, message: bad };
 
@@ -381,9 +382,11 @@ export async function applyOneOffGame(
   const seasonId = await targetSeason(admin, input.seasonId);
   if (!seasonId) return { ok: false, message: "No season selected." };
 
-  const { teams, indexOf, nights } = await loadContext(seasonId);
+  const { teams, indexOf, nights } = await loadContext(seasonId, admin);
   const bad = readInput(input, indexOf);
   if (bad) return { ok: false, message: bad };
+
+  const teamIds = teams.map((t) => t.id);
 
   // Everything standing between a client payload and the write. Pure and
   // tested in oneOff.test.ts; see `checkOneOffWrite` for why it validates
@@ -394,67 +397,35 @@ export async function applyOneOffGame(
       locked: n.locked,
       games: n.games.map((g) => [g.homeTeamId, g.awayTeamId] as [string, string]),
     })),
-    teamIds: teams.map((t) => t.id),
+    teamIds,
     date: input.date,
     forcedPairs: input.matchups,
     changes: input.changes,
   });
   if (problem) return { ok: false, message: problem };
 
-  const nightOn = new Map(nights.map((n) => [n.date, n]));
-  const oneOff = nightOn.get(input.date)!;
-  const forced = input.matchups.map(([h, a]) => pairKey(h, a));
-
-  // Rows to write: same row, same ice time, possibly a different matchup. A
-  // label only survives if its matchup did.
-  const rows: TablesInsert<"games">[] = [];
-  for (const c of input.changes) {
-    const night = nightOn.get(c.date)!;
-    c.to.forEach(([h, a], i) => {
-      const row = night.games[i];
-      const home = teams[h].id;
-      const away = teams[a].id;
-      const key = pairKey(home, away);
-      const kept = key === pairKey(row.homeTeamId, row.awayTeamId);
-      const labelIndex = c.date === input.date ? forced.indexOf(key) : -1;
-      const label =
-        labelIndex >= 0
-          ? labelFor(input.round, input.label, labelIndex)
-          : kept
-            ? row.label
-            : null;
-      if (kept && row.homeTeamId === home && row.label === label) return;
-      rows.push({
-        id: row.id,
-        season_id: seasonId,
-        home_team_id: home,
-        away_team_id: away,
-        label,
-        // The value we just read, so this is a no-op for the row it targets.
-        // It's here because `upsert` *inserts* when no row matches the id, and
-        // if this game were deleted between the read and the write that insert
-        // would otherwise create a game with no date at all.
-        scheduled_at: row.scheduledAt,
-      });
-    });
-  }
-
-  // Label the one-off even when its night needed no re-pairing (the two teams
-  // were already meeting), which is the relabel-only case.
-  if (!input.changes.some((c) => c.date === input.date)) {
-    oneOff.games.forEach((row) => {
-      const i = forced.indexOf(pairKey(row.homeTeamId, row.awayTeamId));
-      if (i < 0) return;
-      rows.push({
-        id: row.id,
-        season_id: seasonId,
-        home_team_id: row.homeTeamId,
-        away_team_id: row.awayTeamId,
-        label: labelFor(input.round, input.label, i),
-        scheduled_at: row.scheduledAt,
-      });
-    });
-  }
+  // Which rows the plan writes, and what goes in them — pure, and tested in
+  // oneOff.test.ts. Everything left here is the I/O either side of it.
+  const rows: TablesInsert<"games">[] = buildOneOffRows({
+    nights,
+    teamIds,
+    date: input.date,
+    round: input.round,
+    label: input.label,
+    forcedPairs: input.matchups,
+    changes: input.changes,
+  }).map((r) => ({
+    id: r.id,
+    season_id: seasonId,
+    home_team_id: r.homeTeamId,
+    away_team_id: r.awayTeamId,
+    label: r.label,
+    // The value we just read, so this is a no-op for the row it targets. It's
+    // here because `upsert` *inserts* when no row matches the id, and if this
+    // game were deleted between the read and the write that insert would
+    // otherwise create a game with no date at all.
+    scheduled_at: r.scheduledAt,
+  }));
 
   if (rows.length > 0) {
     // One statement, so a plan can't land half-applied.

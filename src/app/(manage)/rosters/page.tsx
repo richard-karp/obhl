@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireManager } from "@/lib/auth/guards";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { getActiveContext } from "@/lib/queries/season";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { TeamLogo } from "@/components/shared/team-logo";
@@ -13,7 +14,11 @@ export default async function RostersPage() {
   if (!ctx?.season) {
     return <EmptyState title="No active season" description="Create and activate a season first." />;
   }
-  const teams = await getEnrolledTeams(ctx.season.id);
+  // Manager-only page: read past RLS, so a season the public-read policies
+  // don't cover shows its teams rather than coming back silently empty.
+  const teams = await getEnrolledTeams(ctx.season.id, {
+    client: createAdminClient(),
+  });
 
   return (
     <div className="space-y-6">

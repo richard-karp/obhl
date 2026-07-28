@@ -29,9 +29,9 @@ export default async function HomePage() {
   const [standings, leaders, upcoming, recent, announcements, latestGame] =
     await Promise.all([
       getStandings(season.id),
-      getSkaterLeaders(season.id, 8),
-      getUpcoming(season.id, 5),
-      getRecentResults(season.id, 5),
+      getSkaterLeaders(season.id, { limit: 8 }),
+      getUpcoming(season.id, { limit: 5 }),
+      getRecentResults(season.id, { limit: 5 }),
       getAnnouncements(league.id, 3),
       getLatestGameWithRecapData(season.id),
     ]);

@@ -63,8 +63,15 @@ async function seedFutureSeason(page: Page) {
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
     await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
     await page.getByRole("button", { name: "Generate schedule" }).click();
-    await expect(page.getByText("Balance report")).toBeVisible();
+    // Generation is a solver, not a query: it runs to a wall-clock budget and is
+    // the slowest thing in the suite, so it needs more than the default timeout.
+    await expect(page.getByText("Balance report")).toBeVisible({ timeout: 30_000 });
     await page.getByRole("button", { name: /Publish \d+ games/ }).click();
+    // Wait for the publish to land. Navigating away while the action is still in
+    // flight leaves the one-off page reading a season whose games are all still
+    // drafts, and it renders "No published schedule" instead of the form. The
+    // panel drops back to its empty state once the drafts are live.
+    await expect(page.getByText("No draft schedule")).toBeVisible();
   }
 }
 

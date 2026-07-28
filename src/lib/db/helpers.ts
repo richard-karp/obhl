@@ -1,4 +1,13 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/db/types";
+
+/**
+ * Either Supabase client. The read helpers in `lib/queries` default to the RLS
+ * client, which is right for the public site; a manager-only server action can
+ * pass the admin client instead, so it doesn't depend on the season it's
+ * operating on being publicly readable.
+ */
+export type DbClient = SupabaseClient<Database>;
 
 export type Tables<T extends keyof Database["public"]["Tables"]> =
   Database["public"]["Tables"][T]["Row"];

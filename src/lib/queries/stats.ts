@@ -1,5 +1,5 @@
 import { createClient } from "@/utils/supabase/server";
-import type { Views } from "@/lib/db/helpers";
+import type { DbClient, Views } from "@/lib/db/helpers";
 
 export type SkaterStat = Views<"v_skater_stats">;
 export type GoalieStat = Views<"v_goalie_stats">;
@@ -7,9 +7,10 @@ export type GoalieStat = Views<"v_goalie_stats">;
 /** Skater leaderboard for a season, ordered by points then goals. */
 export async function getSkaterLeaders(
   seasonId: string,
-  limit?: number,
+  opts: { limit?: number; client?: DbClient } = {},
 ): Promise<SkaterStat[]> {
-  const supabase = await createClient();
+  const { limit, client } = opts;
+  const supabase = client ?? (await createClient());
   let q = supabase
     .from("v_skater_stats")
     .select("*")
@@ -25,9 +26,10 @@ export async function getSkaterLeaders(
 /** Goalie leaderboard for a season, ordered by GAA (min 1 GP). */
 export async function getGoalieLeaders(
   seasonId: string,
-  limit?: number,
+  opts: { limit?: number; client?: DbClient } = {},
 ): Promise<GoalieStat[]> {
-  const supabase = await createClient();
+  const { limit, client } = opts;
+  const supabase = client ?? (await createClient());
   let q = supabase
     .from("v_goalie_stats")
     .select("*")
