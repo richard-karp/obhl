@@ -27,15 +27,17 @@ ice-time consequences.
 
 1. Move the one-off flow out of the schedule builder and onto its own mid-season
    page.
-2. Make a one-off structurally incapable of disturbing games-played, byes,
-   weekday balance, or ice-time share.
-3. Repair the one thing it does disturb — which pairs meet how often — by
-   adjusting later games in the season, and let the manager choose how.
+2. Make a one-off structurally incapable of disturbing games-played, byes, or
+   weekday balance.
+3. Repair what it does disturb — pair-meeting counts, per-team ice-time share and
+   the home/away split — by adjusting later games in the season, and let the
+   manager choose how.
 
 ## Non-goals
 
 - Regenerating the season. Nothing in this design re-runs the full generator.
-- Moving any game to a different date or ice time.
+- Moving any game to a different **date**. Ice times do permute within a night,
+  which is how goal 3 restores ice-time share.
 - Changing which teams are idle on any night.
 - Playoff bracket management. This is for one-off labelled games inside a season
   (an in-season tournament final, semifinals), which continue to count toward
@@ -50,32 +52,45 @@ schedule and takes over one of that night's games.
 
 That single decision freezes participation: the same teams play, the same teams
 are idle, the same number of games run, on the same ice times. Every balance
-property the generator optimises is a function of participation and therefore
-cannot move:
+property that is a function of the participation matrix alone therefore cannot
+move, and needs no repair:
 
-| Property | Why it can't drift |
+| Preserved exactly | Why it can't drift |
 |---|---|
 | Games per team | Every team playing that night still plays exactly one game |
 | Byes, and all three bye rules | The set of idle teams per night is untouched |
 | Weekday balance | A team's games on a weekday = that weekday's nights − its byes there; neither changes |
-| Ice-time share | The night runs the same games on the same slots |
 
-What *does* move is the **pair-meeting multiset** — how many times each pair
-faces each other over the season. A night scheduled as A–B / C–D / E–F, forced to
-carry B–D, leaves {A, C, E, F} to be re-paired. B–D gains a meeting; A–B and C–D
-each lose one.
+The rest is disturbed and must be actively repaired. A night scheduled as
+A–B / C–D / E–F, forced to carry B–D, leaves {A, C, E, F} to be re-paired — and
+re-pairing a night changes more than who faces whom:
 
-This is the whole problem, and it is a small one.
+| Disturbed | Why | Repaired by |
+|---|---|---|
+| Pair-meeting counts | B–D gains a meeting; A–B and C–D each lose one | Phase M (`assignMatchups`) |
+| Per-team ice-time share | The night keeps its slots, but *which team occupies which slot* moves with the pairings | Phase S (`assignSlots`) |
+| Home/away split | A pairing is unordered — someone has to be home | A new orientation pass |
+| Rematch spacing | Follows from the new pairings | Folded into Phase M's cost |
+
+**Do not overstate the first table.** "The night runs the same games on the same
+slots" is true of the *night* and false of the *teams*: a team can move from the
+19:00 slot to the 21:30 one without its calendar changing at all. Ice-time share
+is a season-long per-team total, so restoring it needs nights beyond the one that
+broke it — which is why the repair below runs all three phases, not just Phase M.
 
 ## 2. The target
 
 "The desired schedule balance" needs a precise definition to repair against. It
-is the **pair-meeting counts of the schedule as currently published**, read off
-the games table immediately before the edit.
+is **the schedule as currently published** — its pair-meeting counts, its
+per-team ice-time share, and its home/away split — all read off the games table
+immediately before the edit.
 
 Nothing needs to be stored for this. The published schedule is the manager's
-declared intent; the repair's job is to end the season with the same pair-meeting
-counts it would have had.
+declared intent; the repair's job is to end the season where it would have ended.
+
+Constraint satisfaction is primary. Churn — how many games the repair disturbs —
+is a **tiebreaker** among solutions that satisfy the constraints equally well,
+never a reason to leave a constraint unrepaired.
 
 ## 3. The repair
 
@@ -116,10 +131,14 @@ failure path.
 
 Callers map onto it as:
 
-- Nights already played (status `final` or `in_progress`, or a date in the past)
-  → `fixed` at their current pairing.
+- **Locked** nights → `fixed` at their current pairing.
 - The one-off night → `require` the forced pair (two pairs for semifinals).
 - Every remaining night → free.
+
+A night is **locked** if it is in the past **or** any of its games has
+`status != 'scheduled'`. One rule, used both for deciding which nights can host a
+one-off and for deciding which the repair may touch. Whole-night granularity,
+because re-pairing part of a night would break one-game-per-team.
 
 ### 3.3 Searching the whole remaining season
 
@@ -157,36 +176,70 @@ Plans are **deduped by changed-night signature** — when two weightings land on
 the same edit it appears once, so the manager is never asked to choose between
 identical options. Fewer than four plans is a normal outcome.
 
-Each plan is presented with the facts that distinguish it:
+Each plan is presented with a full scorecard, so the constraint cost of the
+low-churn options is visible rather than implied:
 
-- nights changed (count, and the diff per night)
+- **new-opponent nights** and **same-opponent nights**, counted separately — see below
 - the date the multiset is back on target
 - residual per-pair drift, if exact restoration was unreachable
+- before/after on per-team ice-time spread and home/away spread
 - before/after on the spacing checks already in the balance report:
   `byesConsecWeek`, `rematchSameWeek`, `rematchAdjNight`, `slotConsecutive`
   (`src/lib/schedule/spacing.ts`)
 
-Games-played, per-weekday counts, byes and ice-time share are **identical across
-every plan including the baseline**. That is section 1's invariant, not a
-dimension the plans trade against. The manager's choice is only ever about
-matchups and churn.
+Games-played, per-weekday counts and byes are **identical across every plan
+including the baseline** — that is §1's exact invariant, not a dimension the
+plans trade against. Everything else in the scorecard genuinely varies, which is
+what makes the choice a real one.
+
+**New opponent vs. same opponent.** Repairing ice-time share requires re-timing
+games on nights whose matchups never changed — slot share is a season-long
+per-team total, so it cannot be fixed on the one night that broke it. A captain
+can therefore see a game move from 19:00 to 21:30 with the same opponent. That
+reads very differently from a changed opponent, so the two are counted separately
+rather than pooled into one "nights changed" count.
+
+**Do not call the second category "ice time only."** The orientation pass can
+flip home/away on a night whose matchups it never touched, so a same-opponent
+night may be a home/away change, an ice-time change, or both — and in this league
+home/away is a tracked balance goal with its own column in the balance report.
+Naming it after only one of the two things it covers misdescribes a change the
+manager is about to relay to a captain.
 
 ### 3.5 Residual drift
 
 Exact restoration is not always reachable — the complementary pairing may not
 recur, or the remaining nights may be too few. The solver returns its best and
-the residual is reported per pair. A drift of one or two meetings is an
-acceptable outcome; a drift in games played is not, and cannot occur.
+the residual is reported rather than absorbed silently. A drift of one or two
+meetings is an acceptable outcome; a drift in games played is not, and cannot
+occur.
 
-### 3.6 Orientation and slots
+### 3.6 The other two phases
 
-The matching is unordered, so home/away and ice time must be resolved:
+Phase M settles who plays whom. Two more passes settle the rest, run in the
+generator's own order — matchups fix participation for slots, and orientation is
+independent of both.
 
-- **Unchanged pairs** keep their exact orientation and scheduled time.
-- **New pairs** take the orientation that levels each team's home/away count.
-- The night's games take the night's **existing** slot times. The labelled game
-  takes the last slot, preserving the current form's "the Final takes the feature
-  time" behaviour.
+**Phase S — ice time.** `assignSlots` (`src/lib/schedule/slots.ts:49`) is reused
+the same way Phase M is. It already scores each team's slots across the *whole*
+season (`teamCost`, `slots.ts:91`), so locked nights count as fixed history and
+the search re-levels the season total using only the free nights. It needs two
+optional inputs mirroring §3.2: `initial` (start from the current slot of each
+game rather than the identity packing at `slots.ts:81`) and `frozen` (nights the
+search may not touch, skipped in `descend` and in the kick loop).
+
+When the manager keeps "give the labelled game the last ice time", that one game
+is pinned and the night's other games permute around it. This trades against
+ice-time share for the teams involved, which is why it is a checkbox rather than
+a rule.
+
+**Orientation — home/away.** This one is genuinely new. The generator never
+rebalances home/away; it inherits the circle method's parity alternation from
+`buildBalancedPairings` (`roundRobin.ts:72`), and repaired pairings have no such
+inheritance. A new `src/lib/schedule/homeAway.ts` minimises Σ(home−away)² across
+teams: greedy by current imbalance, then local search on single-game flips.
+Locked games contribute to the counts but cannot flip, and unchanged pairs keep
+their orientation unless flipping strictly improves balance.
 
 ---
 
@@ -210,9 +263,9 @@ draft → review → publish.
 
 1. **Pick the teams.** Final (one matchup, with a label) or Semifinals (two
    matchups), carried over from the current form.
-2. **Pick the night.** The date field lists only remaining nights where *all*
+2. **Pick the night.** The date field lists only unlocked nights where *all*
    involved teams are already scheduled — both teams for a Final, all four for
-   Semifinals. An ineligible night is never offered, so the section 1 invariant
+   Semifinals. An ineligible night is never offered, so §1's exact invariant
    holds by construction rather than by validation. If no night qualifies, say so
    and name the constraint.
 3. **Preview.** Runs the solver, lists the plans from §3.4, each expandable to a
@@ -220,8 +273,14 @@ draft → review → publish.
 4. **Apply.** The manager picks a plan; it is written in one transaction.
    Nothing published changes before this click.
 
+**Relabel fast path.** If the chosen teams already play each other on the chosen
+night, the one-off is a pure relabel: no repair, no drift, no plans to choose
+between. This is likely common — a manager may well pick the night the top two
+already meet.
+
 The `fill_others` checkbox is dropped. It exists to populate a night that has no
-games; every eligible night is already full.
+games; every eligible night is already full. "Give the labelled game the last ice
+time" is kept, since per §3.6 it trades against ice-time share.
 
 ### 4.3 Server actions
 
@@ -230,15 +289,41 @@ games; every eligible night is already full.
 
 - `previewOneOffGame(prev, formData)` — validates, solves, returns the plans. No
   writes.
-- `applyOneOffGame(prev, formData)` — takes the chosen plan id, re-solves
-  deterministically (same seed and weights), verifies the resulting plan still
-  matches what was previewed, and writes. Re-solving rather than trusting a
-  round-tripped plan keeps the client from being able to submit an arbitrary
-  schedule rewrite; a mismatch (the schedule changed under the manager between
-  preview and apply) is reported rather than applied.
+- `applyOneOffGame(prev, formData)` — takes the chosen plan's changes and
+  **validates** them against freshly-read state.
+
+Re-solving at apply time and comparing against the preview does not work:
+`assignMatchups` and `assignSlots` both cut off on `Date.now() > deadline`
+(`matchups.ts:113`, `slots.ts:62`), so two runs may legitimately differ and apply
+would fail spuriously. Validating the submitted plan is both safer and simpler,
+because the checks *are* the invariant:
+
+1. every changed night is unlocked;
+2. each night's new pairing is a perfect matching over exactly that night's
+   existing participants;
+3. the forced pair(s) appear on the one-off night;
+4. per-team game counts are unchanged;
+5. each night's set of times is unchanged — times permute within a night, never
+   across nights.
+
+Any payload passing all five is balance-preserving by construction, so a tampered
+submission cannot do damage.
 
 Existing validation carries over: teams enrolled this season, two distinct teams
 per game, no team in two games the same night.
+
+**Precondition guard.** Before solving, reject schedules the solver cannot take:
+a night with an odd number of participants, a team playing twice on one night, or
+`assignMatchups` returning `null` (its `MAX_MATCHINGS = 1_000` cap trips at 12
+teams on a night, i.e. 6+ ice slots). This is not hypothetical — `/import` exists,
+and an imported schedule carries none of the generator's structural guarantees.
+
+This **fails closed** with a plain explanation; it does not fall back to the
+no-repair baseline. The baseline is itself produced by `assignMatchups`, so when
+the enumeration ceiling trips there is nothing to fall back to without a second,
+solver-free pairing path — and that path would run on exactly the schedules we
+understand least, producing a plan whose balance properties can't be
+characterised. Refusing is the better behaviour.
 
 ### 4.4 Repair module
 
@@ -248,35 +333,54 @@ New `src/lib/schedule/oneOff.ts`, pure and free of Supabase:
 export type OneOffPlan = {
   id: string;              // stable: the weighting that produced it
   label: string;           // "Swap back soonest", …
-  /** Nights whose pairing changes, with before and after. */
-  changes: { night: number; from: [number, number][]; to: [number, number][] }[];
+  /** Every night whose arrangement differs, with before and after. */
+  changes: {
+    night: number;
+    from: [number, number][];
+    to: [number, number][];
+    /** False when the same teams still meet — only time or home side moved. */
+    matchupChanged: boolean;
+  }[];
+  /** The two categories above, as night indexes, for the summary line. */
+  matchupNights: number[];
+  sameOpponentNights: number[];
   /** Last changed night — when the multiset is back on target. */
   settledNight: number | null;
   /** Pairs still off target, if exact restoration was unreachable. */
   drift: { pair: [number, number]; delta: number }[];
   spacingBefore: SpacingReport;
   spacingAfter: SpacingReport;
+  slotSpreadBefore: number;
+  slotSpreadAfter: number;
+  homeAwaySpreadBefore: number;
+  homeAwaySpreadAfter: number;
 };
 
 /** Reconstruct participation + pairings from published games, solve, diff. */
 export function planOneOff(opts: {
-  nights: { date: string; pairs: [number, number][]; played: boolean }[];
+  nights: { date: string; pairs: [number, number][]; locked: boolean }[];
   teamCount: number;
   oneOffNight: number;
   forcedPairs: [number, number][];
 }): OneOffPlan[];
 ```
 
+Split into two passes so each is independently verifiable: reconstruct-and-solve
+(participation, targets, guard, fast path, the three phases) and plan-production
+(the weightings, dedupe, scorecards).
+
 The action layer reads games, maps to indices, calls this, and maps back. Keeping
 the solving pure is what makes §5's assertions testable without a database.
 
 ### 4.5 Writes are updates, never delete-and-insert
 
-Applying a plan changes `home_team_id`, `away_team_id` and `label` on existing
-`games` rows. It never deletes a game and inserts a replacement.
+Applying a plan changes `home_team_id`, `away_team_id`, `scheduled_at` and
+`label` on existing `games` rows. It never deletes a game and inserts a
+replacement.
 
-A night's game count, dates and times are unchanged by §1, so there is always an
-existing row to carry each new pairing. Updating in place keeps game ids stable,
+A night's game count and its set of dates and times are unchanged by §1 — the
+Phase S repair permutes times *within* a night, never across nights — so there is
+always an existing row to carry each new pairing. Updating in place keeps ids stable,
 so anything already pointing at a game — `game_rosters`, links a captain has
 been sent — survives the repair. Delete-and-insert would silently drop attached
 rows via `on delete cascade`.
@@ -293,21 +397,44 @@ rows via `on delete cascade`.
 - a forced extra meeting is swapped back when a later night can carry it,
   driving `multiplicityError` to 0
 
+**`slots.test.ts`** (new — `slots.ts` has no test file today) — `frozen` nights
+keep their slots; `initial` is respected; a season perturbed on one night is
+re-levelled to its original per-team slot spread when the free nights allow.
+
+**`homeAway.test.ts`** (new) — locked games constrain but cannot flip; an even
+split is reached when parity allows; unchanged pairs do not flip gratuitously.
+
 **`oneOff.test.ts`** — the repair, on the 8-team reference scenario from
 `SCHEDULE_HANDOFF.md` (Mon + Thu, 3 ice times, 48 nights, 144 games):
 
-- **The invariant, asserted directly.** Games per team, per-weekday counts per
-  team, and bye counts per team are *bit-identical* before and after, for every
-  plan including the baseline. This is the assertion that matters most: it is
-  what makes the manager's choice safe.
-- Pair-meeting counts return to target when the complementary pairing recurs.
-- Residual drift is reported, not silently absorbed, when it does not.
-- Played nights are never modified.
+- **The exact invariant, asserted directly.** Games per team, per-weekday counts
+  per team, and bye counts per team are *bit-identical* before and after, for
+  every plan including the baseline. This is the assertion that matters most: it
+  is what makes the manager's choice safe.
+- **The repaired constraints.** Pair-meeting counts return to target when the
+  complementary pairing recurs; per-team slot spread and home/away spread return
+  to at least their pre-edit values when the free nights allow.
+- Residual drift is reported, not silently absorbed, when they do not.
+- Locked nights are never modified — matchups *or* times.
+- The relabel fast path produces zero changes.
+- The precondition guard rejects an odd night and a team playing twice a night.
 - "Fewest nights touched" touches no more nights than "best spacing".
 - Plans are deduped — no two returned plans share a changed-night signature.
 
+The write-path validators are tested too, which is why they live in
+`checkOneOffWrite` rather than inline in the server action: they are the last
+thing between a client payload and the database, and a Supabase-bound action
+isn't testable in this repo without a mocking approach it doesn't have. Pulling
+them into a pure function made each rejection a plain unit test — a date that
+isn't a game night, a locked one-off night with no changes at all (the relabel
+path, where the lock would otherwise never be checked), a locked night being
+changed, a night listed twice, a stale game count, an out-of-range team, a team
+playing itself or playing twice, a team substituted onto a night they weren't on,
+and a plan that drops the game being scheduled.
+
 **e2e** — `e2e/11-schedule-builder.spec.ts:48` currently asserts the card is on
-the builder page. That assertion moves to a new spec for `/schedule-builder/one-off`:
-pick teams → only eligible dates offered → preview lists plans → apply → the
-schedule reflects the chosen plan. Add an assertion to the builder spec that the
-card is *gone* from that page.
+the builder page; invert it to assert the card is *gone*. Add
+`e2e/14-one-off-game.spec.ts` — numbered last so it can publish games without
+polluting specs 12–13, which depend on seeded data: page loads, empty state
+without a published schedule, ineligible dates aren't offered, preview lists
+plans with scorecards, scorekeeper is bounced.
