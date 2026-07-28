@@ -24,12 +24,20 @@ export type GameWithTeams = {
   away_team: { id: string; name: string; slug: string; color: string | null } | null;
 };
 
-/** All published games for a season, optionally filtered to one team. */
+/**
+ * All published games for a season, optionally filtered to one team.
+ *
+ * Like every read helper here, it takes its options as an object whose `client`
+ * defaults to the RLS client. Manager-gated callers pass the admin client so
+ * they don't depend on the season being publicly readable; anything reachable
+ * by a merely signed-in user must leave the default alone.
+ */
 export async function getSchedule(
   seasonId: string,
-  teamId?: string,
+  opts: { teamId?: string; client?: DbClient } = {},
 ): Promise<GameWithTeams[]> {
-  const supabase = await createClient();
+  const { teamId, client } = opts;
+  const supabase = client ?? (await createClient());
   let q = supabase
     .from("games")
     .select(GAME_SELECT)
@@ -47,10 +55,10 @@ export async function getSchedule(
 /** Upcoming (scheduled, future) games. */
 export async function getUpcoming(
   seasonId: string,
-  limit = 5,
-  teamId?: string,
+  opts: { limit?: number; teamId?: string; client?: DbClient } = {},
 ): Promise<GameWithTeams[]> {
-  const supabase = await createClient();
+  const { limit = 5, teamId, client } = opts;
+  const supabase = client ?? (await createClient());
   let q = supabase
     .from("games")
     .select(GAME_SELECT)
@@ -95,9 +103,9 @@ export type SeasonNight = {
  */
 export async function getSeasonNights(
   seasonId: string,
-  client?: DbClient,
+  opts: { client?: DbClient } = {},
 ): Promise<SeasonNight[]> {
-  const supabase = client ?? (await createClient());
+  const supabase = opts.client ?? (await createClient());
   const { data, error } = await supabase
     .from("games")
     .select("id, scheduled_at, status, label, home_team_id, away_team_id")

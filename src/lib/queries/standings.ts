@@ -11,9 +11,9 @@ export type RankedStanding = StandingRow & {
 /** Fetches raw standings + finalized games, returns them fully ranked. */
 export async function getStandings(
   seasonId: string,
-  client?: DbClient,
+  opts: { client?: DbClient } = {},
 ): Promise<RankedStanding[]> {
-  const supabase = client ?? (await createClient());
+  const supabase = opts.client ?? (await createClient());
   const [{ data: raw, error: rawErr }, { data: finals, error: finErr }] =
     await Promise.all([
       supabase.from("v_standings_raw").select("*").eq("season_id", seasonId),

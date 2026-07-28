@@ -47,7 +47,7 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
     .eq("is_draft", true)
     .order("scheduled_at", { ascending: true });
 
-  const enrolledTeams = await getEnrolledTeams(seasonId);
+  const enrolledTeams = await getEnrolledTeams(seasonId, { client: admin });
 
   // Group by night + build a balance report.
   const byDate = new Map<string, any[]>();

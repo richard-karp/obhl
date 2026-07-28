@@ -22,9 +22,9 @@ export type RosterEntry = {
 /** Teams enrolled in a season, alphabetical. */
 export async function getEnrolledTeams(
   seasonId: string,
-  client?: DbClient,
+  opts: { client?: DbClient } = {},
 ): Promise<TeamSummary[]> {
-  const supabase = client ?? (await createClient());
+  const supabase = opts.client ?? (await createClient());
   const { data } = await supabase
     .from("season_teams")
     .select("team:teams!season_teams_team_id_fkey(id, name, slug, color, logo_path)")
@@ -79,7 +79,7 @@ export async function getTeamBySlug(
         .select("*")
         .eq("season_id", seasonId)
         .eq("team_id", team.id),
-      getSchedule(seasonId, team.id),
+      getSchedule(seasonId, { teamId: team.id }),
     ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */

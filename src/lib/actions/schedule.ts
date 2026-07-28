@@ -96,7 +96,7 @@ export async function generateSchedule(formData: FormData) {
 
   // Alphabetical, so the same enrolment always feeds the generator in the same
   // order and a re-run is reproducible.
-  const teamIds = (await getEnrolledTeams(seasonId, admin)).map((t) => t.id);
+  const teamIds = (await getEnrolledTeams(seasonId, { client: admin })).map((t) => t.id);
   if (teamIds.length < 2) return;
 
   const perNightCap = Math.min(slotTimes.length, Math.floor(teamIds.length / 2));
@@ -249,8 +249,8 @@ async function loadContext(seasonId: string, admin: Admin) {
   // the public-read policies don't cover would come back empty rather than
   // erroring, and the repair would silently plan against an empty schedule.
   const [enrolled, nights] = await Promise.all([
-    getEnrolledTeams(seasonId, admin),
-    getSeasonNights(seasonId, admin),
+    getEnrolledTeams(seasonId, { client: admin }),
+    getSeasonNights(seasonId, { client: admin }),
   ]);
   const teams = enrolled.map((t) => ({ id: t.id, name: t.name }));
   const indexOf = new Map(teams.map((t, i) => [t.id, i]));

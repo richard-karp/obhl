@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireManager } from "@/lib/auth/guards";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { getActiveContext } from "@/lib/queries/season";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { getSeasonNights } from "@/lib/queries/schedule";
@@ -33,9 +34,13 @@ export default async function OneOffGamePage() {
     );
   }
 
+  // Read past RLS, matching the actions this page submits to. Otherwise a
+  // season the public-read policies don't cover renders the "no published
+  // schedule" empty state here while `previewOneOffGame` sees the schedule fine.
+  const admin = createAdminClient();
   const [teams, nights] = await Promise.all([
-    getEnrolledTeams(ctx.season.id),
-    getSeasonNights(ctx.season.id),
+    getEnrolledTeams(ctx.season.id, { client: admin }),
+    getSeasonNights(ctx.season.id, { client: admin }),
   ]);
 
   const openNights = nights.filter((n) => !n.locked);

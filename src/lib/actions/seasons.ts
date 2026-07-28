@@ -222,8 +222,8 @@ export async function generateLeagueSummary(formData: FormData) {
   // matters most: it applies the tiebreakers, where ordering by points alone can
   // name a leader the standings page doesn't.
   const [ranked, scorers, recentGames, seasonRes] = await Promise.all([
-    getStandings(season_id, admin),
-    getSkaterLeaders(season_id, 5, admin),
+    getStandings(season_id, { client: admin }),
+    getSkaterLeaders(season_id, { limit: 5, client: admin }),
     getRecentResults(season_id, { limit: 3, client: admin }),
     admin.from("seasons").select("name").eq("id", season_id).maybeSingle(),
   ]);
@@ -231,9 +231,9 @@ export async function generateLeagueSummary(formData: FormData) {
   const standings = ranked.slice(0, 6);
   const seasonName = seasonRes.data?.name ?? "Current Season";
 
-  // Every column here is nullable in the view types, and an unguarded null
-  // interpolates as the string "null" — straight into the prompt, where it
-  // reads as fact.
+  // The view columns are nullable, and an unguarded null interpolates as the
+  // string "null" — straight into the prompt, where it reads as fact. (The
+  // game lines below come from `GameWithTeams`, whose goal counts are not.)
   const standingsLines = standings.map(
     (r) =>
       `${r.team_name ?? "Unknown"}: ${r.wins ?? 0}W-${r.losses ?? 0}L-${r.ties ?? 0}T, ` +
