@@ -1,5 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { leagueDateKey } from "@/lib/format";
+import type { DbClient } from "@/lib/db/helpers";
 
 // Shared select for a game with both teams embedded (disambiguated by FK).
 const GAME_SELECT = `
@@ -92,8 +93,11 @@ export type SeasonNight = {
  * planner reasons about. Undated games are dropped — they have no night to
  * belong to.
  */
-export async function getSeasonNights(seasonId: string): Promise<SeasonNight[]> {
-  const supabase = await createClient();
+export async function getSeasonNights(
+  seasonId: string,
+  client?: DbClient,
+): Promise<SeasonNight[]> {
+  const supabase = client ?? (await createClient());
   const { data, error } = await supabase
     .from("games")
     .select("id, scheduled_at, status, label, home_team_id, away_team_id")
@@ -134,13 +138,16 @@ export async function getSeasonNights(seasonId: string): Promise<SeasonNight[]> 
 /** Most recent final games. */
 export async function getRecentResults(
   seasonId: string,
-  limit = 5,
-  teamId?: string,
+  opts: { limit?: number; teamId?: string; client?: DbClient } = {},
 ): Promise<GameWithTeams[]> {
-  const supabase = await createClient();
+  const { limit = 5, teamId, client } = opts;
+  const supabase = client ?? (await createClient());
   let q = supabase
     .from("games")
     .select(GAME_SELECT)
+    // Explicit rather than relying on `public read games` to exclude drafts:
+    // an admin client bypasses that policy.
+    .eq("is_draft", false)
     .eq("season_id", seasonId)
     .eq("status", "final")
     .order("scheduled_at", { ascending: false })

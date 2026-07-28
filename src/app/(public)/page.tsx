@@ -31,7 +31,7 @@ export default async function HomePage() {
       getStandings(season.id),
       getSkaterLeaders(season.id, 8),
       getUpcoming(season.id, 5),
-      getRecentResults(season.id, 5),
+      getRecentResults(season.id, { limit: 5 }),
       getAnnouncements(league.id, 3),
       getLatestGameWithRecapData(season.id),
     ]);

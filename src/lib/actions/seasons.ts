@@ -5,6 +5,9 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
 import { resolveCurrentLeague } from "@/lib/league/current";
+import { getStandings } from "@/lib/queries/standings";
+import { getSkaterLeaders } from "@/lib/queries/stats";
+import { getRecentResults } from "@/lib/queries/schedule";
 
 export type SeasonActionState =
   | { ok: boolean; message: string; seasonId?: string }
@@ -215,47 +218,31 @@ export async function generateLeagueSummary(formData: FormData) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured.");
 
-  const [standingsRes, scorersRes, gamesRes, seasonRes] = await Promise.all([
-    admin
-      .from("v_standings_raw")
-      .select("team_name, gp, wins, losses, ties, points")
-      .eq("season_id", season_id)
-      .order("points", { ascending: false })
-      .limit(6),
-    admin
-      .from("v_skater_stats")
-      .select("first_name, last_name, team_name, g, a, pts")
-      .eq("season_id", season_id)
-      .order("pts", { ascending: false })
-      .order("g", { ascending: false })
-      .limit(5),
-    admin
-      .from("games")
-      .select(
-        "scheduled_at, home_goals, away_goals, " +
-        "home_team:teams!games_home_team_id_fkey(name), " +
-        "away_team:teams!games_away_team_id_fkey(name)",
-      )
-      .eq("season_id", season_id)
-      .eq("status", "final")
-      .order("scheduled_at", { ascending: false })
-      .limit(3),
+  // The same reads the public pages use, through the same helpers. `getStandings`
+  // matters most: it applies the tiebreakers, where ordering by points alone can
+  // name a leader the standings page doesn't.
+  const [ranked, scorers, recentGames, seasonRes] = await Promise.all([
+    getStandings(season_id, admin),
+    getSkaterLeaders(season_id, 5, admin),
+    getRecentResults(season_id, { limit: 3, client: admin }),
     admin.from("seasons").select("name").eq("id", season_id).maybeSingle(),
   ]);
 
-  const standings = standingsRes.data ?? [];
-  const scorers = scorersRes.data ?? [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recentGames = (gamesRes.data ?? []) as any[];
+  const standings = ranked.slice(0, 6);
   const seasonName = seasonRes.data?.name ?? "Current Season";
 
+  // Every column here is nullable in the view types, and an unguarded null
+  // interpolates as the string "null" — straight into the prompt, where it
+  // reads as fact.
   const standingsLines = standings.map(
     (r) =>
-      `${r.team_name}: ${r.wins}W-${r.losses}L-${r.ties}T, ${r.points} pts (${r.gp} GP)`,
+      `${r.team_name ?? "Unknown"}: ${r.wins ?? 0}W-${r.losses ?? 0}L-${r.ties ?? 0}T, ` +
+      `${r.points ?? 0} pts (${r.gp ?? 0} GP)`,
   );
-  const scorerLines = scorers.map(
-    (r) => `${r.first_name} ${r.last_name} (${r.team_name ?? ""}): ${r.g}G ${r.a}A ${r.pts ?? 0}PTS`,
-  );
+  const scorerLines = scorers.map((r) => {
+    const name = [r.first_name, r.last_name].filter(Boolean).join(" ") || "Unknown";
+    return `${name} (${r.team_name ?? ""}): ${r.g ?? 0}G ${r.a ?? 0}A ${r.pts ?? 0}PTS`;
+  });
   const gameLines = recentGames.map((g) => {
     const away = g.away_team?.name ?? "Away";
     const home = g.home_team?.name ?? "Home";

@@ -94,11 +94,9 @@ export async function generateSchedule(formData: FormData) {
     .filter(Boolean);
   if (!startDate || weekdays.size === 0 || slotTimes.length === 0) return;
 
-  const { data: enrolled } = await admin
-    .from("season_teams")
-    .select("team_id")
-    .eq("season_id", seasonId);
-  const teamIds = (enrolled ?? []).map((e) => e.team_id);
+  // Alphabetical, so the same enrolment always feeds the generator in the same
+  // order and a re-run is reproducible.
+  const teamIds = (await getEnrolledTeams(seasonId, admin)).map((t) => t.id);
   if (teamIds.length < 2) return;
 
   const perNightCap = Math.min(slotTimes.length, Math.floor(teamIds.length / 2));
@@ -245,10 +243,14 @@ export type OneOffState =
  * index mapping the planner works in. Read fresh on both sides, so apply
  * validates against the schedule as it is now, not as it was at preview.
  */
-async function loadContext(seasonId: string) {
+async function loadContext(seasonId: string, admin: Admin) {
+  // Read as the admin client, not under RLS. Both actions are manager-gated and
+  // work on a season the manager named, so RLS adds nothing — while a season
+  // the public-read policies don't cover would come back empty rather than
+  // erroring, and the repair would silently plan against an empty schedule.
   const [enrolled, nights] = await Promise.all([
-    getEnrolledTeams(seasonId),
-    getSeasonNights(seasonId),
+    getEnrolledTeams(seasonId, admin),
+    getSeasonNights(seasonId, admin),
   ]);
   const teams = enrolled.map((t) => ({ id: t.id, name: t.name }));
   const indexOf = new Map(teams.map((t, i) => [t.id, i]));
@@ -302,7 +304,7 @@ export async function previewOneOffGame(
   const seasonId = await targetSeason(admin, input.seasonId);
   if (!seasonId) return { ok: false, message: "No season selected." };
 
-  const { teams, indexOf, nights } = await loadContext(seasonId);
+  const { teams, indexOf, nights } = await loadContext(seasonId, admin);
   const bad = readInput(input, indexOf);
   if (bad) return { ok: false, message: bad };
 
@@ -380,7 +382,7 @@ export async function applyOneOffGame(
   const seasonId = await targetSeason(admin, input.seasonId);
   if (!seasonId) return { ok: false, message: "No season selected." };
 
-  const { teams, indexOf, nights } = await loadContext(seasonId);
+  const { teams, indexOf, nights } = await loadContext(seasonId, admin);
   const bad = readInput(input, indexOf);
   if (bad) return { ok: false, message: bad };
 

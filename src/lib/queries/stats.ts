@@ -1,5 +1,5 @@
 import { createClient } from "@/utils/supabase/server";
-import type { Views } from "@/lib/db/helpers";
+import type { DbClient, Views } from "@/lib/db/helpers";
 
 export type SkaterStat = Views<"v_skater_stats">;
 export type GoalieStat = Views<"v_goalie_stats">;
@@ -8,8 +8,9 @@ export type GoalieStat = Views<"v_goalie_stats">;
 export async function getSkaterLeaders(
   seasonId: string,
   limit?: number,
+  client?: DbClient,
 ): Promise<SkaterStat[]> {
-  const supabase = await createClient();
+  const supabase = client ?? (await createClient());
   let q = supabase
     .from("v_skater_stats")
     .select("*")
