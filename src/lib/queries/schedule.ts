@@ -1,5 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { leagueDateKey } from "@/lib/format";
+import { isUuid } from "@/lib/db/uuid";
 import type { DbClient } from "@/lib/db/helpers";
 
 // Shared select for a game with both teams embedded (disambiguated by FK).
@@ -49,6 +50,33 @@ export async function getSchedule(
   }
   const { data, error } = await q;
   if (error) console.error("schedule query failed:", error.message);
+  return (data ?? []) as unknown as GameWithTeams[];
+}
+
+/**
+ * Every published game a team has ever played, for its calendar feed.
+ *
+ * Deliberately not season-scoped: a subscription is a standing thing, and
+ * narrowing it to the active season would delete past games out of calendars
+ * that already hold them.
+ *
+ * `teamId` goes into a PostgREST `.or()` filter unescaped, so it is checked here
+ * rather than trusted from the caller — the interpolation and its guard should
+ * not be able to drift into different files.
+ */
+export async function getTeamFeedGames(
+  teamId: string,
+  opts: { client?: DbClient } = {},
+): Promise<GameWithTeams[]> {
+  if (!isUuid(teamId)) return [];
+  const supabase = opts.client ?? (await createClient());
+  const { data, error } = await supabase
+    .from("games")
+    .select(GAME_SELECT)
+    .eq("is_draft", false)
+    .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+    .order("scheduled_at", { ascending: true });
+  if (error) console.error("team feed query failed:", error.message);
   return (data ?? []) as unknown as GameWithTeams[];
 }
 
