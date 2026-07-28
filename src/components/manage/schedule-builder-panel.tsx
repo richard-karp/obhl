@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { publishSchedule, discardSchedule } from "@/lib/actions/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
@@ -15,7 +16,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { EmptyState } from "@/components/shared/empty-state";
-import { ScheduleFinalForm } from "@/components/manage/schedule-final-form";
 import { ScheduleGenerateForm } from "@/components/manage/schedule-generate-form";
 import { formatLongDate, formatGameTime, leagueDateKey } from "@/lib/format";
 
@@ -172,23 +172,18 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            Schedule a one-off game (tournament final / semifinals)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {enrolledTeams.length < 2 ? (
-            <EmptyState title="Enroll teams first" />
-          ) : (
-            <ScheduleFinalForm
-              seasonId={seasonId}
-              teams={enrolledTeams.map((t) => ({ id: t.id, name: t.name }))}
-            />
-          )}
-        </CardContent>
-      </Card>
+      <p className="text-muted-foreground text-sm">
+        Adding a tournament final or semifinals mid-season is a different job —
+        it takes over a game on a night that&apos;s already scheduled and repairs
+        the rest of the season around it.{" "}
+        <Link
+          href="/schedule-builder/one-off"
+          className="text-foreground font-medium underline"
+        >
+          Schedule a one-off game
+        </Link>
+        .
+      </p>
 
       {(drafts ?? []).length === 0 ? (
         <EmptyState

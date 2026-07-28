@@ -7,7 +7,15 @@ import { buildBalancedPairings } from "@/lib/schedule/roundRobin";
 import { assignNights } from "@/lib/schedule/assignNights";
 import { enumerateNights } from "@/lib/schedule/capacity";
 import { resolveCurrentLeague } from "@/lib/league/current";
-import { leagueOffset } from "@/lib/format";
+import {
+  planOneOff,
+  checkOneOffWrite,
+  type OneOffNight,
+  type OneOffPlan,
+} from "@/lib/schedule/oneOff";
+import { getSeasonNights, type SeasonNight } from "@/lib/queries/schedule";
+import { getEnrolledTeams } from "@/lib/queries/teams";
+import { leagueOffset, formatGameTime } from "@/lib/format";
 import type { TablesInsert } from "@/lib/db/helpers";
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -17,11 +25,10 @@ type Admin = ReturnType<typeof createAdminClient>;
  * the current league — used by the per-season setup hub), else the active season
  * (used by the standalone /schedule-builder).
  */
-async function targetSeason(admin: Admin, formData?: FormData) {
+async function targetSeason(admin: Admin, explicit = "") {
   const league = await resolveCurrentLeague(admin);
   if (!league) return null;
 
-  const explicit = formData ? String(formData.get("season_id") ?? "") : "";
   if (explicit) {
     const { data } = await admin
       .from("seasons")
@@ -51,7 +58,7 @@ async function targetSeason(admin: Admin, formData?: FormData) {
 export async function generateSchedule(formData: FormData) {
   await requireManager();
   const admin = createAdminClient();
-  const seasonId = await targetSeason(admin, formData);
+  const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
   if (!seasonId) return;
 
   const { data: season } = await admin
@@ -172,7 +179,7 @@ export async function generateSchedule(formData: FormData) {
 export async function publishSchedule(formData: FormData) {
   await requireManager();
   const admin = createAdminClient();
-  const seasonId = await targetSeason(admin, formData);
+  const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
   if (!seasonId) return;
   await admin
     .from("games")
@@ -189,145 +196,286 @@ export async function publishSchedule(formData: FormData) {
 export async function discardSchedule(formData: FormData) {
   await requireManager();
   const admin = createAdminClient();
-  const seasonId = await targetSeason(admin, formData);
+  const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
   if (!seasonId) return;
   await admin.from("games").delete().eq("season_id", seasonId).eq("is_draft", true);
   revalidatePath("/schedule-builder");
   revalidatePath(`/seasons/${seasonId}`);
 }
 
-export type ScheduleGameState = { ok: boolean; message: string } | null;
+/* ------------------------------------------------------------------ one-off */
+
+export type OneOffRound = "final" | "semifinals";
+
+export type OneOffInput = {
+  seasonId: string;
+  round: OneOffRound;
+  /** Team-id pairs for the labelled game(s); orientation is the repair's call. */
+  matchups: [string, string][];
+  label: string;
+  /** League-local YYYY-MM-DD — must be one of the season's unlocked nights. */
+  date: string;
+  /** Hold the labelled game(s) on the night's last ice time(s). */
+  featureSlot: boolean;
+};
+
+export type OneOffPreview = {
+  /** Index-aligned with the planner's team indices. */
+  teams: { id: string; name: string }[];
+  /** Index-aligned with the planner's night indices. */
+  nights: { date: string; times: string[]; locked: boolean }[];
+  oneOffNight: number;
+  relabelOnly: boolean;
+  plans: OneOffPlan[];
+};
+
+export type OneOffState =
+  | null
+  | { ok: false; message: string }
+  | { ok: true; kind: "preview"; preview: OneOffPreview }
+  | { ok: true; kind: "applied"; message: string };
+
+const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+
+/** Label for the i-th labelled game of a round. */
+const labelFor = (round: OneOffRound, label: string, i: number) =>
+  round === "semifinals" ? `Semifinal ${i + 1}` : label.trim() || "Final";
 
 /**
- * Schedule the tournament's labeled games — either a Final (one matchup) or two
- * Semifinals — between chosen teams, added on top of the existing schedule (NOT
- * a regeneration). They still count as season games. Optionally pairs the
- * remaining teams into games on the same night's other ice times so they play.
+ * Everything both actions need: the season's nights, its enrolled teams, and the
+ * index mapping the planner works in. Read fresh on both sides, so apply
+ * validates against the schedule as it is now, not as it was at preview.
  */
-export async function scheduleSpecialGame(
-  _prev: ScheduleGameState,
-  formData: FormData,
-): Promise<ScheduleGameState> {
-  await requireManager();
-  const admin = createAdminClient();
-  const seasonId = await targetSeason(admin, formData);
-  if (!seasonId) return { ok: false, message: "No season selected." };
+async function loadContext(seasonId: string) {
+  const [enrolled, nights] = await Promise.all([
+    getEnrolledTeams(seasonId),
+    getSeasonNights(seasonId),
+  ]);
+  const teams = enrolled.map((t) => ({ id: t.id, name: t.name }));
+  const indexOf = new Map(teams.map((t, i) => [t.id, i]));
+  return { teams, indexOf, nights };
+}
 
-  const round = String(formData.get("round") ?? "final");
-  const date = String(formData.get("date") ?? "");
-  const fill = formData.get("fill_others") === "on";
-  const slots = String(formData.get("slots") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+/** The planner's index-based view of the season, or null if a team is unknown. */
+function toPlannerNights(
+  nights: SeasonNight[],
+  indexOf: Map<string, number>,
+): OneOffNight[] | null {
+  const out: OneOffNight[] = [];
+  for (const n of nights) {
+    const games: [number, number][] = [];
+    for (const g of n.games) {
+      const h = indexOf.get(g.homeTeamId);
+      const a = indexOf.get(g.awayTeamId);
+      if (h === undefined || a === undefined) return null;
+      games.push([h, a]);
+    }
+    out.push({ date: n.date, games, locked: n.locked });
+  }
+  return out;
+}
 
-  // The labeled tournament games to create.
-  type Designated = { home: string; away: string; label: string };
-  let designated: Designated[];
-  if (round === "semifinals") {
-    designated = [
-      {
-        home: String(formData.get("sf1_home") ?? ""),
-        away: String(formData.get("sf1_away") ?? ""),
-        label: "Semifinal 1",
-      },
-      {
-        home: String(formData.get("sf2_home") ?? ""),
-        away: String(formData.get("sf2_away") ?? ""),
-        label: "Semifinal 2",
-      },
-    ];
-  } else {
-    designated = [
-      {
-        home: String(formData.get("home_team_id") ?? ""),
-        away: String(formData.get("away_team_id") ?? ""),
-        label: String(formData.get("label") ?? "").trim() || "Final",
-      },
-    ];
-  }
-
-  if (designated.some((d) => !d.home || !d.away)) {
-    return { ok: false, message: "Pick both teams for each game." };
-  }
-  if (designated.some((d) => d.home === d.away)) {
-    return { ok: false, message: "Each game needs two different teams." };
-  }
-  const used = designated.flatMap((d) => [d.home, d.away]);
-  if (new Set(used).size !== used.length) {
-    return { ok: false, message: "A team can't be in two tournament games the same night." };
-  }
-  if (!date || slots.length === 0) {
-    return { ok: false, message: "Pick a date and at least one ice time." };
-  }
-  if (slots.length < designated.length) {
-    return { ok: false, message: `Add at least ${designated.length} ice times for these games.` };
-  }
-
-  const { data: enrolled } = await admin
-    .from("season_teams")
-    .select("team_id")
-    .eq("season_id", seasonId);
-  const teamIds = (enrolled ?? []).map((e) => e.team_id);
-  if (used.some((t) => !teamIds.includes(t))) {
-    return { ok: false, message: "All teams must be enrolled this season." };
-  }
-
-  // Avoid double-booking: who already plays (non-cancelled) that date?
-  const { data: dayGames } = await admin
-    .from("games")
-    .select("home_team_id, away_team_id")
-    .eq("season_id", seasonId)
-    .neq("status", "cancelled")
-    .gte("scheduled_at", `${date}T00:00:00${leagueOffset(date)}`)
-    .lte("scheduled_at", `${date}T23:59:59${leagueOffset(date)}`);
-  const busy = new Set<string>();
-  for (const g of dayGames ?? []) {
-    busy.add(g.home_team_id);
-    busy.add(g.away_team_id);
-  }
-  if (used.some((t) => busy.has(t))) {
-    return { ok: false, message: "One of the chosen teams already plays that date." };
-  }
-
-  // Designated games take the last (feature) slots; fillers take the earlier ones.
-  const desSlots = slots.slice(slots.length - designated.length);
-  const fillerSlots = slots.slice(0, slots.length - designated.length);
-  const rows: TablesInsert<"games">[] = designated.map((d, i) => ({
-    season_id: seasonId,
-    home_team_id: d.home,
-    away_team_id: d.away,
-    scheduled_at: `${date}T${desSlots[i]}:00${leagueOffset(date)}`,
-    status: "scheduled",
-    label: d.label,
-  }));
-
-  let fillers = 0;
-  if (fill) {
-    const usedSet = new Set(used);
-    const others = teamIds.filter((t) => !usedSet.has(t) && !busy.has(t));
-    for (let i = 0, si = 0; i + 1 < others.length && si < fillerSlots.length; i += 2, si++) {
-      rows.push({
-        season_id: seasonId,
-        home_team_id: others[i],
-        away_team_id: others[i + 1],
-        scheduled_at: `${date}T${fillerSlots[si]}:00${leagueOffset(date)}`,
-        status: "scheduled",
-      });
-      fillers++;
+function readInput(
+  input: Pick<OneOffInput, "matchups" | "date">,
+  indexOf: Map<string, number>,
+) {
+  if (input.matchups.length === 0) return "Pick the teams for the game.";
+  for (const [h, a] of input.matchups) {
+    if (!h || !a) return "Pick both teams for each game.";
+    if (h === a) return "Each game needs two different teams.";
+    if (!indexOf.has(h) || !indexOf.has(a)) {
+      return "All teams must be enrolled this season.";
     }
   }
+  if (!input.date) return "Pick a date.";
+  return null;
+}
 
-  const { error } = await admin.from("games").insert(rows);
-  if (error) return { ok: false, message: error.message };
+/**
+ * Plan a one-off and the repair that follows it. Reads only — nothing is written
+ * until the manager picks a plan and `applyOneOffGame` runs.
+ */
+export async function previewOneOffGame(
+  input: OneOffInput,
+): Promise<OneOffState> {
+  await requireManager();
+  const admin = createAdminClient();
+  const seasonId = await targetSeason(admin, input.seasonId);
+  if (!seasonId) return { ok: false, message: "No season selected." };
 
-  revalidatePath("/schedule-builder");
-  revalidatePath(`/seasons/${seasonId}`);
-  revalidatePath("/schedule");
-  revalidatePath("/");
-  const what = round === "semifinals" ? "2 semifinals" : "the Final";
+  const { teams, indexOf, nights } = await loadContext(seasonId);
+  const bad = readInput(input, indexOf);
+  if (bad) return { ok: false, message: bad };
+
+  const plannerNights = toPlannerNights(nights, indexOf);
+  if (!plannerNights) {
+    return {
+      ok: false,
+      message: "The schedule has a game for a team that isn't enrolled this season.",
+    };
+  }
+
+  const oneOffNight = nights.findIndex((n) => n.date === input.date);
+  if (oneOffNight < 0) {
+    return { ok: false, message: "That date isn't a game night this season." };
+  }
+
+  const result = planOneOff({
+    teamCount: teams.length,
+    nights: plannerNights,
+    oneOffNight,
+    forcedPairs: input.matchups.map(
+      ([h, a]) => [indexOf.get(h)!, indexOf.get(a)!] as [number, number],
+    ),
+    featureSlot: input.featureSlot,
+  });
+  if (!result.ok) return { ok: false, message: result.reason };
+
   return {
     ok: true,
-    message: `Scheduled ${what}${fillers ? ` + ${fillers} other game${fillers > 1 ? "s" : ""}` : ""}.`,
+    kind: "preview",
+    preview: {
+      teams,
+      nights: nights.map((n) => ({
+        date: n.date,
+        times: n.games.map((g) => formatGameTime(g.scheduledAt)),
+        locked: n.locked,
+      })),
+      oneOffNight,
+      relabelOnly: result.relabelOnly,
+      plans: result.plans,
+    },
+  };
+}
+
+/**
+ * Write a previewed plan.
+ *
+ * The submitted changes are *validated*, not re-solved. Re-solving can't work:
+ * both `assignMatchups` and `assignSlots` stop on a wall-clock deadline, so two
+ * runs may legitimately differ and apply would fail spuriously. Validation is
+ * also the stronger guarantee — these checks are the invariant itself, so any
+ * payload that passes them preserves games-played, byes and weekday balance
+ * whatever the client sent.
+ *
+ * Changes are keyed by **date, not by position**. Preview and apply read the
+ * schedule independently, so a game added or re-dated in between would shift
+ * every later index and silently write the plan to the wrong nights — and the
+ * participant check wouldn't catch it in a league where every team plays every
+ * night, which is the common small-league shape. A date that no longer exists
+ * fails closed instead.
+ *
+ * Ice times are never written. A night's games keep their existing rows in time
+ * order and only their matchups move, so "the set of times per night is
+ * unchanged" holds structurally rather than by assertion.
+ */
+export async function applyOneOffGame(
+  // `featureSlot` is deliberately absent: it steers the *planner*, and by this
+  // point the chosen plan already encodes which game sits on which ice time.
+  input: Omit<OneOffInput, "featureSlot"> & {
+    changes: { date: string; to: [number, number][] }[];
+  },
+): Promise<OneOffState> {
+  await requireManager();
+  const admin = createAdminClient();
+  const seasonId = await targetSeason(admin, input.seasonId);
+  if (!seasonId) return { ok: false, message: "No season selected." };
+
+  const { teams, indexOf, nights } = await loadContext(seasonId);
+  const bad = readInput(input, indexOf);
+  if (bad) return { ok: false, message: bad };
+
+  // Everything standing between a client payload and the write. Pure and
+  // tested in oneOff.test.ts; see `checkOneOffWrite` for why it validates
+  // rather than re-solves.
+  const problem = checkOneOffWrite({
+    nights: nights.map((n) => ({
+      date: n.date,
+      locked: n.locked,
+      games: n.games.map((g) => [g.homeTeamId, g.awayTeamId] as [string, string]),
+    })),
+    teamIds: teams.map((t) => t.id),
+    date: input.date,
+    forcedPairs: input.matchups,
+    changes: input.changes,
+  });
+  if (problem) return { ok: false, message: problem };
+
+  const nightOn = new Map(nights.map((n) => [n.date, n]));
+  const oneOff = nightOn.get(input.date)!;
+  const forced = input.matchups.map(([h, a]) => pairKey(h, a));
+
+  // Rows to write: same row, same ice time, possibly a different matchup. A
+  // label only survives if its matchup did.
+  const rows: TablesInsert<"games">[] = [];
+  for (const c of input.changes) {
+    const night = nightOn.get(c.date)!;
+    c.to.forEach(([h, a], i) => {
+      const row = night.games[i];
+      const home = teams[h].id;
+      const away = teams[a].id;
+      const key = pairKey(home, away);
+      const kept = key === pairKey(row.homeTeamId, row.awayTeamId);
+      const labelIndex = c.date === input.date ? forced.indexOf(key) : -1;
+      const label =
+        labelIndex >= 0
+          ? labelFor(input.round, input.label, labelIndex)
+          : kept
+            ? row.label
+            : null;
+      if (kept && row.homeTeamId === home && row.label === label) return;
+      rows.push({
+        id: row.id,
+        season_id: seasonId,
+        home_team_id: home,
+        away_team_id: away,
+        label,
+        // The value we just read, so this is a no-op for the row it targets.
+        // It's here because `upsert` *inserts* when no row matches the id, and
+        // if this game were deleted between the read and the write that insert
+        // would otherwise create a game with no date at all.
+        scheduled_at: row.scheduledAt,
+      });
+    });
+  }
+
+  // Label the one-off even when its night needed no re-pairing (the two teams
+  // were already meeting), which is the relabel-only case.
+  if (!input.changes.some((c) => c.date === input.date)) {
+    oneOff.games.forEach((row) => {
+      const i = forced.indexOf(pairKey(row.homeTeamId, row.awayTeamId));
+      if (i < 0) return;
+      rows.push({
+        id: row.id,
+        season_id: seasonId,
+        home_team_id: row.homeTeamId,
+        away_team_id: row.awayTeamId,
+        label: labelFor(input.round, input.label, i),
+        scheduled_at: row.scheduledAt,
+      });
+    });
+  }
+
+  if (rows.length > 0) {
+    // One statement, so a plan can't land half-applied.
+    const { error } = await admin.from("games").upsert(rows, { onConflict: "id" });
+    if (error) return { ok: false, message: error.message };
+  }
+
+  revalidatePath("/schedule-builder");
+  revalidatePath("/schedule-builder/one-off");
+  revalidatePath(`/seasons/${seasonId}`);
+  revalidatePath("/schedule");
+  revalidatePath("/score");
+  revalidatePath("/");
+
+  const touched = input.changes.length;
+  return {
+    ok: true,
+    kind: "applied",
+    message:
+      touched === 0
+        ? "Labelled the game — nothing else needed to change."
+        : `Scheduled the game and adjusted ${touched} night${touched === 1 ? "" : "s"}.`,
   };
 }

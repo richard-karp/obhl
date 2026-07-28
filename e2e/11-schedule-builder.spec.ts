@@ -45,8 +45,17 @@ test.describe("Path 17 — Schedule Builder", () => {
     }
   });
 
-  test("one-off game scheduling card is present", async ({ page }) => {
-    await expect(page.getByText("Schedule a one-off game")).toBeVisible();
+  test("one-off scheduling has moved off the builder, behind a link", async ({
+    page,
+  }) => {
+    // The builder is pre-season only: draft → review → publish. Scheduling a
+    // one-off is a mid-season edit to published games and lives on its own page.
+    await expect(
+      page.getByText("Schedule a one-off game (tournament final / semifinals)"),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("link", { name: "Schedule a one-off game" }),
+    ).toBeVisible();
   });
 
   test("empty draft state shows before a draft is generated", async ({ page }) => {
