@@ -1,5 +1,5 @@
 import { getSchedule } from "@/lib/queries/schedule";
-import { buildScheduleCsv, type CsvGame } from "@/lib/schedule/csv";
+import { buildScheduleCsv, type CsvGame } from "@/lib/export/csv";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

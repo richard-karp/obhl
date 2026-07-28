@@ -1,5 +1,5 @@
 import { createClient } from "@/utils/supabase/server";
-import { buildIcs, type IcsGame } from "@/lib/schedule/ics";
+import { buildIcs, type IcsGame } from "@/lib/export/ics";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function GET(
