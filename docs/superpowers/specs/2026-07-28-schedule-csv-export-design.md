@@ -25,7 +25,7 @@ cluttering their calendar.
 
 - **Results.** This is a schedule export. It carries no score, no status, and no
   result type. This is a deliberate divergence from `buildIcs()`
-  (`src/lib/schedule/ics.ts:14`), which titles a finished game
+  (`src/lib/export/ics.ts`), which titles a finished game
   `Away 3–2 Home (Final)`. Because there is no status column, games whose status
   makes their date untrue are excluded rather than shown — see section 2.
 - **XLSX.** CSV opens in Excel, Sheets, and Numbers without a new dependency.
@@ -117,7 +117,7 @@ Row order is inherited from the query, not guaranteed here — see section 7.
 
 ## 3. The builder
 
-`src/lib/schedule/csv.ts`, beside `ics.ts`, pure and free of Supabase imports.
+`src/lib/export/csv.ts`, beside `ics.ts`, pure and free of Supabase imports.
 
 ```ts
 export type CsvGame = { scheduled_at: string | null; home: string; away: string };
@@ -187,10 +187,9 @@ on invisible page state.
 
 ## 5. Testing
 
-`src/lib/schedule/csv.test.ts`, vitest, colocated per the convention every other
-module in `src/lib/schedule/` follows. This also makes `csv.ts` the first
-module in that directory to ship with tests alongside a sibling that lacks them
-— `ics.ts` is currently the only untested file there.
+`src/lib/export/csv.test.ts`, vitest, colocated per the convention every module
+in `src/lib/schedule/` already follows. At the time this shipped, `ics.ts` was
+the only untested module in that directory; section 8 closes that gap.
 
 Cases:
 
@@ -229,11 +228,12 @@ covered above.
   Keeping the two export formats together beats either one being in the
   theoretically correct directory; moving both to `src/lib/export/` belongs in
   the follow-up commit below, which has to touch both `.ics` routes anyway.
+  *(Done — see section 8.)*
 - **The `.ics` routes are left alone.** Both issue their own inline query with
   `any` casts instead of using `getSchedule`, so after this change three
   endpoints will read the same table three different ways. Unifying them is
   worth doing, but as its own commit — a calendar-feed regression should not be
-  able to hide inside a CSV feature.
+  able to hide inside a CSV feature. *(Done — see section 8.)*
 
 ## 7. Known limitations
 
@@ -253,12 +253,71 @@ blank cells last regardless of direction, and pinning the order inside the
 builder would let the CSV diverge from the `/schedule` page, which builds its
 "Date TBD" group from this same query.
 
-**The `.ics` routes have the cancelled/postponed problem this fixes for CSV.**
-Both include every non-draft game, so a cancelled game still appears in
-subscribed calendars. Worth addressing in the follow-up commit named in
-section 6.
-
 **`postponeGame`'s docstring is wrong.** It claims "date TBD until rescheduled"
 while the code preserves `scheduled_at` (`src/lib/actions/games.ts:459-462`).
 Correcting it means first deciding whether postponing *should* clear the date —
 a product question outside this work.
+
+---
+
+## 8. Follow-up: one read path, one export directory
+
+Landed after the CSV shipped, on `follow-up/unify-schedule-exports`.
+
+### What moved
+
+`csv.ts`, `ics.ts` and their tests now live in `src/lib/export/`, closing the
+placement decision deferred in section 6. `src/lib/schedule/` is back to being
+purely the generator's domain.
+
+### One read path
+
+Both `.ics` routes issued their own inline query with `any` casts. They now go
+through `src/lib/queries/schedule.ts` like everything else, and the casts are
+gone.
+
+The season feed uses `getSchedule`. The team feed could not: it returns a team's
+games across *every* season, and `getSchedule` requires a `seasonId`. Rather
+than loosen that signature for one caller — or silently season-scope a live
+subscription, which would delete past games out of calendars that already hold
+them — it gets its own helper, `getTeamFeedGames(teamId, opts)`, reproducing the
+existing behaviour exactly.
+
+The season `.ics` also gained the UUID guard it never had, matching the other
+two. A malformed id now returns 404 instead of an empty calendar.
+
+### Withheld statuses, in one place
+
+`isExportableFixture(status)` in `src/lib/export/fixtures.ts` is now the single
+definition of the rule from section 2, applied by all three routes.
+
+It deliberately does **not** live in `getSchedule`: the `/schedule` page needs
+cancelled and postponed games, because it has a status badge to tell the truth
+with. An export file does not.
+
+**The `.ics` feeds now withhold them too.** This was chosen over the
+alternative, which is worth recording because iCalendar — unlike CSV — *can*
+express it: the `ics` package supports `STATUS:CANCELLED`, and because
+`buildIcs` emits a stable `game-<id>@obhl` UID, marking an event cancelled would
+have *updated* the copy already sitting in a subscriber's calendar, where
+dropping the `VEVENT` simply makes it disappear with no explanation. Uniformity
+across the three exports was preferred to that.
+
+### Testing
+
+`ics.ts` shipped untested and is edited here, so it first got characterisation
+tests pinning what already worked — title formats for scheduled and final games,
+nil-nil defaulting, undated games dropped, the stable UID, the 90-minute
+duration, UTC start, and the calendar name. They were written and confirmed
+green *before* anything moved, so the move and the new filter are guarded rather
+than trusted.
+
+One case was added rather than pinned: an empty game list. Withholding statuses
+can now empty a feed that previously always had events, and the fallback branch
+in `buildIcs` had no coverage.
+
+`fixtures.ts` has its own test over all five statuses.
+
+Verified live across all three endpoints: cancelling one game and postponing
+another took the season feed 6 → 4 events, the CSV 6 → 4 rows, and the affected
+team's feed 3 → 2, with everything restored afterwards.
