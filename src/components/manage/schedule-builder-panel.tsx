@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { publishSchedule, discardSchedule } from "@/lib/actions/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { weekdayOf } from "@/lib/schedule/assignNights";
+import { spacingReport, type PlacedGame } from "@/lib/schedule/spacing";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -14,7 +16,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { EmptyState } from "@/components/shared/empty-state";
-import { ScheduleFinalForm } from "@/components/manage/schedule-final-form";
 import { ScheduleGenerateForm } from "@/components/manage/schedule-generate-form";
 import { formatLongDate, formatGameTime, leagueDateKey } from "@/lib/format";
 
@@ -108,7 +109,7 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
 
   // Derived summary + overrun check (the regular season should finish before the
   // season's playoff-inclusive end date).
-  const draftDates = [...byDate.keys()].filter(Boolean).sort();
+  const draftDates = [...byDate.keys()].filter((d) => d && d !== "tbd").sort();
   const firstDate = draftDates[0];
   const lastDate = draftDates.at(-1);
   const gamesPerTeamLabel =
@@ -119,6 +120,41 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
         : `${Math.min(...gpVals)}–${Math.max(...gpVals)}`;
   const overrunsSeason =
     !!season?.ends_on && !!lastDate && lastDate > season.ends_on;
+
+  // Spacing checks — reconstruct placement (night order + slot order) from the
+  // draft games so managers can verify bye/rematch/ice-time spacing.
+  const spacingNights = draftDates.map((d) => ({ date: d, slots: [] as string[] }));
+  const nightIndexOf = new Map(draftDates.map((d, i) => [d, i]));
+  const placed: PlacedGame[] = [];
+  for (const [date, arr] of byDate) {
+    if (!nightIndexOf.has(date)) continue;
+    arr.forEach((g, slotIndex) => {
+      placed.push({
+        home: g.home_team_id,
+        away: g.away_team_id,
+        nightIndex: nightIndexOf.get(date)!,
+        slotIndex,
+      });
+    });
+  }
+  const spacing =
+    placed.length > 0 ? spacingReport(placed, spacingNights, teamRows) : null;
+
+  // Nights that run fewer games than the fullest one. Those nights drop their
+  // latest slot, so it gets used on fewer nights than the earlier ones and equal
+  // per-team ice-time counts stop being arithmetically reachable — no amount of
+  // shuffling fixes it, so say so rather than let it read as a bug. Scoped to
+  // dated nights (not `maxSlots`, which counts undated games too), and stated
+  // only in terms of what the placed games show: the season's configured ice
+  // slots aren't stored, so a slot left unused all season is invisible here.
+  const fullestNight = Math.max(
+    0,
+    ...draftDates.map((d) => byDate.get(d)?.length ?? 0),
+  );
+  const shortNights = draftDates.filter(
+    (d) => (byDate.get(d)?.length ?? 0) < fullestNight,
+  ).length;
+  const spareIceSlots = fullestNight * draftDates.length - placed.length;
 
   return (
     <div className="space-y-6">
@@ -136,23 +172,18 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            Schedule a one-off game (tournament final / semifinals)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {enrolledTeams.length < 2 ? (
-            <EmptyState title="Enroll teams first" />
-          ) : (
-            <ScheduleFinalForm
-              seasonId={seasonId}
-              teams={enrolledTeams.map((t) => ({ id: t.id, name: t.name }))}
-            />
-          )}
-        </CardContent>
-      </Card>
+      <p className="text-muted-foreground text-sm">
+        Adding a tournament final or semifinals mid-season is a different job —
+        it takes over a game on a night that&apos;s already scheduled and repairs
+        the rest of the season around it.{" "}
+        <Link
+          href="/schedule-builder/one-off"
+          className="text-foreground font-medium underline"
+        >
+          Schedule a one-off game
+        </Link>
+        .
+      </p>
 
       {(drafts ?? []).length === 0 ? (
         <EmptyState
@@ -254,8 +285,61 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
                 game. Any uneven ice time is biased toward the earlier (Slot 1)
                 times, so no team gets stuck with the latest slot more than others.
               </p>
+              {shortNights > 0 ? (
+                <p className="text-muted-foreground mt-2 text-xs">
+                  {shortNights} of {draftDates.length} nights run fewer games than
+                  the fullest night, leaving {spareIceSlots} ice slot
+                  {spareIceSlots === 1 ? "" : "s"} unused — so the latest time runs
+                  on fewer nights than the earlier ones. Equal ice-time counts are
+                  only reachable when every night is equally full, so a difference
+                  of one game here is expected rather than a scheduling fault.
+                  Adding or removing a game night is what evens it out.
+                </p>
+              ) : null}
             </CardContent>
           </Card>
+
+          {spacing ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Spacing checks</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="grid gap-1.5 text-sm sm:grid-cols-2">
+                  {(
+                    [
+                      ["Weeks a team misses 2+ game nights", spacing.byesMultiWeek],
+                      ["Teams byeing two weeks in a row", spacing.byesConsecWeek],
+                      ["…on the same weekday", spacing.byesConsecWeekSameDay],
+                      ["Same opponents in one week", spacing.rematchSameWeek],
+                      ["Same opponents back-to-back nights", spacing.rematchAdjNight],
+                      ["Same opponents in consecutive weeks", spacing.rematchConsecWeek],
+                      ["Back-to-back games in the same ice time", spacing.slotConsecutive],
+                    ] as const
+                  ).map(([label, count]) => (
+                    <li key={label} className="flex items-center gap-2">
+                      <span
+                        className={
+                          count === 0
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-amber-600 dark:text-amber-400"
+                        }
+                      >
+                        {count === 0 ? "✓" : count}
+                      </span>
+                      <span className="text-muted-foreground">{label}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-muted-foreground mt-2 text-xs">
+                  Byes and repeated matchups are minimized after an even schedule
+                  is fixed. Some are unavoidable when there are fewer ice slots
+                  than half the teams (so not everyone plays every night) — add ice
+                  times or game nights to drive these to zero.
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <div className="space-y-6">
             {[...byDate.entries()].map(([date, arr]) => (

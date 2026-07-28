@@ -1,14 +1,25 @@
 import { describe, it, expect } from "vitest";
 import { roundRobin, buildBalancedPairings } from "./roundRobin";
-import { assignNights, type Night } from "./assignNights";
+import { assignNights, weekdayOf, type Night } from "./assignNights";
+import { enumerateNights } from "./capacity";
 
 const teams = (n: number) => Array.from({ length: n }, (_, i) => `t${i + 1}`);
 
+// `count` game nights in a realistic weekly cadence — two distinct weeknights
+// (Tue + Fri) per calendar week. The generator groups games by calendar week, so
+// tests must feed weekly-spaced nights, not consecutive calendar days.
 function nights(count: number, slots = ["19:00", "20:15", "21:30"]): Night[] {
-  return Array.from({ length: count }, (_, i) => ({
-    date: `2026-09-${String(1 + i).padStart(2, "0")}`,
-    slots,
-  }));
+  const ns: Night[] = [];
+  const base = Date.UTC(2026, 8, 1); // Tue 2026-09-01
+  outer: for (let w = 0; ; w++) {
+    for (const off of [0, 3]) {
+      // Tue, Fri
+      if (ns.length >= count) break outer;
+      const d = new Date(base + (w * 7 + off) * 86400000);
+      ns.push({ date: d.toISOString().slice(0, 10), slots });
+    }
+  }
+  return ns;
 }
 
 // Two recurring weeknights (e.g. Tue + Thu) for `weeks` weeks, chronological.
@@ -100,10 +111,13 @@ describe("assignNights", () => {
     expect(report.weekdays.length).toBe(2);
     for (const t of report.gamesPerTeam) expect(t.count).toBe(14);
     for (const w of report.nightShareByTeam) {
+      // Weekday balance is priority #1 — stays within one game.
       expect(Math.max(...w.counts) - Math.min(...w.counts)).toBeLessThanOrEqual(1);
     }
     for (const s of report.slotShareByTeam) {
-      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(1);
+      // Ice-time evenness is priority #4; the spacing pass may trade it up to one
+      // extra game to reduce byes/rematch clustering.
+      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(2);
     }
   });
 
@@ -141,5 +155,102 @@ describe("assignNights", () => {
     expect(report.unscheduled).toBe(0);
     expect(report.minRematchGapNights).not.toBeNull();
     expect(report.minRematchGapNights!).toBeGreaterThanOrEqual(2);
+  });
+
+  it("is deterministic for a given input", () => {
+    const ts = teams(8);
+    const ns = twoNightsPerWeek(14, ["19:00", "20:15"]);
+    const key = (g: { home: string; away: string; scheduledAt: string }) =>
+      `${g.home}|${g.away}|${g.scheduledAt}`;
+    const a = assignNights(buildBalancedPairings(ts, 14), ns, ts).games.map(key);
+    const b = assignNights(buildBalancedPairings(ts, 14), ns, ts).games.map(key);
+    expect(a).toEqual(b);
+  });
+});
+
+// The live OBHL setup, and the case the generator is tuned against: 8 teams on
+// Mondays and Thursdays, 3 sheets of ice a night, 36 games each, with the last
+// two weeks of December and one Thursday in March off. It comes out to 48 nights
+// holding exactly 144 games, so every sheet is used and 2 of the 8 teams bye
+// every night — which is what makes weekday balance and bye spacing fight.
+describe("assignNights — full-season reference schedule", () => {
+  const ts = teams(8);
+  const ns = enumerateNights("2026-09-10", {
+    weekdays: new Set([1, 4]), // Mon + Thu
+    slotTimes: ["19:00", "20:15", "21:30"],
+    excluded: new Set([
+      "2026-12-21",
+      "2026-12-24",
+      "2026-12-28",
+      "2026-12-31",
+      "2027-03-04",
+    ]),
+    maxNights: 48,
+  });
+  const { games, report } = assignNights(buildBalancedPairings(ts, 36), ns, ts);
+
+  it("fills the calendar exactly, 36 games a team", () => {
+    expect(ns.length).toBe(48);
+    expect(report.unscheduled).toBe(0);
+    expect(games.length).toBe(144);
+    for (const t of report.gamesPerTeam) expect(t.count).toBe(36);
+  });
+
+  it("gives every team a perfectly even weekday split (18 Mon / 18 Thu)", () => {
+    for (const n of report.nightShareByTeam) expect(n.counts).toEqual([18, 18]);
+  });
+
+  it("satisfies all three bye rules", () => {
+    // 1: never two byes in one week. 2: never the same weekday in consecutive
+    // weeks. 3: never two bye weeks back to back at all.
+    expect(report.spacing.byesMultiWeek).toBe(0);
+    expect(report.spacing.byesConsecWeekSameDay).toBe(0);
+    expect(report.spacing.byesConsecWeek).toBe(0);
+  });
+
+  it("gives every team the same 12 byes, split evenly across weekdays", () => {
+    const played = new Map<string, Set<number>>(ts.map((t) => [t, new Set()]));
+    for (const g of games) {
+      played.get(g.home)!.add(g.nightIndex);
+      played.get(g.away)!.add(g.nightIndex);
+    }
+    for (const t of ts) {
+      const byes = ns
+        .map((_, i) => i)
+        .filter((i) => !played.get(t)!.has(i));
+      expect(byes.length).toBe(12);
+      expect(byes.filter((i) => weekdayOf(ns[i].date) === 1).length).toBe(6);
+    }
+  });
+
+  it("never repeats an opponent in the same week or in back-to-back weeks", () => {
+    expect(report.spacing.rematchSameWeek).toBe(0);
+    expect(report.spacing.rematchAdjNight).toBe(0);
+    expect(report.spacing.rematchConsecWeek).toBe(0);
+  });
+
+  it("keeps opponents balanced — 36 games over 7 opponents is 5s and one 6", () => {
+    expect(report.pairingCounts.length).toBe(28);
+    const sixes = report.pairingCounts.filter((p) => p.count === 6);
+    expect(report.pairingCounts.every((p) => p.count === 5 || p.count === 6)).toBe(true);
+    // One 6 per team, so the 6s form a perfect matching over the 8 teams.
+    expect(sixes.length).toBe(4);
+    expect(new Set(sixes.flatMap((p) => p.matchup.split("|"))).size).toBe(8);
+  });
+
+  it("shares the ice times perfectly evenly (12 of each)", () => {
+    for (const s of report.slotShareByTeam) expect(s.counts).toEqual([12, 12, 12]);
+  });
+
+  it("never books a team twice on one night", () => {
+    const perNight = new Map<number, Set<string>>();
+    for (const g of games) {
+      const set = perNight.get(g.nightIndex) ?? new Set<string>();
+      expect(set.has(g.home)).toBe(false);
+      expect(set.has(g.away)).toBe(false);
+      set.add(g.home);
+      set.add(g.away);
+      perNight.set(g.nightIndex, set);
+    }
   });
 });

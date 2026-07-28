@@ -30,7 +30,11 @@ export default async function ScoreGamesPage() {
       <PageHeader
         title="Games"
         description="Open a game to set rosters, record scoring, and finalize."
-      />
+      >
+        <Button asChild size="sm" variant="outline">
+          <Link href="/schedule-builder/one-off">Schedule a one-off game</Link>
+        </Button>
+      </PageHeader>
       {games.length === 0 ? (
         <EmptyState title="No games scheduled" />
       ) : (
