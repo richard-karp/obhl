@@ -23,6 +23,15 @@ const MULT_W = 50_000;
  */
 const MAX_MATCHINGS = 1_000;
 
+/**
+ * A night the caller has already decided something about. `fixed` pins it to one
+ * matching (a night that's been played, or is otherwise off limits); `require`
+ * forces a pair to appear but leaves the rest of the night free.
+ */
+export type NightConstraint =
+  | { kind: "fixed"; pairs: [number, number][] }
+  | { kind: "require"; pairs: [number, number][] };
+
 export type MatchupOptions = {
   teamCount: number;
   /** `plays[team][night]` from Phase P. */
@@ -38,6 +47,22 @@ export type MatchupOptions = {
   restarts?: number;
   /** Wall-clock cap. On expiry the best choice found so far is returned. */
   timeBudgetMs?: number;
+  /** Per-night pins/requirements; absent or null leaves the night free. */
+  nightConstraints?: (NightConstraint | null)[];
+  /**
+   * Extra per-night cost on top of the pair costs. Repairing a published
+   * schedule uses it to prefer leaving nights alone; generation doesn't need it.
+   * Evaluated once per candidate up front, so it must be a pure function.
+   *
+   * Keep it well under `MULT_W` — opponent balance is not tradeable against
+   * churn.
+   */
+  nightPenalty?: (night: number, pairs: [number, number][]) => number;
+  /**
+   * Seed the first restart from these matchings instead of `seedGreedy`. A night
+   * whose matching isn't among its candidates falls back to the greedy pick.
+   */
+  initial?: ([number, number][] | null)[];
 };
 
 export type MatchupResult = {
@@ -97,6 +122,17 @@ function perfectMatchings(teams: number[], limit: number): [number, number][][] 
   return out;
 }
 
+/** Order-independent identity of a matching, for comparing two of them. */
+function matchingKey(m: [number, number][]): string {
+  return m
+    .map(([a, b]) => (a < b ? `${a}-${b}` : `${b}-${a}`))
+    .sort()
+    .join(",");
+}
+
+const hasPair = (m: [number, number][], p: [number, number]): boolean =>
+  m.some(([a, b]) => (a === p[0] && b === p[1]) || (a === p[1] && b === p[0]));
+
 export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
   const {
     teamCount: T,
@@ -107,6 +143,9 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
     seed = 1,
     restarts = 12,
     timeBudgetMs = 600,
+    nightConstraints,
+    nightPenalty,
+    initial,
   } = opts;
   const N = nightWeek.length;
   const rnd = mulberry32(seed);
@@ -115,6 +154,14 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
   // Candidate matchings per night.
   const options: [number, number][][][] = [];
   for (let n = 0; n < N; n++) {
+    const constraint = nightConstraints?.[n] ?? null;
+    // A pinned night is a one-candidate night. `descend` skips those, so its
+    // pairs carry through untouched while still counting toward every pair's
+    // meeting total — which is exactly what "already played" should mean.
+    if (constraint?.kind === "fixed") {
+      options.push([constraint.pairs]);
+      continue;
+    }
     const playing: number[] = [];
     for (let t = 0; t < T; t++) if (plays[t][n]) playing.push(t);
     if (playing.length % 2 !== 0) return null;
@@ -125,8 +172,28 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
     // Ask for one more than the cap so a truncated enumeration is detectable.
     const ms = perfectMatchings(playing, MAX_MATCHINGS + 1);
     if (ms.length === 0 || ms.length > MAX_MATCHINGS) return null;
-    options.push(ms);
+    const kept =
+      constraint?.kind === "require"
+        ? ms.filter((m) => constraint.pairs.every((p) => hasPair(m, p)))
+        : ms;
+    // Nothing satisfies the requirement — over-constrained, same as the other
+    // shapes this phase declines rather than approximates.
+    if (kept.length === 0) return null;
+    options.push(kept);
   }
+
+  // Penalties depend only on (night, candidate), so pay for them once rather
+  // than on every evaluation inside the descent.
+  const penalty: number[][] = options.map((ms, n) =>
+    nightPenalty ? ms.map((m) => nightPenalty(n, m)) : ms.map(() => 0),
+  );
+  const initialIdx: (number | null)[] = options.map((ms, n) => {
+    const want = initial?.[n];
+    if (!want) return null;
+    const key = matchingKey(want);
+    const i = ms.findIndex((m) => matchingKey(m) === key);
+    return i >= 0 ? i : null;
+  });
 
   const pairKey = (a: number, b: number) => (a < b ? a * T + b : b * T + a);
   // Per-pair state: meeting nights (kept sorted) and its current cost.
@@ -186,6 +253,7 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
   const totalCost = (): number => {
     let c = 0;
     for (const k of meets.keys()) c += pairCost(k);
+    for (let n = 0; n < N; n++) c += penalty[n][choice[n]];
     return c;
   };
 
@@ -236,13 +304,13 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
         const keySet = new Set<number>();
         for (const m of options[n]) for (const [a, b] of m) keySet.add(pairKey(a, b));
         const keys = [...keySet];
-        const curVal = localCost(keys);
+        const curVal = localCost(keys) + penalty[n][cur];
         clearNight(n);
         let bestIdx = cur;
         let bestVal = Number.POSITIVE_INFINITY;
         for (let idx = 0; idx < options[n].length; idx++) {
           for (const [a, b] of options[n][idx]) addMeeting(a, b, n);
-          const v = localCost(keys);
+          const v = localCost(keys) + penalty[n][idx];
           for (const [a, b] of options[n][idx]) removeMeeting(a, b, n);
           if (v < bestVal) {
             bestVal = v;
@@ -256,11 +324,20 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
     }
   };
 
+  /** Start from the caller's incumbent, so the descent only moves off it for a
+   * strict gain — the low-churn repairs depend on this. */
+  const seedInitial = () => {
+    choice.fill(0);
+    for (const ns of meets.values()) ns.length = 0;
+    for (let n = 0; n < N; n++) applyNight(n, initialIdx[n] ?? 0);
+  };
+
   let bestChoice: number[] | null = null;
   let bestTotal = Number.POSITIVE_INFINITY;
   for (let r = 0; r < Math.max(1, restarts); r++) {
     if (r > 0 && Date.now() > deadline) break;
-    seedGreedy(r === 0 ? 0 : 400);
+    if (r === 0 && initial) seedInitial();
+    else seedGreedy(r === 0 ? 0 : 400);
     descend();
     const total = totalCost();
     if (total < bestTotal) {
@@ -281,9 +358,13 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
     const diff = ns.length - (targets[a]?.[b] ?? 0);
     multiplicityError += diff * diff;
   }
+  // Net the per-night penalties out too, or `spacingCost` silently reports churn
+  // as though it were bad spacing.
+  let penaltyTotal = 0;
+  for (let n = 0; n < N; n++) penaltyTotal += penalty[n][bestChoice[n]];
   return {
     pairsByNight: bestChoice.map((idx, n) => options[n][idx]),
     multiplicityError,
-    spacingCost: bestTotal - MULT_W * multiplicityError,
+    spacingCost: bestTotal - MULT_W * multiplicityError - penaltyTotal,
   };
 }
