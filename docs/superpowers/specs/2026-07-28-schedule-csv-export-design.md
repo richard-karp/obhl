@@ -254,9 +254,15 @@ builder would let the CSV diverge from the `/schedule` page, which builds its
 "Date TBD" group from this same query.
 
 **`postponeGame`'s docstring is wrong.** It claims "date TBD until rescheduled"
-while the code preserves `scheduled_at` (`src/lib/actions/games.ts:459-462`).
-Correcting it means first deciding whether postponing *should* clear the date —
-a product question outside this work.
+while the code preserves `scheduled_at`. Correcting it means first deciding
+whether postponing *should* clear the date — a product question outside this
+work.
+
+*Resolved: it should. See
+`docs/superpowers/specs/2026-07-29-postponing-clears-the-date-design.md`.
+Postponing now clears the date into `postponed_from`, which means postponed
+games no longer need withholding from exports — section 2's rule narrows to
+`cancelled` alone.*
 
 ---
 
