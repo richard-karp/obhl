@@ -2,7 +2,7 @@ import Link from "next/link";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { GameStatusBadge } from "@/components/shared/game-status-badge";
 import { Badge } from "@/components/ui/badge";
-import { formatGameDate, formatGameTime } from "@/lib/format";
+import { formatGameDate, formatGameDateTime, formatGameTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { GameWithTeams } from "@/lib/queries/schedule";
 
@@ -68,6 +68,13 @@ export function GameRow({ game }: { game: GameWithTeams }) {
           winner={homeWin}
           showScore={final}
         />
+        {game.postponed_from ? (
+          // Postponing clears the date, so without this the game reads only as
+          // "TBD" and when it was meant to be played is invisible.
+          <p className="text-muted-foreground text-xs">
+            Postponed from {formatGameDateTime(game.postponed_from)}
+          </p>
+        ) : null}
       </div>
       <GameStatusBadge status={game.status} />
     </div>

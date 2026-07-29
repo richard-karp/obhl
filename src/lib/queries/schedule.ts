@@ -1,10 +1,18 @@
 import { createClient } from "@/utils/supabase/server";
 import { leagueDateKey } from "@/lib/format";
+import { isUuid } from "@/lib/db/uuid";
+import { groupIntoNights, type SeasonNight } from "@/lib/schedule/nights";
 import type { DbClient } from "@/lib/db/helpers";
+
+// Every helper here that filters by team interpolates the id into a PostgREST
+// `.or()` string, which is not parameterised the way `.eq()` is. Each one
+// therefore checks the id itself and returns nothing if it isn't a UUID, rather
+// than trusting its caller — a rule that only holds if it holds uniformly, since
+// one guarded helper among several reads as though the others were judged safe.
 
 // Shared select for a game with both teams embedded (disambiguated by FK).
 const GAME_SELECT = `
-  id, scheduled_at, status, week, round, home_goals, away_goals, result_type, is_draft, label,
+  id, scheduled_at, postponed_from, status, week, round, home_goals, away_goals, result_type, is_draft, label,
   home_team:teams!games_home_team_id_fkey(id, name, slug, color),
   away_team:teams!games_away_team_id_fkey(id, name, slug, color)
 `;
@@ -12,6 +20,8 @@ const GAME_SELECT = `
 export type GameWithTeams = {
   id: string;
   scheduled_at: string | null;
+  /** Where a postponed game sat before it was postponed; null otherwise. */
+  postponed_from: string | null;
   status: "scheduled" | "in_progress" | "final" | "postponed" | "cancelled";
   week: number | null;
   round: number | null;
@@ -45,10 +55,34 @@ export async function getSchedule(
     .eq("is_draft", false)
     .order("scheduled_at", { ascending: true });
   if (teamId) {
+    if (!isUuid(teamId)) return [];
     q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
   }
   const { data, error } = await q;
   if (error) console.error("schedule query failed:", error.message);
+  return (data ?? []) as unknown as GameWithTeams[];
+}
+
+/**
+ * Every published game a team has ever played, for its calendar feed.
+ *
+ * Deliberately not season-scoped: a subscription is a standing thing, and
+ * narrowing it to the active season would delete past games out of calendars
+ * that already hold them.
+ */
+export async function getTeamFeedGames(
+  teamId: string,
+  opts: { client?: DbClient } = {},
+): Promise<GameWithTeams[]> {
+  if (!isUuid(teamId)) return [];
+  const supabase = opts.client ?? (await createClient());
+  const { data, error } = await supabase
+    .from("games")
+    .select(GAME_SELECT)
+    .eq("is_draft", false)
+    .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+    .order("scheduled_at", { ascending: true });
+  if (error) console.error("team feed query failed:", error.message);
   return (data ?? []) as unknown as GameWithTeams[];
 }
 
@@ -68,38 +102,23 @@ export async function getUpcoming(
     .gte("scheduled_at", new Date().toISOString())
     .order("scheduled_at", { ascending: true })
     .limit(limit);
-  if (teamId) q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
+  if (teamId) {
+    if (!isUuid(teamId)) return [];
+    q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
+  }
   const { data, error } = await q;
   if (error) console.error("schedule query failed:", error.message);
   return (data ?? []) as unknown as GameWithTeams[];
 }
 
-export type SeasonNightGame = {
-  id: string;
-  homeTeamId: string;
-  awayTeamId: string;
-  scheduledAt: string;
-  label: string | null;
-};
-
-export type SeasonNight = {
-  /** League-local calendar date, "YYYY-MM-DD". */
-  date: string;
-  /**
-   * The repair may not touch this night: it's in the past, or one of its games
-   * has moved off `scheduled` (played, in progress, postponed, cancelled).
-   * Whole-night granularity, because re-pairing part of a night would break
-   * one-game-per-team.
-   */
-  locked: boolean;
-  /** The night's games in ice-time order. */
-  games: SeasonNightGame[];
-};
+export type { SeasonNight, SeasonNightGame } from "@/lib/schedule/nights";
 
 /**
  * A season's published games grouped into nights, in the shape the one-off
- * planner reasons about. Undated games are dropped — they have no night to
- * belong to.
+ * planner reasons about.
+ *
+ * The grouping and locking rules live in `groupIntoNights`, which is pure and
+ * tested; this only fetches the rows.
  */
 export async function getSeasonNights(
   seasonId: string,
@@ -108,7 +127,9 @@ export async function getSeasonNights(
   const supabase = opts.client ?? (await createClient());
   const { data, error } = await supabase
     .from("games")
-    .select("id, scheduled_at, status, label, home_team_id, away_team_id")
+    .select(
+      "id, scheduled_at, postponed_from, status, label, home_team_id, away_team_id",
+    )
     .eq("season_id", seasonId)
     .eq("is_draft", false)
     .order("scheduled_at", { ascending: true });
@@ -117,30 +138,7 @@ export async function getSeasonNights(
     return [];
   }
 
-  const today = leagueDateKey(new Date().toISOString());
-  const byDate = new Map<string, { games: SeasonNightGame[]; locked: boolean }>();
-  for (const g of data ?? []) {
-    if (!g.scheduled_at) continue;
-    const date = leagueDateKey(g.scheduled_at);
-    const night =
-      byDate.get(date) ?? byDate.set(date, { games: [], locked: date < today }).get(date)!;
-    if (g.status !== "scheduled") night.locked = true;
-    night.games.push({
-      id: g.id,
-      homeTeamId: g.home_team_id,
-      awayTeamId: g.away_team_id,
-      scheduledAt: g.scheduled_at,
-      label: g.label,
-    });
-  }
-
-  return [...byDate.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : 1))
-    .map(([date, n]) => ({
-      date,
-      locked: n.locked,
-      games: n.games.sort((a, b) => (a.scheduledAt < b.scheduledAt ? -1 : 1)),
-    }));
+  return groupIntoNights(data ?? [], leagueDateKey(new Date().toISOString()));
 }
 
 /** Most recent final games. */
@@ -160,7 +158,10 @@ export async function getRecentResults(
     .eq("status", "final")
     .order("scheduled_at", { ascending: false })
     .limit(limit);
-  if (teamId) q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
+  if (teamId) {
+    if (!isUuid(teamId)) return [];
+    q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
+  }
   const { data, error } = await q;
   if (error) console.error("schedule query failed:", error.message);
   return (data ?? []) as unknown as GameWithTeams[];

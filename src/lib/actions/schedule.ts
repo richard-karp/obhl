@@ -420,10 +420,14 @@ export async function applyOneOffGame(
     home_team_id: r.homeTeamId,
     away_team_id: r.awayTeamId,
     label: r.label,
-    // The value we just read, so this is a no-op for the row it targets. It's
-    // here because `upsert` *inserts* when no row matches the id, and if this
-    // game were deleted between the read and the write that insert would
-    // otherwise create a game with no date at all.
+    // The game's own scheduled_at as we just read it, so this is a no-op for the
+    // row it targets. It's here because `upsert` *inserts* when no row matches
+    // the id, and if this game were deleted between the read and the write that
+    // insert would otherwise create a game with no date at all.
+    //
+    // Deliberately not the date the night was derived from: a postponed game's
+    // is null, and writing back postponed_from would restore a date that was
+    // cleared on purpose.
     scheduled_at: r.scheduledAt,
   }));
 

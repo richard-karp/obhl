@@ -1,36 +1,31 @@
-import { createClient } from "@/utils/supabase/server";
-import { buildIcs, type IcsGame } from "@/lib/schedule/ics";
+import { getSchedule } from "@/lib/queries/schedule";
+import { buildIcs, type IcsGame } from "@/lib/export/ics";
+import { isExportableFixture } from "@/lib/export/fixtures";
+import { isUuid } from "@/lib/db/uuid";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/** The season's schedule as a one-time calendar download. */
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ seasonId: string }> },
 ) {
   const { seasonId } = await params;
-  const supabase = await createClient();
-  const { data: games } = await supabase
-    .from("games")
-    .select(
-      `id, scheduled_at, status, home_goals, away_goals,
-       home:teams!games_home_team_id_fkey(name),
-       away:teams!games_away_team_id_fkey(name)`,
-    )
-    .eq("season_id", seasonId)
-    .eq("is_draft", false)
-    .order("scheduled_at", { ascending: true });
+  if (!isUuid(seasonId)) return new Response("Not found", { status: 404 });
 
+  const games = await getSchedule(seasonId);
   const ics = buildIcs(
-    (games ?? []).map(
-      (g: any): IcsGame => ({
-        id: g.id,
-        scheduled_at: g.scheduled_at,
-        status: g.status,
-        home: g.home?.name ?? "Home",
-        away: g.away?.name ?? "Away",
-        home_goals: g.home_goals,
-        away_goals: g.away_goals,
-      }),
-    ),
+    games
+      .filter((g) => isExportableFixture(g.status))
+      .map(
+        (g): IcsGame => ({
+          id: g.id,
+          scheduled_at: g.scheduled_at,
+          status: g.status,
+          home: g.home_team?.name ?? "Home",
+          away: g.away_team?.name ?? "Away",
+          home_goals: g.home_goals,
+          away_goals: g.away_goals,
+        }),
+      ),
     "OBHL Schedule",
   );
 

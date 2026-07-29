@@ -456,16 +456,38 @@ export async function cancelGame(formData: FormData) {
   await setStatus(String(formData.get("game_id")), "cancelled");
 }
 
-/** Mark a game postponed (date TBD until rescheduled). */
+/**
+ * Mark a game postponed, clearing its date.
+ *
+ * A postponed game is not being played when it was scheduled, so leaving
+ * `scheduled_at` in place made the schedule page, the calendar feeds and the CSV
+ * all state something untrue. The old date moves to `postponed_from`, which
+ * keeps the night discoverable by the one-off planner and gives `restoreGame`
+ * somewhere to go back to. It is an RPC because PostgREST cannot express a
+ * column-to-column move.
+ */
 export async function postponeGame(formData: FormData) {
   await requireRole("scorekeeper", "league_manager");
-  await setStatus(String(formData.get("game_id")), "postponed");
+  const game_id = String(formData.get("game_id"));
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("postpone_game", { p_game: game_id });
+  check(error, "Postpone game");
+  revalidateAfterScore(game_id, true);
 }
 
-/** Restore a cancelled/postponed game back to scheduled. */
+/**
+ * Restore a cancelled/postponed game back to scheduled.
+ *
+ * A cancelled game kept its date and only flips status; a postponed one gets its
+ * date back from `postponed_from`.
+ */
 export async function restoreGame(formData: FormData) {
   await requireRole("scorekeeper", "league_manager");
-  await setStatus(String(formData.get("game_id")), "scheduled");
+  const game_id = String(formData.get("game_id"));
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("restore_game", { p_game: game_id });
+  check(error, "Restore game");
+  revalidateAfterScore(game_id, true);
 }
 
 /** Move a game to a new date/time (and mark it scheduled). */
@@ -478,7 +500,13 @@ export async function rescheduleGame(formData: FormData) {
   // datetime-local "YYYY-MM-DDTHH:MM" interpreted in the league zone (DST-aware).
   const { error } = await supabase
     .from("games")
-    .update({ scheduled_at: `${dt}:00${leagueOffset(dt)}`, status: "scheduled" })
+    .update({
+      scheduled_at: `${dt}:00${leagueOffset(dt)}`,
+      status: "scheduled",
+      // A game given a new date isn't postponed any more; leaving this set would
+      // keep parking it on the night it was postponed from.
+      postponed_from: null,
+    })
     .eq("id", game_id);
   check(error, "Reschedule game");
   revalidateAfterScore(game_id, true);
