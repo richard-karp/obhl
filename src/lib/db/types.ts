@@ -213,6 +213,7 @@ export type Database = {
           id: string
           is_draft: boolean
           label: string | null
+          postponed_from: string | null
           result_type: Database["public"]["Enums"]["result_type"]
           round: number | null
           scheduled_at: string | null
@@ -241,6 +242,7 @@ export type Database = {
           id?: string
           is_draft?: boolean
           label?: string | null
+          postponed_from?: string | null
           result_type?: Database["public"]["Enums"]["result_type"]
           round?: number | null
           scheduled_at?: string | null
@@ -269,6 +271,7 @@ export type Database = {
           id?: string
           is_draft?: boolean
           label?: string | null
+          postponed_from?: string | null
           result_type?: Database["public"]["Enums"]["result_type"]
           round?: number | null
           scheduled_at?: string | null
@@ -693,7 +696,29 @@ export type Database = {
           ties: number | null
           wins: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "game_rosters_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "game_rosters_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "games_season_id_fkey"
+            columns: ["season_id"]
+            isOneToOne: false
+            referencedRelation: "seasons"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       v_skater_stats: {
         Row: {
@@ -806,6 +831,8 @@ export type Database = {
       }
       league_is_public: { Args: { p_league: string }; Returns: boolean }
       player_is_public: { Args: { p_player: string }; Returns: boolean }
+      postpone_game: { Args: { p_game: string }; Returns: undefined }
+      restore_game: { Args: { p_game: string }; Returns: undefined }
       season_is_public: { Args: { p_season: string }; Returns: boolean }
     }
     Enums: {

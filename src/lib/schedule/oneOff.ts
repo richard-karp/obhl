@@ -366,7 +366,13 @@ export type RowGame = {
   id: string;
   homeTeamId: string;
   awayTeamId: string;
-  scheduledAt: string;
+  /**
+   * Null for a postponed game, whose date was cleared. The repair only ever
+   * builds rows for unlocked nights and a postponed game always locks its own,
+   * so this should not arise — and if it ever did, writing the null back leaves
+   * the game undated rather than resurrecting the date it was postponed from.
+   */
+  scheduledAt: string | null;
   label: string | null;
 };
 

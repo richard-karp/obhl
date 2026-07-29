@@ -1,6 +1,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { leagueDateKey } from "@/lib/format";
 import { isUuid } from "@/lib/db/uuid";
+import { groupIntoNights, type SeasonNight } from "@/lib/schedule/nights";
 import type { DbClient } from "@/lib/db/helpers";
 
 // Every helper here that filters by team interpolates the id into a PostgREST
@@ -11,7 +12,7 @@ import type { DbClient } from "@/lib/db/helpers";
 
 // Shared select for a game with both teams embedded (disambiguated by FK).
 const GAME_SELECT = `
-  id, scheduled_at, status, week, round, home_goals, away_goals, result_type, is_draft, label,
+  id, scheduled_at, postponed_from, status, week, round, home_goals, away_goals, result_type, is_draft, label,
   home_team:teams!games_home_team_id_fkey(id, name, slug, color),
   away_team:teams!games_away_team_id_fkey(id, name, slug, color)
 `;
@@ -19,6 +20,8 @@ const GAME_SELECT = `
 export type GameWithTeams = {
   id: string;
   scheduled_at: string | null;
+  /** Where a postponed game sat before it was postponed; null otherwise. */
+  postponed_from: string | null;
   status: "scheduled" | "in_progress" | "final" | "postponed" | "cancelled";
   week: number | null;
   round: number | null;
@@ -109,32 +112,14 @@ export async function getUpcoming(
   return (data ?? []) as unknown as GameWithTeams[];
 }
 
-export type SeasonNightGame = {
-  id: string;
-  homeTeamId: string;
-  awayTeamId: string;
-  scheduledAt: string;
-  label: string | null;
-};
-
-export type SeasonNight = {
-  /** League-local calendar date, "YYYY-MM-DD". */
-  date: string;
-  /**
-   * The repair may not touch this night: it's in the past, or one of its games
-   * has moved off `scheduled` (played, in progress, postponed, cancelled).
-   * Whole-night granularity, because re-pairing part of a night would break
-   * one-game-per-team.
-   */
-  locked: boolean;
-  /** The night's games in ice-time order. */
-  games: SeasonNightGame[];
-};
+export type { SeasonNight, SeasonNightGame } from "@/lib/schedule/nights";
 
 /**
  * A season's published games grouped into nights, in the shape the one-off
- * planner reasons about. Undated games are dropped — they have no night to
- * belong to.
+ * planner reasons about.
+ *
+ * The grouping and locking rules live in `groupIntoNights`, which is pure and
+ * tested; this only fetches the rows.
  */
 export async function getSeasonNights(
   seasonId: string,
@@ -143,7 +128,9 @@ export async function getSeasonNights(
   const supabase = opts.client ?? (await createClient());
   const { data, error } = await supabase
     .from("games")
-    .select("id, scheduled_at, status, label, home_team_id, away_team_id")
+    .select(
+      "id, scheduled_at, postponed_from, status, label, home_team_id, away_team_id",
+    )
     .eq("season_id", seasonId)
     .eq("is_draft", false)
     .order("scheduled_at", { ascending: true });
@@ -152,30 +139,7 @@ export async function getSeasonNights(
     return [];
   }
 
-  const today = leagueDateKey(new Date().toISOString());
-  const byDate = new Map<string, { games: SeasonNightGame[]; locked: boolean }>();
-  for (const g of data ?? []) {
-    if (!g.scheduled_at) continue;
-    const date = leagueDateKey(g.scheduled_at);
-    const night =
-      byDate.get(date) ?? byDate.set(date, { games: [], locked: date < today }).get(date)!;
-    if (g.status !== "scheduled") night.locked = true;
-    night.games.push({
-      id: g.id,
-      homeTeamId: g.home_team_id,
-      awayTeamId: g.away_team_id,
-      scheduledAt: g.scheduled_at,
-      label: g.label,
-    });
-  }
-
-  return [...byDate.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : 1))
-    .map(([date, n]) => ({
-      date,
-      locked: n.locked,
-      games: n.games.sort((a, b) => (a.scheduledAt < b.scheduledAt ? -1 : 1)),
-    }));
+  return groupIntoNights(data ?? [], leagueDateKey(new Date().toISOString()));
 }
 
 /** Most recent final games. */
