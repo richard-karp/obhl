@@ -32,6 +32,19 @@ export function leagueDateKey(iso: string): string {
   }).format(new Date(iso));
 }
 
+/**
+ * Day of week in the league zone (0 = Sunday, as `day_of_week` stores it), or
+ * -1 for an undated game — which matches no row, so no defaults apply.
+ *
+ * Derived from the league-local calendar date rather than by parsing a localised
+ * string back into a Date: noon on that date cannot drift across a day boundary,
+ * whichever zone the server runs in.
+ */
+export function leagueWeekday(iso: string | null): number {
+  if (!iso) return -1;
+  return new Date(`${leagueDateKey(iso)}T12:00:00Z`).getUTCDay();
+}
+
 export function formatGameDate(iso: string | null): string {
   if (!iso) return "TBD";
   return new Date(iso).toLocaleDateString("en-US", {

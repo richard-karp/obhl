@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GameStatusBadge } from "@/components/shared/game-status-badge";
 import { PageHeader } from "@/components/shared/page-header";
-import { formatGameDateTime } from "@/lib/format";
+import { formatGameDateTime, leagueWeekday } from "@/lib/format";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const byNumber = (a: { number: number | null }, b: { number: number | null }) =>
@@ -53,12 +53,8 @@ export default async function ScoreGamePage({
   const homeT = game.home_team as any;
   const awayT = game.away_team as any;
 
-  // day_of_week in America/Chicago (where games are played)
-  const gameDay = game.scheduled_at
-    ? new Date(
-        new Date(game.scheduled_at).toLocaleString("en-US", { timeZone: "America/Chicago" }),
-      ).getDay()
-    : -1;
+  // Which day's goalie defaults apply, in the league zone like everything else.
+  const gameDay = leagueWeekday(game.scheduled_at);
 
   // Scorekeepers identify players by number only — no names are fetched.
   const [{ data: roster }, { data: dressed }, { data: goalieDays }] = await Promise.all([
