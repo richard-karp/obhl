@@ -83,6 +83,13 @@ export default async function SchedulePage({
         <Button asChild variant="outline" size="sm">
           <Link href={`/api/schedule/${ctx.season.id}`}>Download .ics</Link>
         </Button>
+        {/* Always the full season — a filtered export would make the button's
+            output depend on page state the downloaded file can't show. */}
+        <Button asChild variant="outline" size="sm">
+          <Link href={`/api/schedule/${ctx.season.id}/schedule.csv`}>
+            Download .csv
+          </Link>
+        </Button>
       </PageHeader>
 
       {games.length === 0 ? (
