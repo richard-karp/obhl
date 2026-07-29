@@ -32,6 +32,35 @@ export function leagueDateKey(iso: string): string {
   }).format(new Date(iso));
 }
 
+/**
+ * Day of week (0 = Sunday) of a plain "YYYY-MM-DD" calendar date. No timezone
+ * is involved: the components are read directly, so the result can't drift.
+ *
+ * Lives here rather than in the schedule generator that first needed it, so
+ * there is one weekday-from-date implementation for everything to share.
+ */
+export const weekdayOf = (date: string): number => {
+  const [y, m, d] = date.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+};
+
+/**
+ * Day of week in the league zone, as `day_of_week` stores it, or -1 when there
+ * is no usable date — which matches no row, so no defaults apply.
+ *
+ * Goes through the league-local calendar date rather than reading the timestamp
+ * directly, so a late-evening game reports the day it was played on rather than
+ * the UTC day it spilled into.
+ */
+export function leagueWeekday(iso: string | null): number {
+  if (!iso) return -1;
+  // Degrades rather than raising: this runs on the live scoring page, where
+  // losing the goalie defaults beats losing the page. Unreachable from a
+  // timestamptz column, which is the only thing that feeds it today.
+  if (Number.isNaN(Date.parse(iso))) return -1;
+  return weekdayOf(leagueDateKey(iso));
+}
+
 export function formatGameDate(iso: string | null): string {
   if (!iso) return "TBD";
   return new Date(iso).toLocaleDateString("en-US", {

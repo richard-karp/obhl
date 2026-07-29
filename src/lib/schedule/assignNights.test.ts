@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { roundRobin, buildBalancedPairings } from "./roundRobin";
-import { assignNights, weekdayOf, type Night } from "./assignNights";
+import { assignNights, type Night } from "./assignNights";
+import { weekdayOf } from "@/lib/format";
 import { enumerateNights } from "./capacity";
 
 const teams = (n: number) => Array.from({ length: n }, (_, i) => `t${i + 1}`);

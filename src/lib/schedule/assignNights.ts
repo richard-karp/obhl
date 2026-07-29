@@ -1,4 +1,5 @@
 import type { Pairing } from "./roundRobin";
+import { weekdayOf } from "@/lib/format";
 import {
   buildNightMeta,
   teamSpacingCost,
@@ -70,11 +71,6 @@ export type BalanceReport = {
 const matchupKey = (a: string, b: string) => [a, b].sort().join("|");
 
 const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-/** UTC-stable day-of-week (0=Sun) from a "YYYY-MM-DD..." string. */
-export const weekdayOf = (date: string): number => {
-  const [y, m, d] = date.slice(0, 10).split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-};
 
 // Weekday-balance weight in the unified optimizer — priority #1 is never traded
 // for spacing. Invariant: it must exceed the largest spacing-penalty swing a
