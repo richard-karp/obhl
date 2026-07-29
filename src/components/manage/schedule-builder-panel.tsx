@@ -2,7 +2,7 @@ import Link from "next/link";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { publishSchedule, discardSchedule } from "@/lib/actions/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
-import { weekdayOf } from "@/lib/schedule/assignNights";
+import { weekdayOf } from "@/lib/format";
 import { spacingReport, type PlacedGame } from "@/lib/schedule/spacing";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {

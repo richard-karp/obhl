@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildBalancedPairings } from "./roundRobin";
-import { assignNights, weekdayOf, type Night } from "./assignNights";
+import { assignNights, type Night } from "./assignNights";
+import { weekdayOf } from "@/lib/format";
 import {
   planOneOff,
   checkOneOffWrite,

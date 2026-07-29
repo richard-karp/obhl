@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { leagueWeekday } from "./format";
+import { leagueWeekday, weekdayOf } from "./format";
 
 // 0 = Sunday, matching Date#getDay and the day_of_week column.
 const MON = 1;
@@ -25,5 +25,25 @@ describe("leagueWeekday", () => {
   it("returns -1 for an undated game", () => {
     // -1 matches no day_of_week row, so an undated game gets no defaults.
     expect(leagueWeekday(null)).toBe(-1);
+  });
+
+  it("returns -1 rather than raising on an unparseable timestamp", () => {
+    // Unreachable from a timestamptz column, but this runs on the live scoring
+    // page: losing the goalie defaults beats losing the page mid-game.
+    expect(leagueWeekday("not a date")).toBe(-1);
+  });
+});
+
+describe("weekdayOf", () => {
+  // Moved here from schedule/assignNights so there's one weekday-from-date
+  // implementation. It reads a plain calendar date, with no timezone involved.
+  it("reads the weekday of a calendar date", () => {
+    expect(weekdayOf("2026-09-14")).toBe(1); // Monday
+    expect(weekdayOf("2026-09-13")).toBe(0); // Sunday
+    expect(weekdayOf("2026-09-19")).toBe(6); // Saturday
+  });
+
+  it("ignores anything after the date", () => {
+    expect(weekdayOf("2026-09-14T23:59:00Z")).toBe(1);
   });
 });
