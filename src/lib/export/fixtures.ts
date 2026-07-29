@@ -3,15 +3,20 @@ import type { GameWithTeams } from "@/lib/queries/schedule";
 /**
  * Statuses withheld from every schedule export.
  *
- * Cancelling or postponing a game changes only its status — `scheduled_at` keeps
- * pointing at the original date (`src/lib/actions/games.ts`). An export that
- * still listed one would assert the game happens on a date it does not.
+ * Only `cancelled`, because cancelling a game changes its status but leaves
+ * `scheduled_at` pointing at the original date — an export listing it would
+ * assert the game happens on a date it does not.
+ *
+ * `postponed` is deliberately absent. Postponing clears the date
+ * (`postpone_game`), so a postponed game is no longer claiming a date it isn't
+ * being played on: the CSV shows it honestly with empty date and time cells, and
+ * `buildIcs` drops it as it drops any undated game. No special rule needed.
  *
  * The rule lives here rather than in `getSchedule` because the schedule page
  * needs these games: it has a status badge to tell the truth with, and an export
  * file does not.
  */
-const WITHHELD = new Set<GameWithTeams["status"]>(["cancelled", "postponed"]);
+const WITHHELD = new Set<GameWithTeams["status"]>(["cancelled"]);
 
 /**
  * Whether a game's status makes it safe to publish in a schedule export.

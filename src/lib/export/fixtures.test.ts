@@ -6,8 +6,10 @@ type Status = GameWithTeams["status"];
 
 // Typed rather than bare strings, so a status renamed in the enum breaks this
 // test at compile time instead of quietly testing a value that no longer exists.
-const EXPORTED: Status[] = ["scheduled", "in_progress", "final"];
-const WITHHELD: Status[] = ["cancelled", "postponed"];
+// Postponed is exportable because postponing clears the date, so the game no
+// longer claims a slot it isn't being played in — it exports as undated.
+const EXPORTED: Status[] = ["scheduled", "in_progress", "final", "postponed"];
+const WITHHELD: Status[] = ["cancelled"];
 
 describe("isExportableFixture", () => {
   // These occupy or occupied their slot, so their date is true.
