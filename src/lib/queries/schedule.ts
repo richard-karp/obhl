@@ -69,7 +69,6 @@ export async function getSchedule(
  * Deliberately not season-scoped: a subscription is a standing thing, and
  * narrowing it to the active season would delete past games out of calendars
  * that already hold them.
- *
  */
 export async function getTeamFeedGames(
   teamId: string,
