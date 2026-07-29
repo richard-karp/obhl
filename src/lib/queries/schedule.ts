@@ -3,6 +3,12 @@ import { leagueDateKey } from "@/lib/format";
 import { isUuid } from "@/lib/db/uuid";
 import type { DbClient } from "@/lib/db/helpers";
 
+// Every helper here that filters by team interpolates the id into a PostgREST
+// `.or()` string, which is not parameterised the way `.eq()` is. Each one
+// therefore checks the id itself and returns nothing if it isn't a UUID, rather
+// than trusting its caller — a rule that only holds if it holds uniformly, since
+// one guarded helper among several reads as though the others were judged safe.
+
 // Shared select for a game with both teams embedded (disambiguated by FK).
 const GAME_SELECT = `
   id, scheduled_at, status, week, round, home_goals, away_goals, result_type, is_draft, label,
@@ -46,6 +52,7 @@ export async function getSchedule(
     .eq("is_draft", false)
     .order("scheduled_at", { ascending: true });
   if (teamId) {
+    if (!isUuid(teamId)) return [];
     q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
   }
   const { data, error } = await q;
@@ -60,9 +67,6 @@ export async function getSchedule(
  * narrowing it to the active season would delete past games out of calendars
  * that already hold them.
  *
- * `teamId` goes into a PostgREST `.or()` filter unescaped, so it is checked here
- * rather than trusted from the caller — the interpolation and its guard should
- * not be able to drift into different files.
  */
 export async function getTeamFeedGames(
   teamId: string,
@@ -96,7 +100,10 @@ export async function getUpcoming(
     .gte("scheduled_at", new Date().toISOString())
     .order("scheduled_at", { ascending: true })
     .limit(limit);
-  if (teamId) q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
+  if (teamId) {
+    if (!isUuid(teamId)) return [];
+    q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
+  }
   const { data, error } = await q;
   if (error) console.error("schedule query failed:", error.message);
   return (data ?? []) as unknown as GameWithTeams[];
@@ -188,7 +195,10 @@ export async function getRecentResults(
     .eq("status", "final")
     .order("scheduled_at", { ascending: false })
     .limit(limit);
-  if (teamId) q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
+  if (teamId) {
+    if (!isUuid(teamId)) return [];
+    q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
+  }
   const { data, error } = await q;
   if (error) console.error("schedule query failed:", error.message);
   return (data ?? []) as unknown as GameWithTeams[];

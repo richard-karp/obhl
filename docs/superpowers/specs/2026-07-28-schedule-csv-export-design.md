@@ -286,6 +286,23 @@ existing behaviour exactly.
 The season `.ics` also gained the UUID guard it never had, matching the other
 two. A malformed id now returns 404 instead of an empty calendar.
 
+### One UUID check
+
+`isUuid` in `src/lib/db/uuid.ts` replaces what had become three copies of the
+same regex across the route handlers.
+
+It is also applied inside `src/lib/queries/schedule.ts` itself, by every helper
+that filters on a team. Those build a PostgREST `.or()` string by interpolation,
+which — unlike `.eq()` — is not parameterised, so the id is checked where it is
+used rather than trusted from whatever page called in. Applied to all four
+helpers rather than only the new one: a rule like this only holds if it holds
+uniformly, and one guarded helper among four reads as though the rest had been
+judged safe.
+
+Not exploitable through any current caller — every one passes an id that came
+out of the database — so this is about not leaving a trap, rather than closing
+a hole.
+
 ### Withheld statuses, in one place
 
 `isExportableFixture(status)` in `src/lib/export/fixtures.ts` is now the single
