@@ -203,6 +203,25 @@ export async function generateSchedule(formData: FormData) {
 export type PublishState = { ok: boolean; message: string } | null;
 
 /**
+ * Every path whose view of a season's games a publish or replace can change.
+ *
+ * Refusals revalidate too. A refusal *means* this tab is stale — the season
+ * started, or the draft was discarded in another tab — so returning the message
+ * without this leaves the manager looking at the draft that no longer exists,
+ * under a button that will fail the same way again.
+ */
+function revalidateAfterPublish(seasonId: string) {
+  revalidatePath("/schedule-builder");
+  revalidatePath(`/seasons/${seasonId}`);
+  revalidatePath("/schedule");
+  // The scoring list reads through getSchedule, so a replace changes which games
+  // it shows. The old publishSchedule didn't revalidate it either — that gap was
+  // invisible while publishing only ever added games.
+  revalidatePath("/score");
+  revalidatePath("/");
+}
+
+/**
  * Publish the draft schedule, replacing whatever is already live.
  *
  * The delete and the promotion happen inside `replace_published_schedule` so
@@ -232,12 +251,14 @@ export async function publishSchedule(
   if (!row) return { ok: false, message: "Nothing happened — try again." };
 
   if (row.refused === "started") {
+    revalidateAfterPublish(seasonId);
     return {
       ok: false,
       message: "The season is under way — the schedule can no longer be replaced.",
     };
   }
   if (row.refused === "no_draft") {
+    revalidateAfterPublish(seasonId);
     return { ok: false, message: "There's no draft to publish." };
   }
 
@@ -255,14 +276,7 @@ export async function publishSchedule(
     });
   }
 
-  revalidatePath("/schedule-builder");
-  revalidatePath(`/seasons/${seasonId}`);
-  revalidatePath("/schedule");
-  // The scoring list reads through getSchedule, so a replace changes which games
-  // it shows. The old publishSchedule didn't revalidate it either — that gap was
-  // invisible while publishing only ever added games.
-  revalidatePath("/score");
-  revalidatePath("/");
+  revalidateAfterPublish(seasonId);
 
   return {
     ok: true,
