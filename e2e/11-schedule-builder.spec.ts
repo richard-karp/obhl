@@ -193,5 +193,50 @@ test.describe("Path 17 — Schedule Builder", () => {
     await expect(
       page.getByRole("button", { name: "Generate schedule" }),
     ).toHaveCount(0);
+    // Removal is gated behind the same mode, so it must be absent here too.
+    await expect(
+      page.getByRole("button", { name: "Remove published schedule" }),
+    ).toHaveCount(0);
+  });
+
+  test("removing a published schedule leaves the season with no games", async ({
+    page,
+  }) => {
+    // Order-independent on purpose. Playwright runs this file with workers: 1,
+    // so the republish test above normally leaves Fall 2026 already published
+    // and this branch does not run — but the test then still works under `-g`
+    // in isolation, or if the tests above are reordered.
+    const removeButton = page.getByRole("button", {
+      name: "Remove published schedule",
+    });
+    if ((await removeButton.count()) === 0) {
+      await page.getByLabel("First game night").fill("2026-09-15");
+      await page.getByLabel("Games per team").fill("4");
+      await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
+      await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
+      await page.getByRole("button", { name: "Generate schedule" }).click();
+      await page.getByRole("button", { name: /Publish \d+ games/ }).click();
+    }
+
+    await expect(removeButton).toBeVisible();
+
+    await removeButton.click();
+    await expect(page.getByText("Remove the published schedule?")).toBeVisible();
+    // Asserted by shape. The dialog deliberately carries no game count — a
+    // pre-start removal destroys nothing that can't be regenerated — so there
+    // is no number here to pin the test to.
+    await expect(
+      page.getByText(/The season will have no games until you generate/),
+    ).toBeVisible();
+    // `exact` matters: without it this also matches the "Remove published
+    // schedule" trigger behind the dialog.
+    await page.getByRole("button", { name: "Remove", exact: true }).click();
+
+    // Back to zero. All three assertions are needed: the count going away shows
+    // the games are gone, the control going away shows the mode moved, and the
+    // empty state shows the panel recovered rather than rendering nothing.
+    await expect(page.getByText(/Published: \d+ games/)).toHaveCount(0);
+    await expect(removeButton).toHaveCount(0);
+    await expect(page.getByText("No draft schedule")).toBeVisible();
   });
 });
