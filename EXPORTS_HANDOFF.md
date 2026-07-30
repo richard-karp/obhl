@@ -83,6 +83,29 @@ add a column, route it through `escapeField` too.
 that a programmatic parser sees it on the `Date` header. Audience is people
 opening a spreadsheet.
 
+**Publishing replaces; a started season refuses.** `publishSchedule` calls
+`replace_published_schedule`, which deletes the season's live games and promotes
+the drafts in one transaction. It refuses once `season_is_started` is true —
+defined as any published game having a past `scheduled_at`, a status other than
+`scheduled`, or a non-zero score.
+
+Protecting played games is a *consequence* of that gate, not a separate rule: a
+single played game flips the season to started and removes the delete path
+entirely, so no code walks a set of games deciding which to keep. Don't
+"improve" this by adding a partial replace that keeps played games and drops the
+rest — that reintroduces exactly the class of bug the gate was written to make
+unreachable, and it needs the generator seeded with games-played and home/away
+already accrued or the back half of the season won't balance against the front.
+
+`game_rosters` cascades on game delete, so a replace also discards lineups a
+captain set in advance. Reachable only before the season starts, and the confirm
+dialog says so.
+
+The builder renders five modes off `publishMode`. The `locked` mode must
+suppress the publish control inside the *draft* section too, not just the
+generate form — a started season can still hold a stale draft, and that section
+renders on draft count alone.
+
 ---
 
 ## 4. `postponed_from`, and the trap in it
@@ -159,6 +182,13 @@ and #6 merged into branches that were themselves already merged and then deleted
 GitHub reported them MERGED — correctly, just not into `main` — and the work sat
 only in local refs until it was found. Delete each branch as you merge it.
 
+**The e2e builder tests depend on a season that hasn't started.** The seeded
+active season (`Spring 2026`, May–Jun 2026) is in the past and reads as started,
+so it renders the locked panel. `Fall 2026` exists in `supabase/seed.sql` purely
+to give the generate/publish flow somewhere to run. If the builder tests start
+failing with "Generate schedule not found", check that season's games are still
+future-dated — anything that ages them past `now()` locks it.
+
 ---
 
 ## 7. Files
@@ -169,10 +199,13 @@ only in local refs until it was found. Delete each branch as you merge it.
 | `src/lib/export/ics.ts` + test | iCalendar builder; tests are characterisation, written before it moved |
 | `src/lib/export/fixtures.ts` + test | `isExportableFixture` |
 | `src/lib/schedule/nights.ts` + test | `groupIntoNights` — placement and locking |
+| `src/lib/schedule/publishMode.ts` + test | the builder's five modes |
 | `src/lib/queries/schedule.ts` | the single read path; every team filter guarded by `isUuid` |
 | `src/lib/db/uuid.ts` + test | `isUuid` |
 | `src/lib/format.ts` + test | league-zone dates, `leagueWeekday`, `weekdayOf` |
 | `src/app/api/schedule/**` | the three routes |
+| `src/components/manage/publish-controls.tsx` | publish / replace, and the confirm dialog |
 | `supabase/migrations/0025_postponed_from.sql` | column, backfill, both RPCs |
+| `supabase/migrations/0026_replace_published_schedule.sql` | `season_is_started`, `replace_published_schedule` |
 | `docs/superpowers/specs/2026-07-28-schedule-csv-export-design.md` | CSV + unification design |
 | `docs/superpowers/specs/2026-07-29-postponing-clears-the-date-design.md` | postponement design |
