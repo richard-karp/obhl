@@ -188,6 +188,12 @@ export type SchedulePublishState = {
    * advance — the confirm dialog names this when it is non-zero.
    */
   lineupsAtRisk: number;
+  /**
+   * True when one of the reads below failed and `started` was locked shut
+   * rather than answered. The counts in this object are then *unknown*, not
+   * zero — anything rendering them has to say so instead of stating them.
+   */
+  readFailed: boolean;
 };
 
 export async function getPublishState(
@@ -256,6 +262,11 @@ export async function getPublishState(
   // deletes data. So the builder reports "started" and offers no publish path at
   // all; nothing is destroyed, the RPC's own gate is unchanged, and the next
   // render with a working query unlocks it.
+  //
+  // `readFailed` travels with it because locking alone still leaves the counts
+  // reading as a confident zero. Without it the locked card stated "0 games are
+  // published" about a season that may hold hundreds — the same fabricated
+  // number, moved one screen over.
   const failure =
     live.error ??
     firstLive.error ??
@@ -275,5 +286,6 @@ export async function getPublishState(
     firstLiveDate: firstAt ? leagueDateKey(firstAt) : null,
     lastLiveDate: lastAt ? leagueDateKey(lastAt) : null,
     lineupsAtRisk: lineups.count ?? 0,
+    readFailed: !!failure,
   };
 }

@@ -39,7 +39,7 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
     .eq("id", seasonId)
     .maybeSingle();
 
-  const { data: drafts } = await admin
+  const { data: drafts, error: draftsError } = await admin
     .from("games")
     .select(
       `id, scheduled_at, round, home_team_id, away_team_id,
@@ -53,7 +53,23 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
   const enrolledTeams = await getEnrolledTeams(seasonId, { client: admin });
 
   const publish = await getPublishState(seasonId, { client: admin });
-  const mode = publishMode(publish);
+
+  // This panel's own draft read is part of the same fail-closed contract as
+  // getPublishState's six. It errors independently and PostgREST hands back
+  // null data with the error, which coerces to an empty list — indistinguishable
+  // from "this season has no draft", which is the answer that offers the manager
+  // a generate form and throws away a draft they can't see.
+  const readFailed = publish.readFailed || !!draftsError;
+  if (draftsError) console.error("draft read failed:", draftsError.message);
+
+  const mode = publishMode({ ...publish, started: publish.started || readFailed });
+
+  // One source for "is there a draft to act on": getPublishState's exact server
+  // count, not the length of the row list rendered below it. They are separate
+  // requests that can disagree, and only the count fails closed — deciding the
+  // section from the list meant a failed read rendered the section's header,
+  // its Discard button and a "0 games" summary over rows nobody had read.
+  const hasDraft = !readFailed && publish.draftCount > 0;
 
   // Group by night + build a balance report.
   const byDate = new Map<string, any[]>();
@@ -167,28 +183,46 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
       {mode === "locked" ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">The season is under way</CardTitle>
+            <CardTitle className="text-base">
+              {readFailed
+                ? "This season's games couldn't be read"
+                : "The season is under way"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="text-muted-foreground space-y-2 text-sm">
-            <p>
-              {publish.liveCount} games are published
-              {publish.firstLiveDate ? `, starting ${formatLongDate(publish.firstLiveDate)}` : ""}.
-              The full schedule can no longer be regenerated or replaced.
-            </p>
-            <p>
-              To change a single game, use Reschedule, Postpone or Cancel on that
-              game&apos;s score page.
-            </p>
-            <p>
-              To slot in a tournament final or semifinals,{" "}
-              <Link
-                href="/schedule-builder/one-off"
-                className="text-foreground font-medium underline"
-              >
-                schedule a one-off game
-              </Link>
-              .
-            </p>
+            {readFailed ? (
+              // Locked for a different reason, so it says a different thing. The
+              // counts are unknown here, not zero, and this card is the one place
+              // they were being stated as fact — "0 games are published" about a
+              // season that may hold hundreds, on a season that hasn't started.
+              <p>
+                Something went wrong reading this season&apos;s games, so the
+                builder is locked rather than acting on counts it doesn&apos;t
+                have. The schedule itself is untouched — reload to try again.
+              </p>
+            ) : (
+              <>
+                <p>
+                  {publish.liveCount} games are published
+                  {publish.firstLiveDate ? `, starting ${formatLongDate(publish.firstLiveDate)}` : ""}.
+                  The full schedule can no longer be regenerated or replaced.
+                </p>
+                <p>
+                  To change a single game, use Reschedule, Postpone or Cancel on
+                  that game&apos;s score page.
+                </p>
+                <p>
+                  To slot in a tournament final or semifinals,{" "}
+                  <Link
+                    href="/schedule-builder/one-off"
+                    className="text-foreground font-medium underline"
+                  >
+                    schedule a one-off game
+                  </Link>
+                  .
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -233,7 +267,7 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
         </>
       )}
 
-      {(drafts ?? []).length === 0 ? (
+      {!hasDraft ? (
         // Not on a locked season. This section keys off the draft count alone,
         // which is independent of `mode`, so a started season with no draft
         // rendered "Generate one above" directly beneath a locked card that has
