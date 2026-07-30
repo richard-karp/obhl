@@ -20,6 +20,7 @@ import { TeamLogo } from "@/components/shared/team-logo";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ScheduleGenerateForm } from "@/components/manage/schedule-generate-form";
 import { PublishControls } from "@/components/manage/publish-controls";
+import { RemoveControls } from "@/components/manage/remove-controls";
 import { formatLongDate, formatGameTime, leagueDateKey } from "@/lib/format";
 
 const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -278,10 +279,28 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
                 generate one would describe a step they have already taken.
               */}
               {mode === "published" ? (
-                <p>
-                  To change the schedule, generate a new one above — you&apos;ll
-                  be asked to confirm before it replaces this one.
-                </p>
+                <>
+                  <p>
+                    To change the schedule, generate a new one above — you&apos;ll
+                    be asked to confirm before it replaces this one.
+                  </p>
+                  {/*
+                    Published mode only, sharing the guidance's branch: both
+                    speak to a season holding a live schedule and no draft. In
+                    replace mode the manager already has a replacement, and the
+                    remove dialog's wording would be wrong there — see the
+                    component's own comment.
+
+                    Keyed on liveCount so the derived dialog-open state in
+                    RemoveControls stays correct by construction: a successful
+                    removal takes liveCount to 0, remounting under a fresh key.
+                  */}
+                  <RemoveControls
+                    key={publish.liveCount}
+                    seasonId={seasonId}
+                    lineupsAtRisk={publish.lineupsAtRisk}
+                  />
+                </>
               ) : null}
             </div>
           ) : null}
