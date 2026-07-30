@@ -17,6 +17,8 @@
 - The new function is revoked from `public, anon, authenticated` and granted to `service_role` only. The revoke is **required**, not redundant with omitting a grant: `CREATE FUNCTION` grants EXECUTE to `PUBLIC` by default.
 - `perform 1 from games where season_id = p_season and not is_draft for update;` sits **above** the `season_is_started` gate. Do not remove it as redundant. No test catches its removal.
 - `publishMode` gains no new state and `src/lib/schedule/publishMode.ts` is not modified.
+- Removal is offered in **`published` mode only**. Not in `replace`: `remove_published_schedule` touches only `not is_draft`, so a draft would survive it, and the dialog's "no games until you generate and publish a new one" would be false in front of a manager who already has a draft. Replace is the operation for that case.
+- The remove dialog states only what a pre-start removal actually costs. No games count and no calendar-feed line: removal is reachable only before the season starts, so nothing has been played and the games are regenerable from the form above. Lineups are the exception and the only genuinely unrecoverable loss.
 - `getPublishState` in `src/lib/queries/schedule.ts` is not modified.
 - Copy strings are used verbatim as written in the tasks below.
 - Commit message prefixes follow the repo: `feat:` / `fix:` / `test:` / `docs:`. End every commit message with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
@@ -32,7 +34,7 @@
 | `src/lib/db/types.ts` | **Regenerate.** Adds the RPC's signature. Never hand-edited. |
 | `src/lib/actions/schedule.ts` | **Modify.** Adds `RemoveState` and `removeSchedule`. Reuses the existing `revalidateAfterPublish`. |
 | `src/components/manage/remove-controls.tsx` | **Create.** The Remove button and its confirm dialog. |
-| `src/components/manage/schedule-builder-panel.tsx` | **Modify.** Published line renders in `replace` mode too; adds the guidance copy; mounts `RemoveControls`; hoists `liveRange`. |
+| `src/components/manage/schedule-builder-panel.tsx` | **Modify.** Published line renders in `replace` mode too; adds the guidance copy; mounts `RemoveControls` in `published` mode. |
 | `e2e/11-schedule-builder.spec.ts` | **Modify.** Two assertions on the existing republish test, one new removal test. |
 | `EXPORTS_HANDOFF.md` | **Modify.** §3 gains the removal paragraph; §6's stale deployment line is corrected; §7 gains two rows. |
 
@@ -48,7 +50,7 @@ Pure UI, no database. Ships value on its own — this is the half that made the 
 
 **Interfaces:**
 - Consumes: `publishMode` (unchanged), `publish.liveCount`, `publish.firstLiveDate`, `publish.lastLiveDate` — all already present.
-- Produces: the published-count block now renders in both `published` and `replace` mode. Task 4 mounts `RemoveControls` inside this same block.
+- Produces: the published-count block, which renders in both `published` and `replace` mode, and inside it a `published`-only branch holding the guidance paragraph. Task 4 mounts `RemoveControls` into that inner branch, not the outer block.
 
 - [ ] **Step 1: Write the failing assertions**
 
@@ -118,8 +120,9 @@ with:
             Rendered in replace mode too, not just published. A manager about to
             replace a schedule needs the schedule they are replacing on the page;
             suppressing it here left the button label as the only evidence it
-            existed. Task 4 mounts the Remove control in this same block, which
-            is why it is a div rather than a bare paragraph.
+            existed. A container rather than a bare paragraph because this block
+            holds everything about the live schedule — the count, the guidance,
+            and the control that removes it.
           */}
           {mode === "published" || mode === "replace" ? (
             <div className="text-muted-foreground space-y-2 text-sm">
@@ -341,9 +344,19 @@ select id, status, home_goals from games
 
 Without the `for update` line, session B returns immediately with `deleted = 1, refused = null` and the finalized game is gone. That difference is the entire purpose of the line.
 
-Finish with `npm run db:reset` to clear the hand-inserted row.
+- [ ] **Step 5: Reset the fixture**
 
-- [ ] **Step 5: Commit**
+Not optional and not cosmetic. Step 4 inserted a live game into `Fall 2026` — the same season Task 5's e2e drives. Left in place it shifts every count that test asserts, and the failure will present as a bug in the feature rather than as leftover state.
+
+```bash
+npm run db:reset
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -c \
+  "select count(*) from games where season_id = (select id from seasons where name = 'Fall 2026');"
+```
+
+Expected: `0`.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 npx tsc --noEmit && npm run lint
@@ -481,7 +494,7 @@ EOF
 
 **Interfaces:**
 - Consumes: `removeSchedule` and `RemoveState` from Task 3; the published-count block from Task 1.
-- Produces: `RemoveControls({ seasonId, liveCount, liveRange, lineupsAtRisk })`. Task 5's e2e drives it by the button name `"Remove published schedule"` and the dialog confirm button named exactly `"Remove"`.
+- Produces: `RemoveControls({ seasonId, lineupsAtRisk })`. Task 5's e2e drives it by the button name `"Remove published schedule"` and the dialog confirm button named exactly `"Remove"`.
 
 - [ ] **Step 1: Create the component**
 
@@ -511,25 +524,25 @@ import {
  * and this action publishes nothing. One component answering two unrelated
  * questions is how that fork got hard to read in the first place.
  *
- * The panel renders this only in "published" and "replace" mode, both of which
- * mean live games exist and the season has not started. The button is `outline`
- * rather than `destructive` on purpose — in replace mode it sits beside the
- * destructive Replace button, and removal is the rarer action of the two. The
- * dialog's confirm carries the destructive styling.
+ * The panel renders this only in "published" mode — live games, no draft, season
+ * not started. Deliberately not in "replace": the RPC touches only
+ * `not is_draft`, so a draft survives a removal, and the dialog below would be
+ * telling a manager who already has one that the season has no games until they
+ * generate another. Replace is the operation for that case.
+ *
+ * The dialog is short on purpose. Removal is reachable only before the season
+ * starts, so no game has been played, no result exists, and the games are
+ * regenerable from the form above — a games count and a calendar-feed warning
+ * would be borrowed ceremony describing a cost that isn't paid. Lineups are the
+ * exception: `game_rosters` cascades on game delete, and a captain's lineup does
+ * not come back when the schedule is regenerated. That is the one line worth a
+ * manager's attention, so it is the only detail here.
  */
 export function RemoveControls({
   seasonId,
-  liveCount,
-  liveRange,
   lineupsAtRisk,
 }: {
   seasonId: string;
-  liveCount: number;
-  /**
-   * The live schedule's date range, already formatted by the server panel with
-   * `formatLongDate`. Null when no live game carries a date.
-   */
-  liveRange: string | null;
   lineupsAtRisk: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -553,8 +566,6 @@ export function RemoveControls({
   // comment on `dialogOpen` in publish-controls.tsx before changing either.
   const dialogOpen = open && !state?.ok;
 
-  const range = liveRange ? ` (${liveRange})` : "";
-
   return (
     <>
       <Button variant="outline" onClick={() => setOpen(true)}>
@@ -567,14 +578,13 @@ export function RemoveControls({
             <DialogDescription asChild>
               <div className="space-y-2">
                 <p>
-                  This deletes {liveCount} live games{range} and leaves the
-                  season with no schedule.
+                  The season will have no games until you generate and publish a
+                  new one.
                 </p>
-                <p>Team calendar feeds will empty.</p>
                 {lineupsAtRisk > 0 ? (
                   <p>
-                    {lineupsAtRisk} lineup entries already set for those games
-                    will be deleted with them.
+                    {lineupsAtRisk} lineup entries captains have already set will
+                    be deleted. The games can be regenerated; those cannot.
                   </p>
                 ) : null}
               </div>
@@ -598,27 +608,7 @@ export function RemoveControls({
 }
 ```
 
-- [ ] **Step 2: Hoist `liveRange` in the panel**
-
-`PublishControls` already formats this inline. Both consumers need the same string, so compute it once. In `src/components/manage/schedule-builder-panel.tsx`, add after the `hasDraft` declaration:
-
-```tsx
-  // Formatted here, not in either dialog. The confirm dialogs are where a
-  // manager checks *which* schedule is about to be destroyed, and they must not
-  // be the one place in the app showing raw ISO dates.
-  const liveRange =
-    publish.firstLiveDate && publish.lastLiveDate
-      ? `${formatLongDate(publish.firstLiveDate)} – ${formatLongDate(publish.lastLiveDate)}`
-      : null;
-```
-
-Then in the existing `<PublishControls ... />` call, replace the whole `liveRange={...}` prop expression (the ternary and its comment block) with:
-
-```tsx
-                liveRange={liveRange}
-```
-
-- [ ] **Step 3: Mount `RemoveControls`**
+- [ ] **Step 2: Mount `RemoveControls`**
 
 Add the import beside the existing `PublishControls` import:
 
@@ -626,25 +616,47 @@ Add the import beside the existing `PublishControls` import:
 import { RemoveControls } from "@/components/manage/remove-controls";
 ```
 
-Then, inside the block Task 1 created, after the guidance paragraph and still inside the `<div className="text-muted-foreground space-y-2 text-sm">`:
+Then, inside the block Task 1 created, still inside the `<div className="text-muted-foreground space-y-2 text-sm">`, fold the control into the **same** `published`-only branch that holds the guidance paragraph. Replace this, from Task 1:
 
 ```tsx
-              {/*
-                Keyed on liveCount so the derived dialog-open state in
-                RemoveControls stays correct by construction: a successful
-                removal takes liveCount to 0, remounting under a fresh key. See
-                the comment on `dialogOpen` there.
-              */}
-              <RemoveControls
-                key={publish.liveCount}
-                seasonId={seasonId}
-                liveCount={publish.liveCount}
-                liveRange={liveRange}
-                lineupsAtRisk={publish.lineupsAtRisk}
-              />
+              {mode === "published" ? (
+                <p>
+                  To change the schedule, generate a new one above — you&apos;ll
+                  be asked to confirm before it replaces this one.
+                </p>
+              ) : null}
 ```
 
-- [ ] **Step 4: Verify it renders and nothing regressed**
+with:
+
+```tsx
+              {mode === "published" ? (
+                <>
+                  <p>
+                    To change the schedule, generate a new one above — you&apos;ll
+                    be asked to confirm before it replaces this one.
+                  </p>
+                  {/*
+                    Published mode only, sharing the guidance's branch: both
+                    speak to a season holding a live schedule and no draft. In
+                    replace mode the manager already has a replacement, and the
+                    remove dialog's wording would be wrong there — see the
+                    component's own comment.
+
+                    Keyed on liveCount so the derived dialog-open state in
+                    RemoveControls stays correct by construction: a successful
+                    removal takes liveCount to 0, remounting under a fresh key.
+                  */}
+                  <RemoveControls
+                    key={publish.liveCount}
+                    seasonId={seasonId}
+                    lineupsAtRisk={publish.lineupsAtRisk}
+                  />
+                </>
+              ) : null}
+```
+
+- [ ] **Step 3: Verify it renders and nothing regressed**
 
 ```bash
 npx tsc --noEmit && npm run lint && npm run test
@@ -653,7 +665,7 @@ npx playwright test e2e/11-schedule-builder.spec.ts
 
 Expected: all clean, 10/10 e2e in the file. The removal path itself is not yet covered — Task 5 adds that.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add src/components/manage/remove-controls.tsx src/components/manage/schedule-builder-panel.tsx
@@ -661,13 +673,13 @@ git commit -F - <<'EOF'
 feat: let a manager remove a published schedule
 
 A season whose published schedule was wrong could be overwritten but never
-emptied. The Remove control sits beside the published count in both the
-published and replace states, behind a confirm dialog naming the game count,
-the date range and the lineups that cascade with the games.
+emptied. The Remove control sits beside the published count, in the published
+state only — replace already has a replacement, and a draft survives the RPC.
 
-Its own component rather than a third branch in PublishControls, which
-already forks on `destructive` between two quite different renders and does
-not publish nothing.
+The dialog says only what a pre-start removal costs. Nothing has been played
+and the games regenerate from the form above, so a count and a calendar
+warning would be ceremony; captains' lineups cascade and do not come back,
+so that is the line the dialog carries.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
@@ -709,13 +721,15 @@ Add as the last test inside the `test.describe("Path 17 — Schedule Builder", .
     }
 
     await expect(removeButton).toBeVisible();
-    const countText = await page.getByText(/Published: \d+ games/).textContent();
-    const published = Number(countText!.match(/\d+/)![0]);
-    expect(published).toBeGreaterThan(0);
 
     await removeButton.click();
     await expect(page.getByText("Remove the published schedule?")).toBeVisible();
-    await expect(page.getByText(`This deletes ${published} live games`)).toBeVisible();
+    // Asserted by shape. The dialog deliberately carries no game count — a
+    // pre-start removal destroys nothing that can't be regenerated — so there
+    // is no number here to pin the test to.
+    await expect(
+      page.getByText(/The season will have no games until you generate/),
+    ).toBeVisible();
     // `exact` matters: without it this also matches the "Remove published
     // schedule" trigger behind the dialog.
     await page.getByRole("button", { name: "Remove", exact: true }).click();
@@ -740,7 +754,15 @@ Expected: PASS, 11/11 in the file.
 
 - [ ] **Step 3: Verify the test discriminates**
 
-A test that passes whether or not the feature works is worse than no test. Temporarily comment out the `delete from games ...` line in `supabase/migrations/0027_remove_published_schedule.sql`, then:
+A test that passes whether or not the feature works is worse than no test. Temporarily append `and false` to the delete's WHERE clause in `supabase/migrations/0027_remove_published_schedule.sql`, so it reads:
+
+```sql
+  delete from games where season_id = p_season and not is_draft and false;
+```
+
+Mutate it this way rather than commenting the statement out: `get diagnostics v_deleted = row_count` on the next line reads the row count of whatever DML ran last, so deleting the statement entirely leaves that reading a non-DML result and the function's behaviour becomes murky rather than wrong-in-a-known-way. With `and false` the delete still runs, matches nothing, and the RPC returns a clean `deleted = 0, refused = null` — the exact shape a silently broken delete would produce.
+
+Then:
 
 ```bash
 npm run db:reset
@@ -749,7 +771,7 @@ npx playwright test e2e/11-schedule-builder.spec.ts -g "removing a published sch
 
 Expected: **FAIL** — `Published: N games` is still on the page after the removal, so the `toHaveCount(0)` assertion fails.
 
-Restore the line, `npm run db:reset`, and confirm it passes again.
+Remove the `and false`, `npm run db:reset`, and confirm it passes again. Verify with `git diff supabase/migrations/0027_remove_published_schedule.sql` that the file is back to its committed state before moving on — a stray `and false` left in a migration would ship a remove button that removes nothing.
 
 - [ ] **Step 4: Run the full suite and commit**
 
@@ -867,11 +889,18 @@ EOF
 
 ## Self-Review
 
-**Spec coverage.** Every section maps to a task: §1 gate → Task 2; §2 RPC → Task 2; §3 actions, and `getPublishState` untouched → Task 3; §4 UI, separate component, the `key`, `liveRange` formatting, discoverability copy → Tasks 1 and 4; §5 unbuilt bulk cancel → Task 6 Step 1 (recorded, not built); §6 verification → Task 2 Steps 3-4 and Task 5; §7 deployment → Task 6 Step 2. No gaps.
+**Spec coverage.** Every section maps to a task: §1 gate → Task 2; §2 RPC → Task 2; §3 actions, and `getPublishState` untouched → Task 3; §4 UI, separate component, the `key`, discoverability copy → Tasks 1 and 4; §5 unbuilt bulk cancel → Task 6 Step 1 (recorded, not built); §6 verification → Task 2 Steps 3-4 and Task 5; §7 deployment → Task 6 Step 2. No gaps.
+
+**Two deliberate departures from the spec**, both decided during plan refinement and both narrowing it:
+
+- **Spec §4 offers removal in `published` and `replace`; this plan offers it in `published` only.** The RPC touches only `not is_draft`, so a draft survives a removal — the spec's own dialog copy ("leaves the season with no schedule") would have been false in replace mode. It also matches §3's justification, that removal exists "for the case where there is nothing to put in the old schedule's place." A manager holding a draft who wants an empty season has Discard draft → Remove.
+- **The dialog is shorter than spec §4's draft.** No games count, no calendar-feed line. Removal is gated to before the season starts, so nothing has been played and the games regenerate from the form directly above. Only the cascading lineups survive as a real cost, and they now lead the dialog instead of trailing it.
 
 **Placeholders.** None. Every code step carries the literal code; every verification step carries the command and its expected output.
 
-**Type consistency.** `RemoveState` is defined in Task 3 and consumed by name in Task 4. `removeSchedule`'s signature `(prev: RemoveState, formData: FormData) => Promise<RemoveState>` matches `useActionState<RemoveState, FormData>`. The RPC name `remove_published_schedule` and its `deleted` / `refused` fields are identical in Tasks 2, 3 and 5. `RemoveControls`' four props are declared in Task 4 Step 1 and passed in Task 4 Step 3 with the same names. `liveRange` is `string | null` in both the panel and the component.
+**Type consistency.** `RemoveState` is defined in Task 3 and consumed by name in Task 4. `removeSchedule`'s signature `(prev: RemoveState, formData: FormData) => Promise<RemoveState>` matches `useActionState<RemoveState, FormData>`. The RPC name `remove_published_schedule` and its `deleted` / `refused` fields are identical in Tasks 2 and 3. `RemoveControls`' two props — `seasonId: string`, `lineupsAtRisk: number` — are declared in Task 4 Step 1 and passed in Task 4 Step 2 with the same names.
+
+**Checked against the live schema while refining**, so the implementer does not discover these mid-task: `games` has exactly three NOT NULL columns without defaults (`season_id`, `home_team_id`, `away_team_id`), all supplied by Task 2 Step 4's insert, which also satisfies `games_distinct_teams`; and `audit_log.action` is free `text` with no check constraint, so `remove_schedule` needs no migration of its own.
 
 **Two things worth a reviewer's attention.**
 
