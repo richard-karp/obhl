@@ -115,4 +115,54 @@ test.describe("Path 17 — Schedule Builder", () => {
     await page.getByRole("button", { name: "Discard draft" }).click();
     await expect(page.getByText("No draft schedule")).toBeVisible();
   });
+
+  test("republishing replaces the schedule instead of stacking a second one", async ({
+    page,
+  }) => {
+    // The reported bug: generate + publish twice left the season holding two
+    // complete overlapping schedules, both live in the exports and standings.
+    const generate = async () => {
+      await page.getByLabel("First game night").fill("2026-09-15");
+      await page.getByLabel("Games per team").fill("4");
+      await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
+      await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
+      await page.getByRole("button", { name: "Generate schedule" }).click();
+    };
+
+    await generate();
+    const publishButton = page.getByRole("button", { name: /Publish \d+ games/ });
+    await expect(publishButton).toBeVisible();
+    const published = Number((await publishButton.textContent())!.match(/\d+/)![0]);
+    await publishButton.click();
+
+    // Rendered state, not the toast — the toast auto-dismisses.
+    await expect(page.getByText(`Published: ${published} games`)).toBeVisible();
+
+    // Second pass — the button must offer a replace, not another publish.
+    await generate();
+    await expect(
+      page.getByRole("button", { name: "Replace published schedule" }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: /Publish \d+ games/ })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Replace published schedule" }).click();
+    await expect(page.getByText("Replace the published schedule?")).toBeVisible();
+    await expect(page.getByText(`This deletes ${published} live games`)).toBeVisible();
+    await page.getByRole("button", { name: "Replace", exact: true }).click();
+
+    // One schedule's worth, not two. The draft is consumed, so the page falls
+    // back to "published" mode with the same count it had before.
+    await expect(page.getByText(`Published: ${published} games`)).toBeVisible();
+    await expect(page.getByText("No draft schedule")).toBeVisible();
+  });
+
+  test("a started season locks the builder", async ({ page }) => {
+    // The active Spring 2026 season is in the past, so it has started.
+    await page.goto("/schedule-builder");
+    await expect(page.getByText("The season is under way")).toBeVisible();
+    await expect(page.getByText("Generate a balanced schedule")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Generate schedule" }),
+    ).toHaveCount(0);
+  });
 });
