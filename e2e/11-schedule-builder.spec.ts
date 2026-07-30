@@ -141,12 +141,25 @@ test.describe("Path 17 — Schedule Builder", () => {
     // Rendered state, not the toast — the toast auto-dismisses.
     await expect(page.getByText(`Published: ${published} games`)).toBeVisible();
 
+    // The published state has to say how to change the schedule. Without this
+    // line the page is a count plus an empty state that says "Generate one
+    // above to preview it here before publishing" — neither of which tells a
+    // manager that generating a draft is the precondition for replacing.
+    await expect(
+      page.getByText(/To change the schedule, generate a new one above/),
+    ).toBeVisible();
+
     // Second pass — the button must offer a replace, not another publish.
     await generate();
     await expect(
       page.getByRole("button", { name: "Replace published schedule" }),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: /Publish \d+ games/ })).toHaveCount(0);
+
+    // The live schedule stays visible in replace mode. It used to be suppressed
+    // here, leaving the button label as the only evidence on the page that a
+    // published schedule existed at all — on the screen that deletes it.
+    await expect(page.getByText(`Published: ${published} games`)).toBeVisible();
 
     await page.getByRole("button", { name: "Replace published schedule" }).click();
     await expect(page.getByText("Replace the published schedule?")).toBeVisible();

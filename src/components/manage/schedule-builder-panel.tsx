@@ -254,15 +254,36 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
             .
           </p>
 
-          {mode === "published" ? (
-            <p className="text-muted-foreground text-sm">
-              <span className="text-foreground font-medium">
-                Published: {publish.liveCount} games
-              </span>
-              {publish.firstLiveDate && publish.lastLiveDate
-                ? ` · ${formatLongDate(publish.firstLiveDate)} → ${formatLongDate(publish.lastLiveDate)}`
-                : ""}
-            </p>
+          {/*
+            Rendered in replace mode too, not just published. A manager about to
+            replace a schedule needs the schedule they are replacing on the page;
+            suppressing it here left the button label as the only evidence it
+            existed. A container rather than a bare paragraph because this block
+            holds everything about the live schedule — the count, the guidance,
+            and the control that removes it.
+          */}
+          {mode === "published" || mode === "replace" ? (
+            <div className="text-muted-foreground space-y-2 text-sm">
+              <p>
+                <span className="text-foreground font-medium">
+                  Published: {publish.liveCount} games
+                </span>
+                {publish.firstLiveDate && publish.lastLiveDate
+                  ? ` · ${formatLongDate(publish.firstLiveDate)} → ${formatLongDate(publish.lastLiveDate)}`
+                  : ""}
+              </p>
+              {/*
+                Only in published mode. In replace mode a draft already exists
+                and the Replace button is on screen, so telling the manager to
+                generate one would describe a step they have already taken.
+              */}
+              {mode === "published" ? (
+                <p>
+                  To change the schedule, generate a new one above — you&apos;ll
+                  be asked to confirm before it replaces this one.
+                </p>
+              ) : null}
+            </div>
           ) : null}
         </>
       )}
