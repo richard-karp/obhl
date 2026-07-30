@@ -11,15 +11,37 @@ async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain
   await page.waitForURL("/dashboard");
 }
 
+/**
+ * The builder's generate/publish flow only exists on a season that hasn't
+ * started. The active season is in the past, so these tests drive Fall 2026
+ * through its setup page, which renders the same ScheduleBuilderPanel.
+ */
+async function goToFallSeasonSetup(page: Page) {
+  await page.goto("/seasons");
+  await page
+    .getByRole("row", { name: /Fall 2026/ })
+    .getByRole("link", { name: "Setup" })
+    .click();
+  await page.waitForURL(/\/seasons\//);
+}
+
+test("page loads with heading and active season description", async ({ page }) => {
+  await signedInAs(page, "Manager");
+  await page.goto("/schedule-builder");
+  await expect(page.getByText("Schedule Builder")).toBeVisible();
+  await expect(page.getByText(/active/)).toBeVisible();
+});
+
+test("scorekeeper cannot reach /schedule-builder", async ({ page }) => {
+  await signedInAs(page, "Scorekeeper");
+  await page.goto("/schedule-builder");
+  await expect(page).toHaveURL(/login|dashboard/);
+});
+
 test.describe("Path 17 — Schedule Builder", () => {
   test.beforeEach(async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/schedule-builder");
-  });
-
-  test("page loads with heading and active season description", async ({ page }) => {
-    await expect(page.getByText("Schedule Builder")).toBeVisible();
-    await expect(page.getByText(/active/)).toBeVisible();
+    await goToFallSeasonSetup(page);
   });
 
   test("generate form has the length toggle and core fields", async ({ page }) => {
@@ -76,8 +98,13 @@ test.describe("Path 17 — Schedule Builder", () => {
     await expect(page.getByText("Balance report")).toBeVisible();
     await expect(page.getByRole("button", { name: /Publish \d+ games/ })).toBeVisible();
 
-    // Every team's GP cell should read 4 (equal games per team).
-    const gpCells = page.locator("tbody tr td:nth-child(2)");
+    // Every team's GP cell should read 4 (equal games per team). Scoped to the
+    // Balance report card: the season setup page also has a team roster table
+    // above it, and an unscoped `tbody tr` selector would match both.
+    const balanceReportCard = page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: "Balance report" });
+    const gpCells = balanceReportCard.locator("tbody tr td:nth-child(2)");
     const count = await gpCells.count();
     expect(count).toBeGreaterThan(1);
     for (let i = 0; i < count; i++) {
@@ -87,11 +114,5 @@ test.describe("Path 17 — Schedule Builder", () => {
     // Clean up so later runs still see the empty-draft state.
     await page.getByRole("button", { name: "Discard draft" }).click();
     await expect(page.getByText("No draft schedule")).toBeVisible();
-  });
-
-  test("scorekeeper cannot reach /schedule-builder", async ({ page }) => {
-    await signedInAs(page, "Scorekeeper");
-    await page.goto("/schedule-builder");
-    await expect(page).toHaveURL(/login|dashboard/);
   });
 });

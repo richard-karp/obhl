@@ -167,6 +167,24 @@ begin
     end if;
   end loop;
 
+  -- A season that has not started: no games at all, so season_is_started() is
+  -- false and the schedule builder still offers to generate and publish. The
+  -- active Spring 2026 season is in the past and reads as started, so without
+  -- this there is no fixture on the un-started side of the rule.
+  declare
+    v_fall uuid;
+  begin
+    insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system)
+      values (v_league, 'Fall 2026', date '2026-09-15', date '2027-03-31', false,
+              '{"win":2,"tie":1,"loss":0}'::jsonb)
+      returning id into v_fall;
+
+    -- Same six teams, so the generator has something to work with.
+    for i in 1 .. array_length(v_team_ids, 1) loop
+      insert into season_teams (season_id, team_id) values (v_fall, v_team_ids[i]);
+    end loop;
+  end;
+
   -- Two Oceanview people we'll also roster in Harbor (shared identity demo):
   -- the Sharks captain (i=1, j=6 -> index 6) and a Sharks forward (index 7).
   cross_a := v_ocean_players[6];
