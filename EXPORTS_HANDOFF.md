@@ -97,6 +97,21 @@ rest — that reintroduces exactly the class of bug the gate was written to make
 unreachable, and it needs the generator seeded with games-played and home/away
 already accrued or the back half of the season won't balance against the front.
 
+That consequence holds only because of the `for update` line above the gate. The
+gate and the delete are separate statements, so under READ COMMITTED they see
+separate snapshots, and without those row locks a game finalized *between* them
+is deleted — the gate reads the pre-finalize snapshot, then the delete
+re-evaluates against the new row version and removes it. This was reproduced
+before the lock was added, and the lock is the only thing making the guarantee
+true rather than merely true-in-sequence. Don't drop it as redundant.
+
+The locks cover games that already exist. A played game *inserted* concurrently
+in the same window cannot be locked and would still be deleted. Nothing does
+that today — the esportsdesk import writes finals only into a season it creates
+itself, and the one-off planner only ever inserts future `scheduled` rows — so
+if you add a path that bulk-inserts played games into a live season, this is the
+assumption you are breaking.
+
 `game_rosters` cascades on game delete, so a replace also discards lineups a
 captain set in advance. Reachable only before the season starts, and the confirm
 dialog says so.
