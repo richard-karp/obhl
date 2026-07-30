@@ -116,6 +116,36 @@ assumption you are breaking.
 captain set in advance. Reachable only before the season starts, and the confirm
 dialog says so.
 
+**Removing is the same gate without the promotion.** `removeSchedule` calls
+`remove_published_schedule` (0027), which deletes the season's live games and
+leaves it empty — the case `replace_published_schedule` cannot serve, because it
+needs a draft standing ready. It carries 0026's advisory lock and its `for
+update` above the gate, and that line is needed here for exactly the same
+reason: the hazard is in the gate reading a stale snapshot, not in the promotion
+that follows it. Don't drop it on the grounds that this function promotes
+nothing. Verified by running the race both ways — with the lock the call blocks
+then refuses `started` and the finalized game survives; without it the same race
+returns a clean `deleted=1, refused=null` and the game is gone.
+
+Removal is offered in `published` mode only, not `replace`. The RPC filters
+`not is_draft`, so a draft survives a removal, and the dialog's "no games until
+you generate and publish a new one" would be false in front of a manager who
+already has one. If you add removal to replace mode, the copy has to branch.
+
+Its dialog is deliberately shorter than the replace dialog: no game count, no
+calendar-feed line. Removal is gated to before the season starts, so nothing has
+been played and the games regenerate from the form directly above — only the
+cascading lineups are a real loss, so they are the only thing it mentions.
+
+**Why there is no bulk cancel for a started season.** It was designed and
+deliberately not built; the spec
+(`docs/superpowers/specs/2026-07-30-remove-published-schedule-design.md` §5)
+carries the predicate and the reasoning. The short version: schedule work
+happens before a season begins, mid-season change is individual games and is
+itself rare, and the fallback is cancelling them from the score pages — already
+possible, already reversible. Leaving it unbuilt is what keeps the played-game
+guarantee above structural: nothing selects which live games to delete.
+
 The builder renders five modes off `publishMode`. The `locked` mode must
 suppress the publish control inside the *draft* section too, not just the
 generate form — a started season can still hold a stale draft, and that section
@@ -184,12 +214,17 @@ database.** A clean `db reset` has no postponed rows to convert. It was verified
 by shaping a row like production's, running the `update` verbatim, and rolling
 back. If you need to re-verify, that's the recipe.
 
-**Deployment state at time of writing.** `main` and the hosted database
-(`bipxqfszjwncjquymhon`) both have migration `0025`. Whether the Vercel app had
-picked up `main` was not confirmed — there is no CI workflow or `vercel.json` in
-the repo, so the deploy trigger is unknown. Schema-ahead-of-code is harmless in
-this direction (the column is simply unused), but postponement won't clear dates
-until the app is running `7275303` or later.
+**Deployment state.** The hosted database (`bipxqfszjwncjquymhon`) has `0026`;
+`main` does not yet have the code that calls it, and `0027` is not applied
+anywhere but local. There is no CI workflow or `vercel.json` in the repo, so the
+deploy trigger is unknown.
+
+Schema-ahead-of-code is the correct direction and is harmless — the functions
+are simply uncalled. The reverse is not. `getPublishState` fails closed on an
+RPC error, so code that ships ahead of its migration renders every season as
+"This season's games couldn't be read" and locks the builder for every manager.
+A PR preview did exactly that, which is how the rule got established: **apply
+migrations first, then merge.**
 
 **Stacked PRs need their base branch deleted at merge time.** #4/#5/#6 were a
 stack; merging #4 while its branch still existed left #5 pointing at it, so #5
@@ -220,7 +255,10 @@ future-dated — anything that ages them past `now()` locks it.
 | `src/lib/format.ts` + test | league-zone dates, `leagueWeekday`, `weekdayOf` |
 | `src/app/api/schedule/**` | the three routes |
 | `src/components/manage/publish-controls.tsx` | publish / replace, and the confirm dialog |
+| `src/components/manage/remove-controls.tsx` | remove, and its (deliberately shorter) confirm dialog |
 | `supabase/migrations/0025_postponed_from.sql` | column, backfill, both RPCs |
 | `supabase/migrations/0026_replace_published_schedule.sql` | `season_is_started`, `replace_published_schedule` |
+| `supabase/migrations/0027_remove_published_schedule.sql` | `remove_published_schedule` |
 | `docs/superpowers/specs/2026-07-28-schedule-csv-export-design.md` | CSV + unification design |
 | `docs/superpowers/specs/2026-07-29-postponing-clears-the-date-design.md` | postponement design |
+| `docs/superpowers/specs/2026-07-30-remove-published-schedule-design.md` | removal design; §5 is the unbuilt bulk cancel |
