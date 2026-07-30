@@ -294,13 +294,20 @@ Take that id, then confirm the two refusal paths and the delete:
 psql "$DB" -X -c "select * from remove_published_schedule('<fall-2026-id>');"
 # expect: deleted=0, refused=no_games
 
-# Spring 2026 is seeded in the past, so it has started -> started
-psql "$DB" -X -c "select * from remove_published_schedule((select id from seasons where name = 'Spring 2026'));"
-# expect: deleted=0, refused=started, and the season still has its games:
-psql "$DB" -X -c "select count(*) from games where season_id = (select id from seasons where name = 'Spring 2026') and not is_draft;"
+# The seed contains TWO seasons named 'Spring 2026' (starting 2026-05-12 and
+# 2026-05-13), so a `where name = 'Spring 2026'` subquery errors with "more than
+# one row returned". Drive both with a lateral instead.
+psql "$DB" -X -c "select s.name, s.starts_on, r.*
+  from seasons s cross join lateral remove_published_schedule(s.id) r
+ where s.name = 'Spring 2026' order by s.starts_on;"
+# expect: both rows deleted=0, refused=started
+
+psql "$DB" -X -c "select s.starts_on, count(*) filter (where not g.is_draft) as live_games
+  from seasons s join games g on g.season_id = s.id
+ where s.name = 'Spring 2026' group by s.starts_on order by s.starts_on;"
 ```
 
-Expected: `no_games` for Fall 2026, `started` for Spring 2026, and Spring 2026's game count unchanged.
+Expected: `no_games` for Fall 2026, `started` for both Spring 2026 seasons, and their live-game counts unchanged at 15 and 6.
 
 - [ ] **Step 4: Verify the `for update` line by hand**
 

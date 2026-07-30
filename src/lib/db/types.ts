@@ -832,6 +832,13 @@ export type Database = {
       league_is_public: { Args: { p_league: string }; Returns: boolean }
       player_is_public: { Args: { p_player: string }; Returns: boolean }
       postpone_game: { Args: { p_game: string }; Returns: undefined }
+      remove_published_schedule: {
+        Args: { p_season: string }
+        Returns: {
+          deleted: number
+          refused: string
+        }[]
+      }
       replace_published_schedule: {
         Args: { p_season: string }
         Returns: {
