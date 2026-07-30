@@ -53,6 +53,26 @@ begin
   -- and the second deletes what the first just promoted. Released at commit.
   perform pg_advisory_xact_lock(hashtext(p_season::text));
 
+  -- Lock the rows the delete below will remove, BEFORE the gate reads them.
+  --
+  -- This is what makes "a played game removes the delete path" actually true,
+  -- rather than only true when nothing else is running. Under READ COMMITTED the
+  -- gate and the delete are separate statements with separate snapshots, so
+  -- without this lock a scorekeeper who commits `status='final'` in between is
+  -- invisible to the gate and fatal to the game: season_is_started() reads the
+  -- pre-finalize snapshot and returns false, the delete then blocks on the
+  -- scorekeeper's row lock, and on waking re-evaluates its WHERE against the NEW
+  -- row version — which still matches `season_id = ? and not is_draft`. The
+  -- finalized game is deleted, its game_rosters cascade with it, and the call
+  -- reports a clean `deleted=N, published=N, refused=null`. Nothing surfaces.
+  --
+  -- Taking the locks first moves that wait to before the gate: the concurrent
+  -- finalize either commits before us (and the gate, on its own later snapshot,
+  -- sees it and refuses) or waits behind us (and finalizes a game that is
+  -- already gone, which is the pre-existing stale-tab case). The check and the
+  -- act become one decision instead of two.
+  perform 1 from games where season_id = p_season and not is_draft for update;
+
   -- Evaluated inside the transaction on purpose. The rule is time-based, so a
   -- check in TypeScript followed by a separate write would let a game 30 seconds
   -- from its start time tick past while the replace is in flight.
@@ -81,5 +101,27 @@ $$;
 comment on function public.replace_published_schedule(uuid) is
   'Replace a season''s published schedule with its drafts, in one transaction. Refuses once the season has started.';
 
-grant execute on function public.season_is_started(uuid) to authenticated;
-grant execute on function public.replace_published_schedule(uuid) to authenticated;
+-- service_role only, stated explicitly in both directions.
+--
+-- Unlike 0025's postpone/restore — called with the *user* client from the score
+-- page — both of these are reached exclusively through createAdminClient():
+-- getPublishState and generateSchedule read season_is_started, publishSchedule
+-- calls replace_published_schedule. Granting `authenticated` instead, as 0025
+-- does, would work here only by accident of the legacy auto-expose default that
+-- hands every Data API role EXECUTE (see auto_expose_new_tables in
+-- supabase/config.toml, whose implicit default flipped to false on 2026-05-30).
+-- On a project with the new behaviour these RPCs would return permission denied,
+-- and because getPublishState fails closed on RPC error every season would
+-- render as locked and the builder would be unusable.
+--
+-- The revokes are not redundant with omitting a grant. CREATE FUNCTION grants
+-- EXECUTE to PUBLIC by default, so while auto-expose is still on, "we never
+-- granted it to authenticated" does not mean authenticated cannot call it — it
+-- reaches it through PUBLIC. Only revoking makes the intent true today as well
+-- as after the default flips, and it matters most for
+-- replace_published_schedule: through PostgREST that is a one-call "delete this
+-- season's published schedule", and no code path calls it with a user client.
+revoke execute on function public.season_is_started(uuid) from public, anon, authenticated;
+revoke execute on function public.replace_published_schedule(uuid) from public, anon, authenticated;
+grant execute on function public.season_is_started(uuid) to service_role;
+grant execute on function public.replace_published_schedule(uuid) to service_role;

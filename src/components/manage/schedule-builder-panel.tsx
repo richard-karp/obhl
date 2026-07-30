@@ -234,10 +234,18 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
       )}
 
       {(drafts ?? []).length === 0 ? (
-        <EmptyState
-          title="No draft schedule"
-          description="Generate one above to preview it here before publishing."
-        />
+        // Not on a locked season. This section keys off the draft count alone,
+        // which is independent of `mode`, so a started season with no draft
+        // rendered "Generate one above" directly beneath a locked card that has
+        // no generate form in it — pointing the manager at something that isn't
+        // on the page. Same leak as the publish-control gate below, in the
+        // other branch. The locked card already says what can be done instead.
+        mode === "locked" ? null : (
+          <EmptyState
+            title="No draft schedule"
+            description="Generate one above to preview it here before publishing."
+          />
+        )
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-3">
@@ -255,8 +263,16 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
                 seasonId={seasonId}
                 draftCount={publish.draftCount}
                 liveCount={publish.liveCount}
-                firstLiveDate={publish.firstLiveDate}
-                lastLiveDate={publish.lastLiveDate}
+                // Formatted here rather than in the dialog. The confirm dialog
+                // is how a manager checks *which* schedule is about to be
+                // deleted, and it was the only place in this panel still
+                // showing a raw ISO date — the format nothing else in the app
+                // uses, on the one screen that destroys data.
+                liveRange={
+                  publish.firstLiveDate && publish.lastLiveDate
+                    ? `${formatLongDate(publish.firstLiveDate)} – ${formatLongDate(publish.lastLiveDate)}`
+                    : null
+                }
                 lineupsAtRisk={publish.lineupsAtRisk}
                 destructive={mode === "replace"}
               />

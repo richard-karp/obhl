@@ -85,8 +85,11 @@ test.describe("Path 17 — Schedule Builder", () => {
   });
 
   test("generates a balanced draft with equal games per team", async ({ page }) => {
-    // The active season runs May–Jun 2026; start within it.
-    await page.getByLabel("First game night").fill("2026-05-12");
+    // These tests drive Fall 2026 (Sep 15 2026 – Mar 31 2027), not the active
+    // season — start on its first night. A date outside the window still
+    // generates (drafts aren't bounded by the season start), so this reads as
+    // passing while drafting a schedule months before the season it belongs to.
+    await page.getByLabel("First game night").fill("2026-09-15");
     await page.getByLabel("Games per team").fill("4");
     // Two game nights so weekday balance is exercised.
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
@@ -148,6 +151,14 @@ test.describe("Path 17 — Schedule Builder", () => {
     await page.getByRole("button", { name: "Replace published schedule" }).click();
     await expect(page.getByText("Replace the published schedule?")).toBeVisible();
     await expect(page.getByText(`This deletes ${published} live games`)).toBeVisible();
+    // The range is how a manager verifies *which* schedule is about to go, so
+    // it's in the same long form as the rest of the panel rather than the raw
+    // ISO dates this dialog used to show. Matched together with the sentence
+    // around it — "September 15, 2026" on its own also appears in the page
+    // header and on every night heading behind the dialog.
+    await expect(
+      page.getByText(/This deletes \d+ live games \(September 15, 2026 – /),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Replace", exact: true }).click();
 
     // One schedule's worth, not two. The draft is consumed, so the page falls

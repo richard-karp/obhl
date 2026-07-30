@@ -196,14 +196,33 @@ export async function getPublishState(
 ): Promise<SchedulePublishState> {
   const supabase = opts.client ?? (await createClient());
 
-  const [live, drafts, started, lineups] = await Promise.all([
-    // Dates come back with the rows rather than as a min/max aggregate so an
-    // undated live game still counts toward liveCount.
+  const liveGames = () =>
+    supabase.from("games").select("scheduled_at").eq("season_id", seasonId).eq("is_draft", false);
+
+  const [live, firstLive, lastLive, drafts, started, lineups] = await Promise.all([
+    // An exact count from the server, not `data.length`. Counting the returned
+    // rows silently capped liveCount at PostgREST's `max_rows` (1000 — see
+    // supabase/config.toml), so a season past that would have told the manager a
+    // replace deletes 1000 games while the RPC deleted every one of them. It is
+    // also the read most likely to time out, being the only one here that
+    // touched every row in the season; `head: true` returns no rows at all.
     supabase
       .from("games")
-      .select("scheduled_at")
+      .select("*", { count: "exact", head: true })
       .eq("season_id", seasonId)
       .eq("is_draft", false),
+    // First and last dated live game, one row each rather than sorting the whole
+    // season in memory. Undated games are excluded here on purpose — they have
+    // no place in a date range — and no longer need to be carried by this query
+    // to be counted, now that the count above is its own request.
+    liveGames()
+      .not("scheduled_at", "is", null)
+      .order("scheduled_at", { ascending: true })
+      .limit(1),
+    liveGames()
+      .not("scheduled_at", "is", null)
+      .order("scheduled_at", { ascending: false })
+      .limit(1),
     supabase
       .from("games")
       .select("*", { count: "exact", head: true })
@@ -217,21 +236,44 @@ export async function getPublishState(
       .eq("games.is_draft", false),
   ]);
 
-  const dates = (live.data ?? [])
-    .map((g) => g.scheduled_at)
-    .filter((d): d is string => !!d)
-    .sort();
+  // Fail closed on ANY of them, not just the RPC.
+  //
+  // These are independent PostgREST requests, so one can fail on its own and
+  // leave the returned state looking authoritative. Every decision the builder
+  // makes is derived from these numbers — whether to offer the generate form,
+  // whether publishing confirms first, and what the confirmation says will be
+  // destroyed — so a partial read produces a confident answer from incomplete
+  // data. Absorbing a live-count error is the dangerous one: it reads as
+  // liveCount 0, which is publishMode's "draft-only", and the manager gets a
+  // one-click "Publish N games" with no dialog, no live count and no lineup
+  // warning, while the RPC behind that button still deletes the whole live
+  // schedule. Absorbing a lineup error quietly drops the warning that captains'
+  // lineups are deleted along with the games.
+  //
+  // Locking is the only honest way to fail closed here. A count has no "unknown"
+  // value publishMode could branch on, and inventing a non-zero one would put a
+  // fabricated number in front of the manager on the one screen in this app that
+  // deletes data. So the builder reports "started" and offers no publish path at
+  // all; nothing is destroyed, the RPC's own gate is unchanged, and the next
+  // render with a working query unlocks it.
+  const failure =
+    live.error ??
+    firstLive.error ??
+    lastLive.error ??
+    drafts.error ??
+    started.error ??
+    lineups.error;
+  if (failure) console.error("publish state read failed:", failure.message);
+
+  const firstAt = firstLive.data?.[0]?.scheduled_at ?? null;
+  const lastAt = lastLive.data?.[0]?.scheduled_at ?? null;
 
   return {
-    liveCount: live.data?.length ?? 0,
+    liveCount: live.count ?? 0,
     draftCount: drafts.count ?? 0,
-    // Fail closed. On an RPC error `data` is null, and reporting "not started"
-    // would offer a Replace button on a season that has begun. The RPC still
-    // refuses the write, so nothing is destroyed — but the UI would be lying,
-    // and a lock the manager doesn't expect is the safer way to be wrong.
-    started: started.error ? true : started.data === true,
-    firstLiveDate: dates.length ? leagueDateKey(dates[0]) : null,
-    lastLiveDate: dates.length ? leagueDateKey(dates[dates.length - 1]) : null,
+    started: failure ? true : started.data === true,
+    firstLiveDate: firstAt ? leagueDateKey(firstAt) : null,
+    lastLiveDate: lastAt ? leagueDateKey(lastAt) : null,
     lineupsAtRisk: lineups.count ?? 0,
   };
 }

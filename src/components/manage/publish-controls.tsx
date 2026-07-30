@@ -24,16 +24,19 @@ export function PublishControls({
   seasonId,
   draftCount,
   liveCount,
-  firstLiveDate,
-  lastLiveDate,
+  liveRange,
   lineupsAtRisk,
   destructive,
 }: {
   seasonId: string;
   draftCount: number;
   liveCount: number;
-  firstLiveDate: string | null;
-  lastLiveDate: string | null;
+  /**
+   * The live schedule's date range, already formatted by the server panel with
+   * `formatLongDate` — the same wording the rest of the panel uses. Null when
+   * no live game carries a date.
+   */
+  liveRange: string | null;
   lineupsAtRisk: number;
   /** True in "replace" mode — a live schedule would be deleted. */
   destructive: boolean;
@@ -72,8 +75,7 @@ export function PublishControls({
   // or reintroduce an explicit reset, if that assumption ever stops holding.
   const dialogOpen = open && !state?.ok;
 
-  const range =
-    firstLiveDate && lastLiveDate ? ` (${firstLiveDate} – ${lastLiveDate})` : "";
+  const range = liveRange ? ` (${liveRange})` : "";
 
   if (!destructive) {
     return (

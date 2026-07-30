@@ -27,6 +27,14 @@ type Admin = ReturnType<typeof createAdminClient>;
  * The season to operate on: an explicit `season_id` from the form (validated to
  * the current league — used by the per-season setup hub), else the active season
  * (used by the standalone /schedule-builder).
+ *
+ * An explicit id that doesn't resolve returns null rather than falling back.
+ * Falling back retargets the write at a season the manager never named: the
+ * `obhl_league` cookie is global, so switching league in a second tab makes the
+ * first tab's `/seasons/<A>` form resolve against league B, where season A
+ * doesn't exist. Every action here now replaces or repairs a published
+ * schedule, so the fallback's cost is league B's active season losing its games
+ * — refusing is the only safe reading of "I asked for A and A isn't here".
  */
 async function targetSeason(admin: Admin, explicit = "") {
   const league = await resolveCurrentLeague(admin);
@@ -39,7 +47,7 @@ async function targetSeason(admin: Admin, explicit = "") {
       .eq("id", explicit)
       .eq("league_id", league.id)
       .maybeSingle();
-    if (data) return data.id;
+    return data?.id ?? null;
   }
 
   const { data: season } = await admin
@@ -67,10 +75,18 @@ export async function generateSchedule(formData: FormData) {
   // A started season can't publish, so it shouldn't accept a draft either —
   // generating one would only produce a preview that can never be applied. Same
   // rule as the publish gate, read from the same function.
-  const { data: startedGuard } = await admin.rpc("season_is_started", {
-    p_season: seasonId,
-  });
-  if (startedGuard === true) return;
+  //
+  // Fail closed on an RPC error, matching getPublishState: if we can't tell
+  // whether the season has started, don't generate. Reading the error as "not
+  // started" is the wrong way round — it discards the season's existing drafts
+  // (see the delete further down) to build a preview that is refused at publish
+  // time, and it makes this the one place in the feature where an unreadable
+  // gate means "go ahead".
+  const { data: startedGuard, error: startedError } = await admin.rpc(
+    "season_is_started",
+    { p_season: seasonId },
+  );
+  if (startedError || startedGuard !== false) return;
 
   const { data: season } = await admin
     .from("seasons")
