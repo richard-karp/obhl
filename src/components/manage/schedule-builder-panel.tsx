@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { publishSchedule, discardSchedule } from "@/lib/actions/schedule";
+import { discardSchedule } from "@/lib/actions/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
+import { getPublishState } from "@/lib/queries/schedule";
+import { publishMode } from "@/lib/schedule/publishMode";
 import { weekdayOf } from "@/lib/format";
 import { spacingReport, type PlacedGame } from "@/lib/schedule/spacing";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ScheduleGenerateForm } from "@/components/manage/schedule-generate-form";
+import { PublishControls } from "@/components/manage/publish-controls";
 import { formatLongDate, formatGameTime, leagueDateKey } from "@/lib/format";
 
 const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -48,6 +51,9 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
     .order("scheduled_at", { ascending: true });
 
   const enrolledTeams = await getEnrolledTeams(seasonId, { client: admin });
+
+  const publish = await getPublishState(seasonId, { client: admin });
+  const mode = publishMode(publish);
 
   // Group by night + build a balance report.
   const byDate = new Map<string, any[]>();
@@ -158,32 +164,74 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Generate a balanced schedule</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ScheduleGenerateForm
-            seasonId={seasonId}
-            seasonStart={season?.starts_on ?? null}
-            seasonEnd={season?.ends_on ?? null}
-            teamCount={enrolledCount}
-          />
-        </CardContent>
-      </Card>
+      {mode === "locked" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">The season is under way</CardTitle>
+          </CardHeader>
+          <CardContent className="text-muted-foreground space-y-2 text-sm">
+            <p>
+              {publish.liveCount} games are published
+              {publish.firstLiveDate ? `, starting ${formatLongDate(publish.firstLiveDate)}` : ""}.
+              The full schedule can no longer be regenerated or replaced.
+            </p>
+            <p>
+              To change a single game, use Reschedule, Postpone or Cancel on that
+              game&apos;s score page.
+            </p>
+            <p>
+              To slot in a tournament final or semifinals,{" "}
+              <Link
+                href="/schedule-builder/one-off"
+                className="text-foreground font-medium underline"
+              >
+                schedule a one-off game
+              </Link>
+              .
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Generate a balanced schedule</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ScheduleGenerateForm
+                seasonId={seasonId}
+                seasonStart={season?.starts_on ?? null}
+                seasonEnd={season?.ends_on ?? null}
+                teamCount={enrolledCount}
+              />
+            </CardContent>
+          </Card>
 
-      <p className="text-muted-foreground text-sm">
-        Adding a tournament final or semifinals mid-season is a different job —
-        it takes over a game on a night that&apos;s already scheduled and repairs
-        the rest of the season around it.{" "}
-        <Link
-          href="/schedule-builder/one-off"
-          className="text-foreground font-medium underline"
-        >
-          Schedule a one-off game
-        </Link>
-        .
-      </p>
+          <p className="text-muted-foreground text-sm">
+            Adding a tournament final or semifinals mid-season is a different job
+            — it takes over a game on a night that&apos;s already scheduled and
+            repairs the rest of the season around it.{" "}
+            <Link
+              href="/schedule-builder/one-off"
+              className="text-foreground font-medium underline"
+            >
+              Schedule a one-off game
+            </Link>
+            .
+          </p>
+
+          {mode === "published" ? (
+            <p className="text-muted-foreground text-sm">
+              <span className="text-foreground font-medium">
+                Published: {publish.liveCount} games
+              </span>
+              {publish.firstLiveDate && publish.lastLiveDate
+                ? ` · ${formatLongDate(publish.firstLiveDate)} → ${formatLongDate(publish.lastLiveDate)}`
+                : ""}
+            </p>
+          ) : null}
+        </>
+      )}
 
       {(drafts ?? []).length === 0 ? (
         <EmptyState
@@ -193,10 +241,17 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-3">
-            <form action={publishSchedule}>
-              <input type="hidden" name="season_id" value={seasonId} />
-              <Button type="submit">Publish {drafts!.length} games</Button>
-            </form>
+            {mode === "locked" ? null : (
+              <PublishControls
+                seasonId={seasonId}
+                draftCount={publish.draftCount}
+                liveCount={publish.liveCount}
+                firstLiveDate={publish.firstLiveDate}
+                lastLiveDate={publish.lastLiveDate}
+                lineupsAtRisk={publish.lineupsAtRisk}
+                destructive={mode === "replace"}
+              />
+            )}
             <form action={discardSchedule}>
               <input type="hidden" name="season_id" value={seasonId} />
               <Button type="submit" variant="outline">

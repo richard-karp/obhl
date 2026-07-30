@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
+import { logAudit } from "@/lib/audit";
 import { buildBalancedPairings } from "@/lib/schedule/roundRobin";
 import { assignNights } from "@/lib/schedule/assignNights";
 import { enumerateNights } from "@/lib/schedule/capacity";
@@ -62,6 +63,14 @@ export async function generateSchedule(formData: FormData) {
   const admin = createAdminClient();
   const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
   if (!seasonId) return;
+
+  // A started season can't publish, so it shouldn't accept a draft either —
+  // generating one would only produce a preview that can never be applied. Same
+  // rule as the publish gate, read from the same function.
+  const { data: startedGuard } = await admin.rpc("season_is_started", {
+    p_season: seasonId,
+  });
+  if (startedGuard === true) return;
 
   const { data: season } = await admin
     .from("seasons")
@@ -175,21 +184,77 @@ export async function generateSchedule(formData: FormData) {
   revalidatePath(`/seasons/${seasonId}`);
 }
 
-/** Publish the draft schedule (drafts become live games). */
-export async function publishSchedule(formData: FormData) {
-  await requireManager();
+export type PublishState = { ok: boolean; message: string } | null;
+
+/**
+ * Publish the draft schedule, replacing whatever is already live.
+ *
+ * The delete and the promotion happen inside `replace_published_schedule` so
+ * they commit together — as two calls from here, a failure between them would
+ * leave the season with no games at all, the old schedule gone and the new one
+ * still in draft.
+ *
+ * Refusals are ordinary outcomes of a stale page, not faults: the manager's tab
+ * may have been open since before the first game was played, or the draft may
+ * have been discarded in another tab. Both come back as a message.
+ */
+export async function publishSchedule(
+  _prev: PublishState,
+  formData: FormData,
+): Promise<PublishState> {
+  const user = await requireManager();
   const admin = createAdminClient();
   const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
-  if (!seasonId) return;
-  await admin
-    .from("games")
-    .update({ is_draft: false })
-    .eq("season_id", seasonId)
-    .eq("is_draft", true);
+  if (!seasonId) return { ok: false, message: "No season selected." };
+
+  const { data, error } = await admin.rpc("replace_published_schedule", {
+    p_season: seasonId,
+  });
+  if (error) return { ok: false, message: error.message };
+
+  const row = data?.[0];
+  if (!row) return { ok: false, message: "Nothing happened — try again." };
+
+  if (row.refused === "started") {
+    return {
+      ok: false,
+      message: "The season is under way — the schedule can no longer be replaced.",
+    };
+  }
+  if (row.refused === "no_draft") {
+    return { ok: false, message: "There's no draft to publish." };
+  }
+
+  // A replace deletes live games, which is the most destructive thing a manager
+  // can do here. A first publish deletes nothing and stays unaudited, matching
+  // the bar the rest of games.ts sets.
+  if (row.deleted > 0) {
+    void logAudit({
+      user_id: user.id,
+      action: "replace_schedule",
+      entity_type: "season",
+      entity_id: seasonId,
+      old_data: { published_games: row.deleted },
+      new_data: { published_games: row.published },
+    });
+  }
+
   revalidatePath("/schedule-builder");
   revalidatePath(`/seasons/${seasonId}`);
   revalidatePath("/schedule");
+  // The scoring list reads through getSchedule, so a replace changes which games
+  // it shows. The old publishSchedule didn't revalidate it either — that gap was
+  // invisible while publishing only ever added games.
+  revalidatePath("/score");
   revalidatePath("/");
+
+  return {
+    ok: true,
+    message:
+      row.deleted > 0
+        ? `Replaced the published schedule — removed ${row.deleted} games, published ${row.published}.`
+        : `Published ${row.published} games.`,
+  };
 }
 
 /** Discard all draft games for the season. */
