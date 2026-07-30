@@ -153,12 +153,17 @@ test.describe("Path 17 — Schedule Builder", () => {
     await expect(page.getByText(`This deletes ${published} live games`)).toBeVisible();
     // The range is how a manager verifies *which* schedule is about to go, so
     // it's in the same long form as the rest of the panel rather than the raw
-    // ISO dates this dialog used to show. Matched together with the sentence
-    // around it — "September 15, 2026" on its own also appears in the page
-    // header and on every night heading behind the dialog.
+    // ISO dates this dialog used to show. Asserted by shape, and always
+    // together with the sentence around it — a bare date also appears in the
+    // page header and on every night heading behind the dialog. Matching the
+    // literal formatted date instead would pin this test to both the fixture's
+    // start date and formatLongDate's exact output.
     await expect(
-      page.getByText(/This deletes \d+ live games \(September 15, 2026 – /),
+      page.getByText(/This deletes \d+ live games \(.+ – .+\)/),
     ).toBeVisible();
+    await expect(
+      page.getByText(/This deletes \d+ live games \(\d{4}-\d{2}-\d{2}/),
+    ).toHaveCount(0);
     await page.getByRole("button", { name: "Replace", exact: true }).click();
 
     // One schedule's worth, not two. The draft is consumed, so the page falls
