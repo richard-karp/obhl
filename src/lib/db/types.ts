@@ -832,8 +832,17 @@ export type Database = {
       league_is_public: { Args: { p_league: string }; Returns: boolean }
       player_is_public: { Args: { p_player: string }; Returns: boolean }
       postpone_game: { Args: { p_game: string }; Returns: undefined }
+      replace_published_schedule: {
+        Args: { p_season: string }
+        Returns: {
+          deleted: number
+          published: number
+          refused: string
+        }[]
+      }
       restore_game: { Args: { p_game: string }; Returns: undefined }
       season_is_public: { Args: { p_season: string }; Returns: boolean }
+      season_is_started: { Args: { p_season: string }; Returns: boolean }
     }
     Enums: {
       app_role: "league_manager" | "captain" | "scorekeeper"
