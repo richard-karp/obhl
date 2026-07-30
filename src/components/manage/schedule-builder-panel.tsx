@@ -243,6 +243,15 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
           <div className="flex flex-wrap items-center gap-3">
             {mode === "locked" ? null : (
               <PublishControls
+                // A successful publish/replace flips every draft to live, so
+                // draftCount drops to 0 and this remounts under a fresh key —
+                // that's what lets `dialogOpen` below be derived from `state`
+                // instead of reset by hand. Without the key, a future caller
+                // that keeps this component mounted across a success (e.g. by
+                // rendering it in "published" mode too) would find the trigger
+                // permanently inert: see the comment on `dialogOpen` in
+                // publish-controls.tsx.
+                key={publish.draftCount}
                 seasonId={seasonId}
                 draftCount={publish.draftCount}
                 liveCount={publish.liveCount}

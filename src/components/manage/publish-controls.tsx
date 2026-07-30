@@ -48,17 +48,28 @@ export function PublishControls({
   // an effect. Closing the dialog is ordinary React state, though, and
   // `react-hooks/set-state-in-effect` is right to reject setting it from here —
   // it's derived from `state` and belongs in render, not synchronized after the
-  // fact. See `dialogOpen` below: a success closes it without a setState call,
-  // and the component unmounts shortly after anyway once the draft section
-  // re-renders as empty.
+  // fact. See `dialogOpen` below.
   useEffect(() => {
     if (!state) return;
     if (state.ok) toast.success(state.message);
     else toast.error(state.message);
   }, [state]);
 
-  // `open` is the user's intent (opened via the button, closed via Cancel/Esc);
-  // a successful replace overrides it shut without needing its own setState.
+  // `open` is the user's intent (opened via the button, closed via Cancel/Esc),
+  // and a successful replace overrides it shut without its own setState call.
+  //
+  // Load-bearing precondition: `open` itself is never reset back to false on
+  // success, so this derivation is only correct for as long as the component
+  // is guaranteed to unmount afterward — which it is today (a success drops
+  // draftCount to 0, and the caller keys this component on draftCount, so it
+  // remounts with fresh state). If a future caller ever keeps this component
+  // mounted across a successful publish/replace (e.g. by rendering it outside
+  // the "has drafts" branch, or without the key), `open` would stay stuck
+  // `true` forever: the trigger's `setOpen(true)` becomes a no-op against the
+  // value it already holds, so `dialogOpen` never re-derives to true and the
+  // button goes permanently inert with no dialog and no feedback. Keep the
+  // `key={publish.draftCount}` on the call site in schedule-builder-panel.tsx,
+  // or reintroduce an explicit reset, if that assumption ever stops holding.
   const dialogOpen = open && !state?.ok;
 
   const range =
