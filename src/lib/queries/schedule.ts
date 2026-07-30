@@ -166,3 +166,72 @@ export async function getRecentResults(
   if (error) console.error("schedule query failed:", error.message);
   return (data ?? []) as unknown as GameWithTeams[];
 }
+
+/**
+ * Everything the schedule builder needs to decide what it may offer.
+ *
+ * `started` is read from the `season_is_started` RPC rather than recomputed
+ * here: it is the gate `replace_published_schedule` enforces, and a second copy
+ * of that predicate in TypeScript would be free to drift from the one that
+ * actually guards the delete.
+ */
+export type SchedulePublishState = {
+  liveCount: number;
+  draftCount: number;
+  started: boolean;
+  /** League-local YYYY-MM-DD of the first/last dated live game; null if none. */
+  firstLiveDate: string | null;
+  lastLiveDate: string | null;
+  /**
+   * `game_rosters` rows hanging off live games. They cascade on game delete
+   * (0004_games.sql), so a replace silently discards lineups a captain set in
+   * advance — the confirm dialog names this when it is non-zero.
+   */
+  lineupsAtRisk: number;
+};
+
+export async function getPublishState(
+  seasonId: string,
+  opts: { client?: DbClient } = {},
+): Promise<SchedulePublishState> {
+  const supabase = opts.client ?? (await createClient());
+
+  const [live, drafts, started, lineups] = await Promise.all([
+    // Dates come back with the rows rather than as a min/max aggregate so an
+    // undated live game still counts toward liveCount.
+    supabase
+      .from("games")
+      .select("scheduled_at")
+      .eq("season_id", seasonId)
+      .eq("is_draft", false),
+    supabase
+      .from("games")
+      .select("*", { count: "exact", head: true })
+      .eq("season_id", seasonId)
+      .eq("is_draft", true),
+    supabase.rpc("season_is_started", { p_season: seasonId }),
+    supabase
+      .from("game_rosters")
+      .select("id, games!inner(season_id, is_draft)", { count: "exact", head: true })
+      .eq("games.season_id", seasonId)
+      .eq("games.is_draft", false),
+  ]);
+
+  const dates = (live.data ?? [])
+    .map((g) => g.scheduled_at)
+    .filter((d): d is string => !!d)
+    .sort();
+
+  return {
+    liveCount: live.data?.length ?? 0,
+    draftCount: drafts.count ?? 0,
+    // Fail closed. On an RPC error `data` is null, and reporting "not started"
+    // would offer a Replace button on a season that has begun. The RPC still
+    // refuses the write, so nothing is destroyed — but the UI would be lying,
+    // and a lock the manager doesn't expect is the safer way to be wrong.
+    started: started.error ? true : started.data === true,
+    firstLiveDate: dates.length ? leagueDateKey(dates[0]) : null,
+    lastLiveDate: dates.length ? leagueDateKey(dates[dates.length - 1]) : null,
+    lineupsAtRisk: lineups.count ?? 0,
+  };
+}
