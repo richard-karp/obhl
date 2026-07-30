@@ -287,6 +287,69 @@ export async function publishSchedule(
   };
 }
 
+export type RemoveState = { ok: boolean; message: string } | null;
+
+/**
+ * Delete a season's published schedule, leaving it with no games.
+ *
+ * The counterpart to `publishSchedule` rather than a variant of it: replacing
+ * needs a draft standing ready, and this exists for the case where there is
+ * nothing to put in the old schedule's place.
+ *
+ * Refusals are ordinary outcomes of a stale page, not faults: the season may
+ * have started since the tab was opened, or another tab may already have
+ * removed the schedule. Both come back as a message, and both revalidate — a
+ * refusal means this tab's view is already wrong.
+ */
+export async function removeSchedule(
+  _prev: RemoveState,
+  formData: FormData,
+): Promise<RemoveState> {
+  const user = await requireManager();
+  const admin = createAdminClient();
+  const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
+  if (!seasonId) return { ok: false, message: "No season selected." };
+
+  const { data, error } = await admin.rpc("remove_published_schedule", {
+    p_season: seasonId,
+  });
+  if (error) return { ok: false, message: error.message };
+
+  const row = data?.[0];
+  if (!row) return { ok: false, message: "Nothing happened — try again." };
+
+  if (row.refused === "started") {
+    revalidateAfterPublish(seasonId);
+    return {
+      ok: false,
+      message: "The season is under way — the schedule can no longer be removed.",
+    };
+  }
+  if (row.refused === "no_games") {
+    revalidateAfterPublish(seasonId);
+    return { ok: false, message: "There's no published schedule to remove." };
+  }
+
+  // Audited unconditionally. publishSchedule exempts a first publish because it
+  // destroys nothing; every successful removal destroys live games, so there is
+  // no equivalent cheap case here.
+  void logAudit({
+    user_id: user.id,
+    action: "remove_schedule",
+    entity_type: "season",
+    entity_id: seasonId,
+    old_data: { published_games: row.deleted },
+    new_data: { published_games: 0 },
+  });
+
+  revalidateAfterPublish(seasonId);
+
+  return {
+    ok: true,
+    message: `Removed the published schedule — ${row.deleted} games deleted.`,
+  };
+}
+
 /** Discard all draft games for the season. */
 export async function discardSchedule(formData: FormData) {
   await requireManager();
