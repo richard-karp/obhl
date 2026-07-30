@@ -18,7 +18,8 @@
 - **Query helpers in `src/lib/queries/` take options as an object whose `client` defaults to the RLS client.** Manager-gated callers pass `createAdminClient()`. This rule is documented at the top of `src/lib/queries/schedule.ts`; follow it.
 - **Commands:** `npm test` (vitest), `npm run test:e2e` (Playwright — its global setup runs `npm run db:reset` and reseeds), `npm run lint`, `npm run gen-types` (regenerates `src/lib/db/types.ts` from the local DB), `npm run db:reset`.
 - **Local Postgres:** `postgresql://postgres:postgres@127.0.0.1:54322/postgres` (port from `supabase/config.toml`).
-- **Today's date for fixture purposes is 2026-07-30.** The seeded active season (`Spring 2026`, 2026-05-12 → 2026-06-30) is therefore in the past and counts as *started*. This is load-bearing for Tasks 5 and 7.
+- **Every task ends with the repo compiling and every suite green.** `npx tsc --noEmit` must pass at each commit.
+- **Today's date for fixture purposes is 2026-07-30.** The seeded active season (`Spring 2026`, 2026-05-12 → 2026-06-30) is therefore in the past and counts as *started*. This is load-bearing for Tasks 4 and 6.
 
 ---
 
@@ -31,11 +32,13 @@
 | `src/lib/schedule/publishMode.ts` | **Create.** Pure state→mode decision. No I/O. |
 | `src/lib/schedule/publishMode.test.ts` | **Create.** vitest for the above. |
 | `src/lib/queries/schedule.ts` | **Modify.** Add `getPublishState`. |
+| `supabase/seed.sql` | **Modify.** Add a not-yet-started season so fixtures cover both sides of the rule. |
 | `src/lib/actions/schedule.ts` | **Modify.** `publishSchedule` calls the RPC and returns a state; `generateSchedule` refuses on a started season. |
 | `src/components/manage/publish-controls.tsx` | **Create.** Client component: publish button, replace button + confirm dialog, toast. |
 | `src/components/manage/schedule-builder-panel.tsx` | **Modify.** Read publish state, render one of five modes. |
-| `supabase/seed.sql` | **Modify.** Add a not-yet-started season so fixtures cover both sides of the rule. |
 | `e2e/11-schedule-builder.spec.ts` | **Modify.** Retarget generator tests at the not-started season; add lock and replace coverage. |
+
+**Why the actions and the UI are one task (Task 5).** `publishSchedule`'s signature changes from a void form action to an action-state action. Its only consumer is `<form action={publishSchedule}>` in the panel. Landing them separately leaves a commit that does not typecheck, which a reviewer cannot verify and a bisect lands on. They are one reviewable unit.
 
 ---
 
@@ -154,8 +157,6 @@ Expected: completes without error, and the output lists `0026_replace_published_
 
 The seeded Oceanview `Spring 2026` season has `final` games dated May–June 2026, in the past. It must read as started.
 
-Run:
-
 ```bash
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "
 select s.name, l.slug, season_is_started(s.id) as started
@@ -185,7 +186,6 @@ create temp view v as select
   (select id from teams where slug='a-tmp') as a,
   (select id from teams where slug='b-tmp') as b;
 
--- live schedule (future) + a draft
 insert into games (season_id, home_team_id, away_team_id, scheduled_at, is_draft)
   select season, a, b, timestamptz '2099-02-01 19:00-05', false from v;
 insert into games (season_id, home_team_id, away_team_id, scheduled_at, is_draft)
@@ -201,7 +201,6 @@ from games where season_id=(select season from v);
 \echo '--- expect no_draft (live present, nothing to promote)'
 select * from replace_published_schedule((select season from v));
 
--- make it started via a past date
 insert into games (season_id, home_team_id, away_team_id, scheduled_at, is_draft)
   select season, a, b, timestamptz '2020-01-01 19:00-05', true from v;
 update games set scheduled_at = timestamptz '2020-01-01 19:00-05'
@@ -209,7 +208,6 @@ update games set scheduled_at = timestamptz '2020-01-01 19:00-05'
 \echo '--- expect started, deleted=0'
 select * from replace_published_schedule((select season from v));
 
--- started via status, with a future date
 update games set scheduled_at = timestamptz '2099-02-01 19:00-05', status='final'
   where season_id=(select season from v) and not is_draft;
 \echo '--- expect started (future date, but final)'
@@ -231,8 +229,8 @@ Paste the real output into the commit or task notes. If any line differs, the fu
 - [ ] **Step 5: Regenerate types**
 
 Run: `npm run gen-types`
-Then run: `git diff --stat src/lib/db/types.ts`
-Expected: `types.ts` changed, and `grep -n "season_is_started\|replace_published_schedule" src/lib/db/types.ts` returns matches under the `Functions` section.
+Then: `grep -n "season_is_started\|replace_published_schedule" src/lib/db/types.ts`
+Expected: both appear under the `Functions` section.
 
 - [ ] **Step 6: Commit**
 
@@ -251,7 +249,7 @@ git commit -m "feat: add the one-published-schedule database functions"
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `type PublishMode = "empty" | "draft-only" | "published" | "replace" | "locked"` and `publishMode(state: { liveCount: number; draftCount: number; started: boolean }): PublishMode`. Task 6 renders off this.
+- Produces: `type PublishMode = "empty" | "draft-only" | "published" | "replace" | "locked"` and `publishMode(state: { liveCount: number; draftCount: number; started: boolean }): PublishMode`. Task 5 renders off this.
 
 This is the one genuinely unit-testable piece, extracted for the same reason `checkOneOffWrite` and `buildOneOffRows` were: pull the decision out of the I/O and test it there. Write the test first.
 
@@ -286,7 +284,8 @@ describe("publishMode", () => {
 
   it("stays locked even with a draft sitting there", () => {
     // A stale draft generated before the first game was played. It must not
-    // offer a replace — started outranks every other signal.
+    // offer a replace — started outranks every other signal. Task 5 relies on
+    // this to decide whether to render the publish control at all.
     expect(publishMode({ liveCount: 40, draftCount: 42, started: true })).toBe("locked");
   });
 });
@@ -356,7 +355,7 @@ git commit -m "feat: decide the schedule builder's mode from publish state"
   };
   getPublishState(seasonId: string, opts?: { client?: DbClient }): Promise<SchedulePublishState>
   ```
-  Tasks 4 and 6 consume this.
+  Task 5 consumes this.
 
 `started` comes from the RPC so the rule has one definition. The aggregates are ordinary reads — a wrong count renders a slightly wrong sentence; a wrong rule deletes a season.
 
@@ -425,7 +424,11 @@ export async function getPublishState(
   return {
     liveCount: live.data?.length ?? 0,
     draftCount: drafts.count ?? 0,
-    started: started.data === true,
+    // Fail closed. On an RPC error `data` is null, and reporting "not started"
+    // would offer a Replace button on a season that has begun. The RPC still
+    // refuses the write, so nothing is destroyed — but the UI would be lying,
+    // and a lock the manager doesn't expect is the safer way to be wrong.
+    started: started.error ? true : started.data === true,
     firstLiveDate: dates.length ? leagueDateKey(dates[0]) : null,
     lastLiveDate: dates.length ? leagueDateKey(dates[dates.length - 1]) : null,
     lineupsAtRisk: lineups.count ?? 0,
@@ -435,15 +438,37 @@ export async function getPublishState(
 
 `leagueDateKey` and `DbClient` are already imported at the top of this file — do not add duplicate imports.
 
-- [ ] **Step 2: Typecheck**
+- [ ] **Step 2: Typecheck and lint**
 
-Run: `npx tsc --noEmit`
-Expected: no errors. If `supabase.rpc("season_is_started", ...)` is untyped, Task 1 Step 5 (`npm run gen-types`) did not run — go back and run it.
+Run: `npx tsc --noEmit && npm run lint`
+Expected: clean. If `supabase.rpc("season_is_started", ...)` is untyped, Task 1 Step 5 (`npm run gen-types`) did not run — go back and run it.
 
-- [ ] **Step 3: Lint**
+- [ ] **Step 3: Prove `lineupsAtRisk` actually counts**
 
-Run: `npm run lint`
-Expected: no new errors.
+The embedded `!inner` count is the one line here that could silently return zero instead of failing, and a silent zero suppresses the data-loss warning in Task 5's dialog — the only part of this query that matters. Verify it against the seed, which has real `game_rosters` rows on live games.
+
+Write `/tmp/check-lineups.mjs`:
+
+```js
+import { createClient } from "@supabase/supabase-js";
+const db = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+);
+const { data: season } = await db
+  .from("seasons").select("id").eq("name", "Spring 2026").limit(1).single();
+const { count, error } = await db
+  .from("game_rosters")
+  .select("id, games!inner(season_id, is_draft)", { count: "exact", head: true })
+  .eq("games.season_id", season.id)
+  .eq("games.is_draft", false);
+console.log({ count, error });
+```
+
+Run: `node --env-file-if-exists=.env.local /tmp/check-lineups.mjs`
+Expected: `error: null` and a `count` in the hundreds (the seed dresses ~14 players per team across finalized games).
+
+If `error` is non-null or `count` is 0, the embed does not resolve as written. Fall back to two queries — read the live game ids, then `.in("game_id", ids)` — rather than leaving a query that reports zero. Check the env var names against `src/utils/supabase/admin.ts` before assuming the two above are right.
 
 - [ ] **Step 4: Commit**
 
@@ -454,18 +479,138 @@ git commit -m "feat: read a season's publish state through the schedule query pa
 
 ---
 
-### Task 4: The actions
+### Task 4: Seed a season that has not started
+
+**Files:**
+- Modify: `supabase/seed.sql`
+- Modify: `e2e/11-schedule-builder.spec.ts`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: an Oceanview season named `Fall 2026`, inactive, dated 2026-09-15 → 2027-03-31, with the same six teams enrolled and **zero games**. Task 6 asserts against it.
+
+**Why this task exists, and why it comes before the UI.** Today is 2026-07-30 and the seeded active season runs 2026-05-12 → 2026-06-30 with `final` games. Under Task 1's rule it is *started*, so once Task 5 lands, `/schedule-builder` renders the lock and the five tests in `11-schedule-builder.spec.ts` that exercise the generate form fail. The fixtures need a season on the other side of the rule. Landing it first keeps every suite green at every commit.
+
+- [ ] **Step 1: Read the Oceanview seed block**
+
+Run: `sed -n '59,180p' supabase/seed.sql`
+
+The whole thing is one `do $$ declare … begin … end $$` (declarations at line 61, body from line 77). Note the variables holding the league id (`v_league`), the team ids (`v_team_ids`), and the exact `insert into season_teams` form used there. `season_teams` is `(id, season_id, team_id, division_id)` with `unique (season_id, team_id)`, so a two-column insert is correct.
+
+- [ ] **Step 2: Add the season**
+
+Immediately **after** the Oceanview games loop ends and **before** the `-- Two Oceanview people we'll also roster in Harbor` comment, insert this nested block. PL/pgSQL allows a block with its own `declare` inside the enclosing one, so this needs no changes to the outer declaration list:
+
+```sql
+  -- A season that has not started: no games at all, so season_is_started() is
+  -- false and the schedule builder still offers to generate and publish. The
+  -- active Spring 2026 season is in the past and reads as started, so without
+  -- this there is no fixture on the un-started side of the rule.
+  declare
+    v_fall uuid;
+  begin
+    insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system)
+      values (v_league, 'Fall 2026', date '2026-09-15', date '2027-03-31', false,
+              '{"win":2,"tie":1,"loss":0}'::jsonb)
+      returning id into v_fall;
+
+    -- Same six teams, so the generator has something to work with.
+    for i in 1 .. array_length(v_team_ids, 1) loop
+      insert into season_teams (season_id, team_id) values (v_fall, v_team_ids[i]);
+    end loop;
+  end;
+```
+
+`i` is auto-declared by the `for` loop and scoped to it, so it does not collide with any outer variable of the same name.
+
+- [ ] **Step 3: Apply and verify**
+
+Run: `npm run db:reset`
+Then:
+
+```bash
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "
+select s.name, s.is_active, season_is_started(s.id) as started,
+       (select count(*) from season_teams st where st.season_id = s.id) as teams,
+       (select count(*) from games g where g.season_id = s.id) as games
+from seasons s join leagues l on l.id = s.league_id
+where l.slug = 'obhl' order by s.starts_on;"
+```
+
+Expected: two rows. `Spring 2026` → `is_active=t, started=t`. `Fall 2026` → `is_active=f, started=f, teams=6, games=0`.
+
+- [ ] **Step 4: Add a navigation helper to the e2e spec**
+
+In `e2e/11-schedule-builder.spec.ts`, below the existing `signedInAs` helper, add:
+
+```ts
+/**
+ * The builder's generate/publish flow only exists on a season that hasn't
+ * started. The active season is in the past, so these tests drive Fall 2026
+ * through its setup page, which renders the same ScheduleBuilderPanel.
+ */
+async function goToFallSeasonSetup(page: Page) {
+  await page.goto("/seasons");
+  await page
+    .getByRole("row", { name: /Fall 2026/ })
+    .getByRole("link", { name: "Setup" })
+    .click();
+  await page.waitForURL(/\/seasons\//);
+}
+```
+
+- [ ] **Step 5: Retarget the form-driven tests**
+
+In the `Path 17 — Schedule Builder` describe block, change the `beforeEach` from:
+
+```ts
+    await signedInAs(page, "Manager");
+    await page.goto("/schedule-builder");
+```
+
+to:
+
+```ts
+    await signedInAs(page, "Manager");
+    await goToFallSeasonSetup(page);
+```
+
+Then move the two tests that assert page-level chrome only present on `/schedule-builder` out of that describe block, into their own `test(...)` calls that navigate there directly and keep their current assertions:
+
+- `"page loads with heading and active season description"`
+- `"scorekeeper cannot reach /schedule-builder"` (already self-navigating; just ensure it no longer depends on the `beforeEach`)
+
+Leave the assertions inside the other tests unchanged.
+
+- [ ] **Step 6: Run the spec, then everything**
+
+Run: `npm run test:e2e -- 11-schedule-builder`
+Expected: all pass. The UI has not changed yet, so any failure is a seed or navigation problem.
+
+Run: `npm run test:e2e`
+Expected: all pass. Watch `03-seasons.spec.ts` — it asserts `toHaveCount(6)` on the *active* season's teams table and matches the seasons list row by `/Spring 2026/`, neither of which `Fall 2026` should disturb. If it fails, the new season leaked into a selector that needs narrowing.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add supabase/seed.sql e2e/11-schedule-builder.spec.ts
+git commit -m "test: seed a season that hasn't started and target the builder at it"
+```
+
+---
+
+### Task 5: The actions and the builder UI
 
 **Files:**
 - Modify: `src/lib/actions/schedule.ts:60` (`generateSchedule`), `:179` (`publishSchedule`)
+- Create: `src/components/manage/publish-controls.tsx`
+- Modify: `src/components/manage/schedule-builder-panel.tsx`
 
 **Interfaces:**
-- Consumes: both RPCs (Task 1), `getPublishState` is *not* used here — the RPC is authoritative.
-- Produces: `type PublishState = { ok: boolean; message: string } | null` and
-  `publishSchedule(prev: PublishState, formData: FormData): Promise<PublishState>`.
-  Task 6's client component drives this with `useActionState`.
+- Consumes: both RPCs (Task 1), `publishMode` (Task 2), `getPublishState` / `SchedulePublishState` (Task 3).
+- Produces: `type PublishState = { ok: boolean; message: string } | null`, `publishSchedule(prev: PublishState, formData: FormData): Promise<PublishState>`, and the five rendered modes. Task 6 asserts against them.
 
-`publishSchedule` changes shape from a plain void form action to an action-state action, matching `announcement-form.tsx` / `add-team-form.tsx`, so refusals reach the manager as a message instead of a silent no-op.
+One task because `publishSchedule`'s signature change breaks its only call site — see the note under File Structure.
 
 - [ ] **Step 1: Add the started guard to `generateSchedule`**
 
@@ -544,6 +689,10 @@ export async function publishSchedule(
   revalidatePath("/schedule-builder");
   revalidatePath(`/seasons/${seasonId}`);
   revalidatePath("/schedule");
+  // The scoring list reads through getSchedule, so a replace changes which games
+  // it shows. The old publishSchedule didn't revalidate it either — that gap was
+  // invisible while publishing only ever added games.
+  revalidatePath("/score");
   revalidatePath("/");
 
   return {
@@ -556,165 +705,17 @@ export async function publishSchedule(
 }
 ```
 
+`requireManager()` returns `Promise<SessionUser>` (`src/lib/auth/guards.ts:18` → `requireRole`), and `SessionUser` is `{ id: string; email: string | null; role: AppRole | null }`, so `user.id` is the audit's `user_id`. The existing code calls it bare and discards the result; binding it needs no import change.
+
 - [ ] **Step 3: Add the audit import**
 
-At the top of `src/lib/actions/schedule.ts`, alongside the existing imports, add:
+At the top of `src/lib/actions/schedule.ts`, alongside the existing imports:
 
 ```ts
 import { logAudit } from "@/lib/audit";
 ```
 
-Note on `const user = await requireManager()`: the existing code calls this bare, discarding the result. It returns `Promise<SessionUser>` (`src/lib/auth/guards.ts:18` → `requireRole`), and `SessionUser` is `{ id: string; email: string | null; role: AppRole | null }`, so `user.id` is the audit's `user_id`. No import change is needed for it.
-
-- [ ] **Step 4: Typecheck and lint**
-
-Run: `npx tsc --noEmit && npm run lint`
-Expected: `schedule-builder-panel.tsx` errors on `<form action={publishSchedule}>`, because the action's signature changed. That is expected and Task 6 fixes it. There must be no *other* errors.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/lib/actions/schedule.ts
-git commit -m "feat: publishing replaces the live schedule and refuses once started"
-```
-
----
-
-### Task 5: Seed a season that has not started
-
-**Files:**
-- Modify: `supabase/seed.sql`
-- Modify: `e2e/11-schedule-builder.spec.ts`
-
-**Interfaces:**
-- Consumes: nothing.
-- Produces: an Oceanview season named `Fall 2026`, inactive, dated 2026-09-15 → 2027-03-31, with the same six teams enrolled and **zero games**. Task 7 asserts against it.
-
-**Why this task exists.** Today is 2026-07-30 and the seeded active season runs 2026-05-12 → 2026-06-30 with `final` games. Under Task 1's rule it is *started*, so once Task 6 lands, `/schedule-builder` renders the lock and the five tests in `11-schedule-builder.spec.ts` that exercise the generate form fail. The fixtures need a season on the other side of the rule. Doing it before the UI change keeps the suite green at every commit.
-
-- [ ] **Step 1: Read the Oceanview seed block**
-
-Run: `sed -n '78,180p' supabase/seed.sql`
-
-Identify the variables holding the league id (`v_league`), the season id (`v_season`) and the team ids (`v_team_ids`) at the end of the Oceanview block, and the exact `insert into season_teams` form used there. Match that style exactly — do not invent column names.
-
-- [ ] **Step 2: Add the season**
-
-Immediately **after** the Oceanview games loop ends and **before** the `-- Two Oceanview people we'll also roster in Harbor` comment, insert:
-
-```sql
-  -- A season that has not started: no games at all, so season_is_started() is
-  -- false and the schedule builder still offers to generate and publish. The
-  -- active Spring 2026 season is in the past and reads as started, so without
-  -- this there is no fixture on the un-started side of the rule.
-  declare
-    v_fall uuid;
-  begin
-    insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system)
-      values (v_league, 'Fall 2026', date '2026-09-15', date '2027-03-31', false,
-              '{"win":2,"tie":1,"loss":0}'::jsonb)
-      returning id into v_fall;
-
-    -- Same six teams, so the generator has something to work with.
-    for i in 1 .. array_length(v_team_ids, 1) loop
-      insert into season_teams (season_id, team_id) values (v_fall, v_team_ids[i]);
-    end loop;
-  end;
-```
-
-If the surrounding block is a single `do $$ ... $$` with all `declare`s at the top, move `v_fall uuid;` up to that declaration list and drop the nested `declare`/`begin`/`end` wrapper, keeping the two statements inline. Match the file, not this snippet.
-
-- [ ] **Step 3: Apply and verify**
-
-Run: `npm run db:reset`
-Then run:
-
-```bash
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "
-select s.name, s.is_active, season_is_started(s.id) as started,
-       (select count(*) from season_teams st where st.season_id = s.id) as teams,
-       (select count(*) from games g where g.season_id = s.id) as games
-from seasons s join leagues l on l.id = s.league_id
-where l.slug = 'obhl' order by s.starts_on;"
-```
-
-Expected: two rows. `Spring 2026` → `is_active=t, started=t`. `Fall 2026` → `is_active=f, started=f, teams=6, games=0`.
-
-- [ ] **Step 4: Add a navigation helper to the e2e spec**
-
-In `e2e/11-schedule-builder.spec.ts`, below the existing `signedInAs` helper, add:
-
-```ts
-/**
- * The builder's generate/publish flow only exists on a season that hasn't
- * started. The active season is in the past, so these tests drive Fall 2026
- * through its setup page, which renders the same ScheduleBuilderPanel.
- */
-async function goToFallSeasonSetup(page: Page) {
-  await page.goto("/seasons");
-  await page
-    .getByRole("row", { name: /Fall 2026/ })
-    .getByRole("link", { name: "Setup" })
-    .click();
-  await page.waitForURL(/\/seasons\//);
-}
-```
-
-- [ ] **Step 5: Retarget the five form-driven tests**
-
-In the `Path 17 — Schedule Builder` describe block, change the `beforeEach` from:
-
-```ts
-    await signedInAs(page, "Manager");
-    await page.goto("/schedule-builder");
-```
-
-to:
-
-```ts
-    await signedInAs(page, "Manager");
-    await goToFallSeasonSetup(page);
-```
-
-Then fix the two tests that assert page-level chrome which only exists on `/schedule-builder`:
-
-- `"page loads with heading and active season description"` — move it out of the describe block into its own `test(...)` that navigates to `/schedule-builder` directly and keeps its current assertions.
-- `"scorekeeper cannot reach /schedule-builder"` — same; it already navigates itself, so just ensure it does not rely on the `beforeEach`.
-
-Leave the assertions inside the other tests unchanged.
-
-- [ ] **Step 6: Run the e2e suite**
-
-Run: `npm run test:e2e -- 11-schedule-builder`
-Expected: all tests pass. The UI has not changed yet, so any failure here is a seed or navigation problem, not a feature problem.
-
-- [ ] **Step 7: Run the full suite for seed fallout**
-
-Run: `npm run test:e2e`
-Expected: all pass. Pay attention to `03-seasons.spec.ts` — it asserts `toHaveCount(6)` on the *active* season's teams table and matches the seasons list row by `/Spring 2026/`, neither of which `Fall 2026` should disturb. If it fails, the new season leaked into a selector that needs narrowing.
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add supabase/seed.sql e2e/11-schedule-builder.spec.ts
-git commit -m "test: seed a season that hasn't started and target the builder at it"
-```
-
----
-
-### Task 6: The builder UI
-
-**Files:**
-- Create: `src/components/manage/publish-controls.tsx`
-- Modify: `src/components/manage/schedule-builder-panel.tsx`
-
-**Interfaces:**
-- Consumes: `publishMode` (Task 2), `getPublishState` / `SchedulePublishState` (Task 3), `publishSchedule` / `PublishState` (Task 4), `discardSchedule` (unchanged).
-- Produces: the five rendered modes. Task 7 asserts against them.
-
-The panel currently reads drafts only, which is exactly why it cannot see the problem.
-
-- [ ] **Step 1: Build the client controls**
+- [ ] **Step 4: Build the client controls**
 
 Create `src/components/manage/publish-controls.tsx`:
 
@@ -737,6 +738,9 @@ import {
 /**
  * Publish, or replace. Only a replace destroys anything, so only a replace is
  * confirmed — a season's first publish stays one click.
+ *
+ * The panel does not render this at all on a started season; see the mode gate
+ * in schedule-builder-panel.tsx.
  */
 export function PublishControls({
   seasonId,
@@ -829,16 +833,14 @@ export function PublishControls({
 }
 ```
 
-- [ ] **Step 2: Verify the dialog exports**
+- [ ] **Step 5: Verify the dialog exports**
 
-Run: `grep -n "^export" src/components/ui/dialog.tsx`
-If `DialogDescription` or `DialogFooter` is not exported, adjust the imports and markup to whatever the file does export rather than adding exports to a shadcn primitive.
+Run: `grep -n "^export\|export {" src/components/ui/dialog.tsx`
+If `DialogDescription` or `DialogFooter` is not exported, adjust the imports and markup above to what the file does export. Do not add exports to a shadcn primitive to satisfy this plan.
 
-- [ ] **Step 3: Wire the panel**
+- [ ] **Step 6: Wire the panel**
 
-In `src/components/manage/schedule-builder-panel.tsx`:
-
-Add to the imports:
+In `src/components/manage/schedule-builder-panel.tsx`, add to the imports:
 
 ```tsx
 import { getPublishState } from "@/lib/queries/schedule";
@@ -855,7 +857,7 @@ After the existing `const enrolledTeams = await getEnrolledTeams(...)` line, add
   const mode = publishMode(publish);
 ```
 
-Replace the `<Card>` holding `ScheduleGenerateForm` and the one-off paragraph that follows it with a conditional — when `mode === "locked"`, neither is offered:
+Replace the `<Card>` holding `ScheduleGenerateForm` and the one-off paragraph that follows it with:
 
 ```tsx
       {mode === "locked" ? (
@@ -928,38 +930,42 @@ Replace the `<Card>` holding `ScheduleGenerateForm` and the one-off paragraph th
       )}
 ```
 
-- [ ] **Step 4: Swap the publish form for the controls**
+- [ ] **Step 7: Swap the publish form for the controls — gated on mode**
 
-Inside the existing `(drafts ?? []).length === 0 ? ... : (...)` branch, replace the `<form action={publishSchedule}>…</form>` block (currently lines 196–199) with:
+Inside the existing `(drafts ?? []).length === 0 ? … : (…)` branch, replace the `<form action={publishSchedule}>…</form>` block (currently lines 196–199) with:
 
 ```tsx
-            <PublishControls
-              seasonId={seasonId}
-              draftCount={publish.draftCount}
-              liveCount={publish.liveCount}
-              firstLiveDate={publish.firstLiveDate}
-              lastLiveDate={publish.lastLiveDate}
-              lineupsAtRisk={publish.lineupsAtRisk}
-              destructive={mode === "replace"}
-            />
+            {mode === "locked" ? null : (
+              <PublishControls
+                seasonId={seasonId}
+                draftCount={publish.draftCount}
+                liveCount={publish.liveCount}
+                firstLiveDate={publish.firstLiveDate}
+                lastLiveDate={publish.lastLiveDate}
+                lineupsAtRisk={publish.lineupsAtRisk}
+                destructive={mode === "replace"}
+              />
+            )}
 ```
 
-Leave the `discardSchedule` form beside it exactly as it is — Discard stays available in every mode, including `locked`, so a stale draft can be cleared.
+**The `mode === "locked"` gate is not optional.** This draft section renders whenever drafts exist, independent of the mode above it. A started season with a stale draft — generated before the first game was played — would otherwise render a plain "Publish N games" button, because `destructive` is false when the mode is `locked` rather than `replace`. The RPC refuses it, so nothing is destroyed, but it is a button that can never succeed and it contradicts the five-mode table.
 
-- [ ] **Step 5: Typecheck and lint**
+Leave the `discardSchedule` form beside it exactly as it is. Discard stays available in every mode, including `locked`, which is how a stale draft gets cleared. The balance report and night listing also stay visible when locked — the manager needs to see the draft to decide to discard it.
+
+- [ ] **Step 8: Typecheck and lint**
 
 Run: `npx tsc --noEmit && npm run lint`
-Expected: clean. The Task 4 error about `<form action={publishSchedule}>` is now gone.
+Expected: clean.
 
-- [ ] **Step 6: Check it by hand**
+- [ ] **Step 9: Check it by hand**
 
-Run: `npm run dev`, sign in as Manager.
+Run `npm run dev`, sign in as Manager.
 
-- Visit `/schedule-builder` (active `Spring 2026`) → the locked card, no generate form.
-- Visit `/seasons` → Setup on `Fall 2026` → generate form present, "No draft schedule".
-- Generate a draft (first game night `2026-09-15`, 4 games per team, tick Tue and Thu) → "Publish N games", one click, no dialog. Click it → toast "Published N games."
-- Generate again → button now reads "Replace published schedule" → click → dialog names the live count, the date range and the calendar-feed warning → Replace → toast "Replaced the published schedule — removed D games, published N."
-- Confirm the season now holds one schedule's worth of games:
+- `/schedule-builder` (active `Spring 2026`) → the locked card, no generate form.
+- `/seasons` → Setup on `Fall 2026` → generate form present, "No draft schedule".
+- Generate a draft (first game night `2026-09-15`, 4 games per team, tick Tue and Thu) → "Publish N games", one click, no dialog. Click → toast "Published N games." and the page now shows "Published: N games".
+- Generate again → the button reads "Replace published schedule" → click → dialog names the live count, date range and calendar-feed warning → Replace → toast "Replaced the published schedule — removed D games, published N."
+- Confirm one schedule's worth of games:
 
 ```bash
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "
@@ -969,16 +975,28 @@ from games where season_id = (select id from seasons where name='Fall 2026');"
 
 Expected: `live` equals the draft count you just published; `drafts` is 0.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 10: Verify the locked-with-stale-draft case**
+
+The one the mode gate exists for, and not reachable through the UI. Generate a draft on `Fall 2026` but do **not** publish it, then push its live games into the past:
 
 ```bash
-git add src/components/manage/publish-controls.tsx src/components/manage/schedule-builder-panel.tsx
-git commit -m "feat: replace or lock the schedule builder by publish state"
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "
+update games set scheduled_at = scheduled_at - interval '1 year'
+where season_id = (select id from seasons where name='Fall 2026') and not is_draft;"
+```
+
+Reload the `Fall 2026` setup page. Expected: the locked card, the draft's balance report still listed, a **Discard draft** button, and **no publish or replace button anywhere**. Then `npm run db:reset` to undo.
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add src/lib/actions/schedule.ts src/components/manage/publish-controls.tsx src/components/manage/schedule-builder-panel.tsx
+git commit -m "feat: publishing replaces the live schedule and locks once started"
 ```
 
 ---
 
-### Task 7: End-to-end coverage
+### Task 6: End-to-end coverage
 
 **Files:**
 - Modify: `e2e/11-schedule-builder.spec.ts`
@@ -987,9 +1005,11 @@ git commit -m "feat: replace or lock the schedule builder by publish state"
 - Consumes: everything above.
 - Produces: regression cover for the reported bug.
 
+Assertions target rendered page state, not toasts. Sonner auto-dismisses, so a `getByText` on toast copy races the expect timeout; the re-rendered "Published: N games" line proves the same thing and is stable.
+
 - [ ] **Step 1: Add the two tests**
 
-Append inside the `Path 17 — Schedule Builder` describe block:
+Append inside the `Path 17 — Schedule Builder` describe block, **after** the existing `"generates a balanced draft"` test — it publishes into `Fall 2026` and leaves live games behind, and `workers: 1` with `fullyParallel: false` means tests run in file order:
 
 ```ts
   test("republishing replaces the schedule instead of stacking a second one", async ({
@@ -997,27 +1017,25 @@ Append inside the `Path 17 — Schedule Builder` describe block:
   }) => {
     // The reported bug: generate + publish twice left the season holding two
     // complete overlapping schedules, both live in the exports and standings.
-    await page.getByLabel("First game night").fill("2026-09-15");
-    await page.getByLabel("Games per team").fill("4");
-    await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
-    await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
-    await page.getByRole("button", { name: "Generate schedule" }).click();
+    const generate = async () => {
+      await page.getByLabel("First game night").fill("2026-09-15");
+      await page.getByLabel("Games per team").fill("4");
+      await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
+      await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
+      await page.getByRole("button", { name: "Generate schedule" }).click();
+    };
 
+    await generate();
     const publishButton = page.getByRole("button", { name: /Publish \d+ games/ });
     await expect(publishButton).toBeVisible();
-    const published = Number(
-      (await publishButton.textContent())!.match(/\d+/)![0],
-    );
+    const published = Number((await publishButton.textContent())!.match(/\d+/)![0]);
     await publishButton.click();
-    await expect(page.getByText(`Published ${published} games.`)).toBeVisible();
 
-    // Second pass — the button must now offer a replace, not another publish.
-    await page.getByLabel("First game night").fill("2026-09-15");
-    await page.getByLabel("Games per team").fill("4");
-    await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
-    await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
-    await page.getByRole("button", { name: "Generate schedule" }).click();
+    // Rendered state, not the toast — the toast auto-dismisses.
+    await expect(page.getByText(`Published: ${published} games`)).toBeVisible();
 
+    // Second pass — the button must offer a replace, not another publish.
+    await generate();
     await expect(
       page.getByRole("button", { name: "Replace published schedule" }),
     ).toBeVisible();
@@ -1028,9 +1046,10 @@ Append inside the `Path 17 — Schedule Builder` describe block:
     await expect(page.getByText(`This deletes ${published} live games`)).toBeVisible();
     await page.getByRole("button", { name: "Replace", exact: true }).click();
 
-    await expect(page.getByText(/Replaced the published schedule/)).toBeVisible();
-    // One schedule's worth, not two.
+    // One schedule's worth, not two. The draft is consumed, so the page falls
+    // back to "published" mode with the same count it had before.
     await expect(page.getByText(`Published: ${published} games`)).toBeVisible();
+    await expect(page.getByText("No draft schedule")).toBeVisible();
   });
 
   test("a started season locks the builder", async ({ page }) => {
@@ -1049,7 +1068,7 @@ Append inside the `Path 17 — Schedule Builder` describe block:
 Run: `npm run test:e2e -- 11-schedule-builder`
 Expected: all pass.
 
-If the replace test fails on ordering, note that it publishes into `Fall 2026` and leaves games behind, which the earlier `"generates a balanced draft"` test does not expect. Playwright runs tests in file order within a worker, so place this test **last** in the block, and have it clean up by discarding any leftover draft. Do not add cross-test state that later tests depend on.
+If the replace test's counts differ between the two generates, the generator produced a different number of games the second time — read the actual count from the Replace dialog copy rather than reusing `published`, and note it in the test.
 
 - [ ] **Step 3: Run everything**
 
@@ -1065,17 +1084,14 @@ git commit -m "test: cover republishing replacing a schedule and the started loc
 
 ---
 
-### Task 8: Update the handoff
+### Task 7: Update the handoff
 
 **Files:**
 - Modify: `EXPORTS_HANDOFF.md`
-- Modify: `AGENTS.md`
 
 `AGENTS.md` points agents at the handoffs as the place decisions live. A rule that silently deletes a season's games belongs there.
 
-- [ ] **Step 1: Add a section to `EXPORTS_HANDOFF.md`**
-
-Under §3 ("Decisions you can't recover from the code"), add:
+- [ ] **Step 1: Add to §3 ("Decisions you can't recover from the code")**
 
 ```markdown
 **Publishing replaces; a started season refuses.** `publishSchedule` calls
@@ -1092,36 +1108,37 @@ rest — that reintroduces exactly the class of bug the gate was written to make
 unreachable, and it needs the generator seeded with games-played and home/away
 already accrued or the back half of the season won't balance against the front.
 
-Note that `game_rosters` cascades on game delete, so a replace also discards
-lineups a captain set in advance. Reachable only before the season starts, and
-the confirm dialog says so.
+`game_rosters` cascades on game delete, so a replace also discards lineups a
+captain set in advance. Reachable only before the season starts, and the confirm
+dialog says so.
+
+The builder renders five modes off `publishMode`. The `locked` mode must
+suppress the publish control inside the *draft* section too, not just the
+generate form — a started season can still hold a stale draft, and that section
+renders on draft count alone.
 ```
 
-- [ ] **Step 2: Note the fixture dependency in §6 Gotchas**
-
-Add:
+- [ ] **Step 2: Add to §6 ("Gotchas")**
 
 ```markdown
 **The e2e builder tests depend on a season that hasn't started.** The seeded
 active season (`Spring 2026`, May–Jun 2026) is in the past and reads as started,
 so it renders the locked panel. `Fall 2026` exists in `supabase/seed.sql` purely
 to give the generate/publish flow somewhere to run. If the builder tests start
-failing with "Generate schedule not found", check that season still has zero
-games — publishing into it from a manual session will lock it on the next run
-only if a game's date has passed, so prefer far-future dates there.
+failing with "Generate schedule not found", check that season's games are still
+future-dated — anything that ages them past `now()` locks it.
 ```
 
-- [ ] **Step 3: Add the files table row**
-
-In §7, add:
+- [ ] **Step 3: Add the §7 files rows**
 
 | `supabase/migrations/0026_replace_published_schedule.sql` | `season_is_started`, `replace_published_schedule` |
 | `src/lib/schedule/publishMode.ts` + test | the builder's five modes |
+| `src/components/manage/publish-controls.tsx` | publish / replace, and the confirm dialog |
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add EXPORTS_HANDOFF.md AGENTS.md
+git add EXPORTS_HANDOFF.md
 git commit -m "docs: record that publishing replaces and a started season refuses"
 ```
 
@@ -1129,12 +1146,12 @@ git commit -m "docs: record that publishing replaces and a started season refuse
 
 ## Self-Review
 
-**Spec coverage.** Every section maps to a task: §1 started rule → Task 1; §2 replace function → Task 1; §3 actions and the message table → Task 4; §4 read path → Task 3; §5 UI modes and dialog → Tasks 2 and 6; §6 verification → Tasks 1 (SQL), 2 (unit), 7 (e2e); §7 deployment note → Task 1 Step 2.
+**Spec coverage.** Every section maps to a task: §1 started rule → Task 1; §2 replace function → Task 1; §3 actions and the message table → Task 5; §4 read path → Task 3; §5 UI modes and dialog → Tasks 2 and 5; §6 verification → Tasks 1 (SQL), 2 (unit), 6 (e2e); §7 deployment note → Task 1 Step 2.
 
-**One thing the spec did not anticipate:** the seeded active season is in the past and therefore started, so the existing e2e suite breaks the moment the UI becomes state-aware. Task 5 exists to cover that and has no counterpart section in the spec. It is a fixture gap the feature exposes, not a design change.
+**One thing the spec did not anticipate:** the seeded active season is in the past and therefore started, so the existing e2e suite breaks the moment the UI becomes state-aware. Task 4 exists to cover that and has no counterpart section in the spec. It is a fixture gap the feature exposes, not a design change.
 
-**Type consistency.** `SchedulePublishState` (Task 3) is consumed by `publishMode` (Task 2), which accepts a structural subset — `liveCount`, `draftCount`, `started` — so the full state satisfies it. `PublishState` (Task 4) is the action-state type and is distinct from `SchedulePublishState`; the names are close, and Task 6 imports both. `PublishMode` values are used verbatim in Task 6's comparisons (`"locked"`, `"replace"`, `"published"`).
+**Type consistency.** `SchedulePublishState` (Task 3) is consumed by `publishMode` (Task 2), which accepts a structural subset — `liveCount`, `draftCount`, `started` — so the full state satisfies it. `PublishState` (Task 5) is the action-state type and is distinct from `SchedulePublishState`; the names are close, and Task 5 uses both. `PublishMode` values appear verbatim in Task 5's comparisons (`"locked"`, `"replace"`, `"published"`).
 
-**Verified while writing, not left to the implementer:** `requireManager()` returns `Promise<SessionUser>` with `id: string`; `components/ui/dialog.tsx` exists; `Toaster` is mounted globally in `src/app/layout.tsx:52`; `useActionState` is the established action pattern across `src/components/manage/`; local Postgres is on port 54322.
+**Verified against the codebase while writing, not assumed:** `requireManager()` returns `Promise<SessionUser>` with `id: string`; `season_teams` is `(season_id, team_id)` with a unique pair; the seed body is one `do $$ declare … begin` block, so a nested `declare` is valid; `playwright.config.ts` sets `fullyParallel: false, workers: 1`, so e2e state carries in file order; `Toaster` is mounted at `src/app/layout.tsx:52`; `useActionState` is the established pattern across `src/components/manage/`; local Postgres is on port 54322.
 
-**Known soft spot.** Task 6 Step 2 still asks the implementer to confirm `dialog.tsx`'s exact exports before importing `DialogDescription`/`DialogFooter`. The file exists but its export list was not read, and adding exports to a shadcn primitive to satisfy this plan would be the wrong fix.
+**Known soft spot.** Task 5 Step 5 still asks the implementer to confirm `dialog.tsx`'s exact export list before importing `DialogDescription`/`DialogFooter`. The file exists but its export list was not read, and adding exports to a shadcn primitive to satisfy this plan would be the wrong fix.
