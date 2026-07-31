@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
+import { logAudit } from "@/lib/audit";
 import { buildBalancedPairings } from "@/lib/schedule/roundRobin";
 import { assignNights } from "@/lib/schedule/assignNights";
 import { enumerateNights } from "@/lib/schedule/capacity";
@@ -26,6 +27,14 @@ type Admin = ReturnType<typeof createAdminClient>;
  * The season to operate on: an explicit `season_id` from the form (validated to
  * the current league — used by the per-season setup hub), else the active season
  * (used by the standalone /schedule-builder).
+ *
+ * An explicit id that doesn't resolve returns null rather than falling back.
+ * Falling back retargets the write at a season the manager never named: the
+ * `obhl_league` cookie is global, so switching league in a second tab makes the
+ * first tab's `/seasons/<A>` form resolve against league B, where season A
+ * doesn't exist. Every action here now replaces or repairs a published
+ * schedule, so the fallback's cost is league B's active season losing its games
+ * — refusing is the only safe reading of "I asked for A and A isn't here".
  */
 async function targetSeason(admin: Admin, explicit = "") {
   const league = await resolveCurrentLeague(admin);
@@ -38,7 +47,7 @@ async function targetSeason(admin: Admin, explicit = "") {
       .eq("id", explicit)
       .eq("league_id", league.id)
       .maybeSingle();
-    if (data) return data.id;
+    return data?.id ?? null;
   }
 
   const { data: season } = await admin
@@ -62,6 +71,22 @@ export async function generateSchedule(formData: FormData) {
   const admin = createAdminClient();
   const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
   if (!seasonId) return;
+
+  // A started season can't publish, so it shouldn't accept a draft either —
+  // generating one would only produce a preview that can never be applied. Same
+  // rule as the publish gate, read from the same function.
+  //
+  // Fail closed on an RPC error, matching getPublishState: if we can't tell
+  // whether the season has started, don't generate. Reading the error as "not
+  // started" is the wrong way round — it discards the season's existing drafts
+  // (see the delete further down) to build a preview that is refused at publish
+  // time, and it makes this the one place in the feature where an unreadable
+  // gate means "go ahead".
+  const { data: startedGuard, error: startedError } = await admin.rpc(
+    "season_is_started",
+    { p_season: seasonId },
+  );
+  if (startedError || startedGuard !== false) return;
 
   const { data: season } = await admin
     .from("seasons")
@@ -175,21 +200,161 @@ export async function generateSchedule(formData: FormData) {
   revalidatePath(`/seasons/${seasonId}`);
 }
 
-/** Publish the draft schedule (drafts become live games). */
-export async function publishSchedule(formData: FormData) {
-  await requireManager();
-  const admin = createAdminClient();
-  const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
-  if (!seasonId) return;
-  await admin
-    .from("games")
-    .update({ is_draft: false })
-    .eq("season_id", seasonId)
-    .eq("is_draft", true);
+export type PublishState = { ok: boolean; message: string } | null;
+
+/**
+ * Every path whose view of a season's games a publish or replace can change.
+ *
+ * Refusals revalidate too. A refusal *means* this tab is stale — the season
+ * started, or the draft was discarded in another tab — so returning the message
+ * without this leaves the manager looking at the draft that no longer exists,
+ * under a button that will fail the same way again.
+ */
+function revalidateAfterPublish(seasonId: string) {
   revalidatePath("/schedule-builder");
   revalidatePath(`/seasons/${seasonId}`);
   revalidatePath("/schedule");
+  // The scoring list reads through getSchedule, so a replace changes which games
+  // it shows. The old publishSchedule didn't revalidate it either — that gap was
+  // invisible while publishing only ever added games.
+  revalidatePath("/score");
   revalidatePath("/");
+}
+
+/**
+ * Publish the draft schedule, replacing whatever is already live.
+ *
+ * The delete and the promotion happen inside `replace_published_schedule` so
+ * they commit together — as two calls from here, a failure between them would
+ * leave the season with no games at all, the old schedule gone and the new one
+ * still in draft.
+ *
+ * Refusals are ordinary outcomes of a stale page, not faults: the manager's tab
+ * may have been open since before the first game was played, or the draft may
+ * have been discarded in another tab. Both come back as a message.
+ */
+export async function publishSchedule(
+  _prev: PublishState,
+  formData: FormData,
+): Promise<PublishState> {
+  const user = await requireManager();
+  const admin = createAdminClient();
+  const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
+  if (!seasonId) return { ok: false, message: "No season selected." };
+
+  const { data, error } = await admin.rpc("replace_published_schedule", {
+    p_season: seasonId,
+  });
+  if (error) return { ok: false, message: error.message };
+
+  const row = data?.[0];
+  if (!row) return { ok: false, message: "Nothing happened — try again." };
+
+  if (row.refused === "started") {
+    revalidateAfterPublish(seasonId);
+    return {
+      ok: false,
+      message: "The season is under way — the schedule can no longer be replaced.",
+    };
+  }
+  if (row.refused === "no_draft") {
+    revalidateAfterPublish(seasonId);
+    return { ok: false, message: "There's no draft to publish." };
+  }
+
+  // A replace deletes live games, which is the most destructive thing a manager
+  // can do here. A first publish deletes nothing and stays unaudited, matching
+  // the bar the rest of games.ts sets.
+  if (row.deleted > 0) {
+    void logAudit({
+      user_id: user.id,
+      action: "replace_schedule",
+      entity_type: "season",
+      entity_id: seasonId,
+      old_data: { published_games: row.deleted },
+      new_data: { published_games: row.published },
+    });
+  }
+
+  revalidateAfterPublish(seasonId);
+
+  return {
+    ok: true,
+    message:
+      row.deleted > 0
+        ? `Replaced the published schedule — removed ${row.deleted} games, published ${row.published}.`
+        : `Published ${row.published} games.`,
+  };
+}
+
+export type RemoveState = { ok: boolean; message: string } | null;
+
+/**
+ * Delete a season's published schedule, leaving it with no games.
+ *
+ * The counterpart to `publishSchedule` rather than a variant of it: replacing
+ * needs a draft standing ready, and this exists for the case where there is
+ * nothing to put in the old schedule's place.
+ *
+ * Refusals are ordinary outcomes of a stale page, not faults: the season may
+ * have started since the tab was opened, or another tab may already have
+ * removed the schedule. Both come back as a message, and both revalidate — a
+ * refusal means this tab's view is already wrong.
+ */
+export async function removeSchedule(
+  _prev: RemoveState,
+  formData: FormData,
+): Promise<RemoveState> {
+  const user = await requireManager();
+  const admin = createAdminClient();
+  const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
+  if (!seasonId) return { ok: false, message: "No season selected." };
+
+  const { data, error } = await admin.rpc("remove_published_schedule", {
+    p_season: seasonId,
+  });
+  if (error) return { ok: false, message: error.message };
+
+  const row = data?.[0];
+  if (!row) return { ok: false, message: "Nothing happened — try again." };
+
+  if (row.refused === "started") {
+    revalidateAfterPublish(seasonId);
+    return {
+      ok: false,
+      message: "The season is under way — the schedule can no longer be removed.",
+    };
+  }
+  if (row.refused === "no_games") {
+    revalidateAfterPublish(seasonId);
+    return { ok: false, message: "There's no published schedule to remove." };
+  }
+
+  // Audited unconditionally. publishSchedule exempts a first publish because it
+  // destroys nothing; every successful removal destroys live games, so there is
+  // no equivalent cheap case here.
+  //
+  // Awaited, unlike the rest of the app's audit calls. A `void` promise can be
+  // left unfinished when the runtime freezes the function after the response,
+  // and this is the one audit record whose loss would leave a season's schedule
+  // gone with nothing saying who removed it. logAudit swallows its own errors
+  // (src/lib/audit.ts), so awaiting cannot turn a successful removal into a
+  // reported failure — it only costs one insert's latency.
+  await logAudit({
+    user_id: user.id,
+    action: "remove_schedule",
+    entity_type: "season",
+    entity_id: seasonId,
+    old_data: { published_games: row.deleted },
+    new_data: { published_games: 0 },
+  });
+
+  revalidateAfterPublish(seasonId);
+
+  return {
+    ok: true,
+    message: `Removed the published schedule — ${row.deleted} games deleted.`,
+  };
 }
 
 /** Discard all draft games for the season. */
