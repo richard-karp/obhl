@@ -333,7 +333,14 @@ export async function removeSchedule(
   // Audited unconditionally. publishSchedule exempts a first publish because it
   // destroys nothing; every successful removal destroys live games, so there is
   // no equivalent cheap case here.
-  void logAudit({
+  //
+  // Awaited, unlike the rest of the app's audit calls. A `void` promise can be
+  // left unfinished when the runtime freezes the function after the response,
+  // and this is the one audit record whose loss would leave a season's schedule
+  // gone with nothing saying who removed it. logAudit swallows its own errors
+  // (src/lib/audit.ts), so awaiting cannot turn a successful removal into a
+  // reported failure — it only costs one insert's latency.
+  await logAudit({
     user_id: user.id,
     action: "remove_schedule",
     entity_type: "season",
