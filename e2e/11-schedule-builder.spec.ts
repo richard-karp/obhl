@@ -206,6 +206,14 @@ test.describe("Path 17 — Schedule Builder", () => {
     // so the republish test above normally leaves Fall 2026 already published
     // and this branch does not run — but the test then still works under `-g`
     // in isolation, or if the tests above are reordered.
+    // Wait for the panel to have rendered before probing. `count()` resolves
+    // immediately, so probing first can read 0 on a season that *is* published
+    // and send this down the publish branch — where the button reads "Replace
+    // published schedule" and the publish click times out instead.
+    await expect(
+      page.getByText(/Published: \d+ games|No draft schedule/).first(),
+    ).toBeVisible();
+
     const removeButton = page.getByRole("button", {
       name: "Remove published schedule",
     });
