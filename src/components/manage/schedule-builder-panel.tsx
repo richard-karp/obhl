@@ -63,7 +63,14 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
   const readFailed = publish.readFailed || !!draftsError;
   if (draftsError) console.error("draft read failed:", draftsError.message);
 
-  const mode = publishMode({ ...publish, started: publish.started || readFailed });
+  // `!!draftsError`, not `readFailed`: getPublishState already forces its own
+  // `started` true when its reads fail, so the only thing this term adds is the
+  // draft read above. Passing `readFailed` here would imply both halves are
+  // load-bearing when one is already folded in.
+  const mode = publishMode({
+    ...publish,
+    started: publish.started || !!draftsError,
+  });
 
   // One source for "is there a draft to act on": getPublishState's exact server
   // count, not the length of the row list rendered below it. They are separate
@@ -317,7 +324,16 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
         mode === "locked" ? null : (
           <EmptyState
             title="No draft schedule"
-            description="Generate one above to preview it here before publishing."
+            // Suppressed in published mode, where the block above already says
+            // "generate a new one above" as part of explaining how to replace.
+            // Two copies of the same instruction, a few elements apart, read as
+            // a seam rather than as emphasis. The card itself stays: it still
+            // tells the manager there is nothing staged to preview.
+            description={
+              mode === "published"
+                ? undefined
+                : "Generate one above to preview it here before publishing."
+            }
           />
         )
       ) : (
