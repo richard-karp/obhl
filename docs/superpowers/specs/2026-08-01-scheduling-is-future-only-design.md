@@ -166,15 +166,15 @@ holes in it and report success.
 
 ### `season_is_started`
 
-Stays in the database. Gates nothing. It is read only to tell the manager where
-a season stands, and its comment is rewritten to say so — a function whose name
-still described a gate it no longer operates is the kind of drift the codebase's
-own comments warn about.
+Stays in the database. Gates nothing, and — once §5's `playedCount` lands — is
+read by nothing: "the season is under way" is `playedCount > 0`, which says it
+better and comes from the same snapshot as every other number on the screen.
 
-Dropping it instead was considered and rejected: it is applied to production in
-`0026`, the information it carries is still wanted by the UI, and a
-`drop function` in the same migration that rewires two callers makes the
-rollback story worse for no gain.
+It is kept anyway, because `0026` and `0027` are applied to production and a
+rollback to their code has to find the function still there. Its comment is
+rewritten to say exactly that, so the next reader is not left inferring a live
+gate from a function nothing calls. Dropping it belongs in a later migration,
+once no deployed code path can want it.
 
 ## 5. App layer
 
