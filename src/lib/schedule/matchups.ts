@@ -334,9 +334,16 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
   // as multisets, and per pair the candidates that contain it, so the receiving
   // night is enumerated over the few matchings that can take the meeting rather
   // than over all of them.
-  const candKeys: number[][][] = options.map((ms) =>
-    ms.map((m) => m.map(([a, b]) => pairKey(a, b)).sort((x, y) => x - y)),
-  );
+  //
+  // Skipped entirely on a one-weekday cadence, where `compoundPass` returns at
+  // its first line: at the enumeration ceiling this is a thousand candidates a
+  // night indexed twice over, and every mid-season repair pays for it four times.
+  const candKeys: number[][][] =
+    D > 1
+      ? options.map((ms) =>
+          ms.map((m) => m.map(([a, b]) => pairKey(a, b)).sort((x, y) => x - y)),
+        )
+      : [];
   const withPair: Map<number, number[]>[] = candKeys.map((ks) => {
     const byKey = new Map<number, number[]>();
     ks.forEach((keys, idx) => {
