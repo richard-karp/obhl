@@ -1,5 +1,12 @@
 # Phase S Best-of-k Weight Selection Implementation Plan
 
+> **STATUS: implemented 2026-08-12** (commits `a947c8f`, `fd4663e`, `606de4d`,
+> `65a6883`). Two decisions below were **overruled during execution** because the
+> code contradicted them; both are marked ⛔ in Global Constraints. Read those
+> before treating any statement here as current. `SCHEDULE_HANDOFF.md` §5 carries
+> what actually shipped — this file is now a record of the reasoning, not a
+> description of the code.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stop depending on one hand-tuned `STREAK3_W` value by running Phase S at several weights and keeping the winner under a lexicographic ranking of the reported ice-time metrics.
@@ -12,8 +19,9 @@
 
 - **Rematch spacing is protected.** All four rematch metrics are 0 on the reference season and must stay 0. Nothing in this plan touches Phase M, but any change that moves them is a regression.
 - **Never regress the priority order.** `rankSchedule`'s order is: everything placed ▸ weekday balance ▸ byes ▸ rematch ▸ ice time. This plan operates strictly *inside* the ice-time family and must not reorder anything above it.
-- **Ice-time sub-order, decided:** season share ▸ per-weekday share ▸ `slotStreak3` ▸ `slotConsecutive`. Season share leads because breaking the 12/12/12 season split is the failure mode that has fooled this search twice — simulated annealing "beat" 41 that way, and so did every spread-4 candidate found in a restart-pool probe on 2026-08-12. If the league ever decides per-weekday fairness outweighs season fairness, `compareIceOutcome` is the single place to change it.
-- **`STREAK3_W` default stays 160.** It remains the first candidate so the guarantee holds.
+- ⛔ **Ice-time sub-order — SUPERSEDED.** As planned: season share ▸ per-weekday share ▸ `slotStreak3` ▸ `slotConsecutive`. Season share leads because breaking the 12/12/12 season split is the failure mode that has fooled this search twice — simulated annealing "beat" 41 that way, and so did every spread-4 candidate found in a restart-pool probe on 2026-08-12. **That part stands.** What did not: putting the per-weekday share above `slotStreak3` made `compareIceOutcome` buy a flat weekday split with a three-game run, which goal 4 states as a never and `assignNights.test.ts` already asserted at 0. Measured during Task 4: the 140 candidate leaves a run in two runs out of three, so this was not an edge case. **Shipped order: season share ▸ `slotStreak3` ▸ per-weekday share ▸ `slotConsecutive`.** `compareIceOutcome` remains the single place to change it.
+- ⛔ **The one-off repair does NOT use `compareIceOutcome` — SUPERSEDED.** Task 2 as written filters repair plans with it. In practice a lexicographic rule keeps a plan that wins on season share while losing on every other ice metric, which is what the repair's own test rejects. The repair instead compares **each of the four metrics separately** against the no-repair baseline, and *flags* rather than drops a plan that regresses one — a strict drop would leave seasons with no repair offered at all. So the generator ranks lexicographically and the repair ranks per-metric, **on purpose**. They are not two copies of one rule that drifted apart; do not "unify" them.
+- **`STREAK3_W` default stays 160.** It remains the first candidate so the guarantee holds. Shipped as four candidates, not two: 160 once, then 140 on three seeds, because 140 is the unstable one and the reordered comparator declines any of its samples that carries a three-game run.
 - **Do not rescale `MULT_W` or the `SPACING_W` rematch weights** without rescaling `oneOff.ts`'s `nightPenalty` churn in the same change. No test covers this coupling; it fails silently. See `SCHEDULE_HANDOFF.md` §5.
 - **Verify with:** `npx vitest run && npm run lint && npx tsc --noEmit`. Baseline before this plan: **214 pass**, lint clean, tsc clean.
 
