@@ -119,6 +119,47 @@ test.describe("Path 17 — Schedule Builder", () => {
     await expect(page.getByText("No draft schedule")).toBeVisible();
   });
 
+  test("spacing checks report every goal the generator models", async ({ page }) => {
+    // The generator models four goals the panel is the only place a manager can
+    // see. They are computed server-side per draft, so nothing below asserts a
+    // *value* — a four-game fixture is not the reference season and its numbers
+    // are its own. What is asserted is that each check reaches the screen, which
+    // is what nothing covered before.
+    await page.getByLabel("First game night").fill("2026-09-15");
+    await page.getByLabel("Games per team").fill("4");
+    await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
+    await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
+    await page.getByRole("button", { name: "Generate schedule" }).click();
+    await expect(page.getByText("Balance report")).toBeVisible();
+
+    await expect(page.getByText("Spacing checks")).toBeVisible();
+    for (const label of [
+      "Teams byeing back-to-back game nights",
+      "Matchups off an even weekday split",
+      "Uneven ice time within a night of the week",
+      "Three games in a row in one ice time",
+    ]) {
+      await expect(page.getByText(label, { exact: true })).toBeVisible();
+    }
+
+    // No assertion here on what "Matchups off an even weekday split" *reads*.
+    // The row once showed `pairingWeekdayExcess`, a summed squared deviation —
+    // 8 where two matchups were off, and 3.7872 on a season whose weekday night
+    // counts do not divide evenly — and a guard against that regressing belongs
+    // where it can bite. It cannot bite here: a fixture this small reaches a
+    // perfect split, so the score and the count are both 0 and both render as a
+    // tick. Tried it, reverted the row to the score, and this test still passed.
+    // The real guard is `spacingReport — pairingsOffWeekdaySplit` in
+    // `spacing.test.ts`, which builds the uneven cadence that separates them.
+
+    // Informational, and deliberately not a check: it has no zero to reach, so
+    // it sits outside the tick list with its own explanation.
+    await expect(page.getByText(/Longest stretch without a game/)).toBeVisible();
+
+    await page.getByRole("button", { name: "Discard draft" }).click();
+    await expect(page.getByText("No draft schedule")).toBeVisible();
+  });
+
   test("republishing replaces the schedule instead of stacking a second one", async ({
     page,
   }) => {
