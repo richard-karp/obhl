@@ -29,10 +29,22 @@ import { assignHomeAway, homeAwaySpread, type OrientableGame } from "./homeAway"
 import {
   buildNightMeta,
   spacingReport,
+  type IceOutcome,
   type PlacedGame,
   type SpacingReport,
 } from "./spacing";
 import type { Night } from "./assignNights";
+
+/** A plan's ice-time result, in the shape `compareIceOutcome` ranks. */
+const outcomeOf = (p: {
+  slotSpreadAfter: number;
+  spacingAfter: SpacingReport;
+}): IceOutcome => ({
+  seasonSpread: p.slotSpreadAfter,
+  weekdaySpread: p.spacingAfter.slotWeekdaySpread,
+  streak3: p.spacingAfter.slotStreak3,
+  consecutive: p.spacingAfter.slotConsecutive,
+});
 
 /**
  * Churn weights. All sit far below Phase M's `MULT_W` (50_000) so opponent
@@ -84,6 +96,34 @@ export type OneOffPlan = {
   slotSpreadAfter: number;
   homeAwaySpreadBefore: number;
   homeAwaySpreadAfter: number;
+  /**
+   * Ice-time metrics this plan leaves worse than the no-repair baseline — empty
+   * when it is at least as good on all four, and always empty on `no-repair`
+   * itself. A repair that regresses one of these is still offered, because the
+   * alternative is offering nothing at all on seasons where every repair trades
+   * one ice metric for another; it is flagged instead so the choice is the
+   * user's rather than the search's. Measured against leaving the season alone,
+   * not against the pre-edit schedule — those differ once the one-off lands.
+   */
+  worseThan: IceMetric[];
+};
+
+/** The ice-time metrics a repair is judged on, in the order the UI reads them. */
+export type IceMetric = "seasonSpread" | "weekdaySpread" | "streak3" | "consecutive";
+
+const ICE_METRICS: IceMetric[] = [
+  "seasonSpread",
+  "weekdaySpread",
+  "streak3",
+  "consecutive",
+];
+
+/** How each metric reads in the repair dialog. */
+export const ICE_METRIC_LABEL: Record<IceMetric, string> = {
+  seasonSpread: "season ice-time share",
+  weekdaySpread: "per-weekday ice-time share",
+  streak3: "three-game ice-time runs",
+  consecutive: "back-to-back ice times",
 };
 
 export type OneOffResult =
@@ -539,6 +579,7 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
           slotSpreadAfter: slotSpreadBefore,
           homeAwaySpreadBefore,
           homeAwaySpreadAfter: homeAwaySpreadBefore,
+          worseThan: [], // changes nothing, so it cannot be worse than anything
         },
       ],
     };
@@ -700,6 +741,7 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
       slotSpreadAfter: iceTimeSpread(T, final),
       homeAwaySpreadBefore,
       homeAwaySpreadAfter: homeAwaySpread(T, final.flat()),
+      worseThan: [], // filled in below, once the baseline to compare against exists
     };
   }
 
@@ -747,6 +789,26 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
     if (seen.has(sig)) continue;
     seen.add(sig);
     plans.push(p);
+  }
+
+  // A repair that leaves the season worse on ice time than doing nothing is not
+  // much of a repair. The search descends on a blended scalar, which can trade
+  // any one of these metrics for a gain in another, so check each against the
+  // no-repair baseline separately rather than through a ranking that would let
+  // a win on the first term excuse a loss on the rest.
+  //
+  // Flagged rather than dropped: on seasons where every repair trades one ice
+  // metric for another, dropping would leave the user with no repair offered at
+  // all for a schedule that still needs one. The plan is shown with the
+  // regression named, which is the honest version of the same guarantee.
+  const baselinePlan = plans.find((p) => p.id === "no-repair");
+  if (baselinePlan) {
+    const base = outcomeOf(baselinePlan);
+    for (const p of plans) {
+      if (p.id === "no-repair") continue;
+      const mine = outcomeOf(p);
+      p.worseThan = ICE_METRICS.filter((m) => mine[m] > base[m]);
+    }
   }
 
   return { ok: true, plans, relabelOnly: false };

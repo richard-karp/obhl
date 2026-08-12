@@ -343,6 +343,8 @@ describe("compareIceOutcome", () => {
 });
 
 describe("iceOutcome", () => {
+  // Generates a real season, so it pays Phase S's full production budget — which
+  // is the point of the test, and is why it needs more than the default 5 s.
   it("agrees with spacingReport on a generated season", () => {
     const ts = Array.from({ length: 8 }, (_, i) => `t${i + 1}`);
     const ns = enumerateNights("2026-09-10", {
@@ -363,5 +365,5 @@ describe("iceOutcome", () => {
       0,
     );
     expect(out.seasonSpread).toBe(seasonSpread);
-  });
+  }, 30_000);
 });

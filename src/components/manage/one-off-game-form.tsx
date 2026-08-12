@@ -6,7 +6,11 @@ import {
   applyOneOffGame,
   type OneOffPreview,
 } from "@/lib/actions/schedule";
-import type { OneOffPlan, OneOffRound } from "@/lib/schedule/oneOff";
+import {
+  ICE_METRIC_LABEL,
+  type OneOffPlan,
+  type OneOffRound,
+} from "@/lib/schedule/oneOff";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -458,11 +462,27 @@ function PlanCard({
               after={plan.slotSpreadAfter}
             />
             <Metric
+              label="weekday ice"
+              before={plan.spacingBefore.slotWeekdaySpread}
+              after={plan.spacingAfter.slotWeekdaySpread}
+            />
+            <Metric
               label="home/away"
               before={plan.homeAwaySpreadBefore}
               after={plan.homeAwaySpreadAfter}
             />
           </div>
+          {/*
+            Measured against leaving the season alone, not against the numbers
+            above — those read from the pre-edit schedule. A repair can improve
+            on the incumbent and still be the worse of the two ways forward.
+          */}
+          {plan.worseThan.length > 0 ? (
+            <div className="text-amber-600 dark:text-amber-400 text-xs">
+              ⚠ worse than leaving the season alone:{" "}
+              {plan.worseThan.map((m) => ICE_METRIC_LABEL[m]).join(", ")}
+            </div>
+          ) : null}
         </div>
       </label>
 

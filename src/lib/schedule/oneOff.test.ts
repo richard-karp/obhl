@@ -9,6 +9,7 @@ import {
   iceTimeSpread,
   type BuildRowsOptions,
   type CheckWriteOptions,
+  type IceMetric,
   type OneOffNight,
   type OneOffPlan,
   type OneOffRow,
@@ -249,6 +250,14 @@ describe("planOneOff", () => {
     // at the incumbent's 4 and the per-weekday spread comes down to 17. So the
     // assertion is the one that survives: never worse than leaving it alone, on
     // either measure.
+    //
+    // At production's Phase S budget the repair reaches a trade the 400 ms
+    // fixture never found — season 8 → 4 while per-weekday goes 13 → 15 — so
+    // "never worse on either measure" is no longer free. The guarantee is
+    // unchanged but now carried by `worseThan`: a repair that regresses any of
+    // the four reported ice metrics has to name it, and one that names nothing
+    // has to be clean on all four. Spelled out here rather than reusing
+    // `oneOff.ts`'s own helper, so the two derivations stay independent.
     const res = planOneOff({
       teamCount: T,
       nights,
@@ -261,11 +270,24 @@ describe("planOneOff", () => {
     const baseline = res.plans.find((p) => p.id === "no-repair")!;
     const repairs = res.plans.filter((p) => p.id !== "no-repair");
     expect(repairs.length).toBeGreaterThan(0);
+    expect(baseline.worseThan).toEqual([]);
     for (const plan of repairs) {
-      expect(plan.slotSpreadAfter).toBeLessThanOrEqual(baseline.slotSpreadAfter);
-      expect(plan.spacingAfter.slotWeekdaySpread).toBeLessThanOrEqual(
-        baseline.spacingAfter.slotWeekdaySpread,
-      );
+      const regressed: IceMetric[] = [];
+      if (plan.slotSpreadAfter > baseline.slotSpreadAfter) {
+        regressed.push("seasonSpread");
+      }
+      if (
+        plan.spacingAfter.slotWeekdaySpread > baseline.spacingAfter.slotWeekdaySpread
+      ) {
+        regressed.push("weekdaySpread");
+      }
+      if (plan.spacingAfter.slotStreak3 > baseline.spacingAfter.slotStreak3) {
+        regressed.push("streak3");
+      }
+      if (plan.spacingAfter.slotConsecutive > baseline.spacingAfter.slotConsecutive) {
+        regressed.push("consecutive");
+      }
+      expect(plan.worseThan).toEqual(regressed);
     }
   });
 

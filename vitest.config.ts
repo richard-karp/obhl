@@ -8,12 +8,12 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
-    // The schedule generator gives its ice-time search a multi-second budget in
-    // production, which would put the suite in double figures. Tests assert the
-    // balance the search reaches quickly (an even slot share); grinding out the
-    // last few back-to-back repeats isn't what they're checking.
+    // Phase S is measured at the budget production actually uses. A shorter
+    // budget here once hid a real defect: the one-off repair could return a plan
+    // worse than leaving the season alone, and the test only passed because the
+    // fixture it built was a 400 ms season.
     env: {
-      OBHL_SLOT_BUDGET_MS: "400",
+      OBHL_SLOT_BUDGET_MS: "5000",
       OBHL_SLOT_RESTARTS: "2000",
     },
   },
