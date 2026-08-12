@@ -260,18 +260,18 @@ describe("assignNights — full-season reference schedule", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Four goals the generator does not model yet. These assert TODAY's measured
-  // values, not the target ones — each is the "before" of a later step, so
-  // improving a goal is a single assertion flip and nothing can regress quietly.
+  // The four goals the generator was missing. All four are modelled now, so
+  // these assert what it achieves rather than what it used to.
   //
-  // Two calibration notes for whoever flips them:
+  // Two calibration notes:
   //  * These run under `vitest.config.ts`, which pins OBHL_SLOT_BUDGET_MS to 400
-  //    against production's 5000. Phase P and M are unaffected (byesAdjNight and
-  //    pairingWeekdayExcess read the same 0 and 94 at both budgets), but the
-  //    Phase S numbers do not: at production budget this same calendar gives
-  //    slotWeekdaySpread 60 / slotStreak3 4 / slotConsecutive 43. Measure
-  //    through `vitest.measure.ts` before believing a Phase S result.
-  //  * Phase S stops on wall clock, so its two metrics are asserted as bounds
+  //    against production's 5000. Phases P and M read the same at both budgets;
+  //    Phase S does not, so a goal-3 or goal-4 number seen here is not evidence
+  //    about the shipped one. Measure those through `vitest.measure.ts`. Both
+  //    figures are in each comment below, and they agree today — which is itself
+  //    the change: before Step 3 the long grind made the weekday split *worse*,
+  //    and now it does not.
+  //  * Phase S stops on wall clock, so goals 3 and 4 are asserted as bounds
   //    rather than exact values; the measured figures are in the comments.
   // ---------------------------------------------------------------------------
 
@@ -314,19 +314,29 @@ describe("assignNights — full-season reference schedule", () => {
     expect(report.spacing.pairingWeekdayExcess).toBe(8);
   });
 
-  it("goal 3: shares ice evenly over the season but not within a weekday", () => {
-    // Every team is 12-12-12 across the season (asserted above) while only one
-    // is even on both weekdays; the worst sits at 8-2-8 Mon / 4-10-4 Thu.
-    // Target: well down from here. Measured today: 36 at this budget, 44 at
-    // production budget — the long Phase S grind currently makes this *worse*
-    // while it chases slotConsecutive, which Step 3 has to rebalance.
-    expect(report.spacing.slotWeekdaySpread).toBeGreaterThan(20);
+  it("goal 3: shares each ice time evenly within each weekday too", () => {
+    // Was 56, with only one team even on both weekdays and the worst at
+    // 9-5-4 Mon / 3-7-8 Thu. Now 14 of the 16 team-weekday cells read exactly
+    // 6-6-6 and the other two are one step off, which is what a spread of 8
+    // means here. Measured: 8 at this budget and 8 at production budget.
+    //
+    // Not 0, and deliberately: the last of it is what buys goal 4. On this
+    // calendar the seed reaches a perfect 6-6-6 everywhere with two three-game
+    // runs left in the end-of-season tail, and no move breaks a run without
+    // taking some team a step off its split. `STREAK3_W` is the price the
+    // search is allowed to pay, and 8 is what it pays. The season share is
+    // unaffected — every team is still 12-12-12, asserted above.
+    expect(report.spacing.slotWeekdaySpread).toBeLessThanOrEqual(12);
   });
 
-  it("goal 4: still runs teams three games deep in one ice time", () => {
-    // Costed today as two ordinary back-to-back repeats, so nothing prefers two
-    // separate 2-runs to one 3-run. Target: 0. Measured today: 7 at this
-    // budget, 4 at production budget.
-    expect(report.spacing.slotStreak3).toBeGreaterThan(0);
+  it("goal 4: never runs a team three games deep in one ice time", () => {
+    // Was 3, costed as two ordinary back-to-back repeats so that nothing
+    // preferred two separate 2-runs to one 3-run. Now charged apart, and above
+    // what breaking a run costs in ice share, so the schedule has none.
+    // Measured: 0 at this budget and 0 at production budget.
+    expect(report.spacing.slotStreak3).toBe(0);
+    // The accepted trade, stated so a regression cannot hide as an improvement:
+    // ordinary repeats were 39 before and may rise. Measured: 46 at both.
+    expect(report.spacing.slotConsecutive).toBeLessThanOrEqual(55);
   });
 });

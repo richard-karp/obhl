@@ -1396,6 +1396,7 @@ function planByParticipation(
     teamCount: T,
     pairsByNight: matched.pairsByNight,
     slotsPerNight: nights.map((n) => n.slots.length),
+    weekdayOfNight: meta.nightW,
     restarts: SLOT_RESTARTS,
     timeBudgetMs: SLOT_BUDGET_MS,
   });

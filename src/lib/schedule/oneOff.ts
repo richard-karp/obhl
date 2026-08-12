@@ -603,6 +603,9 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
       teamCount: T,
       pairsByNight,
       slotsPerNight: pairsByNight.map((ps) => ps.length),
+      weekdayOfNight: meta.weekday,
+      // Without this the repair scores ice-time share season-wide only and
+      // quietly undoes the per-weekday split generation achieved.
       seed,
       // Let the clock be the bound, not the kick count — Phase S's loop stops at
       // whichever comes first, and a frozen-night repair needs the kicks.

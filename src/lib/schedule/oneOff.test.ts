@@ -236,9 +236,19 @@ describe("planOneOff", () => {
     }
   });
 
-  it("gets ice-time share all the way back when the feature slot is free", () => {
-    // Holding the labelled game on the last ice time costs those two teams a
-    // slot they'd otherwise have spread — the reason it's a choice, not a rule.
+  it("holds the per-weekday ice split rather than chasing the season total", () => {
+    // This used to assert the repair drove the *season* ice spread back to 0.
+    // It no longer does, and that is the goal-3 change working: the repair now
+    // scores each team's share within each weekday, not just across the season,
+    // and the season total is exactly the number that can read perfect while
+    // every weekday is lopsided.
+    //
+    // Measured on this fixture, with and without `weekdayOfNight` passed to
+    // `assignSlots`: without it the repair takes the season spread 4 → 0 while
+    // driving the per-weekday spread 19 → 36; with it the season spread stays
+    // at the incumbent's 4 and the per-weekday spread comes down to 17. So the
+    // assertion is the one that survives: never worse than leaving it alone, on
+    // either measure.
     const res = planOneOff({
       teamCount: T,
       nights,
@@ -248,10 +258,15 @@ describe("planOneOff", () => {
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const best = Math.min(
-      ...res.plans.filter((p) => p.id !== "no-repair").map((p) => p.slotSpreadAfter),
-    );
-    expect(best).toBe(0);
+    const baseline = res.plans.find((p) => p.id === "no-repair")!;
+    const repairs = res.plans.filter((p) => p.id !== "no-repair");
+    expect(repairs.length).toBeGreaterThan(0);
+    for (const plan of repairs) {
+      expect(plan.slotSpreadAfter).toBeLessThanOrEqual(baseline.slotSpreadAfter);
+      expect(plan.spacingAfter.slotWeekdaySpread).toBeLessThanOrEqual(
+        baseline.spacingAfter.slotWeekdaySpread,
+      );
+    }
   });
 
   it("reports scorecards that match the schedule it would write", () => {
