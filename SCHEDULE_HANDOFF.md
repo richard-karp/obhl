@@ -19,9 +19,26 @@ an exact fit):
 | **Bye rule 3** — no byes in consecutive weeks at all | `byeConsecWeek=1` | **0** |
 | Rematch: same week / adjacent night / consecutive week | 0 / 0 / 1 | **0 / 0 / 0** |
 | Ice-time share per team | spread 2 | **spread 0** (12/12/12) |
-| Ice-time repeats (`slotConsecutive`) | 69 | **41** |
+| Ice-time repeats (`slotConsecutive`) | 69 | **46** |
 | Games per team / unscheduled | 36 all / 0 | 36 all / 0 |
-| Generate time | ~475 ms | ~5.5 s (Phase S is given a long budget on purpose) |
+| Generate time | ~475 ms | ~5.76 s (Phase S is given a long budget on purpose) |
+| **G1.** No bye adjacent to a game night (`byesAdjNight`) † | 1 | **0** |
+| Longest layoff between games (`longestLayoffDays`) † | 24 | **21** (calendar floor) |
+| **G2.** Each pairing split evenly over the weekdays it plays (`pairingWeekdayExcess`) † | 42 (9 of 28 matchups off ideal) | **8** (2 of 28) |
+| **G3.** Ice-time share per team *per weekday* (`slotWeekdaySpread`) † | 44 | **8** (deliberate — see §5) |
+| **G4.** Three-game runs in one ice time (`slotStreak3`) † | 4 | **0** |
+
+† **These five rows use a different "before".** Every row above them compares
+against the *old pre-participation pipeline*. The four-goal rows compare against
+the participation pipeline as it stood immediately before this work
+(`byesAdjNight=1`, `longestLayoffDays=24`, `pairingWeekdayExcess=42`,
+`slotWeekdaySpread=44`, `slotStreak3=4`, `slotConsecutive=41`, ~5.5 s). Do not
+read the two sets of "before" numbers as one column.
+
+`slotConsecutive` rising from 41 to 46 is the accepted price of G3 and G4: the
+same slot swaps that break up three-game runs and even out each team's ice share
+per weekday put back some night-to-night repeats. Repeats were never the
+higher-priority metric; see §5.
 
 Byes are still exactly 12 per team, now exactly 6 Mon / 6 Thu, and perfectly
 alternating.
@@ -70,7 +87,13 @@ everything placed ▸ weekday ▸ byes ▸ rematch ▸ ice time).
 |---|---|---|---|
 | **P** | `participation.ts` | who plays which night | weekday balance (#1), all bye rules (#2) |
 | **M** | `matchups.ts` | who plays whom | opponent balance, rematch spacing (#3) |
-| **S** | `slots.ts` | which ice time | ice-time share + repeats (#4) |
+| **S** | `slots.ts` | which ice time | ice-time share per season **and per weekday**, three-game runs in one slot, repeats (#4) |
+
+`assignSlots` takes a `weekdayOfNight` argument, and **both** call sites pass it —
+`assignNights.ts` (generation) and `oneOff.ts` (the repair). A repair that omits it
+undoes what generation achieved: measured on `oneOff.test.ts`'s fixture, the repair
+without `weekdayOfNight` drives season ice spread 4 → 0 while pushing per-weekday
+spread 19 → 36; with it, per-weekday goes 19 → 17.
 
 Phase P is exact (branch and bound, admissible bound from a min-adjacency DP,
 plus O(teams×weekdays) arithmetic pre-checks that refute impossible weekday
@@ -129,8 +152,8 @@ Same-or-better than the old pipeline everywhere tested; never worse.
 | 8t/2slot/28n/14gp, 4t/2slot | tie — e.g. with only 4 of 8 teams playing a night every team byes every week, so rule 3 is genuinely unreachable (`byeConsecWeek=104` is the floor) |
 | 7t/3slot/11n, 12t/6slot/24n, over-capacity | tie — participation path declines, fallback handles them |
 
-Generate time: ~5.5 s for the reference, of which ~5 s is Phase S deliberately
-grinding ice-time repeats down from 46 to 41 (see §5). The rest of the pipeline
+Generate time: ~5.76 s for the reference, of which ~5 s is Phase S deliberately
+grinding on the ice-time metrics (see §5). The rest of the pipeline
 is ~500 ms. Two awkward calendars — Mon/Wed/Fri and one with a 3-week mid-season
 gap — add ~2 s in Phase P, where the long search also buys something real (a
 rule-1 breach cleared on the first, `byeConsecWeek` 3→1 on the second). Both
@@ -162,14 +185,45 @@ are fixed; see §3. What follows are choices, not oversights.
   scores zero on every soft metric. Note the server action's retry loops only
   fire when games are left unscheduled, and in that case Phase P declines on
   arithmetic in well under a millisecond — so retries stay cheap.
-- **Ice-time repeats are at the search's plateau.** Phase S runs 20 000 restarts
-  under a 5 s budget, reaching `slotConsecutive = 41` on the reference. 15 s buys
-  nothing further. Simulated annealing was tried in place of the restart-driven
-  descent and is worse (62 at the same budget, and at temperatures low enough to
-  beat 41 it only does so by breaking the even ice-time share) — the descent's
-  weakness is real but annealing is not the fix. Beating 41 likely needs a
-  compound move that swaps slots across two nights at once, restoring each
-  team's share in the same step.
+- **Ice-time repeats are not at a floor, and `slotConsecutive` is not a plateau
+  number.** It reads **46** on the reference today. It has read 41 (before the
+  per-weekday and run goals landed), 39, and anywhere in 32–46 across a sweep of
+  search parameters — it moves with whatever else Phase S is being asked to
+  satisfy. Do not treat any particular value as "the search's limit". What *is*
+  settled: simulated annealing is not the fix (62 at the same budget, and at
+  temperatures low enough to beat 41 it only got there by breaking the even
+  ice-time share), and the compound move this section used to predict — swapping
+  slots across two nights at once so each team's share is restored in the same
+  step — **is built**, as `compoundPass` in `slots.ts`. Repeats are the
+  lowest-priority ice-time metric; they are allowed to rise when share or runs
+  improve.
+- **G3 stops at 8, not 0, on purpose. Do not "fix" it.** At `slotWeekdaySpread = 0`
+  every team is exactly 6-6-6 in every ice time on every weekday, and from there no
+  slot swap can break a three-game run without denting some team's share. The
+  residual 8 **is** G4: a session that drives the spread to 0 puts `slotStreak3`
+  back above 0. The two goals trade against each other and 8 / 0 is where they were
+  chosen to sit.
+- **`STREAK3_W` sits on a cliff, not a slope.** Every value in 140–260 clears the
+  three-game runs, and the residual weekday spread bounces between 4 and 12 with no
+  trend across that range. There is nothing to tune towards; a "better" value found
+  on one fixture is fixture noise, not a gradient.
+- **`MULT_W` and the `SPACING_W` rematch weights are coupled to `oneOff.ts`.**
+  Rescaling either one requires rescaling `oneOff.ts`'s `nightPenalty` churn term in
+  the *same* change, or the repair's sense of what a costly move is silently drifts
+  out of step with generation's. **No test covers this coupling** — it fails quietly,
+  with a plausible-looking schedule.
+- **Unexplored: a Phase-S-aware term in `plateauScore`.** `plateauScore`
+  (`assignNights.ts`) selects among bye-optimal participation matrices while knowing
+  nothing about how they will slot. It is the obvious lever if a future cadence
+  leaves Phase S short — but it is expensive: `plateauScore` ranks ~8 sampled
+  matrices at 10–30 ms each, against Phase S's ~5 s, so scoring them on Phase S means
+  running Phase S once per candidate. Never tried; selection and seeding reached
+  every target without it.
+- **`planByWeeks` (the fallback) keeps its week-only bye logic.** It only runs for
+  shapes `planByParticipation` declines, and `rankSchedule` now penalises adjacency,
+  so it can only win by being better on higher-priority terms. But when participation
+  declines *entirely* (12+ teams a night), the fallback is the only planner and
+  `byesAdjNight` may be non-zero with no recourse.
 - **Perfect ice-time balance needs a season that exactly fills the ice.** An
   under-filled night drops its latest slot, so that slot runs on fewer nights and
   equal per-team counts stop being arithmetically possible. Measured on the
@@ -195,5 +249,8 @@ are fixed; see §3. What follows are choices, not oversights.
 - `src/lib/schedule/spacing.ts` — `spacingReport`, the metrics above.
 - Tests: `assignNights.test.ts` (includes a full reference-season regression
   suite asserting every goal), `participation.test.ts`, `matchups.test.ts`.
+  Cadence coverage for the *slot* metrics lives in `matchups.test.ts` too, under
+  `describe("assignSlots weekday split")`, alongside Phase M's — not in a
+  `slots.test.ts`.
 
-Verify with `npx vitest run` (61 pass), `npm run lint`, `npx tsc --noEmit`.
+Verify with `npx vitest run` (214 pass), `npm run lint`, `npx tsc --noEmit`.
