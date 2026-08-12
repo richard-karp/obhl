@@ -21,11 +21,17 @@
    2026-08-12 at production budgets. Claims about how the code is *shaped* say
    "reading" in those words.
 6. **Verify with:** `npx vitest run && npm run lint && npx tsc --noEmit`.
-   Baseline: **214 pass**, lint clean, tsc clean.
+   Baseline: **222 pass**, lint clean, tsc clean. The suite takes ~30 s.
+7. ⚠️ **Phase S is nondeterministic — G2 is not.** Phase S is wall-clock budgeted, so
+   its ice-time numbers move between identical runs and one green suite is not proof.
+   Phases P and M are unaffected, so every G2 number below is stable and repeatable.
+   Do not let a flaky-looking ice-time assertion make you distrust your own G2 readings.
 
-**Status: not started.** Everything below is analysis, no code written. The schedule
-generator's five-step plan is complete and committed (`feat/schedule-goals`, 9 commits,
-**unpushed**); G2 is the one goal left short of its ideal, deliberately.
+**Status: not started.** Everything below is analysis, no code written. G2 is the one
+goal left short of its ideal, deliberately. Branch `feat/schedule-goals` — 16 commits,
+**unpushed** — carries two completed pieces of work: the original five-step generator
+plan, and Phase S best-of-k weight selection (2026-08-12). Neither touched Phase M, so
+nothing below was invalidated by them; the numbers here were re-checked afterwards.
 
 ---
 
@@ -44,16 +50,19 @@ Reference season: 8 teams, Mon + Thu, 3 ice times, 48 nights (24 Mon / 24 Thu),
 All 28 splits: `3/3`×4 (the six-meeting pairs, at ideal), `3/2`×11, `2/3`×11, plus the
 two above. Every other goal metric is at its floor — all bye rules 0, all four rematch
 metrics 0, `byesAdjNight` 0, weekday balance 18/18 every team, season ice share
-12/12/12. Generate time 5.74 s.
+12/12/12. Generate time **~20.8 s** (was 5.74 s before Phase S best-of-k; the extra
+~15 s is Phase S running four candidates and is nothing to do with G2).
 
 ⚠️ **Two different units.** The report metric is **8**. `weekdayExcessScaled()` returns
 **9216** for each of these pairings — it is a raw scaled cost, not the reported number.
 Assert on `report.spacing.pairingWeekdayExcess`.
 
-⚠️ **G2 is budget-independent.** Phases P and M read identically at the test budget
-(`OBHL_SLOT_BUDGET_MS=400`) and production (5000) — only Phase S differs. So the default
-`vitest.config.ts` measures G2 correctly and **you do not need a measure harness.**
-(This is why the existing test can assert 8 directly.)
+⚠️ **G2 is budget-independent.** Phases P and M read identically at any
+`OBHL_SLOT_BUDGET_MS` — only Phase S differs. So `vitest.config.ts` measures G2
+correctly and **you do not need a measure harness.** (This is why the existing test can
+assert 8 directly.) The config now sets the budget to **5000**, matching production; it
+was 400 when this brief was written, and that change is what makes the suite ~30 s. It
+does not move any G2 number.
 
 ## Why the residual is exactly 2, and why the descent cannot fix it
 
@@ -77,8 +86,8 @@ breaking something else.
 
 ## Route 1 — a compound pass in Phase M (recommended)
 
-Exactly the move `slots.ts` already needed and got: `compoundPass` (`slots.ts:480`,
-called at `569` only when the single-move descent stalls) changes two nights at once so
+Exactly the move `slots.ts` already needed and got: `const compoundPass` (`slots.ts:496`,
+called at `585` only when the single-move descent stalls) changes two nights at once so
 the constraint is restored in the same step. Phase S had the structurally identical
 problem and this fixed it.
 
@@ -118,8 +127,11 @@ and `matchups.ts:46`'s "it is 2 of 28 with rematch at 0".
   Everything still binding is above.
 - `EXPORTS_HANDOFF.md` (264) — exports, unrelated.
 - `docs/superpowers/specs/` (1,494 over 5 files) — none covers the generator.
-- `slots.ts` (607) in full — you want `compoundPass` at 480–569 as a **pattern**, ~90
+- `slots.ts` (623) in full — you want `compoundPass` at 496–585 as a **pattern**, ~90
   lines. Phase S is otherwise irrelevant to G2.
+- `docs/superpowers/plans/2026-08-12-phase-s-best-of-k.md` (581) — Phase S best-of-k,
+  built and committed on this branch. Different phase, independent work; it changed no
+  Phase M behaviour. Its results are already folded into the numbers above.
 
 ## Provenance
 
@@ -127,3 +139,7 @@ Written 2026-08-12 from the session that finished the plan's Step 4; moved into 
 the same day so it is discoverable from a clone. The living document
 for this area is `SCHEDULE_HANDOFF.md` (`AGENTS.md` points at it); §5 holds the standing
 limits, §1 the outcome table.
+
+Refreshed 2026-08-12 by the session that shipped Phase S best-of-k, which is why the
+baseline, the generate time and the `slots.ts` line numbers moved. Only those changed —
+no G2 analysis was revised, and Phase M was not touched.
