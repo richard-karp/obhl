@@ -801,14 +801,26 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
   // metric for another, dropping would leave the user with no repair offered at
   // all for a schedule that still needs one. The plan is shown with the
   // regression named, which is the honest version of the same guarantee.
+  //
+  // No baseline means no way to check, and `worseThan: []` would then be an
+  // unverified claim wearing a verified one's clothes. Fail closed instead, the
+  // same way a declined Phase M does above — an honest refusal beats plans
+  // carrying a guarantee nobody tested. Unreachable today: the baseline freezes
+  // every night but the one-off, so it is the plan *least* likely to be declined,
+  // and anything that declines it declines the others too.
   const baselinePlan = plans.find((p) => p.id === "no-repair");
-  if (baselinePlan) {
-    const base = outcomeOf(baselinePlan);
-    for (const p of plans) {
-      if (p.id === "no-repair") continue;
-      const mine = outcomeOf(p);
-      p.worseThan = ICE_METRICS.filter((m) => mine[m] > base[m]);
-    }
+  if (!baselinePlan) {
+    return {
+      ok: false,
+      reason:
+        "This schedule is too large or too irregular for the repair to work with — it may have been imported rather than generated.",
+    };
+  }
+  const base = outcomeOf(baselinePlan);
+  for (const p of plans) {
+    if (p.id === "no-repair") continue;
+    const mine = outcomeOf(p);
+    p.worseThan = ICE_METRICS.filter((m) => mine[m] > base[m]);
   }
 
   return { ok: true, plans, relabelOnly: false };
