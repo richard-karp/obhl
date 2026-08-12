@@ -219,6 +219,88 @@ export function weekdayExcessScaled(counts: number[], nightsPerWd: number[]): nu
   return scaled;
 }
 
+/**
+ * An ice-time result, in the four numbers `spacingReport` publishes. Selection
+ * ranks these lexicographically rather than blending them, because a blended
+ * scalar can and does prefer a candidate that breaks the even season share to
+ * buy a flatter weekday split — the trade the league has rejected twice.
+ */
+export type IceOutcome = {
+  /** Σ over teams of (max − min) of that team's season slot counts. */
+  seasonSpread: number;
+  /** `slotWeekdaySpread` — the same, within each weekday. */
+  weekdaySpread: number;
+  /** `slotStreak3`. */
+  streak3: number;
+  /** `slotConsecutive`. */
+  consecutive: number;
+};
+
+/** Lexicographic, lower is better. Negative when `a` beats `b`. */
+export function compareIceOutcome(a: IceOutcome, b: IceOutcome): number {
+  return (
+    a.seasonSpread - b.seasonSpread ||
+    a.weekdaySpread - b.weekdaySpread ||
+    a.streak3 - b.streak3 ||
+    a.consecutive - b.consecutive
+  );
+}
+
+/**
+ * The four ice-time numbers, computed straight from a slot assignment rather
+ * than from placed games — so Phase S can rank candidates without building a
+ * season for each one. Definitions are kept identical to `spacingReport`'s and
+ * a test asserts they agree; change both together or neither.
+ */
+export function iceOutcome(opts: {
+  teamCount: number;
+  pairsByNight: [number, number][][];
+  slotOf: number[][];
+  weekdayOfNight?: number[];
+}): IceOutcome {
+  const { teamCount, pairsByNight, slotOf, weekdayOfNight } = opts;
+  const numSlots = Math.max(1, ...slotOf.flat().map((s) => s + 1));
+  const wds = weekdayOfNight ?? pairsByNight.map(() => 0);
+  const usedW = [...new Set(wds)].sort((a, b) => a - b);
+  const wIndex = new Map(usedW.map((d, i) => [d, i]));
+
+  // Each team's slots in chronological night order — night indexes are already
+  // chronological, which is the same assumption `spacingReport` makes.
+  const seq: number[][] = Array.from({ length: teamCount }, () => []);
+  const seqW: number[][] = Array.from({ length: teamCount }, () => []);
+  pairsByNight.forEach((pairs, n) => {
+    pairs.forEach(([a, b], gi) => {
+      const s = slotOf[n][gi];
+      for (const t of [a, b]) {
+        seq[t].push(s);
+        seqW[t].push(wIndex.get(wds[n])!);
+      }
+    });
+  });
+
+  let seasonSpread = 0;
+  let weekdaySpread = 0;
+  let streak3 = 0;
+  let consecutive = 0;
+  for (let t = 0; t < teamCount; t++) {
+    const s = seq[t];
+    if (s.length === 0) continue;
+    const season = new Array(numSlots).fill(0);
+    for (let i = 0; i < s.length; i++) {
+      season[s[i]]++;
+      if (i > 0 && s[i] === s[i - 1]) consecutive++;
+      if (i > 1 && s[i] === s[i - 1] && s[i] === s[i - 2]) streak3++;
+    }
+    seasonSpread += Math.max(...season) - Math.min(...season);
+    for (let d = 0; d < usedW.length; d++) {
+      const c = new Array(numSlots).fill(0);
+      for (let i = 0; i < s.length; i++) if (seqW[t][i] === d) c[s[i]]++;
+      weekdaySpread += Math.max(...c) - Math.min(...c);
+    }
+  }
+  return { seasonSpread, weekdaySpread, streak3, consecutive };
+}
+
 export function spacingReport(
   games: PlacedGame[],
   nights: Night[],

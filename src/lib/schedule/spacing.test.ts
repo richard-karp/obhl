@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { spacingReport, proportionalSplit, type PlacedGame } from "./spacing";
-import type { Night } from "./assignNights";
+import {
+  spacingReport,
+  proportionalSplit,
+  iceOutcome,
+  compareIceOutcome,
+  type PlacedGame,
+} from "./spacing";
+import { assignNights, type Night } from "./assignNights";
+import { buildBalancedPairings } from "./roundRobin";
+import { enumerateNights } from "./capacity";
 
 const TUE = Date.UTC(2026, 8, 1); // 2026-09-01 is a Tuesday
 const day = (offsetFromTue: number) =>
@@ -301,5 +309,59 @@ describe("spacingReport — longestLayoffDays", () => {
     const ns = nights(2);
     const games = [g("A", "B", 0, 0)];
     expect(spacingReport(games, ns, ["A", "B"]).longestLayoffDays).toBeNull();
+  });
+});
+
+describe("compareIceOutcome", () => {
+  const base = { seasonSpread: 0, weekdaySpread: 8, streak3: 0, consecutive: 46 };
+
+  it("prefers a flat season share over every other gain", () => {
+    // The failure mode this exists to prevent: a candidate that looks better on
+    // weekday spread and repeats but breaks the even season share.
+    const tempting = { seasonSpread: 4, weekdaySpread: 0, streak3: 0, consecutive: 41 };
+    expect(compareIceOutcome(base, tempting)).toBeLessThan(0);
+  });
+
+  it("prefers a flatter weekday split once season share ties", () => {
+    const better = { ...base, weekdaySpread: 0 };
+    expect(compareIceOutcome(better, base)).toBeLessThan(0);
+  });
+
+  it("prefers fewer three-game runs over fewer ordinary repeats", () => {
+    const fewerRuns = { ...base, streak3: 0, consecutive: 50 };
+    const fewerRepeats = { ...base, streak3: 1, consecutive: 40 };
+    expect(compareIceOutcome(fewerRuns, fewerRepeats)).toBeLessThan(0);
+  });
+
+  it("falls through to ordinary repeats when all else ties", () => {
+    expect(compareIceOutcome({ ...base, consecutive: 40 }, base)).toBeLessThan(0);
+  });
+
+  it("is 0 for identical outcomes", () => {
+    expect(compareIceOutcome(base, { ...base })).toBe(0);
+  });
+});
+
+describe("iceOutcome", () => {
+  it("agrees with spacingReport on a generated season", () => {
+    const ts = Array.from({ length: 8 }, (_, i) => `t${i + 1}`);
+    const ns = enumerateNights("2026-09-10", {
+      weekdays: new Set([1, 4]),
+      slotTimes: ["19:00", "20:15", "21:30"],
+      excluded: new Set(["2026-12-21", "2026-12-24", "2026-12-28", "2026-12-31", "2027-03-04"]),
+      maxNights: 48,
+    });
+    const { report, slotOf, pairsByNight, weekdayOfNight } =
+      assignNights(buildBalancedPairings(ts, 36), ns, ts);
+    const out = iceOutcome({ teamCount: 8, pairsByNight, slotOf, weekdayOfNight });
+
+    expect(out.weekdaySpread).toBe(report.spacing.slotWeekdaySpread);
+    expect(out.streak3).toBe(report.spacing.slotStreak3);
+    expect(out.consecutive).toBe(report.spacing.slotConsecutive);
+    const seasonSpread = report.slotShareByTeam.reduce(
+      (a, s) => a + (Math.max(...s.counts) - Math.min(...s.counts)),
+      0,
+    );
+    expect(out.seasonSpread).toBe(seasonSpread);
   });
 });

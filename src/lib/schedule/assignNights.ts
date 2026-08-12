@@ -1474,7 +1474,16 @@ export function assignNights(
   pairings: Pairing[],
   nights: Night[],
   teamIds: string[],
-): { games: ScheduledGame[]; report: BalanceReport } {
+): {
+  games: ScheduledGame[];
+  report: BalanceReport;
+  /** Team-index pairs per night, in the order this night's games were placed. */
+  pairsByNight: [number, number][][];
+  /** The ice-time slot of each of those pairs, same indexing. */
+  slotOf: number[][];
+  /** Weekday index (into `report.weekdays`) of each night. */
+  weekdayOfNight: number[];
+} {
   const meta = buildMeta(nights);
   const smeta = buildNightMeta(nights);
 
@@ -1514,8 +1523,23 @@ export function assignNights(
     }
   }
 
+  // The slot assignment behind the winning plan, rebuilt from its games. It is
+  // read back off the placement rather than plumbed out of Phase S because
+  // `planByWeeks` never builds one, and because `refineSpacing` moves games
+  // after Phase S runs — only the games are guaranteed to be what shipped.
+  const teamIndex = new Map(teamIds.map((t, i) => [t, i]));
+  const pairsByNight: [number, number][][] = nights.map(() => []);
+  const slotOf: number[][] = nights.map(() => []);
+  for (const g of games) {
+    pairsByNight[g.nightIndex].push([teamIndex.get(g.home)!, teamIndex.get(g.away)!]);
+    slotOf[g.nightIndex].push(g.slotIndex);
+  }
+
   return {
     games,
+    pairsByNight,
+    slotOf,
+    weekdayOfNight: meta.nightW,
     report: {
       totalScheduled: games.length,
       unscheduled,
