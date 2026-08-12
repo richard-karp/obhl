@@ -197,16 +197,19 @@ are fixed; see §3. What follows are choices, not oversights.
   step — **is built**, as `compoundPass` in `slots.ts`. Repeats are the
   lowest-priority ice-time metric; they are allowed to rise when share or runs
   improve.
-- **G3 stops at 8, not 0, on purpose. Do not "fix" it.** At `slotWeekdaySpread = 0`
-  every team is exactly 6-6-6 in every ice time on every weekday, and from there no
-  slot swap can break a three-game run without denting some team's share. The
-  residual 8 **is** G4: a session that drives the spread to 0 puts `slotStreak3`
-  back above 0. The two goals trade against each other and 8 / 0 is where they were
-  chosen to sit.
-- **`STREAK3_W` sits on a cliff, not a slope.** Every value in 140–260 clears the
-  three-game runs, and the residual weekday spread bounces between 4 and 12 with no
-  trend across that range. There is nothing to tune towards; a "better" value found
-  on one fixture is fixture noise, not a gradient.
+- **G3's 8 is a `STREAK3_W` draw, not a floor — and no single weight wins.** At 140 the
+  reference season reaches `slotWeekdaySpread = 0` with `slotStreak3` still 0 and every
+  other metric at its floor; at the shipped 160 it reads 8. But 160 beats 140 by 4 on
+  the Mon/Wed/Fri cadence, and 144–152 are worse than both. The weight is a fixture
+  draw, so the fix is selection, not tuning — **planned, not built**: see
+  `docs/superpowers/plans/2026-08-12-phase-s-best-of-k.md`, which holds the full sweep
+  and the reasoning. Until it lands, do not re-tune this weight on one fixture; an
+  earlier version of this bullet claimed 0 was geometrically impossible, which was wrong.
+- ⚠️ **Known defect: the one-off repair can return a plan worse than no repair**, on
+  per-weekday ice share, at production budget. `oneOff.test.ts` asserts the opposite and
+  passes only because the suite runs Phase S at 400 ms, which builds a different fixture
+  season than production's 5 s does. Task 2 of the plan above fixes it. Weigh this before
+  trusting a mid-season repair's ice-time numbers.
 - **`MULT_W` and the `SPACING_W` rematch weights are coupled to `oneOff.ts`.**
   Rescaling either one requires rescaling `oneOff.ts`'s `nightPenalty` churn term in
   the *same* change, or the repair's sense of what a costly move is silently drifts
@@ -254,3 +257,17 @@ are fixed; see §3. What follows are choices, not oversights.
   `slots.test.ts`.
 
 Verify with `npx vitest run` (214 pass), `npm run lint`, `npx tsc --noEmit`.
+
+---
+
+## 7. Open work
+
+Neither is started. Each brief is self-contained and says what *not* to read.
+
+| Work | Status | Brief |
+|---|---|---|
+| Phase S best-of-k weight selection + the one-off repair defect (§5) | planned, 5 tasks | `docs/superpowers/plans/2026-08-12-phase-s-best-of-k.md` |
+| G2 — `pairingWeekdayExcess` 8 → 0 via a compound move in Phase M | analysed, not planned | `docs/superpowers/plans/2026-08-12-g2-pairing-weekday-split.md` |
+
+They are independent: the first is Phase S, the second Phase M. The first should go
+first only because it carries the known defect.
