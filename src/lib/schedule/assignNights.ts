@@ -5,6 +5,8 @@ import {
   teamSpacingCost,
   matchupSpacingCost,
   spacingReport,
+  iceOutcome,
+  compareIceOutcome,
   type NightMeta,
   type SpacingReport,
 } from "./spacing";
@@ -95,6 +97,31 @@ function envInt(name: string, fallback: number): number {
 }
 const SLOT_RESTARTS = envInt("OBHL_SLOT_RESTARTS", 20_000);
 const SLOT_BUDGET_MS = envInt("OBHL_SLOT_BUDGET_MS", 5_000);
+
+/**
+ * Phase S runs to try, best result kept by `compareIceOutcome`. No single weight
+ * wins everywhere: on the reference cadence 140 reaches a flat weekday split
+ * where 160 leaves 8, and on Mon/Wed/Fri 160 wins by 4. Measured 2026-08-12.
+ *
+ * 160 leads and stays in the set, so the outcome can never be worse than the
+ * single-weight version that shipped. It is also the stable one — measured three
+ * times over it returns the same result, where 140 lands a three-game run in two
+ * runs out of three. That instability is why 140 appears three times on
+ * different seeds rather than once: the comparator refuses any run that carries
+ * a three-game run, so extra samples are what turn 140's good basin from a
+ * one-in-three chance into the common case. Seeds are varied explicitly rather
+ * than leaning on the wall-clock budget to shake out a different answer.
+ *
+ * Cost is linear — each candidate gets the full slot budget, so this is four
+ * times the Phase S time of the single-weight version. Deliberate: the search
+ * runs once a season.
+ */
+const SLOT_CANDIDATES: { streak3W: number; seed: number }[] = [
+  { streak3W: 160, seed: 1 },
+  { streak3W: 140, seed: 1 },
+  { streak3W: 140, seed: 2 },
+  { streak3W: 140, seed: 3 },
+];
 
 /** Phase P jitter seeds to sample the bye-optimal plateau with, and the wall
  * clock the sampling may spend. Fixed and ordered, so the schedule stays
@@ -1392,14 +1419,33 @@ function planByParticipation(
     }
   }
 
-  const slotOf = assignSlots({
+  const slotArgs = {
     teamCount: T,
     pairsByNight: matched.pairsByNight,
     slotsPerNight: nights.map((n) => n.slots.length),
     weekdayOfNight: meta.nightW,
     restarts: SLOT_RESTARTS,
     timeBudgetMs: SLOT_BUDGET_MS,
-  });
+  };
+
+  const outcomeFor = (s: number[][]) =>
+    iceOutcome({
+      teamCount: T,
+      pairsByNight: matched.pairsByNight,
+      slotOf: s,
+      weekdayOfNight: meta.nightW,
+    });
+
+  let slotOf = assignSlots({ ...slotArgs, ...SLOT_CANDIDATES[0] });
+  let bestOutcome = outcomeFor(slotOf);
+  for (const cand of SLOT_CANDIDATES.slice(1)) {
+    const trial = assignSlots({ ...slotArgs, ...cand });
+    const out = outcomeFor(trial);
+    if (compareIceOutcome(out, bestOutcome) < 0) {
+      slotOf = trial;
+      bestOutcome = out;
+    }
+  }
 
   const games: ScheduledGame[] = [];
   matched.pairsByNight.forEach((pairs, ni) => {

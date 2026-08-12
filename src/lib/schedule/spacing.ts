@@ -236,12 +236,25 @@ export type IceOutcome = {
   consecutive: number;
 };
 
-/** Lexicographic, lower is better. Negative when `a` beats `b`. */
+/**
+ * Lexicographic, lower is better. Negative when `a` beats `b`.
+ *
+ * Order: season share ▸ three-game runs ▸ per-weekday share ▸ ordinary repeats.
+ *
+ * `streak3` sits above `weekdaySpread` because the league states goal 4 as an
+ * absolute — a team never runs three games deep in one ice time — while the
+ * weekday split is a fairness target with no such line. Measured 2026-08-12 on
+ * the reference season: the 140 candidate flattens the weekday split to 0 but
+ * leaves a three-game run in two runs out of three, and with the two terms the
+ * other way round this comparator took that trade every time. Ranking runs
+ * first means the flat split is taken when it is free and declined when its
+ * price is a run.
+ */
 export function compareIceOutcome(a: IceOutcome, b: IceOutcome): number {
   return (
     a.seasonSpread - b.seasonSpread ||
-    a.weekdaySpread - b.weekdaySpread ||
     a.streak3 - b.streak3 ||
+    a.weekdaySpread - b.weekdaySpread ||
     a.consecutive - b.consecutive
   );
 }

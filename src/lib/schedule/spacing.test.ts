@@ -327,6 +327,18 @@ describe("compareIceOutcome", () => {
     expect(compareIceOutcome(better, base)).toBeLessThan(0);
   });
 
+  it("will not buy a flat weekday split with a three-game run", () => {
+    // The trade this order exists to refuse, and the exact shape Phase S offers:
+    // the 140 candidate reaches a flat per-weekday split but leaves a team three
+    // games deep in one ice time. Goal 4 is stated as a never; the weekday split
+    // is a target. So the run outranks the split, and 8-with-no-runs wins.
+    const flatSplitOneRun = { ...base, weekdaySpread: 0, streak3: 1 };
+    expect(compareIceOutcome(base, flatSplitOneRun)).toBeLessThan(0);
+    // ...but the split is still taken when it costs no run.
+    const flatSplitNoRun = { ...base, weekdaySpread: 0 };
+    expect(compareIceOutcome(flatSplitNoRun, base)).toBeLessThan(0);
+  });
+
   it("prefers fewer three-game runs over fewer ordinary repeats", () => {
     const fewerRuns = { ...base, streak3: 0, consecutive: 50 };
     const fewerRepeats = { ...base, streak3: 1, consecutive: 40 };

@@ -316,17 +316,25 @@ describe("assignNights — full-season reference schedule", () => {
 
   it("goal 3: shares each ice time evenly within each weekday too", () => {
     // Was 56, with only one team even on both weekdays and the worst at
-    // 9-5-4 Mon / 3-7-8 Thu. Now 14 of the 16 team-weekday cells read exactly
-    // 6-6-6 and the other two are one step off, which is what a spread of 8
-    // means here. Measured: 8 at this budget and 8 at production budget.
+    // 9-5-4 Mon / 3-7-8 Thu. A single-weight Phase S then read 8: 14 of the 16
+    // team-weekday cells at exactly 6-6-6 and two a step off, because clearing
+    // the last three-game runs cost that much split.
     //
-    // Not 0, and deliberately: the last of it is what buys goal 4. On this
-    // calendar the seed reaches a perfect 6-6-6 everywhere with two three-game
-    // runs left in the end-of-season tail, and no move breaks a run without
-    // taking some team a step off its split. `STREAK3_W` is the price the
-    // search is allowed to pay, and 8 is what it pays. The season share is
-    // unaffected — every team is still 12-12-12, asserted above.
-    expect(report.spacing.slotWeekdaySpread).toBeLessThanOrEqual(12);
+    // Best-of-k can reach a perfectly flat split — all 16 cells at 6-6-6 — via
+    // the 140 candidate, and often does. Bounded at 8 rather than asserted at 0
+    // because that candidate is only taken when it costs no three-game run, and
+    // whether it clears them is search luck: measured 2026-08-12, 140 leaves a
+    // run in two runs out of three, which is why it is sampled on three seeds.
+    // When none of the samples come back clean, 160's stable 8 stands.
+    //
+    // So 8 is the guarantee and 0 is the prize. Asserting 0 here would be
+    // asserting the luck; what must never happen is a reading above 8, which
+    // would mean best-of-k had picked something worse than the single weight
+    // that shipped before it.
+    expect(report.spacing.slotWeekdaySpread).toBeLessThanOrEqual(8);
+    // Never bought at goal 4's expense — that is the comparator's job, and this
+    // is the assertion that fails if the two are ever reordered.
+    expect(report.spacing.slotStreak3).toBe(0);
   });
 
   it("goal 4: never runs a team three games deep in one ice time", () => {
