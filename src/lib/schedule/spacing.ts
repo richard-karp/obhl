@@ -36,8 +36,19 @@ export type SpacingReport = {
    * meeting counts from its proportional target, offset so the flattest split
    * the calendar allows reads 0. A statement about the whole count vector, so
    * it generalises past two weekdays; identically 0 when there is only one.
+   *
+   * A **score, not a count**, and not necessarily a whole number — a 47-night
+   * season with one pairing at 4/1 reads 3.7872. Squared because the search
+   * needs the gradient: 4/1 is far worse than 3/2 where an even split is 2.5,
+   * and a count cannot say so. Rank on this; show `pairingsOffWeekdaySplit`.
    */
   pairingWeekdayExcess: number;
+  /**
+   * How many matchups are off their ideal weekday split at all — the plain count
+   * behind the score above, for the places a person reads rather than the search.
+   * Zero exactly when `pairingWeekdayExcess` is.
+   */
+  pairingsOffWeekdaySplit: number;
   /**
    * Σ over (team, weekday) of the spread of that team's ice-time counts on that
    * weekday. The season-wide share can be perfect while every weekday is
@@ -345,6 +356,7 @@ export function spacingReport(
     slotConsecutive: 0,
     byesAdjNight: 0,
     pairingWeekdayExcess: 0,
+    pairingsOffWeekdaySplit: 0,
     slotWeekdaySpread: 0,
     slotStreak3: 0,
     longestLayoffDays: null,
@@ -429,7 +441,9 @@ export function spacingReport(
   for (const nis of matchupNights.values()) {
     const counts = new Array(D).fill(0);
     for (const ni of nis) counts[wIndex.get(meta.weekday[ni])!]++;
-    excessScaled += weekdayExcessScaled(counts, nightsPerWd);
+    const excess = weekdayExcessScaled(counts, nightsPerWd);
+    excessScaled += excess;
+    if (excess > 0) report.pairingsOffWeekdaySplit++;
     const s = [...nis].sort((a, b) => a - b);
     for (let i = 1; i < s.length; i++) {
       if (s[i] - s[i - 1] === 1) report.rematchAdjNight++;

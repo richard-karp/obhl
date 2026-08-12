@@ -215,6 +215,64 @@ describe("spacingReport — pairingWeekdayExcess", () => {
   });
 });
 
+/**
+ * The count behind the score above. It exists because the score is what the
+ * *search* needs and reads as nonsense to a person: the same schedule these rows
+ * score at 4 has one matchup off, and on a season whose weekday night counts do
+ * not divide evenly the score is not even a whole number.
+ */
+describe("spacingReport — pairingsOffWeekdaySplit", () => {
+  const ns = nights(3); // 3 Tue + 3 Thu
+
+  it("counts matchups, not deviation", () => {
+    // A|B piles both meetings onto Tuesdays; C|D splits one and one.
+    const games = [
+      g("A", "B", 0, 0),
+      g("A", "B", 2, 0),
+      g("C", "D", 0, 1),
+      g("C", "D", 3, 1),
+    ];
+    const r = spacingReport(games, ns, ["A", "B", "C", "D"]);
+    expect(r.pairingsOffWeekdaySplit).toBe(1); // just A|B
+    expect(r.pairingWeekdayExcess).toBe(2); // ...which the score calls 2
+  });
+
+  it("counts each offending matchup once, however far off it is", () => {
+    const games = [
+      g("A", "B", 0, 0),
+      g("A", "B", 2, 0),
+      g("C", "D", 0, 1),
+      g("C", "D", 2, 1),
+      g("C", "D", 4, 1), // three Tuesdays — worse than A|B, still one matchup
+    ];
+    const r = spacingReport(games, ns, ["A", "B", "C", "D"]);
+    expect(r.pairingsOffWeekdaySplit).toBe(2);
+    expect(r.pairingWeekdayExcess).toBeGreaterThan(4);
+  });
+
+  it("is zero exactly when the score is", () => {
+    const even = [g("A", "B", 0, 0), g("A", "B", 3, 0)]; // one Tue, one Thu
+    const r = spacingReport(even, ns, ["A", "B"]);
+    expect(r.pairingWeekdayExcess).toBe(0);
+    expect(r.pairingsOffWeekdaySplit).toBe(0);
+  });
+
+  it("is a whole number where the score is fractional", () => {
+    // 2 Tue / 1 Thu, so the score divides by 9 and lands off an integer. This is
+    // the row the builder panel used to print: "0.6667 matchups off an even
+    // weekday split", for a season with exactly one.
+    const uneven: Night[] = [
+      { date: day(0), slots: ["19:00"] }, // Tue
+      { date: day(2), slots: ["19:00"] }, // Thu
+      { date: day(7), slots: ["19:00"] }, // Tue
+    ];
+    const games = [g("A", "B", 0, 0), g("A", "B", 2, 0)]; // both Tuesdays
+    const r = spacingReport(games, uneven, ["A", "B"]);
+    expect(r.pairingWeekdayExcess).toBe(0.6667);
+    expect(r.pairingsOffWeekdaySplit).toBe(1);
+  });
+});
+
 describe("spacingReport — slotWeekdaySpread", () => {
   it("catches a team whose season ice share is perfect but whose weekdays are not", () => {
     const ns = nights(2, ["19:00", "20:15"]); // Tue, Thu, Tue, Thu

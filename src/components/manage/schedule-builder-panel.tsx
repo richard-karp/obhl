@@ -485,7 +485,11 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
                       ["Same opponents back-to-back nights", spacing.rematchAdjNight],
                       ["Teams byeing back-to-back game nights", spacing.byesAdjNight],
                       ["Same opponents in consecutive weeks", spacing.rematchConsecWeek],
-                      ["Matchups off an even weekday split", spacing.pairingWeekdayExcess],
+                      // The count, not `pairingWeekdayExcess` — that one is a
+                      // squared-deviation score for the search to rank on, reads
+                      // 8 where 2 matchups are off, and is not always a whole
+                      // number. Every other row here is a count of things.
+                      ["Matchups off an even weekday split", spacing.pairingsOffWeekdaySplit],
                       ["Uneven ice time within a night of the week", spacing.slotWeekdaySpread],
                       ["Three games in a row in one ice time", spacing.slotStreak3],
                       ["Back-to-back games in the same ice time", spacing.slotConsecutive],
