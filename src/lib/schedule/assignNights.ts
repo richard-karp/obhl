@@ -137,9 +137,20 @@ const SLOT_CANDIDATES: { streak3W: number; seed: number }[] = [
 /** Phase P jitter seeds to sample the bye-optimal plateau with, and the wall
  * clock the sampling may spend. Fixed and ordered, so the schedule stays
  * deterministic for a given input; the first is the one Phase P used before the
- * sweep existed. */
+ * sweep existed.
+ *
+ * The budget is a **safety valve, not a bound on the work** — sized so every
+ * seed runs on any ordinary machine, because a sweep that stops early stops
+ * being deterministic: the same league would generate different schedules on a
+ * faster and a slower box, which is exactly what the sentence above promises it
+ * does not do. Measured 2026-08-12 on the reference season, all seven remaining
+ * seeds finish in ~700 ms, so this leaves better than 4× headroom. It was 400 ms
+ * and reached five of the eight — the sweep was silently narrower than its own
+ * seed list for as long as it has existed.
+ *
+ * Raise it, not the seed list, if a cadence is ever slow enough to trip it. */
 const PLATEAU_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
-const PLATEAU_SAMPLE_MS = 400;
+const PLATEAU_SAMPLE_MS = 3_000;
 // Iterated-local-search budget for the spacing pass. Each candidate swap now
 // re-evaluates O(weeks)-cost spacing terms, and every hill-climb pass is O(G²),
 // so the restart count is the dominant runtime lever — keep it small and scale
@@ -1411,9 +1422,10 @@ function planByParticipation(
   // three breaches and the pairing weekday split from 42 to 94, all at identical
   // bye cost. Leaving that to the seed means the schedule's rematch spacing is
   // decided by a coin toss, so sample the plateau and keep the best by the
-  // league's own ranking. Phases P and M together cost 10–30 ms a seed against
-  // Phase S's 5 s, which is what makes the choice affordable; the deadline keeps
-  // it that way on leagues where Phase M is dearer than the reference's.
+  // league's own ranking. Phases P and M together cost ~100 ms a seed against
+  // Phase S's 25 s, which is what makes the choice affordable; the deadline is
+  // there for leagues where Phase M is far dearer than the reference's, and is
+  // not expected to bind — see `PLATEAU_SAMPLE_MS`.
   const sampleUntil = Date.now() + PLATEAU_SAMPLE_MS;
   let bestScore = plateauScore(part, matched);
   for (const seed of PLATEAU_SEEDS.slice(1)) {
