@@ -112,15 +112,26 @@ const SLOT_BUDGET_MS = envInt("OBHL_SLOT_BUDGET_MS", 5_000);
  * one-in-three chance into the common case. Seeds are varied explicitly rather
  * than leaning on the wall-clock budget to shake out a different answer.
  *
- * Cost is linear — each candidate gets the full slot budget, so this is four
- * times the Phase S time of the single-weight version. Deliberate: the search
- * runs once a season.
+ * 200 joined them when Phase M learned the compound pass. That changed the
+ * pairing set this phase is handed, and the four weights above all landed a
+ * three-game run on the new one inside the 5 s budget — not because the set is
+ * harder (20 s clears it, and so does 200 at 5 s) but because none of their
+ * basins happened to sit on it. Measured 2026-08-12 over five runs, 200 on seed
+ * 1 returns season share 0, no three-game run, a *flat* weekday ice split and 48
+ * ordinary repeats, and is what the comparator picks every time. Which is this
+ * set's whole premise: no single weight wins everywhere, and a weight that misses
+ * costs nothing but the sample.
+ *
+ * Cost is linear — each candidate gets the full slot budget, so this is five
+ * times the Phase S time of the single-weight version, ~26 s on the reference
+ * season against ~21 s at four. Deliberate: the search runs once a season.
  */
 const SLOT_CANDIDATES: { streak3W: number; seed: number }[] = [
   { streak3W: 160, seed: 1 },
   { streak3W: 140, seed: 1 },
   { streak3W: 140, seed: 2 },
   { streak3W: 140, seed: 3 },
+  { streak3W: 200, seed: 1 },
 ];
 
 /** Phase P jitter seeds to sample the bye-optimal plateau with, and the wall
