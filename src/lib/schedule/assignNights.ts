@@ -14,7 +14,7 @@ import {
   type Participation,
   type ParticipationNight,
 } from "./participation";
-import { assignMatchups } from "./matchups";
+import { assignMatchups, type MatchupResult } from "./matchups";
 import { assignSlots } from "./slots";
 
 /**
@@ -95,6 +95,13 @@ function envInt(name: string, fallback: number): number {
 }
 const SLOT_RESTARTS = envInt("OBHL_SLOT_RESTARTS", 20_000);
 const SLOT_BUDGET_MS = envInt("OBHL_SLOT_BUDGET_MS", 5_000);
+
+/** Phase P jitter seeds to sample the bye-optimal plateau with, and the wall
+ * clock the sampling may spend. Fixed and ordered, so the schedule stays
+ * deterministic for a given input; the first is the one Phase P used before the
+ * sweep existed. */
+const PLATEAU_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
+const PLATEAU_SAMPLE_MS = 400;
 // Iterated-local-search budget for the spacing pass. Each candidate swap now
 // re-evaluates O(weeks)-cost spacing terms, and every hill-climb pass is O(G²),
 // so the restart count is the dominant runtime lever — keep it small and scale
@@ -1285,7 +1292,7 @@ function planByParticipation(
   // is almost always refuted by arithmetic in under a millisecond, so in
   // practice the rung that succeeds still gets the full budget — but a rung
   // that does burn time can no longer multiply the ladder's cost by six.
-  const solve = (budgetMs: number): Participation | null => {
+  const solve = (budgetMs: number, seed: number): Participation | null => {
     const until = Date.now() + budgetMs;
     for (const { slack, exact } of rungs) {
       const remaining = until - Date.now();
@@ -1298,6 +1305,7 @@ function planByParticipation(
         weekdaySlack: slack,
         exactWeekdayTargets: exact,
         timeBudgetMs: remaining,
+        seed,
       });
       if (p) return p;
     }
@@ -1317,20 +1325,70 @@ function planByParticipation(
     return m && m.multiplicityError === 0 ? m : null;
   };
 
+  /**
+   * A plan-in-progress on the prefix of `rankSchedule` that Phases P and M
+   * decide — everything above ice time. Phase S is the expensive phase and runs
+   * once, on the winner, so it can't take part in the comparison.
+   *
+   * `spacingCost` is Phase M's own objective rather than a recount, which keeps
+   * this honest as that objective grows: a term added to `pairCost` is a term
+   * this selection starts respecting, with nothing to keep in sync. It is also
+   * why the pairing weekday split is deliberately *not* a tiebreak here — that
+   * belongs in `pairCost`, where the search can actually pursue it, and picking
+   * on it from eight samples would only disguise whether it works.
+   */
+  const plateauScore = (p: Participation, m: MatchupResult): number[] => [
+    p.byeAdjNight,
+    p.weekdaySpread,
+    p.byeMultiWeek,
+    p.byeConsecWeekSameDay,
+    p.byeConsecWeek,
+    m.spacingCost,
+  ];
+
   // Phase P is the expensive step, and a participation matrix Phase M can't pair
   // up is worthless however good its bye metrics are. So take a cheap one first
   // and check it can be paired at all; only buy the long search once that's
   // known — otherwise a calendar that was never going to work burns the whole
   // budget on its way to being thrown away.
-  const part = solve(300);
+  let part = solve(300, PLATEAU_SEEDS[0]);
   if (!part) return null;
   let matched = match(part);
   if (!matched) return null;
   if (!part.optimal) {
-    const better = solve(4_000);
+    const better = solve(4_000, PLATEAU_SEEDS[0]);
     if (better && byeRuleCost(better) < byeRuleCost(part)) {
       const m = match(better);
-      if (m) matched = m;
+      if (m) {
+        part = better;
+        matched = m;
+      }
+    }
+  }
+
+  // Phase P's optimum is a wide plateau: many matrices tie on every bye metric
+  // and on weekday balance, and which one the dive lands on is settled by its
+  // jitter seed alone. They are not interchangeable downstream — measured across
+  // six seeds on the reference season, rematch spacing ranged from clean to
+  // three breaches and the pairing weekday split from 42 to 94, all at identical
+  // bye cost. Leaving that to the seed means the schedule's rematch spacing is
+  // decided by a coin toss, so sample the plateau and keep the best by the
+  // league's own ranking. Phases P and M together cost 10–30 ms a seed against
+  // Phase S's 5 s, which is what makes the choice affordable; the deadline keeps
+  // it that way on leagues where Phase M is dearer than the reference's.
+  const sampleUntil = Date.now() + PLATEAU_SAMPLE_MS;
+  let bestScore = plateauScore(part, matched);
+  for (const seed of PLATEAU_SEEDS.slice(1)) {
+    if (Date.now() > sampleUntil) break;
+    const p = solve(300, seed);
+    if (!p) continue;
+    const m = match(p);
+    if (!m) continue;
+    const score = plateauScore(p, m);
+    if (rankLess(score, bestScore)) {
+      part = p;
+      matched = m;
+      bestScore = score;
     }
   }
 

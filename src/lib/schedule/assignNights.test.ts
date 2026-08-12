@@ -264,25 +264,24 @@ describe("assignNights — full-season reference schedule", () => {
   // Two calibration notes for whoever flips them:
   //  * These run under `vitest.config.ts`, which pins OBHL_SLOT_BUDGET_MS to 400
   //    against production's 5000. Phase P and M are unaffected (byesAdjNight and
-  //    pairingWeekdayExcess read the same 1 and 42 at both budgets), but the
+  //    pairingWeekdayExcess read the same 0 and 94 at both budgets), but the
   //    Phase S numbers do not: at production budget this same calendar gives
-  //    slotWeekdaySpread 44 / slotStreak3 4 / slotConsecutive 41 rather than
-  //    36 / 7 / 46. Measure through `vitest.measure.ts` before believing a
-  //    Phase S result.
+  //    slotWeekdaySpread 60 / slotStreak3 4 / slotConsecutive 43. Measure
+  //    through `vitest.measure.ts` before believing a Phase S result.
   //  * Phase S stops on wall clock, so its two metrics are asserted as bounds
   //    rather than exact values; the measured figures are in the comments.
   // ---------------------------------------------------------------------------
 
-  it("goal 1: still byes one team on two game nights in a row", () => {
-    // The pair straddles the Christmas break — night 28 (Thu Dec 17) and night
-    // 29 (Mon Jan 4). Every night needs exactly 2 teams on bye, so someone must
-    // sit each of those nights; sitting both is what turns a 21-day layoff into
-    // a 24-day one. Target: 0.
-    expect(report.spacing.byesAdjNight).toBe(1);
-    expect(report.spacing.longestLayoffDays).toBe(24);
+  it("goal 1: never byes a team on two game nights in a row", () => {
+    // Was 1: a team sat both night 28 (Thu Dec 17) and night 29 (Mon Jan 4),
+    // straddling the Christmas break. Every night needs exactly 2 teams on bye,
+    // so someone must sit each of those nights — but sitting both is what turned
+    // a 21-day layoff into a 24-day one, and 21 is this calendar's floor.
+    expect(report.spacing.byesAdjNight).toBe(0);
+    expect(report.spacing.longestLayoffDays).toBe(21);
   });
 
-  it("goal 2: still splits 9 of the 28 matchups unevenly across weekdays", () => {
+  it("goal 2: still splits 16 of the 28 matchups unevenly across weekdays", () => {
     const wd = ns.map((n) => weekdayOf(n.date));
     const used = [...new Set(wd)].sort((a, b) => a - b);
     const perWd = used.map((d) => wd.filter((x) => x === d).length);
@@ -297,9 +296,14 @@ describe("assignNights — full-season reference schedule", () => {
     // "Off its split" means a non-zero excess, which is the right test rather
     // than |Mon − Thu| > k: a 6-meeting pair at 2/4 is off its ideal 3/3 even
     // though the difference is only 2. Target: at most 3, with rematch still 0.
+    //
+    // Was 9 / 42 before Step 1. Nothing models this yet either way: Step 1's
+    // plateau sweep picks between bye-optimal matrices on rematch spacing, which
+    // is above this in the ranking, and the pairing split falls where it falls.
+    // Step 2 is what makes it a target rather than a by-product.
     const off = [...counts.values()].filter((v) => weekdayExcessScaled(v, perWd) > 0);
-    expect(off.length).toBe(9);
-    expect(report.spacing.pairingWeekdayExcess).toBe(42);
+    expect(off.length).toBe(16);
+    expect(report.spacing.pairingWeekdayExcess).toBe(94);
   });
 
   it("goal 3: shares ice evenly over the season but not within a weekday", () => {

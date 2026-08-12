@@ -99,11 +99,48 @@ describe("solveParticipation", () => {
     expect(res).not.toBeNull();
     expect(res!.weekdaySpread).toBe(0);
     expect(res!.byeConsecWeek).toBe(0);
+    // The gap is exactly where a week-based rule goes blind: week 5's last night
+    // and week 8's first are consecutive *nights* with three weeks of calendar
+    // between them, so byeing both is the longest layoff this season can hand a
+    // team — and the three rules above all read it as "not consecutive weeks".
+    expect(res!.byeAdjNight).toBe(0);
   });
 
-  it("accepts a bye every week when the calendar leaves no other option", () => {
+  it("counts back-to-back byes on a single-weekday calendar", () => {
+    // One weekday: every pair of consecutive nights is also a pair of
+    // consecutive weeks, so rule 4 and rule 3 fire on the same events. That
+    // double charge is deliberate — the two rules agree here rather than
+    // conflicting, and a team that byes two Thursdays running has still had two
+    // game nights off in a row.
+    const nights: ParticipationNight[] = [];
+    for (let w = 0; w < 16; w++) nights.push({ week: w, weekday: 0, games: 3 });
+    const res = solveParticipation({
+      teamCount: 8,
+      nights,
+      gamesPerTeam: new Array(8).fill(12),
+      weekdayCount: 1,
+    });
+    expect(res).not.toBeNull();
+    for (const row of res!.plays) expect(row.filter(Boolean).length).toBe(12);
+    // 8 teams over 16 nights of 3 games leaves each team 4 byes across 16 weeks
+    // — enough room to keep every one of them isolated.
+    expect(res!.byeAdjNight).toBe(0);
+    expect(res!.byeConsecWeek).toBe(0);
+    // Single weekday: a team's games are all on it, so the spread is trivially 0.
+    expect(res!.weekdaySpread).toBe(0);
+  });
+
+  it("trades rule 2 for rule 4 when a bye every week leaves no other option", () => {
     // 8 teams, 2 games a night: only 4 of 8 play, so each team byes one of every
-    // week's two nights. Rule 3 is unreachable; rules 1 and 2 must still hold.
+    // week's two nights. Rule 3 is unreachable, and rules 2 and 4 cannot both
+    // hold: alternating weekdays satisfies rule 2 but makes every Thu-then-Mon
+    // pair a back-to-back bye, while byeing one weekday for half the season and
+    // the other for the rest costs rule 2 on every week but stays clear of
+    // back-to-back nights. Rule 4 is weighted above rule 2 — a team sitting two
+    // game nights running is the worse defect — so the solver takes the second,
+    // and this is the one calendar shape in the suite where that shows.
+    //
+    // Rule 1 is unaffected either way and must still hold exactly.
     const nights = twoNightWeeks(14, 2);
     const res = solveParticipation({
       teamCount: 8,
@@ -114,7 +151,12 @@ describe("solveParticipation", () => {
     expect(res).not.toBeNull();
     expect(res!.weekdaySpread).toBe(0);
     expect(res!.byeMultiWeek).toBe(0);
-    expect(res!.byeConsecWeekSameDay).toBe(0);
+    // Bounds, not exact values: this calendar can't be solved to proven
+    // optimality inside the budget, so the search returns its best-so-far and
+    // stops on wall clock. Measured: 4 and 96. The alternating pattern this
+    // replaced scored ~56 on rule 4 and 0 on rule 2.
+    expect(res!.byeAdjNight).toBeLessThanOrEqual(8);
+    expect(res!.byeConsecWeekSameDay).toBeGreaterThan(0);
   });
 
   // 12 nights weighted 7 to weekday 0 and 5 to weekday 1: 5 full weeks then two
