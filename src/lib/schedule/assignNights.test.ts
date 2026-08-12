@@ -3,6 +3,7 @@ import { roundRobin, buildBalancedPairings } from "./roundRobin";
 import { assignNights, type Night } from "./assignNights";
 import { weekdayOf } from "@/lib/format";
 import { enumerateNights } from "./capacity";
+import { weekdayExcessScaled } from "./spacing";
 
 const teams = (n: number) => Array.from({ length: n }, (_, i) => `t${i + 1}`);
 
@@ -253,5 +254,67 @@ describe("assignNights — full-season reference schedule", () => {
       set.add(g.away);
       perNight.set(g.nightIndex, set);
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Four goals the generator does not model yet. These assert TODAY's measured
+  // values, not the target ones — each is the "before" of a later step, so
+  // improving a goal is a single assertion flip and nothing can regress quietly.
+  //
+  // Two calibration notes for whoever flips them:
+  //  * These run under `vitest.config.ts`, which pins OBHL_SLOT_BUDGET_MS to 400
+  //    against production's 5000. Phase P and M are unaffected (byesAdjNight and
+  //    pairingWeekdayExcess read the same 1 and 42 at both budgets), but the
+  //    Phase S numbers do not: at production budget this same calendar gives
+  //    slotWeekdaySpread 44 / slotStreak3 4 / slotConsecutive 41 rather than
+  //    36 / 7 / 46. Measure through `vitest.measure.ts` before believing a
+  //    Phase S result.
+  //  * Phase S stops on wall clock, so its two metrics are asserted as bounds
+  //    rather than exact values; the measured figures are in the comments.
+  // ---------------------------------------------------------------------------
+
+  it("goal 1: still byes one team on two game nights in a row", () => {
+    // The pair straddles the Christmas break — night 28 (Thu Dec 17) and night
+    // 29 (Mon Jan 4). Every night needs exactly 2 teams on bye, so someone must
+    // sit each of those nights; sitting both is what turns a 21-day layoff into
+    // a 24-day one. Target: 0.
+    expect(report.spacing.byesAdjNight).toBe(1);
+    expect(report.spacing.longestLayoffDays).toBe(24);
+  });
+
+  it("goal 2: still splits 9 of the 28 matchups unevenly across weekdays", () => {
+    const wd = ns.map((n) => weekdayOf(n.date));
+    const used = [...new Set(wd)].sort((a, b) => a - b);
+    const perWd = used.map((d) => wd.filter((x) => x === d).length);
+    const counts = new Map<string, number[]>();
+    for (const g of games) {
+      const k = [g.home, g.away].sort().join("|");
+      const v = counts.get(k) ?? used.map(() => 0);
+      v[used.indexOf(wd[g.nightIndex])]++;
+      counts.set(k, v);
+    }
+    expect(counts.size).toBe(28);
+    // "Off its split" means a non-zero excess, which is the right test rather
+    // than |Mon − Thu| > k: a 6-meeting pair at 2/4 is off its ideal 3/3 even
+    // though the difference is only 2. Target: at most 3, with rematch still 0.
+    const off = [...counts.values()].filter((v) => weekdayExcessScaled(v, perWd) > 0);
+    expect(off.length).toBe(9);
+    expect(report.spacing.pairingWeekdayExcess).toBe(42);
+  });
+
+  it("goal 3: shares ice evenly over the season but not within a weekday", () => {
+    // Every team is 12-12-12 across the season (asserted above) while only one
+    // is even on both weekdays; the worst sits at 8-2-8 Mon / 4-10-4 Thu.
+    // Target: well down from here. Measured today: 36 at this budget, 44 at
+    // production budget — the long Phase S grind currently makes this *worse*
+    // while it chases slotConsecutive, which Step 3 has to rebalance.
+    expect(report.spacing.slotWeekdaySpread).toBeGreaterThan(20);
+  });
+
+  it("goal 4: still runs teams three games deep in one ice time", () => {
+    // Costed today as two ordinary back-to-back repeats, so nothing prefers two
+    // separate 2-runs to one 3-run. Target: 0. Measured today: 7 at this
+    // budget, 4 at production budget.
+    expect(report.spacing.slotStreak3).toBeGreaterThan(0);
   });
 });

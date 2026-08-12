@@ -1364,8 +1364,17 @@ function planByParticipation(
 
 /**
  * Schedule quality as a lexicographic tuple, lowest wins, ordered by the
- * league's stated priorities: everything placed ▸ weekday balance ▸ byes ▸
- * rematch spacing ▸ ice time.
+ * league's stated priorities: everything placed ▸ back-to-back byes ▸ weekday
+ * balance ▸ byes ▸ rematch spacing ▸ pairing weekday split ▸ ice time.
+ *
+ * Every metric the search targets has to appear here, or `planByWeeks` can win
+ * on an old term while being far worse on a new one. `longestLayoffDays` is the
+ * deliberate exception: it is informational, and a long layoff is often a
+ * calendar fact no plan can beat, so ranking on it would pick plans for reasons
+ * outside their control.
+ *
+ * `byesAdjNight` outranks weekday balance by the league's decision: an uneven
+ * weekday split is preferable to a team sitting out two game nights in a row.
  */
 function rankSchedule(
   plan: Plan,
@@ -1378,6 +1387,7 @@ function rankSchedule(
   const sum = (f: (t: string) => number) => teamIds.reduce((s, t) => s + f(t), 0);
   return [
     plan.unscheduled,
+    r.byesAdjNight,
     sum((t) => spread(wd.get(t)!)),
     r.byesMultiWeek,
     r.byesConsecWeekSameDay,
@@ -1386,7 +1396,10 @@ function rankSchedule(
     r.rematchAdjNight,
     r.rematchConsecWeekSameDay,
     r.rematchConsecWeek,
+    r.pairingWeekdayExcess,
+    r.slotWeekdaySpread,
     sum((t) => spread(slot.get(t)!)),
+    r.slotStreak3,
     r.slotConsecutive,
   ];
 }
