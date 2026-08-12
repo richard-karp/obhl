@@ -226,9 +226,12 @@ describe("assignNights — full-season reference schedule", () => {
   });
 
   it("never repeats an opponent in the same week or in back-to-back weeks", () => {
+    // All four, not three: this is the guard on the weekday-split term added in
+    // Phase M, which is ranked below rematch spacing and must stay there.
     expect(report.spacing.rematchSameWeek).toBe(0);
     expect(report.spacing.rematchAdjNight).toBe(0);
     expect(report.spacing.rematchConsecWeek).toBe(0);
+    expect(report.spacing.rematchConsecWeekSameDay).toBe(0);
   });
 
   it("keeps opponents balanced — 36 games over 7 opponents is 5s and one 6", () => {
@@ -281,7 +284,7 @@ describe("assignNights — full-season reference schedule", () => {
     expect(report.spacing.longestLayoffDays).toBe(21);
   });
 
-  it("goal 2: still splits 16 of the 28 matchups unevenly across weekdays", () => {
+  it("goal 2: splits all but two of the 28 matchups evenly across weekdays", () => {
     const wd = ns.map((n) => weekdayOf(n.date));
     const used = [...new Set(wd)].sort((a, b) => a - b);
     const perWd = used.map((d) => wd.filter((x) => x === d).length);
@@ -295,15 +298,20 @@ describe("assignNights — full-season reference schedule", () => {
     expect(counts.size).toBe(28);
     // "Off its split" means a non-zero excess, which is the right test rather
     // than |Mon − Thu| > k: a 6-meeting pair at 2/4 is off its ideal 3/3 even
-    // though the difference is only 2. Target: at most 3, with rematch still 0.
+    // though the difference is only 2. Target was at most 3, with rematch at 0.
     //
-    // Was 9 / 42 before Step 1. Nothing models this yet either way: Step 1's
-    // plateau sweep picks between bye-optimal matrices on rematch spacing, which
-    // is above this in the ranking, and the pairing split falls where it falls.
-    // Step 2 is what makes it a target rather than a by-product.
+    // Was 9 / 42 before Step 1, then 16 / 94 after it — Step 1's plateau sweep
+    // moved it as a side effect, because nothing modelled it. Phase M now scores
+    // it, and `seedGreedy` seeds towards it, which is what does most of this:
+    // the cost term alone, from a weekday-blind seed, reaches 12 of 28.
+    //
+    // The two that remain are deliberate. Pushing `WD_SPLIT_W` far enough to
+    // clear them buys a perfect split for two `rematchConsecWeek` violations,
+    // and rematch spacing outranks this — see the weight's own note in
+    // `matchups.ts`.
     const off = [...counts.values()].filter((v) => weekdayExcessScaled(v, perWd) > 0);
-    expect(off.length).toBe(16);
-    expect(report.spacing.pairingWeekdayExcess).toBe(94);
+    expect(off.length).toBe(2);
+    expect(report.spacing.pairingWeekdayExcess).toBe(8);
   });
 
   it("goal 3: shares ice evenly over the season but not within a weekday", () => {

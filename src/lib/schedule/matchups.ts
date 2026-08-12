@@ -10,10 +10,42 @@
  * scores both together and treats the meeting counts as effectively hard.
  */
 
-import { SPACING_W } from "./spacing";
+import { SPACING_W, weekdayExcessScaled } from "./spacing";
 
 /** Meeting-count error dominates spacing: opponent balance is not tradeable. */
 const MULT_W = 50_000;
+/**
+ * How hard to push each pairing's meetings towards an even weekday split, per
+ * unit of `pairingWeekdayExcess` — the number `spacingReport` prints, so the
+ * cost this search minimises and the metric it is judged on cannot drift apart.
+ *
+ * ⚠️ Deliberately an order of magnitude *below* the rematch weights (40–120), so
+ * the descent can only straighten a split where rematch spacing is indifferent.
+ * Weekday split is the lower-priority goal and this is what keeps it there. The
+ * seeding term below, not this weight, is what does the heavy lifting.
+ *
+ * Measured on the reference season: 1, 5 and 8 all reach the same schedule
+ * (`pairingWeekdayExcess` 8, all four rematch metrics 0); at 10 the search buys
+ * a perfect weekday split for 2 `rematchConsecWeek` violations, which is the
+ * trade the league has already rejected. 5 sits mid-band rather than against
+ * that cliff. Anything above it needs the rematch metrics re-measured — and
+ * raising it past `oneOff`'s `CHURN_W.SPACING` scale means re-checking mid-season
+ * repair churn in the same change (`SCHEDULE_HANDOFF.md` §5).
+ */
+const WD_SPLIT_W = 5;
+/**
+ * The same goal in `seedGreedy`'s units, which are its own — `remaining * 1000`
+ * and a recency term topping out at 600. Sized to outrank recency but never the
+ * outstanding meeting count, so the seed still hands the descent a matchup
+ * multiset it can balance.
+ *
+ * This is where the weekday split is actually won. The descent starts from this
+ * seed, and a weekday-blind seed lands in a local optimum it can only leave by
+ * paying in rematch spacing: seeding blind and leaving the descent to it costs
+ * either 12 of 28 pairings off ideal or a broken rematch metric, depending on
+ * how hard `WD_SPLIT_W` pushes. Seeding aware, it is 2 of 28 with rematch at 0.
+ */
+const WD_SPLIT_SEED_W = 500;
 /**
  * Perfect matchings of 2k teams number (2k−1)!! — 945 at ten teams a night,
  * 10395 at twelve. Past this the search would be choosing from an arbitrary
@@ -151,6 +183,65 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
   const rnd = mulberry32(seed);
   const deadline = Date.now() + timeBudgetMs;
 
+  // Weekday frame for the pairing-split term, read off the calendar rather than
+  // taken as a parameter, so any cadence works: one weekday, three or more, and
+  // weekdays with unequal night counts (where the flattest split is uneven).
+  const weekdays = [...new Set(nightWeekday.slice(0, N))].sort((a, b) => a - b);
+  const wIndex = new Map(weekdays.map((d, i) => [d, i]));
+  const D = weekdays.length;
+  const nightsPerWd = new Array<number>(D).fill(0);
+  for (let n = 0; n < N; n++) nightsPerWd[wIndex.get(nightWeekday[n])!]++;
+  // `weekdayExcessScaled` returns an exact integer scaled by N²; divide by it
+  // once here so `WD_SPLIT_W` is expressed against the reported metric.
+  const wdScale = N > 0 ? WD_SPLIT_W / (N * N) : 0;
+  // Reused across pairCost calls — it runs once per candidate matching per night
+  // per pass, so an allocation here would be the hot path.
+  const wdCounts = new Array<number>(D).fill(0);
+  /**
+   * `weekdayExcessScaled` over a counts vector, memoised on the vector itself.
+   * A pairing meets a handful of times over two or three weekdays, so the
+   * descent asks the same few hundred questions millions of times; caching the
+   * shared helper's answer rather than reimplementing it keeps the cost the
+   * search minimises identical to the metric the report prints.
+   *
+   * The key packs each count into five bits, so it stays an exact integer up to
+   * ten weekdays. A wider cadence, or a pairing meeting 32 times on one weekday,
+   * falls through to the uncached call rather than colliding.
+   */
+  const excessCache = new Map<number, number>();
+  const cacheable = D <= 10;
+  const cachedExcess = (counts: number[]): number => {
+    if (!cacheable) return weekdayExcessScaled(counts, nightsPerWd);
+    let key = 0;
+    for (let d = 0; d < D; d++) {
+      if (counts[d] >= 32) return weekdayExcessScaled(counts, nightsPerWd);
+      key = key * 32 + counts[d];
+    }
+    let v = excessCache.get(key);
+    if (v === undefined) {
+      v = weekdayExcessScaled(counts, nightsPerWd);
+      excessCache.set(key, v);
+    }
+    return v;
+  };
+
+  const countOnWeekday = (ns: number[], d: number): number => {
+    let c = 0;
+    for (const n of ns) if (wIndex.get(nightWeekday[n])! === d) c++;
+    return c;
+  };
+  /**
+   * The most meetings any flattest split may put on weekday `d` — the ceiling
+   * counterpart of `proportionalSplit`, which hands a leftover meeting to one
+   * weekday or another arbitrarily. The greedy must allow either, or every
+   * odd-total pairing would be pushed onto the same weekday and the split it
+   * chases would be one no schedule can hold.
+   *
+   * Integer arithmetic throughout, for the same reason `proportionalSplit` is.
+   */
+  const weekdayAllowance = (total: number, d: number): number =>
+    Math.ceil((total * nightsPerWd[d]) / N);
+
   // Candidate matchings per night.
   const options: [number, number][][][] = [];
   for (let n = 0; n < N; n++) {
@@ -212,6 +303,14 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
     const ns = meets.get(k)!;
     const diff = ns.length - (targets[a]?.[b] ?? 0);
     let c = MULT_W * diff * diff;
+    // How far this pairing's meetings sit from an even spread over the weekdays,
+    // against the flattest split the calendar's night counts allow. Identically
+    // zero on a one-weekday cadence, so skip the work there.
+    if (D > 1) {
+      wdCounts.fill(0);
+      for (const n of ns) wdCounts[wIndex.get(nightWeekday[n])!]++;
+      c += wdScale * cachedExcess(wdCounts);
+    }
     for (let i = 1; i < ns.length; i++) {
       const prev = ns[i - 1];
       const cur = ns[i];
@@ -268,6 +367,7 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
     choice.fill(0);
     for (const ns of meets.values()) ns.length = 0;
     for (let n = 0; n < N; n++) {
+      const d = D > 1 ? wIndex.get(nightWeekday[n])! : 0;
       let bestIdx = 0;
       let bestVal = Number.POSITIVE_INFINITY;
       for (let idx = 0; idx < options[n].length; idx++) {
@@ -275,11 +375,18 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
         for (const [a, b] of options[n][idx]) {
           const k = pairKey(a, b);
           const ns = meets.get(k)!;
-          const remaining = (targets[a]?.[b] ?? 0) - ns.length;
+          const total = targets[a]?.[b] ?? 0;
+          const remaining = total - ns.length;
           // Prefer pairs still owing meetings, and ones we haven't seen lately.
           v -= remaining * 1000;
           const last = ns.length ? ns[ns.length - 1] : -1000;
           v += Math.max(0, 20 - (n - last)) * 30;
+          // Steer the seed towards an even weekday split too. Without this the
+          // descent starts from a weekday-blind local optimum and can only leave
+          // it by paying in rematch spacing, which is not tradeable.
+          if (D > 1 && countOnWeekday(ns, d) >= weekdayAllowance(total, d)) {
+            v += WD_SPLIT_SEED_W;
+          }
         }
         v += rnd() * jitter;
         if (v < bestVal) {
