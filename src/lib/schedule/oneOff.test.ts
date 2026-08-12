@@ -92,15 +92,27 @@ function invariants(teamCount: number, nights: OneOffNight[]) {
   return { gp, byes, weekday: [...weekday.entries()].sort() };
 }
 
-/** A night both teams play but where they don't already meet. */
-function pickTarget(nights: OneOffNight[], from: number) {
+type Target = { night: number; pair: [number, number] };
+
+/**
+ * A night both teams play but where they don't already meet. `accept` narrows it
+ * further — the repair tests need a target whose exact repair is reachable, and
+ * which of them is depends on the generated fixture.
+ */
+function pickTarget(
+  nights: OneOffNight[],
+  from: number,
+  accept: (t: Target) => boolean = () => true,
+): Target {
   for (let n = from; n < nights.length; n++) {
     const playing = [...new Set(nights[n].games.flat())];
     const meeting = new Set(nights[n].games.map((g) => [...g].sort().join("-")));
     for (const a of playing) {
       for (const b of playing) {
         if (a >= b) continue;
-        if (!meeting.has([a, b].sort().join("-"))) return { night: n, pair: [a, b] as [number, number] };
+        if (meeting.has([a, b].sort().join("-"))) continue;
+        const t: Target = { night: n, pair: [a, b] };
+        if (accept(t)) return t;
       }
     }
   }
@@ -159,10 +171,51 @@ describe("planOneOff", () => {
     expect(baseline.changes.every((c) => c.night === target.night)).toBe(true);
   });
 
-  it("restores opponent balance when it repairs", () => {
+  /**
+   * ⚠️ Exact repair is a property of the *instance*, not an invariant, and this
+   * fixture's target is picked by scanning the generated season — so which
+   * instance it lands on moves whenever the generator does.
+   *
+   * Measured over all twelve pairs forceable onto this fixture's night 6: nine
+   * repair exactly and three cannot, and raising the repair's own effort 25×
+   * (300 restarts, 12 s) does not move them — so those three are the shape
+   * `drift` documents, "pairs still off target if exact repair was unreachable".
+   * Asserting exact repair for whichever pair the scan happens to return would
+   * be asserting that luck, which is how this test read before.
+   */
+  // Finding a repairable target means planning each candidate until one lands,
+  // and a plan is a full Phase M + Phase S run — seconds, not milliseconds.
+  it("restores opponent balance where exact repair is reachable", { timeout: 60_000 }, () => {
+    const repairable = pickTarget(nights, 6, (t) => {
+      const r = planOneOff({
+        teamCount: T,
+        nights,
+        oneOffNight: t.night,
+        forcedPairs: [t.pair],
+      });
+      return r.ok && r.plans.some((p) => p.id !== "no-repair" && p.drift.length === 0);
+    });
+    const result = planOneOff({
+      teamCount: T,
+      nights,
+      oneOffNight: repairable.night,
+      forcedPairs: [repairable.pair],
+    });
+    if (!result.ok) throw new Error(result.reason);
+    const repairs = result.plans.filter((p) => p.id !== "no-repair");
+    expect(repairs.length).toBeGreaterThan(0);
+    expect(repairs.some((p) => p.drift.length === 0)).toBe(true);
+  });
+
+  it("never leaves opponent balance worse than leaving the season alone", () => {
+    // The invariant that does hold everywhere: meeting counts are weighted far
+    // above churn, so a repair may fail to close the gap but must never widen
+    // it. This is what catches a weight that lets something outrank balance.
+    const baseline = plans.find((p) => p.id === "no-repair")!;
+    const off = (p: OneOffPlan) => p.drift.reduce((s, d) => s + Math.abs(d.delta), 0);
     const repairs = plans.filter((p) => p.id !== "no-repair");
     expect(repairs.length).toBeGreaterThan(0);
-    for (const plan of repairs) expect(plan.drift).toEqual([]);
+    for (const plan of repairs) expect(off(plan)).toBeLessThanOrEqual(off(baseline));
   });
 
   it("never leaves home/away worse than it found it", () => {
