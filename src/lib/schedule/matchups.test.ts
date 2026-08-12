@@ -516,7 +516,11 @@ function slotMetrics(
 describe("assignSlots weekday split", () => {
   const BOUNDED = { restarts: 300, timeBudgetMs: 60_000 };
 
-  const run = (weekdayOfNight: number[], pairs?: [number, number][][]) => {
+  const run = (
+    weekdayOfNight: number[],
+    extra?: { streak3W?: number },
+    pairs?: [number, number][][],
+  ) => {
     const { T, pairsByNight } = pairs
       ? { T: 8, pairsByNight: pairs }
       : slotCadence(weekdayOfNight);
@@ -525,6 +529,7 @@ describe("assignSlots weekday split", () => {
       pairsByNight,
       slotsPerNight: pairsByNight.map((p) => p.length),
       ...BOUNDED,
+      ...extra,
     };
     const aware = assignSlots({ ...opts, weekdayOfNight });
     const blind = assignSlots(opts);
@@ -599,6 +604,16 @@ describe("assignSlots weekday split", () => {
     expect(r.aware.streak3).toBe(0);
   });
 
+  it("takes the three-game-run weight as an option", () => {
+    // 140 reaches a flat per-weekday split on the reference cadence where the
+    // default 160 leaves a spread of 8. Asserted as a difference, not as two
+    // fixed numbers: the point is that the option reaches the search.
+    const wd = Array.from({ length: 28 }, (_, n) => [1, 4][n % 2]);
+    const a = run(wd, { streak3W: 140 });
+    const b = run(wd, { streak3W: 160 });
+    expect(a.aware.weekdaySpread).not.toBe(b.aware.weekdaySpread);
+  });
+
   it("targets the ice a night actually has, not a uniform share of it", () => {
     // An under-filled night drops its latest slot, so slot 2 runs on fewer
     // nights than 0 and 1 and an equal per-team split stops being possible. The
@@ -609,7 +624,7 @@ describe("assignSlots weekday split", () => {
     const wd = Array.from({ length: 28 }, (_, n) => [1, 4][n % 2]);
     const full = slotCadence(wd).pairsByNight;
     const pairs = full.map((p, n) => (n % 3 === 0 ? p.slice(0, 2) : p));
-    const r = run(wd, pairs);
+    const r = run(wd, undefined, pairs);
     // A uniform target would call this shape's ideal a flat split and read a
     // floor of 0; it is 13. Measured: 23 against that floor, blind 43.
     expect(r.floor).toBeGreaterThan(0);

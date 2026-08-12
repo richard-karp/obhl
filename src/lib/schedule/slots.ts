@@ -61,7 +61,8 @@ const WEEKDAY_SHARE_W = 30;
  * residual `slotWeekdaySpread` lands (4 to 12) is search luck, not a trend. Read
  * a big swing from a small change as that noise, not as a better weight.
  */
-const STREAK3_W = 160;
+/** Default for `SlotOptions.streak3W`. */
+const STREAK3_W_DEFAULT = 160;
 
 /**
  * The seed's pull toward rotating through the ice times rather than merely
@@ -100,6 +101,12 @@ export type SlotOptions = {
   restarts?: number;
   /** Wall-clock cap on the whole search. */
   timeBudgetMs?: number;
+  /**
+   * Charge on the third-and-later game of a run in one ice time. Defaults to
+   * `STREAK3_W_DEFAULT`. Exposed because no single value is best across
+   * cadences — `assignNights` runs several and ranks the results.
+   */
+  streak3W?: number;
   /**
    * `initial[night][gameIndex]` — start from these slots rather than the default
    * packing. Repairing a published season starts from the slots it already has,
@@ -204,6 +211,7 @@ export function assignSlots(opts: SlotOptions): number[][] {
     seed = 1,
     restarts = 60,
     timeBudgetMs = 400,
+    streak3W = STREAK3_W_DEFAULT,
     initial,
     frozen,
     pinned,
@@ -401,7 +409,7 @@ export function assignSlots(opts: SlotOptions): number[][] {
         consec += SPACING_W.slotConsecutive;
         // Charged on the third and later game of a run, so a run of 4 pays it
         // twice — the same shape as the `slotStreak3` the report counts.
-        if (i > 1 && seq[i] === seq[i - 2]) streak += STREAK3_W;
+        if (i > 1 && seq[i] === seq[i - 2]) streak += streak3W;
       }
     }
     let hi = countsBuf[0];
