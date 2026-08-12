@@ -60,8 +60,16 @@ const WEEKDAY_SHARE_W = 30;
  * every value in that band clears the runs, and where in it the season's
  * residual `slotWeekdaySpread` lands (4 to 12) is search luck, not a trend. Read
  * a big swing from a small change as that noise, not as a better weight.
+ *
+ * **160 is no longer load-bearing.** It is the default for callers that pass no
+ * `streak3W`, and the first of several candidates generation actually runs — see
+ * `SLOT_CANDIDATES` in `assignNights.ts`, which ranks their results and keeps the
+ * best. Tuning this number on one fixture is therefore the wrong move twice over:
+ * the band above says a single fixture cannot tell you which value in it is
+ * better, and selection has made the question moot. Change the candidate set
+ * instead. 160 must stay in it — that is what makes the selected result provably
+ * never worse than what shipped before selection existed.
  */
-/** Default for `SlotOptions.streak3W`. */
 const STREAK3_W_DEFAULT = 160;
 
 /**
