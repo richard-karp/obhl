@@ -21,10 +21,10 @@ an exact fit):
 | Ice-time share per team | spread 2 | **spread 0** (12/12/12) |
 | Ice-time repeats (`slotConsecutive`) | 69 | **48** |
 | Games per team / unscheduled | 36 all / 0 | 36 all / 0 |
-| Generate time | ~475 ms | ~20.8 s (Phase S runs four candidates, each on a long budget — see §5) |
+| Generate time | ~475 ms | ~26 s (Phase S runs five candidates, each on a long budget — see §5) |
 | **G1.** No bye adjacent to a game night (`byesAdjNight`) † | 1 | **0** |
 | Longest layoff between games (`longestLayoffDays`) † | 24 | **21** (calendar floor) |
-| **G2.** Each pairing split evenly over the weekdays it plays (`pairingWeekdayExcess`) † | 42 (9 of 28 matchups off ideal) | **8** (2 of 28) |
+| **G2.** Each pairing split evenly over the weekdays it plays (`pairingWeekdayExcess`) † | 42 (9 of 28 matchups off ideal) | **0** (all 28 at ideal) |
 | **G3.** Ice-time share per team *per weekday* (`slotWeekdaySpread`) † | 44 | **0** (best-of-k; 8 is the guaranteed bound — see §5) |
 | **G4.** Three-game runs in one ice time (`slotStreak3`) † | 4 | **0** |
 
@@ -204,13 +204,31 @@ are fixed; see §3. What follows are choices, not oversights.
   step — **is built**, as `compoundPass` in `slots.ts`. Repeats are the
   lowest-priority ice-time metric; they are allowed to rise when share or runs
   improve.
+- **G2's last two pairings were structural, and `WD_SPLIT_W` was never the lever
+  (built 2026-08-12).** The residual was always *even* — 2 of 28, one Mon-heavy pairing
+  and its Thu-heavy mirror — because `MULT_W` freezes how many times a pair meets and
+  Phase P freezes who plays which night, so moving a meeting off one weekday forces
+  adding one on another, on a night that then has to re-pair whoever those teams were
+  playing. Each half is a meeting-count violation priced at `MULT_W`, so `descend`,
+  which re-chooses one night with every other held fixed, refuses both halves at any
+  weight — raising `WD_SPLIT_W` only ever bought the split by breaking rematch spacing.
+  The fix is `compoundPass` in `matchups.ts`: re-choose two nights of opposite weekdays
+  *together*, over only those joint choices that hold every meeting count exactly, and
+  take a strict gain. `WD_SPLIT_W` is untouched at 5.
+  - *Two guards it carries, neither of which the reference season needs:* the pass
+    refuses any joint choice that worsens rematch spacing, and restart selection ranks
+    on (everything-but-the-split, then the split) instead of the blended sum. Both exist
+    because at this scale 20 units of weekday excess and one `rematchConsecWeek` are
+    **both worth 40** — the blend cannot tell them apart, and the pass makes low-split
+    candidates common enough that a coin-toss between them was reachable. Removing
+    either changes nothing measurable today and re-opens the trade the league rejected.
 - **G3's 8 was a `STREAK3_W` draw — now selected, not tuned (built 2026-08-12).**
   No single weight wins: 140 flattens the reference season's `slotWeekdaySpread` to 0
   where the old fixed 160 read 8, but 160 beats 140 by 4 on Mon/Wed/Fri, and 144–152 are
-  worse than both. So `assignNights` runs Phase S at **four candidates** — 160 once, then
-  140 on seeds 1/2/3 — and keeps the winner by `compareIceOutcome`. 160 leads the set,
-  which is what makes the result provably never worse than the single weight that
-  shipped. Do not re-tune the weight on one fixture; add or drop candidates instead.
+  worse than both. So `assignNights` runs Phase S at **five candidates** — 160 once,
+  140 on seeds 1/2/3, then 200 once — and keeps the winner by `compareIceOutcome`.
+  160 leads the set, which is what makes the result provably never worse than the
+  single weight that shipped. Do not re-tune the weight on one fixture; add or drop candidates instead.
   **160 must stay in the set or the guarantee is gone.**
   - *Why 140 is sampled three times and 160 once:* 160 is stable — measured three times
     over it returns the identical result. 140 is not: it reaches the flat split every
@@ -218,9 +236,25 @@ are fixed; see §3. What follows are choices, not oversights.
     declines any sample carrying a run, extra samples are what turn 140's good basin
     from a one-in-three chance into the common case. Measured after the change, three
     seasons in a row: `slotWeekdaySpread` 0, `slotStreak3` 0.
+  - *Why 200 was added (2026-08-12, with G2's compound pass):* Phase M's compound pass
+    changed the pairing set this phase is handed, and none of the four basins above
+    happened to sit on the new one — all four left a three-game run inside the 5 s
+    budget. The set is not harder: 20 s clears it, and so does 200 at 5 s, returning an
+    even season share, no run, a **flat** weekday split and 48 repeats, on five runs out
+    of five. This is the failure mode the whole set exists for, and it is the reason to
+    add candidates rather than re-tune: a weight that misses costs nothing but a sample.
   - *Guarantee vs. prize:* the reference test asserts `slotWeekdaySpread <= 8`, not
     `=== 0`. Eight is what the candidate set guarantees; 0 is what it usually gets.
     Asserting 0 would be asserting search luck, and it would fail intermittently.
+- **Phase M's output decides which Phase S candidate wins — expect that coupling.**
+  Changing what Phase M produces re-rolls the instance Phase S searches, and a weight
+  that landed well on the old one may land badly on the new one. It surfaces as an
+  ice-time regression in a phase you did not touch, which reads as a defect and is not
+  one. Check `SLOT_CANDIDATES` covers the new instance before believing Phase S broke.
+  The same trap caught the *tests*: the cadence rows under
+  `describe("assignSlots weekday split")` used to build their fixture by running Phase M,
+  so every Phase M change silently re-rolled what Phase S was judged on. They now build
+  it themselves and no longer move.
 - **The ice-time sub-order puts three-game runs above the per-weekday split.**
   `compareIceOutcome` ranks: season share ▸ `slotStreak3` ▸ `slotWeekdaySpread` ▸
   `slotConsecutive`. The middle two are in that order deliberately and the plan that
@@ -295,21 +329,20 @@ are fixed; see §3. What follows are choices, not oversights.
 Verify with `npx vitest run` (222 pass), `npm run lint`, `npx tsc --noEmit`.
 
 The suite runs Phase S at production's 5 s budget (`vitest.config.ts`), so it takes
-~30 s. That is deliberate: a shorter budget once hid a real defect by building
+~36 s. That is deliberate: a shorter budget once hid a real defect by building
 fixture seasons production never sees. Do not lower it to speed the suite up.
 
 ---
 
 ## 7. Open work
 
-One item left. Its brief is self-contained and says what *not* to read.
+**Nothing outstanding.** All four goals are at their floor.
 
-| Work | Status | Brief |
-|---|---|---|
-| G2 — `pairingWeekdayExcess` 8 → 0 via a compound move in Phase M | analysed, not planned | `docs/superpowers/plans/2026-08-12-g2-pairing-weekday-split.md` |
-
-Phase S best-of-k and the one-off repair defect are **done** (2026-08-12, branch
-`feat/schedule-goals`). Their plan is kept as a record of the reasoning, but two of
-its decisions were overruled during execution and are marked ⛔ in its Global
-Constraints — read those before trusting anything else in it. What shipped is in §5
-here.
+G2 — `pairingWeekdayExcess` 8 → 0 via a compound move in Phase M — is **done**
+(2026-08-12, branch `feat/schedule-goals`); its brief,
+`docs/superpowers/plans/2026-08-12-g2-pairing-weekday-split.md`, records what
+shipped and the one thing its analysis did not predict. Phase S best-of-k and the
+one-off repair defect are **done** as well (2026-08-12). Their plan is kept as a
+record of the reasoning, but two of its decisions were overruled during execution
+and are marked ⛔ in its Global Constraints — read those before trusting anything
+else in it. What shipped is in §5 here.

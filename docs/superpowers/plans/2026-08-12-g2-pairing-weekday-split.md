@@ -1,5 +1,44 @@
 # G2 — drive `pairingWeekdayExcess` from 8 to 0
 
+**Status: done, 2026-08-12.** `pairingWeekdayExcess` is **0**, all 28 pairings at
+their ideal weekday split, all four rematch metrics still 0, every bye rule still
+0, weekday balance still 18/18 and season ice share still 12/12/12. Measured five
+runs in a row on the reference season; Phases P and M are deterministic, so those
+numbers do not move. Built as Route 1 below: `compoundPass` in `matchups.ts`.
+
+`WD_SPLIT_W` was **not** touched. It is still 5.
+
+## What this analysis did not predict
+
+Phase M's output is the instance Phase S searches, and changing it re-rolled that
+instance. All four of Phase S's weight-and-seed candidates left a three-game run
+on the new pairing set inside the 5 s budget — goals 3 and 4 failing in a phase
+this work never touched. The set is not harder: 20 s clears it, and so does a
+`streak3W` of 200 at 5 s, which now returns an even season share, no run, a
+**flat** weekday ice split (0, was 8) and 48 ordinary repeats. So a fifth
+candidate was added to `SLOT_CANDIDATES` — the failure mode that set exists for.
+Generate time went ~20.8 s → ~26 s, all of it the extra candidate.
+
+The same coupling had quietly been running through the *tests*: the cadence rows
+under `describe("assignSlots weekday split")` built their fixture by calling
+Phase M, so every Phase M change re-rolled what Phase S was judged on. They now
+build it themselves and no longer move. `SCHEDULE_HANDOFF.md` §5 records both.
+
+Two guards in the new code are worth keeping even though the reference season
+does not need either: the pass refuses any joint choice that worsens rematch
+spacing, and restart selection ranks on (everything-but-the-split, then the
+split) rather than the blended sum. At this scale 20 units of weekday excess and
+one `rematchConsecWeek` are **both worth 40** — the blended sum cannot tell them
+apart, and the pass makes low-split candidates common enough that the coin toss
+was reachable. Measured with each guard disabled: the reference season is
+unchanged. They are there for the seasons that are not the reference.
+
+---
+
+*Everything below is the brief as written before the work, kept for its analysis
+of why the residual was exactly 2 and why the descent could not fix it. Its
+"Resolved" numbers are the **old** state.*
+
 **Protocol — read this and nothing else to resume.**
 
 1. **Read scope.** This file is self-contained. Then read `matchups.ts` — the weights
@@ -27,8 +66,7 @@
    Phases P and M are unaffected, so every G2 number below is stable and repeatable.
    Do not let a flaky-looking ice-time assertion make you distrust your own G2 readings.
 
-**Status: not started.** Everything below is analysis, no code written. G2 is the one
-goal left short of its ideal, deliberately. Branch `feat/schedule-goals` — 16 commits,
+**Status when written: not started.** Everything below was analysis, no code written. Branch `feat/schedule-goals` — 16 commits,
 **unpushed** — carries two completed pieces of work: the original five-step generator
 plan, and Phase S best-of-k weight selection (2026-08-12). Neither touched Phase M, so
 nothing below was invalidated by them; the numbers here were re-checked afterwards.
