@@ -232,9 +232,29 @@ export async function generateSchedule(
   }
 
   // Replace existing drafts.
-  await admin.from("games").delete().eq("season_id", seasonId).eq("is_draft", true);
+  //
+  // Both writes are checked. The admin client sets no `throwOnError`, so a
+  // failure comes back in `error` rather than as an exception — and now that
+  // this action reports its outcome out loud, an unchecked failure would not
+  // just be silent, it would be a positive claim that a draft exists when none
+  // does. The two failures also leave the season in different states, so they
+  // say different things.
+  const { error: deleteError } = await admin
+    .from("games")
+    .delete()
+    .eq("season_id", seasonId)
+    .eq("is_draft", true);
+  if (deleteError) {
+    // Nothing was written. Whatever draft the season already had is intact, so
+    // there is nothing to revalidate — the page is still correct.
+    return {
+      ok: false,
+      message: `Couldn't clear the previous draft, so nothing was changed. ${deleteError.message}`,
+    };
+  }
+
   if (games.length) {
-    await admin.from("games").insert(
+    const { error: insertError } = await admin.from("games").insert(
       games.map((g) => ({
         season_id: seasonId,
         home_team_id: g.home,
@@ -247,6 +267,17 @@ export async function generateSchedule(
         is_draft: true,
       })),
     );
+    if (insertError) {
+      // The delete has already committed, so the old draft is gone and nothing
+      // replaced it. Revalidate before returning: the page is showing a draft
+      // that no longer exists, and a message alone would leave it there.
+      revalidatePath("/schedule-builder");
+      revalidatePath(`/seasons/${seasonId}`);
+      return {
+        ok: false,
+        message: `The previous draft was cleared but the new one couldn't be saved. ${insertError.message}`,
+      };
+    }
   }
   revalidatePath("/schedule-builder");
   revalidatePath(`/seasons/${seasonId}`);
