@@ -119,6 +119,46 @@ test.describe("Path 17 — Schedule Builder", () => {
     await expect(page.getByText("No draft schedule")).toBeVisible();
   });
 
+  test("a generate reports its result instead of finishing in silence", async ({
+    page,
+  }) => {
+    // The *result*, not the progress bar. This fixture is sparse and generates
+    // in about 0.4 s, so asserting the bar would race its own disappearance —
+    // the bar is verified by eye against a full season, where the run takes
+    // ~26 s. What is covered here is the half that used to be missing
+    // entirely: generateSchedule returned void, so a refusal and a slow run
+    // were indistinguishable.
+    await page.getByLabel("First game night").fill("2026-09-15");
+    await page.getByLabel("Games per team").fill("4");
+    await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
+    await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
+    await page.getByRole("button", { name: "Generate schedule" }).click();
+
+    await expect(page.getByText(/Generated a \d+-game draft schedule/)).toBeVisible();
+
+    await page.getByRole("button", { name: "Discard draft" }).click();
+    await expect(page.getByText("No draft schedule")).toBeVisible();
+  });
+
+  test("a generate with no game nights says so rather than doing nothing", async ({
+    page,
+  }) => {
+    // The refusal this feature exists for. With no weekday checked the action
+    // bails before it touches the database; before it returned a state, the
+    // button simply went back to idle and the manager was left guessing
+    // whether the generator had run and failed or never started.
+    await page.getByLabel("First game night").fill("2026-09-15");
+    await page.getByLabel("Games per team").fill("4");
+
+    await page.getByRole("button", { name: "Generate schedule" }).click();
+
+    await expect(
+      page.getByText("Pick at least one game night of the week."),
+    ).toBeVisible();
+    // And nothing was generated.
+    await expect(page.getByText("No draft schedule")).toBeVisible();
+  });
+
   test("spacing checks report every goal the generator models", async ({ page }) => {
     // The generator models four goals the panel is the only place a manager can
     // see. They are computed server-side per draft, so nothing below asserts a

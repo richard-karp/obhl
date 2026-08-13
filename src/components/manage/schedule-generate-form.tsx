@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useFormStatus } from "react-dom";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import type { DateRange, Matcher } from "react-day-picker";
-import { CalendarIcon, X } from "lucide-react";
-import { generateSchedule } from "@/lib/actions/schedule";
+import { CalendarIcon, Loader2Icon, X } from "lucide-react";
+import { toast } from "sonner";
+import { generateSchedule, type GenerateState } from "@/lib/actions/schedule";
+import { generateProgress } from "@/components/manage/generate-progress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -59,12 +61,79 @@ function expandRange(from: Date, to: Date): string[] {
 
 type SkipRange = { from: string; to: string };
 
-function SubmitButton() {
-  const { pending } = useFormStatus();
+function SubmitButton({ pending }: { pending: boolean }) {
   return (
     <Button type="submit" disabled={pending}>
       {pending ? "Generating…" : "Generate schedule"}
     </Button>
+  );
+}
+
+/**
+ * What a screen reader is told while a generate runs — the sentence only, never
+ * the countdown. Lives here because the visible copy and the announced copy are
+ * rendered in two different places (see the live region in the form below) and
+ * have to stay in step.
+ */
+const GENERATING_STATUS = "Building the schedule.";
+
+/**
+ * The bar, the countdown, and the tick that drives them.
+ *
+ * Mounted only while the action is pending (see the call site), so this
+ * component's lifetime *is* one run: the start timestamp is captured at mount
+ * and the interval is torn down at unmount. That is load-bearing. If this were
+ * ever rendered unconditionally with `pending` as a prop, a second generate
+ * would measure from the first run's start and show instant overrun, and the
+ * interval would keep ticking between runs — both would need an explicit reset
+ * to replace what the conditional render gives for free.
+ */
+function GenerateProgressBar({ expectedMs }: { expectedMs: number }) {
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  // The clock is read here rather than during render — `Date.now()` in a render
+  // body is impure, and an effect that runs once on mount is the same instant
+  // for this component's purposes.
+  useEffect(() => {
+    const startedAt = Date.now();
+    const id = setInterval(() => {
+      setElapsedMs(Date.now() - startedAt);
+    }, 250);
+    return () => clearInterval(id);
+  }, []);
+
+  const { fraction, remainingSec, overrun } = generateProgress(
+    elapsedMs,
+    expectedMs,
+  );
+
+  return (
+    <div className="min-w-0 flex-1 space-y-1.5">
+      {/*
+        Named, so it isn't announced as a bare unlabelled progress bar. This is
+        the one part of the indicator a screen reader can usefully query on
+        demand — hence a real name rather than `aria-hidden` alongside the text.
+      */}
+      <Progress value={fraction * 100} aria-label="Schedule generation progress" />
+      {/*
+        Visual only. The announced copy is the live region in the form below;
+        this paragraph would otherwise duplicate it, and it carries the
+        countdown, which changes four times a second and must never reach a
+        screen reader.
+      */}
+      <p
+        className="text-muted-foreground flex items-center gap-1.5 text-xs"
+        aria-hidden="true"
+      >
+        <Loader2Icon className="size-3.5 shrink-0 animate-spin" />
+        <span>
+          {overrun
+            ? "Still working — this season is taking longer than usual."
+            : "Building the schedule"}
+        </span>
+        {overrun ? null : <span>— about {remainingSec}s left.</span>}
+      </p>
+    </div>
   );
 }
 
@@ -73,15 +142,42 @@ export function ScheduleGenerateForm({
   seasonStart,
   seasonEnd,
   teamCount,
+  expectedMs,
 }: {
   seasonId: string;
   seasonStart: string | null;
   seasonEnd: string | null;
   teamCount: number;
+  /**
+   * How long a generate is expected to take, computed server-side from the
+   * generator's own Phase S budget.
+   *
+   * One number for every season, NOT a per-season estimate — the search spends
+   * its whole budget on any league big enough to need it, and saturates from
+   * about 28 game nights up. Below that it overstates: a 12-night season is
+   * told "about 26 seconds" and finishes in under 3. That was a deliberate
+   * choice over a never-overstating "up to about 30 seconds" ceiling, and the
+   * copy hedges with "about" because of it. An adaptive curve was rejected —
+   * the night count is available, but the night-count-to-time fit is one
+   * machine's numbers.
+   */
+  expectedMs: number;
 }) {
   const [mode, setMode] = useState<"games" | "date">("games");
   const [skips, setSkips] = useState<SkipRange[]>([]);
   const [pendingRange, setPendingRange] = useState<DateRange | undefined>();
+  const [state, action, pending] = useActionState<GenerateState, FormData>(
+    generateSchedule,
+    null,
+  );
+
+  // Same house pattern as publish-controls.tsx: the result is a toast, not
+  // inline text, and toasting is a side effect on an external system.
+  useEffect(() => {
+    if (!state) return;
+    if (state.ok) toast.success(state.message);
+    else toast.error(state.message);
+  }, [state]);
 
   const defaultGames = teamCount > 1 ? (teamCount - 1) * 2 : 14;
   const excludedValue = useMemo(
@@ -107,7 +203,7 @@ export function ScheduleGenerateForm({
   if (seasonEnd) disabled.push({ after: parseKey(seasonEnd) });
 
   return (
-    <form action={generateSchedule} className="space-y-4">
+    <form action={action} className="space-y-4">
       <input type="hidden" name="season_id" value={seasonId} />
       <input type="hidden" name="length_mode" value={mode} />
       <input type="hidden" name="excluded_dates" value={excludedValue} />
@@ -260,12 +356,35 @@ export function ScheduleGenerateForm({
       </div>
 
       <div className="flex items-center gap-3 pt-1">
-        <SubmitButton />
-        <span className="text-muted-foreground text-xs">
-          Creates a private preview only managers can see. Review it below, then
-          Publish to make it live — or Discard.
-        </span>
+        <SubmitButton pending={pending} />
+        {pending ? (
+          <GenerateProgressBar expectedMs={expectedMs} />
+        ) : (
+          <span className="text-muted-foreground text-xs">
+            Creates a private preview only managers can see. Review it below,
+            then Publish to make it live — or Discard.
+          </span>
+        )}
       </div>
+
+      {/*
+        Permanently mounted, and empty when idle. A live region inserted into
+        the DOM with its text already in place is generally not announced — the
+        region has to exist *before* its content changes — so this deliberately
+        sits outside the `pending` branch instead of inside the indicator.
+
+        It carries the sentence only. The countdown lives in the visual
+        paragraph above, which is `aria-hidden`: a number ticking four times a
+        second inside a live region would be read out on every change.
+
+        The overrun wording stays visual. Announcing it would mean lifting the
+        indicator's elapsed-time state up to this component, and that state is
+        deliberately scoped to the indicator's mount — see the note on
+        GenerateProgressBar. Not worth trading that for a second announcement.
+      */}
+      <p aria-live="polite" className="sr-only">
+        {pending ? GENERATING_STATUS : ""}
+      </p>
     </form>
   );
 }

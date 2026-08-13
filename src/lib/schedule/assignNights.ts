@@ -134,6 +134,23 @@ const SLOT_CANDIDATES: { streak3W: number; seed: number }[] = [
   { streak3W: 200, seed: 1 },
 ];
 
+/**
+ * Roughly how long a full generate takes, for the progress indicator in the
+ * schedule builder. Phase S dominates — every candidate above gets the whole
+ * slot budget — so the estimate is that product plus a flat allowance for the
+ * phases either side of it.
+ *
+ * Typical, NOT a bound: Phase P alone may spend solve(4_000) plus a 3 s plateau
+ * sweep on a hard league. The allowance is sized against the ~1.3 s measured on
+ * the reference season.
+ *
+ * Computed rather than hardcoded so adding a sixth Phase S candidate moves it
+ * automatically — that has already happened once.
+ */
+const PHASE_PM_ALLOWANCE_MS = 1_500;
+export const estimatedGenerateMs = () =>
+  SLOT_CANDIDATES.length * SLOT_BUDGET_MS + PHASE_PM_ALLOWANCE_MS;
+
 /** Phase P jitter seeds to sample the bye-optimal plateau with, and the wall
  * clock the sampling may spend. Fixed and ordered, so the schedule stays
  * deterministic for a given input; the first is the one Phase P used before the
