@@ -5,6 +5,8 @@ import {
   teamSpacingCost,
   matchupSpacingCost,
   spacingReport,
+  iceOutcome,
+  compareIceOutcome,
   type NightMeta,
   type SpacingReport,
 } from "./spacing";
@@ -14,7 +16,7 @@ import {
   type Participation,
   type ParticipationNight,
 } from "./participation";
-import { assignMatchups } from "./matchups";
+import { assignMatchups, type MatchupResult } from "./matchups";
 import { assignSlots } from "./slots";
 
 /**
@@ -95,6 +97,60 @@ function envInt(name: string, fallback: number): number {
 }
 const SLOT_RESTARTS = envInt("OBHL_SLOT_RESTARTS", 20_000);
 const SLOT_BUDGET_MS = envInt("OBHL_SLOT_BUDGET_MS", 5_000);
+
+/**
+ * Phase S runs to try, best result kept by `compareIceOutcome`. No single weight
+ * wins everywhere: on the reference cadence 140 reaches a flat weekday split
+ * where 160 leaves 8, and on Mon/Wed/Fri 160 wins by 4. Measured 2026-08-12.
+ *
+ * 160 leads and stays in the set, so the outcome can never be worse than the
+ * single-weight version that shipped. It is also the stable one — measured three
+ * times over it returns the same result, where 140 lands a three-game run in two
+ * runs out of three. That instability is why 140 appears three times on
+ * different seeds rather than once: the comparator refuses any run that carries
+ * a three-game run, so extra samples are what turn 140's good basin from a
+ * one-in-three chance into the common case. Seeds are varied explicitly rather
+ * than leaning on the wall-clock budget to shake out a different answer.
+ *
+ * 200 joined them when Phase M learned the compound pass. That changed the
+ * pairing set this phase is handed, and the four weights above all landed a
+ * three-game run on the new one inside the 5 s budget — not because the set is
+ * harder (20 s clears it, and so does 200 at 5 s) but because none of their
+ * basins happened to sit on it. Measured 2026-08-12 over five runs, 200 on seed
+ * 1 returns season share 0, no three-game run, a *flat* weekday ice split and 48
+ * ordinary repeats, and is what the comparator picks every time. Which is this
+ * set's whole premise: no single weight wins everywhere, and a weight that misses
+ * costs nothing but the sample.
+ *
+ * Cost is linear — each candidate gets the full slot budget, so this is five
+ * times the Phase S time of the single-weight version, ~26 s on the reference
+ * season against ~21 s at four. Deliberate: the search runs once a season.
+ */
+const SLOT_CANDIDATES: { streak3W: number; seed: number }[] = [
+  { streak3W: 160, seed: 1 },
+  { streak3W: 140, seed: 1 },
+  { streak3W: 140, seed: 2 },
+  { streak3W: 140, seed: 3 },
+  { streak3W: 200, seed: 1 },
+];
+
+/** Phase P jitter seeds to sample the bye-optimal plateau with, and the wall
+ * clock the sampling may spend. Fixed and ordered, so the schedule stays
+ * deterministic for a given input; the first is the one Phase P used before the
+ * sweep existed.
+ *
+ * The budget is a **safety valve, not a bound on the work** — sized so every
+ * seed runs on any ordinary machine, because a sweep that stops early stops
+ * being deterministic: the same league would generate different schedules on a
+ * faster and a slower box, which is exactly what the sentence above promises it
+ * does not do. Measured 2026-08-12 on the reference season, all seven remaining
+ * seeds finish in ~700 ms, so this leaves better than 4× headroom. It was 400 ms
+ * and reached five of the eight — the sweep was silently narrower than its own
+ * seed list for as long as it has existed.
+ *
+ * Raise it, not the seed list, if a cadence is ever slow enough to trip it. */
+const PLATEAU_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
+const PLATEAU_SAMPLE_MS = 3_000;
 // Iterated-local-search budget for the spacing pass. Each candidate swap now
 // re-evaluates O(weeks)-cost spacing terms, and every hill-climb pass is O(G²),
 // so the restart count is the dominant runtime lever — keep it small and scale
@@ -1285,7 +1341,7 @@ function planByParticipation(
   // is almost always refuted by arithmetic in under a millisecond, so in
   // practice the rung that succeeds still gets the full budget — but a rung
   // that does burn time can no longer multiply the ladder's cost by six.
-  const solve = (budgetMs: number): Participation | null => {
+  const solve = (budgetMs: number, seed: number): Participation | null => {
     const until = Date.now() + budgetMs;
     for (const { slack, exact } of rungs) {
       const remaining = until - Date.now();
@@ -1298,6 +1354,7 @@ function planByParticipation(
         weekdaySlack: slack,
         exactWeekdayTargets: exact,
         timeBudgetMs: remaining,
+        seed,
       });
       if (p) return p;
     }
@@ -1317,30 +1374,101 @@ function planByParticipation(
     return m && m.multiplicityError === 0 ? m : null;
   };
 
+  /**
+   * A plan-in-progress on the prefix of `rankSchedule` that Phases P and M
+   * decide — everything above ice time. Phase S is the expensive phase and runs
+   * once, on the winner, so it can't take part in the comparison.
+   *
+   * `spacingCost` is Phase M's own objective rather than a recount, which keeps
+   * this honest as that objective grows: a term added to `pairCost` is a term
+   * this selection starts respecting, with nothing to keep in sync. It is also
+   * why the pairing weekday split is deliberately *not* a tiebreak here — that
+   * belongs in `pairCost`, where the search can actually pursue it, and picking
+   * on it from eight samples would only disguise whether it works.
+   */
+  const plateauScore = (p: Participation, m: MatchupResult): number[] => [
+    p.byeAdjNight,
+    p.weekdaySpread,
+    p.byeMultiWeek,
+    p.byeConsecWeekSameDay,
+    p.byeConsecWeek,
+    m.spacingCost,
+  ];
+
   // Phase P is the expensive step, and a participation matrix Phase M can't pair
   // up is worthless however good its bye metrics are. So take a cheap one first
   // and check it can be paired at all; only buy the long search once that's
   // known — otherwise a calendar that was never going to work burns the whole
   // budget on its way to being thrown away.
-  const part = solve(300);
+  let part = solve(300, PLATEAU_SEEDS[0]);
   if (!part) return null;
   let matched = match(part);
   if (!matched) return null;
   if (!part.optimal) {
-    const better = solve(4_000);
+    const better = solve(4_000, PLATEAU_SEEDS[0]);
     if (better && byeRuleCost(better) < byeRuleCost(part)) {
       const m = match(better);
-      if (m) matched = m;
+      if (m) {
+        part = better;
+        matched = m;
+      }
     }
   }
 
-  const slotOf = assignSlots({
+  // Phase P's optimum is a wide plateau: many matrices tie on every bye metric
+  // and on weekday balance, and which one the dive lands on is settled by its
+  // jitter seed alone. They are not interchangeable downstream — measured across
+  // six seeds on the reference season, rematch spacing ranged from clean to
+  // three breaches and the pairing weekday split from 42 to 94, all at identical
+  // bye cost. Leaving that to the seed means the schedule's rematch spacing is
+  // decided by a coin toss, so sample the plateau and keep the best by the
+  // league's own ranking. Phases P and M together cost ~100 ms a seed against
+  // Phase S's 25 s, which is what makes the choice affordable; the deadline is
+  // there for leagues where Phase M is far dearer than the reference's, and is
+  // not expected to bind — see `PLATEAU_SAMPLE_MS`.
+  const sampleUntil = Date.now() + PLATEAU_SAMPLE_MS;
+  let bestScore = plateauScore(part, matched);
+  for (const seed of PLATEAU_SEEDS.slice(1)) {
+    if (Date.now() > sampleUntil) break;
+    const p = solve(300, seed);
+    if (!p) continue;
+    const m = match(p);
+    if (!m) continue;
+    const score = plateauScore(p, m);
+    if (rankLess(score, bestScore)) {
+      part = p;
+      matched = m;
+      bestScore = score;
+    }
+  }
+
+  const slotArgs = {
     teamCount: T,
     pairsByNight: matched.pairsByNight,
     slotsPerNight: nights.map((n) => n.slots.length),
+    weekdayOfNight: meta.nightW,
     restarts: SLOT_RESTARTS,
     timeBudgetMs: SLOT_BUDGET_MS,
-  });
+  };
+
+  const outcomeFor = (s: number[][]) =>
+    iceOutcome({
+      teamCount: T,
+      pairsByNight: matched.pairsByNight,
+      slotOf: s,
+      weekdayOfNight: meta.nightW,
+    });
+
+  let slotOf = assignSlots({ ...slotArgs, ...SLOT_CANDIDATES[0] });
+  let bestOutcome = outcomeFor(slotOf);
+  for (const cand of SLOT_CANDIDATES.slice(1)) {
+    const trial = assignSlots({ ...slotArgs, ...cand });
+    const out = outcomeFor(trial);
+    if (compareIceOutcome(out, bestOutcome) < 0) {
+      slotOf = trial;
+      bestOutcome = out;
+    }
+  }
 
   const games: ScheduledGame[] = [];
   matched.pairsByNight.forEach((pairs, ni) => {
@@ -1364,8 +1492,17 @@ function planByParticipation(
 
 /**
  * Schedule quality as a lexicographic tuple, lowest wins, ordered by the
- * league's stated priorities: everything placed ▸ weekday balance ▸ byes ▸
- * rematch spacing ▸ ice time.
+ * league's stated priorities: everything placed ▸ back-to-back byes ▸ weekday
+ * balance ▸ byes ▸ rematch spacing ▸ pairing weekday split ▸ ice time.
+ *
+ * Every metric the search targets has to appear here, or `planByWeeks` can win
+ * on an old term while being far worse on a new one. `longestLayoffDays` is the
+ * deliberate exception: it is informational, and a long layoff is often a
+ * calendar fact no plan can beat, so ranking on it would pick plans for reasons
+ * outside their control.
+ *
+ * `byesAdjNight` outranks weekday balance by the league's decision: an uneven
+ * weekday split is preferable to a team sitting out two game nights in a row.
  */
 function rankSchedule(
   plan: Plan,
@@ -1378,6 +1515,7 @@ function rankSchedule(
   const sum = (f: (t: string) => number) => teamIds.reduce((s, t) => s + f(t), 0);
   return [
     plan.unscheduled,
+    r.byesAdjNight,
     sum((t) => spread(wd.get(t)!)),
     r.byesMultiWeek,
     r.byesConsecWeekSameDay,
@@ -1386,7 +1524,10 @@ function rankSchedule(
     r.rematchAdjNight,
     r.rematchConsecWeekSameDay,
     r.rematchConsecWeek,
+    r.pairingWeekdayExcess,
+    r.slotWeekdaySpread,
     sum((t) => spread(slot.get(t)!)),
+    r.slotStreak3,
     r.slotConsecutive,
   ];
 }
@@ -1402,7 +1543,16 @@ export function assignNights(
   pairings: Pairing[],
   nights: Night[],
   teamIds: string[],
-): { games: ScheduledGame[]; report: BalanceReport } {
+): {
+  games: ScheduledGame[];
+  report: BalanceReport;
+  /** Team-index pairs per night, in the order this night's games were placed. */
+  pairsByNight: [number, number][][];
+  /** The ice-time slot of each of those pairs, same indexing. */
+  slotOf: number[][];
+  /** Weekday index (into `report.weekdays`) of each night. */
+  weekdayOfNight: number[];
+} {
   const meta = buildMeta(nights);
   const smeta = buildNightMeta(nights);
 
@@ -1442,8 +1592,23 @@ export function assignNights(
     }
   }
 
+  // The slot assignment behind the winning plan, rebuilt from its games. It is
+  // read back off the placement rather than plumbed out of Phase S because
+  // `planByWeeks` never builds one, and because `refineSpacing` moves games
+  // after Phase S runs — only the games are guaranteed to be what shipped.
+  const teamIndex = new Map(teamIds.map((t, i) => [t, i]));
+  const pairsByNight: [number, number][][] = nights.map(() => []);
+  const slotOf: number[][] = nights.map(() => []);
+  for (const g of games) {
+    pairsByNight[g.nightIndex].push([teamIndex.get(g.home)!, teamIndex.get(g.away)!]);
+    slotOf[g.nightIndex].push(g.slotIndex);
+  }
+
   return {
     games,
+    pairsByNight,
+    slotOf,
+    weekdayOfNight: meta.nightW,
     report: {
       totalScheduled: games.length,
       unscheduled,

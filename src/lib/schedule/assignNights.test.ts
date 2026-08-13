@@ -3,6 +3,7 @@ import { roundRobin, buildBalancedPairings } from "./roundRobin";
 import { assignNights, type Night } from "./assignNights";
 import { weekdayOf } from "@/lib/format";
 import { enumerateNights } from "./capacity";
+import { weekdayExcessScaled } from "./spacing";
 
 const teams = (n: number) => Array.from({ length: n }, (_, i) => `t${i + 1}`);
 
@@ -225,9 +226,12 @@ describe("assignNights — full-season reference schedule", () => {
   });
 
   it("never repeats an opponent in the same week or in back-to-back weeks", () => {
+    // All four, not three: this is the guard on the weekday-split term added in
+    // Phase M, which is ranked below rematch spacing and must stay there.
     expect(report.spacing.rematchSameWeek).toBe(0);
     expect(report.spacing.rematchAdjNight).toBe(0);
     expect(report.spacing.rematchConsecWeek).toBe(0);
+    expect(report.spacing.rematchConsecWeekSameDay).toBe(0);
   });
 
   it("keeps opponents balanced — 36 games over 7 opponents is 5s and one 6", () => {
@@ -253,5 +257,95 @@ describe("assignNights — full-season reference schedule", () => {
       set.add(g.away);
       perNight.set(g.nightIndex, set);
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // The four goals the generator was missing. All four are modelled now, so
+  // these assert what it achieves rather than what it used to.
+  //
+  // Two calibration notes:
+  //  * These run under `vitest.config.ts`, which pins OBHL_SLOT_BUDGET_MS to the
+  //    5000 production uses, so a goal-3 or goal-4 number seen here is evidence
+  //    about the shipped one. It was 400 when these rows were written, and the
+  //    figures agreed at both — which is itself the change: before Step 3 the
+  //    long grind made the weekday split *worse*, and now it does not.
+  //  * Phase S stops on wall clock, so goals 3 and 4 are asserted as bounds
+  //    rather than exact values; the measured figures are in the comments.
+  // ---------------------------------------------------------------------------
+
+  it("goal 1: never byes a team on two game nights in a row", () => {
+    // Was 1: a team sat both night 28 (Thu Dec 17) and night 29 (Mon Jan 4),
+    // straddling the Christmas break. Every night needs exactly 2 teams on bye,
+    // so someone must sit each of those nights — but sitting both is what turned
+    // a 21-day layoff into a 24-day one, and 21 is this calendar's floor.
+    expect(report.spacing.byesAdjNight).toBe(0);
+    expect(report.spacing.longestLayoffDays).toBe(21);
+  });
+
+  it("goal 2: splits all 28 matchups evenly across weekdays", () => {
+    const wd = ns.map((n) => weekdayOf(n.date));
+    const used = [...new Set(wd)].sort((a, b) => a - b);
+    const perWd = used.map((d) => wd.filter((x) => x === d).length);
+    const counts = new Map<string, number[]>();
+    for (const g of games) {
+      const k = [g.home, g.away].sort().join("|");
+      const v = counts.get(k) ?? used.map(() => 0);
+      v[used.indexOf(wd[g.nightIndex])]++;
+      counts.set(k, v);
+    }
+    expect(counts.size).toBe(28);
+    // "Off its split" means a non-zero excess, which is the right test rather
+    // than |Mon − Thu| > k: a 6-meeting pair at 2/4 is off its ideal 3/3 even
+    // though the difference is only 2. Target was at most 3, with rematch at 0.
+    //
+    // Was 9 / 42 before Step 1, then 16 / 94 after it — Step 1's plateau sweep
+    // moved it as a side effect, because nothing modelled it. Phase M then
+    // scored it and `seedGreedy` seeded towards it, which took it to 2 / 8: the
+    // cost term alone, from a weekday-blind seed, reaches 12 of 28.
+    //
+    // Those last two were structural, not a matter of weight. Both involved one
+    // team and were mirror images — one Mon-heavy, one Thu-heavy — because
+    // moving a meeting off a Monday means adding one on a Thursday, and the
+    // single-night descent cannot represent a move that spans two nights. It is
+    // Phase M's compound pass that clears them, by re-choosing two nights of
+    // opposite weekdays together; `WD_SPLIT_W` is untouched, and all four
+    // rematch metrics stay at 0 above.
+    const off = [...counts.values()].filter((v) => weekdayExcessScaled(v, perWd) > 0);
+    expect(off.length).toBe(0);
+    expect(report.spacing.pairingWeekdayExcess).toBe(0);
+  });
+
+  it("goal 3: shares each ice time evenly within each weekday too", () => {
+    // Was 56, with only one team even on both weekdays and the worst at
+    // 9-5-4 Mon / 3-7-8 Thu. A single-weight Phase S then read 8: 14 of the 16
+    // team-weekday cells at exactly 6-6-6 and two a step off, because clearing
+    // the last three-game runs cost that much split.
+    //
+    // Best-of-k can reach a perfectly flat split — all 16 cells at 6-6-6 — and
+    // now does: since Phase M's compound pass moved the pairing set under this
+    // phase, the 200 candidate returns a flat split with no three-game run, and
+    // took every one of five runs measured 2026-08-12.
+    //
+    // Still bounded at 8 rather than asserted at 0. Which candidate wins is a
+    // property of the pairing set it is handed, and 0 is the prize where 8 is
+    // the guarantee: a reading above 8 would mean best-of-k had picked something
+    // worse than the single weight that shipped before it.
+    expect(report.spacing.slotWeekdaySpread).toBeLessThanOrEqual(8);
+    // Never bought at goal 4's expense — that is the comparator's job, and this
+    // is the assertion that fails if the two are ever reordered.
+    expect(report.spacing.slotStreak3).toBe(0);
+  });
+
+  it("goal 4: never runs a team three games deep in one ice time", () => {
+    // Was 3, costed as two ordinary back-to-back repeats so that nothing
+    // preferred two separate 2-runs to one 3-run. Now charged apart, and above
+    // what breaking a run costs in ice share, so the schedule has none.
+    // Measured: 0 at this budget and 0 at production budget.
+    expect(report.spacing.slotStreak3).toBe(0);
+    // The accepted trade, stated so a regression cannot hide as an improvement:
+    // ordinary repeats were 39 before and may rise. Measured: 46 at both, then
+    // 48 once the compound pass and the 200 candidate landed — which is what a
+    // flat weekday split costs here, and still well inside the bound.
+    expect(report.spacing.slotConsecutive).toBeLessThanOrEqual(55);
   });
 });

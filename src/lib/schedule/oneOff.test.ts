@@ -9,6 +9,7 @@ import {
   iceTimeSpread,
   type BuildRowsOptions,
   type CheckWriteOptions,
+  type IceMetric,
   type OneOffNight,
   type OneOffPlan,
   type OneOffRow,
@@ -92,15 +93,27 @@ function invariants(teamCount: number, nights: OneOffNight[]) {
   return { gp, byes, weekday: [...weekday.entries()].sort() };
 }
 
-/** A night both teams play but where they don't already meet. */
-function pickTarget(nights: OneOffNight[], from: number) {
+type Target = { night: number; pair: [number, number] };
+
+/**
+ * A night both teams play but where they don't already meet. `accept` narrows it
+ * further — the repair tests need a target whose exact repair is reachable, and
+ * which of them is depends on the generated fixture.
+ */
+function pickTarget(
+  nights: OneOffNight[],
+  from: number,
+  accept: (t: Target) => boolean = () => true,
+): Target {
   for (let n = from; n < nights.length; n++) {
     const playing = [...new Set(nights[n].games.flat())];
     const meeting = new Set(nights[n].games.map((g) => [...g].sort().join("-")));
     for (const a of playing) {
       for (const b of playing) {
         if (a >= b) continue;
-        if (!meeting.has([a, b].sort().join("-"))) return { night: n, pair: [a, b] as [number, number] };
+        if (meeting.has([a, b].sort().join("-"))) continue;
+        const t: Target = { night: n, pair: [a, b] };
+        if (accept(t)) return t;
       }
     }
   }
@@ -159,10 +172,51 @@ describe("planOneOff", () => {
     expect(baseline.changes.every((c) => c.night === target.night)).toBe(true);
   });
 
-  it("restores opponent balance when it repairs", () => {
+  /**
+   * ⚠️ Exact repair is a property of the *instance*, not an invariant, and this
+   * fixture's target is picked by scanning the generated season — so which
+   * instance it lands on moves whenever the generator does.
+   *
+   * Measured over all twelve pairs forceable onto this fixture's night 6: nine
+   * repair exactly and three cannot, and raising the repair's own effort 25×
+   * (300 restarts, 12 s) does not move them — so those three are the shape
+   * `drift` documents, "pairs still off target if exact repair was unreachable".
+   * Asserting exact repair for whichever pair the scan happens to return would
+   * be asserting that luck, which is how this test read before.
+   */
+  // Finding a repairable target means planning each candidate until one lands,
+  // and a plan is a full Phase M + Phase S run — seconds, not milliseconds.
+  it("restores opponent balance where exact repair is reachable", { timeout: 60_000 }, () => {
+    const repairable = pickTarget(nights, 6, (t) => {
+      const r = planOneOff({
+        teamCount: T,
+        nights,
+        oneOffNight: t.night,
+        forcedPairs: [t.pair],
+      });
+      return r.ok && r.plans.some((p) => p.id !== "no-repair" && p.drift.length === 0);
+    });
+    const result = planOneOff({
+      teamCount: T,
+      nights,
+      oneOffNight: repairable.night,
+      forcedPairs: [repairable.pair],
+    });
+    if (!result.ok) throw new Error(result.reason);
+    const repairs = result.plans.filter((p) => p.id !== "no-repair");
+    expect(repairs.length).toBeGreaterThan(0);
+    expect(repairs.some((p) => p.drift.length === 0)).toBe(true);
+  });
+
+  it("never leaves opponent balance worse than leaving the season alone", () => {
+    // The invariant that does hold everywhere: meeting counts are weighted far
+    // above churn, so a repair may fail to close the gap but must never widen
+    // it. This is what catches a weight that lets something outrank balance.
+    const baseline = plans.find((p) => p.id === "no-repair")!;
+    const off = (p: OneOffPlan) => p.drift.reduce((s, d) => s + Math.abs(d.delta), 0);
     const repairs = plans.filter((p) => p.id !== "no-repair");
     expect(repairs.length).toBeGreaterThan(0);
-    for (const plan of repairs) expect(plan.drift).toEqual([]);
+    for (const plan of repairs) expect(off(plan)).toBeLessThanOrEqual(off(baseline));
   });
 
   it("never leaves home/away worse than it found it", () => {
@@ -183,9 +237,27 @@ describe("planOneOff", () => {
     }
   });
 
-  it("gets ice-time share all the way back when the feature slot is free", () => {
-    // Holding the labelled game on the last ice time costs those two teams a
-    // slot they'd otherwise have spread — the reason it's a choice, not a rule.
+  it("holds the per-weekday ice split rather than chasing the season total", () => {
+    // This used to assert the repair drove the *season* ice spread back to 0.
+    // It no longer does, and that is the goal-3 change working: the repair now
+    // scores each team's share within each weekday, not just across the season,
+    // and the season total is exactly the number that can read perfect while
+    // every weekday is lopsided.
+    //
+    // Measured on this fixture, with and without `weekdayOfNight` passed to
+    // `assignSlots`: without it the repair takes the season spread 4 → 0 while
+    // driving the per-weekday spread 19 → 36; with it the season spread stays
+    // at the incumbent's 4 and the per-weekday spread comes down to 17. So the
+    // assertion is the one that survives: never worse than leaving it alone, on
+    // either measure.
+    //
+    // At production's Phase S budget the repair reaches a trade the 400 ms
+    // fixture never found — season 8 → 4 while per-weekday goes 13 → 15 — so
+    // "never worse on either measure" is no longer free. The guarantee is
+    // unchanged but now carried by `worseThan`: a repair that regresses any of
+    // the four reported ice metrics has to name it, and one that names nothing
+    // has to be clean on all four. Spelled out here rather than reusing
+    // `oneOff.ts`'s own helper, so the two derivations stay independent.
     const res = planOneOff({
       teamCount: T,
       nights,
@@ -195,10 +267,28 @@ describe("planOneOff", () => {
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const best = Math.min(
-      ...res.plans.filter((p) => p.id !== "no-repair").map((p) => p.slotSpreadAfter),
-    );
-    expect(best).toBe(0);
+    const baseline = res.plans.find((p) => p.id === "no-repair")!;
+    const repairs = res.plans.filter((p) => p.id !== "no-repair");
+    expect(repairs.length).toBeGreaterThan(0);
+    expect(baseline.worseThan).toEqual([]);
+    for (const plan of repairs) {
+      const regressed: IceMetric[] = [];
+      if (plan.slotSpreadAfter > baseline.slotSpreadAfter) {
+        regressed.push("seasonSpread");
+      }
+      if (
+        plan.spacingAfter.slotWeekdaySpread > baseline.spacingAfter.slotWeekdaySpread
+      ) {
+        regressed.push("weekdaySpread");
+      }
+      if (plan.spacingAfter.slotStreak3 > baseline.spacingAfter.slotStreak3) {
+        regressed.push("streak3");
+      }
+      if (plan.spacingAfter.slotConsecutive > baseline.spacingAfter.slotConsecutive) {
+        regressed.push("consecutive");
+      }
+      expect(plan.worseThan).toEqual(regressed);
+    }
   });
 
   it("reports scorecards that match the schedule it would write", () => {

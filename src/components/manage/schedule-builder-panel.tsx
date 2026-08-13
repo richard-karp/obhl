@@ -483,7 +483,15 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
                       ["…on the same weekday", spacing.byesConsecWeekSameDay],
                       ["Same opponents in one week", spacing.rematchSameWeek],
                       ["Same opponents back-to-back nights", spacing.rematchAdjNight],
+                      ["Teams byeing back-to-back game nights", spacing.byesAdjNight],
                       ["Same opponents in consecutive weeks", spacing.rematchConsecWeek],
+                      // The count, not `pairingWeekdayExcess` — that one is a
+                      // squared-deviation score for the search to rank on, reads
+                      // 8 where 2 matchups are off, and is not always a whole
+                      // number. Every other row here is a count of things.
+                      ["Matchups off an even weekday split", spacing.pairingsOffWeekdaySplit],
+                      ["Uneven ice time within a night of the week", spacing.slotWeekdaySpread],
+                      ["Three games in a row in one ice time", spacing.slotStreak3],
                       ["Back-to-back games in the same ice time", spacing.slotConsecutive],
                     ] as const
                   ).map(([label, count]) => (
@@ -507,6 +515,19 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
                   than half the teams (so not everyone plays every night) — add ice
                   times or game nights to drive these to zero.
                 </p>
+                {spacing.longestLayoffDays !== null ? (
+                  <p className="text-muted-foreground mt-2 text-xs">
+                    Longest stretch without a game, for any team:{" "}
+                    <span className="font-medium">
+                      {spacing.longestLayoffDays} days
+                    </span>
+                    . Unlike the checks above, zero is not the goal here — a long
+                    stretch is usually the calendar rather than the schedule, since
+                    a holiday break sets a floor no arrangement of games can go
+                    under. It is measured over draft nights only, so a partly
+                    published season reports a shorter gap than players will see.
+                  </p>
+                ) : null}
               </CardContent>
             </Card>
           ) : null}

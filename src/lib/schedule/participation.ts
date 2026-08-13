@@ -7,8 +7,8 @@
  *     minus its byes on that weekday, so an even split is purely a statement
  *     about byes.
  *   - Bye rules (#2): "no two byes in a week", "no bye on the same weekday in
- *     consecutive weeks" and "no byes in consecutive weeks at all" are all
- *     properties of this matrix too.
+ *     consecutive weeks", "no byes in consecutive weeks at all" and "no byes on
+ *     back-to-back game nights" are all properties of this matrix too.
  *
  * Deciding it up front — exactly, with branch and bound — is what lets the
  * generator hit both at once. Searching over placed *games* instead (the older
@@ -39,6 +39,10 @@ export type Participation = {
   byeConsecWeek: number;
   /** Rule 2 breaches: ...and byed the same weekday in both. */
   byeConsecWeekSameDay: number;
+  /** Rule 4 breaches: a team byeing two *consecutive game nights*. Stated in
+   * nights rather than weeks, so unlike the three above it sees straight through
+   * a holiday gap — which is exactly where the longest layoffs hide. */
+  byeAdjNight: number;
   /** Widest per-team weekday spread (0 = perfectly balanced). */
   weekdaySpread: number;
   /** True when the search ran to completion instead of being cut off, so the
@@ -50,6 +54,7 @@ export type Participation = {
 /** Bye-rule cost of a solved matrix, on the same scale the search minimises. */
 export function byeRuleCost(p: Omit<Participation, "plays" | "optimal">): number {
   return (
+    ADJ_NIGHT_W * p.byeAdjNight +
     MULTI_WEEK_W * p.byeMultiWeek +
     CONSEC_SAME_DAY_W * p.byeConsecWeekSameDay +
     CONSEC_WEEK_W * p.byeConsecWeek
@@ -57,6 +62,10 @@ export function byeRuleCost(p: Omit<Participation, "plays" | "optimal">): number
 }
 
 // Bye-rule costs, mirroring SPACING_W so the two searches rank byes the same way.
+// Adjacent nights outrank the week rules: two nights off in a row is the longest
+// layoff a team can be handed, and it is the one breach a week-based rule can't
+// even see when the two nights straddle a break.
+const ADJ_NIGHT_W = 800;
 const MULTI_WEEK_W = 400;
 const CONSEC_SAME_DAY_W = 300;
 const CONSEC_WEEK_W = 150;
@@ -457,13 +466,18 @@ export function solveParticipation(
     const takenWd: (number[] | null)[] = new Array(T).fill(null);
     const countThisWeek = new Array<number>(T).fill(0);
 
-    /** Cost of handing team `t` a bye on `weekday` of this week: a second bye
-     * this week breaks rule 1; a bye next to last week's breaks rule 3, and
-     * rule 2 too if it repeats the weekday. */
-    const byeDelta = (t: number, weekday: number): number => {
-      if (countThisWeek[t] > 0) return MULTI_WEEK_W;
-      if (!week.adjPrev || prevByeWd[t] === null) return 0;
-      return CONSEC_WEEK_W + (prevByeWd[t]!.includes(weekday) ? CONSEC_SAME_DAY_W : 0);
+    /** Cost of handing team `t` a bye on `night` (a `weekday` of this week): a
+     * second bye this week breaks rule 1; a bye next to last week's breaks rule
+     * 3, and rule 2 too if it repeats the weekday. Rule 4 — the previous *night*
+     * was also a bye — is charged on top of whichever of those applies, since it
+     * is a different defect and can occur alongside any of them. */
+    const byeDelta = (t: number, weekday: number, night: number): number => {
+      const adj = night > 0 && byeAt[t][night - 1] ? ADJ_NIGHT_W : 0;
+      if (countThisWeek[t] > 0) return adj + MULTI_WEEK_W;
+      if (!week.adjPrev || prevByeWd[t] === null) return adj;
+      return (
+        adj + CONSEC_WEEK_W + (prevByeWd[t]!.includes(weekday) ? CONSEC_SAME_DAY_W : 0)
+      );
     };
 
     const fillSlot = (k: number, addedCost: number): void => {
@@ -485,7 +499,11 @@ export function solveParticipation(
       // what is often a wide plateau. Diving down the cheap branch first gets a
       // tight incumbent early, which is what makes the cost pruning bite.
       const jitter = new Map(elig.map((t) => [t, rnd()]));
-      const delta = new Map(elig.map((t) => [t, byeDelta(t, weekday)]));
+      // Built once per slot: `byeDelta` reads `byeAt[t][night - 1]`, and the
+      // night before this one belongs to an already-committed slot (slots run in
+      // chronological order within a week, weeks in order), so it can't change
+      // under the enumeration below.
+      const delta = new Map(elig.map((t) => [t, byeDelta(t, weekday, night)]));
       elig.sort(
         (a, b) =>
           delta.get(a)! - delta.get(b)! ||
@@ -546,6 +564,7 @@ export function describeParticipation(
   let byeMultiWeek = 0;
   let byeConsecWeek = 0;
   let byeConsecWeekSameDay = 0;
+  let byeAdjNight = 0;
   let weekdaySpread = 0;
 
   for (let t = 0; t < T; t++) {
@@ -558,6 +577,9 @@ export function describeParticipation(
       }
       const list = perWeek.get(n.week) ?? perWeek.set(n.week, []).get(n.week)!;
       list.push(n.weekday);
+      // Back-to-back game nights, counted in night indexes so a holiday gap
+      // between the two doesn't hide the breach — it makes it worse.
+      if (i > 0 && !plays[t][i - 1]) byeAdjNight++;
     });
     for (const list of perWeek.values()) if (list.length >= 2) byeMultiWeek++;
     for (let i = 1; i < weekList.length; i++) {
@@ -575,5 +597,11 @@ export function describeParticipation(
       Math.max(...games) - Math.min(...games),
     );
   }
-  return { byeMultiWeek, byeConsecWeek, byeConsecWeekSameDay, weekdaySpread };
+  return {
+    byeMultiWeek,
+    byeConsecWeek,
+    byeConsecWeekSameDay,
+    byeAdjNight,
+    weekdaySpread,
+  };
 }

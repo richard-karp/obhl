@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { assignMatchups } from "./matchups";
 import { assignSlots } from "./slots";
+import { proportionalSplit, weekdayExcessScaled } from "./spacing";
 
 /** 8 teams, 6 of them playing each night on a rotating bye pair. */
 function scenario(nightCount: number) {
@@ -15,6 +16,88 @@ function scenario(nightCount: number) {
   const nightWeek = Array.from({ length: nightCount }, (_, n) => Math.floor(n / 2));
   const nightWeekday = Array.from({ length: nightCount }, (_, n) => n % 2);
   return { T, plays, nightWeek, nightWeekday };
+}
+
+/**
+ * Six teams all playing every night, over an arbitrary cadence given as
+ * `[week, weekday]` per night. Three meetings per pair, which 15 nights of three
+ * games fills exactly — so the weekday split has an exact answer to hit, and the
+ * cadence is the only thing varying between these cases.
+ */
+function cadence(nights: [number, number][]) {
+  const T = 6;
+  return {
+    T,
+    plays: Array.from({ length: T }, () => new Array(nights.length).fill(true)),
+    nightWeek: nights.map((n) => n[0]),
+    nightWeekday: nights.map((n) => n[1]),
+    targets: Array.from({ length: T }, (_, a) =>
+      Array.from({ length: T }, (_, b) => (a === b ? 0 : 3)),
+    ),
+  };
+}
+
+/** Per pairing, how many times it meets on each weekday, in weekday order. */
+function countsByWeekday(pairsByNight: [number, number][][], nightWeekday: number[]) {
+  const wds = [...new Set(nightWeekday)].sort((a, b) => a - b);
+  const counts = new Map<string, number[]>();
+  pairsByNight.forEach((pairs, n) => {
+    for (const [a, b] of pairs) {
+      const k = `${Math.min(a, b)}|${Math.max(a, b)}`;
+      const v = counts.get(k) ?? wds.map(() => 0);
+      v[wds.indexOf(nightWeekday[n])]++;
+      counts.set(k, v);
+    }
+  });
+  return counts;
+}
+
+/** `pairingWeekdayExcess` over a Phase M result, in the units the report uses. */
+function pairingExcess(pairsByNight: [number, number][][], nightWeekday: number[]) {
+  const wds = [...new Set(nightWeekday)].sort((a, b) => a - b);
+  const perWd = wds.map((d) => nightWeekday.filter((x) => x === d).length);
+  const counts = countsByWeekday(pairsByNight, nightWeekday);
+  let scaled = 0;
+  let off = 0;
+  for (const v of counts.values()) {
+    const e = weekdayExcessScaled(v, perWd);
+    if (e > 0) off++;
+    scaled += e;
+  }
+  return { excess: scaled / nightWeekday.length ** 2, off, pairs: counts.size };
+}
+
+/** The four rematch-clustering counts, summed over every pair. */
+function rematchCounts(
+  pairsByNight: [number, number][][],
+  nightWeek: number[],
+  nightWeekday: number[],
+) {
+  const nights = new Map<string, number[]>();
+  pairsByNight.forEach((pairs, n) => {
+    for (const [a, b] of pairs) {
+      const k = `${Math.min(a, b)}|${Math.max(a, b)}`;
+      nights.set(k, [...(nights.get(k) ?? []), n]);
+    }
+  });
+  let sameWeek = 0;
+  let adjNight = 0;
+  let consecWeek = 0;
+  let consecWeekSameDay = 0;
+  for (const ns of nights.values()) {
+    const s = [...ns].sort((a, b) => a - b);
+    for (let i = 1; i < s.length; i++) {
+      if (s[i] - s[i - 1] === 1) adjNight++;
+      const wa = nightWeek[s[i - 1]];
+      const wb = nightWeek[s[i]];
+      if (wa === wb) sameWeek++;
+      else if (wb - wa === 1) {
+        consecWeek++;
+        if (nightWeekday[s[i]] === nightWeekday[s[i - 1]]) consecWeekSameDay++;
+      }
+    }
+  }
+  return { sameWeek, adjNight, consecWeek, consecWeekSameDay };
 }
 
 /** Meeting counts implied by a result, as a symmetric matrix. */
@@ -70,6 +153,71 @@ describe("assignMatchups", () => {
       targets,
     });
     expect(res).toBeNull();
+  });
+});
+
+describe("assignMatchups weekday split", () => {
+  it("splits every pairing evenly over three weekdays", () => {
+    // Mon/Wed/Fri for five weeks. 15 pairs × 3 meetings over 5 nights of each
+    // weekday means one meeting per pair per weekday, exactly.
+    const nights: [number, number][] = [];
+    for (let w = 0; w < 5; w++) for (const d of [1, 3, 5]) nights.push([w, d]);
+    const { T, plays, nightWeek, nightWeekday, targets } = cadence(nights);
+    const res = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    expect(res.multiplicityError).toBe(0);
+    const { excess, off, pairs } = pairingExcess(res.pairsByNight, nightWeekday);
+    expect(pairs).toBe(15);
+    expect(off).toBe(0);
+    expect(excess).toBe(0);
+  });
+
+  it("splits every pairing proportionally when the weekdays run unequally", () => {
+    // Mon every week, Thu every other week: 10 Mon nights to 5 Thu. An even
+    // split is arithmetically impossible; the flattest one is 2 Mon / 1 Thu per
+    // pairing, and code that aimed for "equal" would fail only on this shape.
+    const nights: [number, number][] = [];
+    for (let w = 0; w < 10; w++) {
+      nights.push([w, 1]);
+      if (w % 2 === 0) nights.push([w, 4]);
+    }
+    const { T, plays, nightWeek, nightWeekday, targets } = cadence(nights);
+    expect(nightWeekday.filter((d) => d === 1).length).toBe(10);
+    expect(nightWeekday.filter((d) => d === 4).length).toBe(5);
+    const res = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    expect(res.multiplicityError).toBe(0);
+    const { excess, off } = pairingExcess(res.pairsByNight, nightWeekday);
+    expect(off).toBe(0);
+    expect(excess).toBe(0);
+    // Spelled out, so a regression can't hide behind the metric being 0 for the
+    // wrong reason: every pairing really is 2 Mon / 1 Thu.
+    for (const [, v] of countsByWeekday(res.pairsByNight, nightWeekday)) {
+      expect(v).toEqual([2, 1]);
+    }
+  });
+
+  it("is a no-op on a single-weekday cadence rather than double-counting it", () => {
+    // One weekday means every split is the only split. The term must read 0
+    // rather than dividing by a weekday count of one and charging for nothing.
+    const nights: [number, number][] = [];
+    for (let w = 0; w < 15; w++) nights.push([w, 4]);
+    const { T, plays, nightWeek, nightWeekday, targets } = cadence(nights);
+    const res = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    expect(res.multiplicityError).toBe(0);
+    expect(pairingExcess(res.pairsByNight, nightWeekday).excess).toBe(0);
+  });
+
+  it("does not buy the weekday split with rematch spacing", () => {
+    // The locked priority: rematch spacing outranks the weekday split, so the
+    // term must not create a rematch violation to straighten a pairing out.
+    const nights: [number, number][] = [];
+    for (let w = 0; w < 5; w++) for (const d of [1, 3, 5]) nights.push([w, d]);
+    const { T, plays, nightWeek, nightWeekday, targets } = cadence(nights);
+    const res = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    // Three meetings each over five weeks: same-week and back-to-back-night
+    // repeats are avoidable here, consecutive weeks are not.
+    const r = rematchCounts(res.pairsByNight, nightWeek, nightWeekday);
+    expect(r.sameWeek).toBe(0);
+    expect(r.adjNight).toBe(0);
   });
 });
 
@@ -189,6 +337,12 @@ describe("assignSlots", () => {
       teamCount: T,
       pairsByNight: m.pairsByNight,
       slotsPerNight: new Array(28).fill(3),
+      // `assignSlots` defaults to 60 restarts, which is a library default rather
+      // than what generation uses (20 000). An even share is reachable on this
+      // layout but not from 60 restarts, and the claim under test is that the
+      // search gets there — not how cheaply. Measured: 0 spread from 1 000.
+      restarts: 1_000,
+      timeBudgetMs: 4_000,
     });
     const share = Array.from({ length: T }, () => [0, 0, 0]);
     m.pairsByNight.forEach((pairs, n) => {
@@ -235,5 +389,288 @@ describe("assignSlots", () => {
       expect(slots[2]).toBe(2);
       expect([...slots].sort()).toEqual([0, 1, 2]);
     }
+  });
+});
+
+/**
+ * The shape generation actually produces: 8 teams with a rotating bye pair, so
+ * six play each night over three ice times. Which weekday each night falls on is
+ * the only thing these cases vary.
+ *
+ * Per-weekday game counts come out uneven here — a team's byes do not divide
+ * neatly across weekdays — which is the point: it is the proportional target
+ * that gets exercised, not an even one.
+ *
+ * Built here rather than by running Phase M, which is what these rows used to
+ * do. Phase M's search is not the unit under test, and routing the fixture
+ * through it meant every Phase M change silently re-rolled the instance Phase S
+ * is judged on: when the compound pass landed, two of these three cadences moved
+ * from a good basin to a bad one at the default weight — a reading about Phase
+ * M's luck arriving as a Phase S regression. The bye rotation is the same one as
+ * before, so the uneven per-weekday counts above are unchanged; only the pairing
+ * within each night is now fixed, by the circle method rotated per night so
+ * opponents still vary through the season.
+ */
+function slotCadence(weekdayOfNight: number[]) {
+  const T = 8;
+  const N = weekdayOfNight.length;
+  const pairsByNight: [number, number][][] = [];
+  for (let n = 0; n < N; n++) {
+    const bye = new Set([(2 * n) % T, (2 * n + 1) % T]);
+    const playing = Array.from({ length: T }, (_, t) => t).filter((t) => !bye.has(t));
+    // Circle method: hold the first team, rotate the rest by the night index,
+    // then fold the list onto itself.
+    const [head, ...rest] = playing;
+    const k = n % rest.length;
+    const order = [head, ...rest.slice(k), ...rest.slice(0, k)];
+    const pairs: [number, number][] = [];
+    for (let i = 0; i < order.length / 2; i++) {
+      pairs.push([order[i], order[order.length - 1 - i]]);
+    }
+    pairsByNight.push(pairs);
+  }
+  return { T, pairsByNight };
+}
+
+/**
+ * The arithmetic floor of `slotWeekdaySpread` for a given season: per team and
+ * weekday, the spread of the flattest split its game count allows over the ice
+ * times those nights actually offer. Computed from `proportionalSplit` — the
+ * same function the cost uses — so these tests state a floor rather than a
+ * number someone measured once and pasted in.
+ */
+function weekdayFloor(
+  T: number,
+  pairsByNight: [number, number][][],
+  weekdayOfNight: number[],
+  numSlots: number,
+) {
+  const wds = [...new Set(weekdayOfNight)].sort((a, b) => a - b);
+  let floor = 0;
+  for (let t = 0; t < T; t++) {
+    for (const d of wds) {
+      const avail = new Array(numSlots).fill(0);
+      let total = 0;
+      pairsByNight.forEach((pairs, n) => {
+        if (weekdayOfNight[n] !== d) return;
+        if (!pairs.some((p) => p[0] === t || p[1] === t)) return;
+        total++;
+        for (let s = 0; s < Math.min(pairs.length, numSlots); s++) avail[s]++;
+      });
+      const ideal = proportionalSplit(total, avail);
+      floor += Math.max(...ideal) - Math.min(...ideal);
+    }
+  }
+  return floor;
+}
+
+/**
+ * The three Phase S metrics, recomputed here from the raw assignment rather than
+ * taken from `spacingReport`, so these tests pin what `assignSlots` returns and
+ * not what a second implementation agrees it means.
+ */
+function slotMetrics(
+  T: number,
+  pairsByNight: [number, number][][],
+  slotOf: number[][],
+  weekdayOfNight: number[],
+  numSlots: number,
+) {
+  const wds = [...new Set(weekdayOfNight)].sort((a, b) => a - b);
+  const seq: number[][] = Array.from({ length: T }, () => []);
+  const perWd = Array.from({ length: T }, () =>
+    wds.map(() => new Array(numSlots).fill(0)),
+  );
+  pairsByNight.forEach((pairs, n) => {
+    pairs.forEach(([a, b], gi) => {
+      for (const t of [a, b]) {
+        seq[t].push(slotOf[n][gi]);
+        perWd[t][wds.indexOf(weekdayOfNight[n])][slotOf[n][gi]]++;
+      }
+    });
+  });
+  let weekdaySpread = 0;
+  let seasonSpread = 0;
+  let streak3 = 0;
+  let consec = 0;
+  for (let t = 0; t < T; t++) {
+    for (const counts of perWd[t]) weekdaySpread += Math.max(...counts) - Math.min(...counts);
+    const all = new Array(numSlots).fill(0);
+    for (const s of seq[t]) all[s]++;
+    seasonSpread += Math.max(...all) - Math.min(...all);
+    for (let i = 1; i < seq[t].length; i++) {
+      if (seq[t][i] !== seq[t][i - 1]) continue;
+      consec++;
+      if (i > 1 && seq[t][i] === seq[t][i - 2]) streak3++;
+    }
+  }
+  return { weekdaySpread, seasonSpread, streak3, consec };
+}
+
+/**
+ * Cadence coverage for the *ice-time* metrics, matching what
+ * `assignMatchups weekday split` above does for the pairing split. The rest of
+ * the suite is two-weekday throughout, so a surviving two-weekday assumption in
+ * Phase S would hide everywhere except here.
+ *
+ * Each row is stated against two references rather than a pasted number: the
+ * arithmetic floor `weekdayFloor` computes for that shape, and the same search
+ * run weekday-blind. Together they say the term is both near the best available
+ * and the reason the result is there at all.
+ *
+ * These pass `restarts` low enough and `timeBudgetMs` high enough that the
+ * restart count, not the clock, is what stops the search — so unlike the rest of
+ * Phase S these numbers are reproducible under either vitest config, and on a
+ * slower machine.
+ *
+ * One run at one weight, deliberately: the weekday term is the unit under test,
+ * and `assignNights`'s best-of-k would rank these on season share first — which
+ * is right for a schedule and wrong for a row that exists to measure the weekday
+ * split. Measured on the three-weekday fixture: the only candidate reaching an
+ * even season share reads a weekday spread of 27 against the 24 a single run
+ * gets, so ranking the way production does would hide the term this block tests.
+ */
+describe("assignSlots weekday split", () => {
+  const BOUNDED = { restarts: 300, timeBudgetMs: 60_000 };
+
+  const run = (
+    weekdayOfNight: number[],
+    extra?: { streak3W?: number },
+    pairs?: [number, number][][],
+  ) => {
+    const { T, pairsByNight } = pairs
+      ? { T: 8, pairsByNight: pairs }
+      : slotCadence(weekdayOfNight);
+    const opts = {
+      teamCount: T,
+      pairsByNight,
+      slotsPerNight: pairsByNight.map((p) => p.length),
+      ...BOUNDED,
+      ...extra,
+    };
+    const aware = assignSlots({ ...opts, weekdayOfNight });
+    const blind = assignSlots(opts);
+    return {
+      floor: weekdayFloor(T, pairsByNight, weekdayOfNight, 3),
+      aware: slotMetrics(T, pairsByNight, aware, weekdayOfNight, 3),
+      blind: slotMetrics(T, pairsByNight, blind, weekdayOfNight, 3),
+    };
+  };
+
+  it("splits the ice times as evenly as it can within each of three weekdays", () => {
+    // Mon/Wed/Fri over 28 nights. Measured: 25 against a floor of 20, where the
+    // weekday-blind search of the same season reads 51.
+    const wd = Array.from({ length: 28 }, (_, n) => [1, 3, 5][n % 3]);
+    const r = run(wd);
+    expect(r.aware.weekdaySpread).toBeGreaterThanOrEqual(r.floor);
+    expect(r.aware.weekdaySpread).toBeLessThanOrEqual(r.floor + 6);
+    // The excess over the floor, not the raw spread: that is the part a search
+    // can do anything about, and modelling the weekday at least halves it.
+    expect(r.aware.weekdaySpread - r.floor).toBeLessThan(
+      (r.blind.weekdaySpread - r.floor) / 2,
+    );
+    // The one cadence here that leaves a run at a single weight: measured 1, and
+    // common rather than unlucky — three of the twelve weight-and-seed pairs
+    // around the default read a run on this fixture. What clears it is the
+    // sampling `assignNights` does and this row deliberately does not (160 on
+    // seed 3 and 140 on seed 1 both reach 0), so the guarantee belongs to the
+    // reference-season rows in `assignNights.test.ts`, which still assert 0.
+    // Bounded here so buying the split with *more* runs still fails.
+    expect(r.aware.streak3).toBeLessThanOrEqual(1);
+  });
+
+  it("splits them as evenly within each of two weekdays", () => {
+    // The reference cadence's shape. Measured: 16 — the floor itself — blind 22.
+    const wd = Array.from({ length: 28 }, (_, n) => [1, 4][n % 2]);
+    const r = run(wd);
+    expect(r.aware.weekdaySpread).toBeGreaterThanOrEqual(r.floor);
+    expect(r.aware.weekdaySpread).toBeLessThanOrEqual(r.floor + 6);
+    // The excess over the floor, not the raw spread: that is the part a search
+    // can do anything about, and modelling the weekday at least halves it.
+    expect(r.aware.weekdaySpread - r.floor).toBeLessThan(
+      (r.blind.weekdaySpread - r.floor) / 2,
+    );
+    expect(r.aware.streak3).toBe(0);
+  });
+
+  it("does not double-count the season share on a single-weekday cadence", () => {
+    // With one weekday the per-weekday split *is* the season split, so the two
+    // terms say the same thing and the weekday one can add nothing. What it must
+    // not do is charge twice and land somewhere the blind search would not: this
+    // is the row that would catch a cost that divides by a weekday count of one
+    // or double-charges the same deviation.
+    const wd = new Array(28).fill(4);
+    const r = run(wd);
+    expect(r.floor).toBe(0);
+    expect(r.aware.weekdaySpread).toBe(0);
+    expect(r.aware.weekdaySpread).toBe(r.aware.seasonSpread);
+  });
+
+  it("reaches the flattest split allowed when the weekdays run unequally", () => {
+    // Mon every week, Thu every other: an even split is arithmetically
+    // impossible, so only the proportional target is reachable. Code that aimed
+    // for "equal" passes every row above and fails here. Measured: 12 — the
+    // floor itself — against a blind reading of 38.
+    const wd: number[] = [];
+    for (let i = 0; wd.length < 28; i++) {
+      wd.push(1);
+      if (wd.length < 28 && i % 2 === 0) wd.push(4);
+    }
+    const r = run(wd);
+    expect(new Set(wd).size).toBe(2);
+    expect(r.aware.weekdaySpread).toBeGreaterThanOrEqual(r.floor);
+    expect(r.aware.weekdaySpread).toBeLessThanOrEqual(r.floor + 6);
+    // The excess over the floor, not the raw spread: that is the part a search
+    // can do anything about, and modelling the weekday at least halves it.
+    expect(r.aware.weekdaySpread - r.floor).toBeLessThan(
+      (r.blind.weekdaySpread - r.floor) / 2,
+    );
+    expect(r.aware.streak3).toBe(0);
+  });
+
+  it("takes the three-game-run weight as an option", () => {
+    // 140 reaches a flat per-weekday split on the reference cadence where the
+    // default 160 leaves a spread of 8. Asserted as a difference, not as two
+    // fixed numbers: the point is that the option reaches the search.
+    const wd = Array.from({ length: 28 }, (_, n) => [1, 4][n % 2]);
+    const a = run(wd, { streak3W: 140 });
+    const b = run(wd, { streak3W: 160 });
+    expect(a.aware.weekdaySpread).not.toBe(b.aware.weekdaySpread);
+  });
+
+  it("targets the ice a night actually has, not a uniform share of it", () => {
+    // An under-filled night drops its latest slot, so slot 2 runs on fewer
+    // nights than 0 and 1 and an equal per-team split stops being possible. The
+    // target has to follow availability, which is what `weekdayFloor` — built
+    // from the same `proportionalSplit` the cost uses — is asserting here.
+    // Two weekdays, so availability and the weekday split interact and the
+    // blind control still means something.
+    const wd = Array.from({ length: 28 }, (_, n) => [1, 4][n % 2]);
+    const full = slotCadence(wd).pairsByNight;
+    const pairs = full.map((p, n) => (n % 3 === 0 ? p.slice(0, 2) : p));
+    const r = run(wd, undefined, pairs);
+    // A uniform target would call this shape's ideal a flat split and read a
+    // floor of 0; it is 13. Measured: 23 against that floor, blind 43.
+    expect(r.floor).toBeGreaterThan(0);
+    expect(r.aware.weekdaySpread - r.floor).toBeLessThan(
+      (r.blind.weekdaySpread - r.floor) / 2,
+    );
+  });
+
+  it("still works, and stays season-flat, when no weekdays are given", () => {
+    // The option is optional: without it Phase S must produce what every caller
+    // predating goal 3 got — a valid permutation per night and a flat season.
+    const wd = new Array(28).fill(4);
+    const { T, pairsByNight } = slotCadence(wd);
+    const slotOf = assignSlots({
+      teamCount: T,
+      pairsByNight,
+      slotsPerNight: pairsByNight.map((p) => p.length),
+      ...BOUNDED,
+    });
+    slotOf.forEach((slots, n) =>
+      expect([...slots].sort()).toEqual(pairsByNight[n].map((_, gi) => gi)),
+    );
+    expect(slotMetrics(T, pairsByNight, slotOf, wd, 3).seasonSpread).toBe(0);
   });
 });
