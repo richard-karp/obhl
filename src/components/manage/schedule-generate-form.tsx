@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useFormStatus } from "react-dom";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import type { DateRange, Matcher } from "react-day-picker";
-import { CalendarIcon, X } from "lucide-react";
-import { generateSchedule } from "@/lib/actions/schedule";
+import { CalendarIcon, Loader2Icon, X } from "lucide-react";
+import { toast } from "sonner";
+import { generateSchedule, type GenerateState } from "@/lib/actions/schedule";
+import { generateProgress } from "@/components/manage/generate-progress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -59,12 +61,63 @@ function expandRange(from: Date, to: Date): string[] {
 
 type SkipRange = { from: string; to: string };
 
-function SubmitButton() {
-  const { pending } = useFormStatus();
+function SubmitButton({ pending }: { pending: boolean }) {
   return (
     <Button type="submit" disabled={pending}>
       {pending ? "Generating…" : "Generate schedule"}
     </Button>
+  );
+}
+
+/**
+ * The bar, the countdown, and the tick that drives them.
+ *
+ * Mounted only while the action is pending (see the call site), so this
+ * component's lifetime *is* one run: the start timestamp is captured at mount
+ * and the interval is torn down at unmount. That is load-bearing. If this were
+ * ever rendered unconditionally with `pending` as a prop, a second generate
+ * would measure from the first run's start and show instant overrun, and the
+ * interval would keep ticking between runs — both would need an explicit reset
+ * to replace what the conditional render gives for free.
+ */
+function GenerateProgressBar({ expectedMs }: { expectedMs: number }) {
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  // The clock is read here rather than during render — `Date.now()` in a render
+  // body is impure, and an effect that runs once on mount is the same instant
+  // for this component's purposes.
+  useEffect(() => {
+    const startedAt = Date.now();
+    const id = setInterval(() => {
+      setElapsedMs(Date.now() - startedAt);
+    }, 250);
+    return () => clearInterval(id);
+  }, []);
+
+  const { fraction, remainingSec, overrun } = generateProgress(
+    elapsedMs,
+    expectedMs,
+  );
+
+  return (
+    <div className="min-w-0 flex-1 space-y-1.5">
+      <Progress value={fraction * 100} />
+      <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+        <Loader2Icon className="size-3.5 shrink-0 animate-spin" aria-hidden />
+        {/*
+          The live region carries the sentence, never the ticking number: a
+          countdown inside it would be announced on every tick. The number sits
+          in a sibling span, so screen readers hear "Building the schedule"
+          once, and the overrun wording once if it comes.
+        */}
+        <span aria-live="polite">
+          {overrun
+            ? "Still working — this season is taking longer than usual."
+            : "Building the schedule"}
+        </span>
+        {overrun ? null : <span>— about {remainingSec}s left.</span>}
+      </p>
+    </div>
   );
 }
 
@@ -73,15 +126,42 @@ export function ScheduleGenerateForm({
   seasonStart,
   seasonEnd,
   teamCount,
+  expectedMs,
 }: {
   seasonId: string;
   seasonStart: string | null;
   seasonEnd: string | null;
   teamCount: number;
+  /**
+   * How long a generate is expected to take, computed server-side from the
+   * generator's own Phase S budget.
+   *
+   * One number for every season, NOT a per-season estimate — the search spends
+   * its whole budget on any league big enough to need it, and saturates from
+   * about 28 game nights up. Below that it overstates: a 12-night season is
+   * told "about 26 seconds" and finishes in under 3. That was a deliberate
+   * choice over a never-overstating "up to about 30 seconds" ceiling, and the
+   * copy hedges with "about" because of it. An adaptive curve was rejected —
+   * the night count is available, but the night-count-to-time fit is one
+   * machine's numbers.
+   */
+  expectedMs: number;
 }) {
   const [mode, setMode] = useState<"games" | "date">("games");
   const [skips, setSkips] = useState<SkipRange[]>([]);
   const [pendingRange, setPendingRange] = useState<DateRange | undefined>();
+  const [state, action, pending] = useActionState<GenerateState, FormData>(
+    generateSchedule,
+    null,
+  );
+
+  // Same house pattern as publish-controls.tsx: the result is a toast, not
+  // inline text, and toasting is a side effect on an external system.
+  useEffect(() => {
+    if (!state) return;
+    if (state.ok) toast.success(state.message);
+    else toast.error(state.message);
+  }, [state]);
 
   const defaultGames = teamCount > 1 ? (teamCount - 1) * 2 : 14;
   const excludedValue = useMemo(
@@ -107,7 +187,7 @@ export function ScheduleGenerateForm({
   if (seasonEnd) disabled.push({ after: parseKey(seasonEnd) });
 
   return (
-    <form action={generateSchedule} className="space-y-4">
+    <form action={action} className="space-y-4">
       <input type="hidden" name="season_id" value={seasonId} />
       <input type="hidden" name="length_mode" value={mode} />
       <input type="hidden" name="excluded_dates" value={excludedValue} />
@@ -260,11 +340,15 @@ export function ScheduleGenerateForm({
       </div>
 
       <div className="flex items-center gap-3 pt-1">
-        <SubmitButton />
-        <span className="text-muted-foreground text-xs">
-          Creates a private preview only managers can see. Review it below, then
-          Publish to make it live — or Discard.
-        </span>
+        <SubmitButton pending={pending} />
+        {pending ? (
+          <GenerateProgressBar expectedMs={expectedMs} />
+        ) : (
+          <span className="text-muted-foreground text-xs">
+            Creates a private preview only managers can see. Review it below,
+            then Publish to make it live — or Discard.
+          </span>
+        )}
       </div>
     </form>
   );

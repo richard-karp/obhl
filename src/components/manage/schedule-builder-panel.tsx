@@ -4,6 +4,7 @@ import { discardSchedule } from "@/lib/actions/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { getPublishState } from "@/lib/queries/schedule";
 import { publishMode } from "@/lib/schedule/publishMode";
+import { estimatedGenerateMs } from "@/lib/schedule/assignNights";
 import { weekdayOf } from "@/lib/format";
 import { spacingReport, type PlacedGame } from "@/lib/schedule/spacing";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -245,6 +246,10 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
                 seasonStart={season?.starts_on ?? null}
                 seasonEnd={season?.ends_on ?? null}
                 teamCount={enrolledCount}
+                // Read here rather than in the form: the generator's budget
+                // constants are server-side, and the form is a client
+                // component.
+                expectedMs={estimatedGenerateMs()}
               />
             </CardContent>
           </Card>

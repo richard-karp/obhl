@@ -59,18 +59,28 @@ async function targetSeason(admin: Admin, explicit = "") {
   return season?.id ?? null;
 }
 
+export type GenerateState = { ok: boolean; message: string } | null;
+
 /**
  * Generate a balanced draft schedule (replaces any existing drafts). The regular
  * season starts at the season's start date and is sized either by a target
  * games-per-team or by an explicit last regular-season night — the season's own
  * end date is the playoff-inclusive boundary and only bounds/warns, it doesn't
  * size the schedule.
+ *
+ * Every refusal returns a specific message. This used to return `void` and bail
+ * silently on nine different conditions, which was invisible on a form whose
+ * successful run takes ~26 seconds: an unchecked weekday and a slow generate
+ * looked exactly alike.
  */
-export async function generateSchedule(formData: FormData) {
+export async function generateSchedule(
+  _prev: GenerateState,
+  formData: FormData,
+): Promise<GenerateState> {
   await requireManager();
   const admin = createAdminClient();
   const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
-  if (!seasonId) return;
+  if (!seasonId) return { ok: false, message: "No season selected." };
 
   // A started season can't publish, so it shouldn't accept a draft either —
   // generating one would only produce a preview that can never be applied. Same
@@ -86,7 +96,18 @@ export async function generateSchedule(formData: FormData) {
     "season_is_started",
     { p_season: seasonId },
   );
-  if (startedError || startedGuard !== false) return;
+  if (startedError) {
+    return {
+      ok: false,
+      message: "Couldn't check whether the season has started — nothing was changed.",
+    };
+  }
+  if (startedGuard !== false) {
+    return {
+      ok: false,
+      message: "The season is under way — a draft schedule can no longer be generated.",
+    };
+  }
 
   const { data: season } = await admin
     .from("seasons")
@@ -117,12 +138,23 @@ export async function generateSchedule(formData: FormData) {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  if (!startDate || weekdays.size === 0 || slotTimes.length === 0) return;
+  if (!startDate) return { ok: false, message: "Pick a first game night." };
+  if (weekdays.size === 0) {
+    return { ok: false, message: "Pick at least one game night of the week." };
+  }
+  if (slotTimes.length === 0) {
+    return { ok: false, message: "Enter at least one ice-time slot." };
+  }
 
   // Alphabetical, so the same enrolment always feeds the generator in the same
   // order and a re-run is reproducible.
   const teamIds = (await getEnrolledTeams(seasonId, { client: admin })).map((t) => t.id);
-  if (teamIds.length < 2) return;
+  if (teamIds.length < 2) {
+    return {
+      ok: false,
+      message: "Enrol at least two teams in the season before generating a schedule.",
+    };
+  }
 
   const perNightCap = Math.min(slotTimes.length, Math.floor(teamIds.length / 2));
   let games;
@@ -131,14 +163,22 @@ export async function generateSchedule(formData: FormData) {
     // Fill the window up to the last regular-season night. Derive games-per-team
     // by placement: start from the capacity estimate and step down until every
     // pairing fits (so the draft is never reported as incomplete).
-    if (!regSeasonEnd) return;
+    if (!regSeasonEnd) {
+      return { ok: false, message: "Pick a last regular-season night." };
+    }
     const nights = enumerateNights(startDate, {
       weekdays,
       slotTimes,
       excluded,
       endDate: regSeasonEnd,
     });
-    if (nights.length === 0) return;
+    if (nights.length === 0) {
+      return {
+        ok: false,
+        message:
+          "No game nights fall between those dates — check the weekdays and skip dates.",
+      };
+    }
     let g = Math.max(1, Math.floor((2 * nights.length * perNightCap) / teamIds.length));
     let result = assignNights(buildBalancedPairings(teamIds, g), nights, teamIds);
     // The estimate is an upper bound; step down until everything fits. Capped so
@@ -151,7 +191,9 @@ export async function generateSchedule(formData: FormData) {
     games = result.games;
   } else {
     // Size by target games-per-team; the last game date falls out of placement.
-    if (gamesPerTeam < 1) return;
+    if (gamesPerTeam < 1) {
+      return { ok: false, message: "Games per team must be at least 1." };
+    }
     const pairings = buildBalancedPairings(teamIds, gamesPerTeam);
     // Use exactly the nights the games need — surplus nights only create byes
     // (empty ice a team sits out). Grow slightly only if placement can't fit,
@@ -169,13 +211,23 @@ export async function generateSchedule(formData: FormData) {
         endDate: seasonEnd || undefined,
         maxNights: minNights + extra,
       });
-      if (nights.length === 0) return;
+      if (nights.length === 0) {
+        return {
+          ok: false,
+          message:
+            "No game nights fall in the season — check the weekdays and skip dates.",
+        };
+      }
       if (nights.length === prevCount) break; // capped by season end; more won't help
       prevCount = nights.length;
       result = assignNights(pairings, nights, teamIds);
       if (result.report.unscheduled === 0) break;
     }
-    if (!result) return;
+    // Unreachable while the loop runs at least once, which it does — kept so a
+    // future change to the bounds can't produce silence.
+    if (!result) {
+      return { ok: false, message: "Couldn't place any games — nothing was changed." };
+    }
     games = result.games;
   }
 
@@ -198,6 +250,17 @@ export async function generateSchedule(formData: FormData) {
   }
   revalidatePath("/schedule-builder");
   revalidatePath(`/seasons/${seasonId}`);
+
+  // A run that places nothing isn't an error — it deleted the old drafts and
+  // wrote a valid empty result — but reporting it as a success would be a lie
+  // about what the manager is now looking at.
+  if (games.length === 0) {
+    return {
+      ok: false,
+      message: "No games could be scheduled — try more game nights or fewer games per team.",
+    };
+  }
+  return { ok: true, message: `Generated a ${games.length}-game draft schedule.` };
 }
 
 export type PublishState = { ok: boolean; message: string } | null;
