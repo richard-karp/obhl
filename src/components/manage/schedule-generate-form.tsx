@@ -70,6 +70,14 @@ function SubmitButton({ pending }: { pending: boolean }) {
 }
 
 /**
+ * What a screen reader is told while a generate runs — the sentence only, never
+ * the countdown. Lives here because the visible copy and the announced copy are
+ * rendered in two different places (see the live region in the form below) and
+ * have to stay in step.
+ */
+const GENERATING_STATUS = "Building the schedule.";
+
+/**
  * The bar, the countdown, and the tick that drives them.
  *
  * Mounted only while the action is pending (see the call site), so this
@@ -101,16 +109,24 @@ function GenerateProgressBar({ expectedMs }: { expectedMs: number }) {
 
   return (
     <div className="min-w-0 flex-1 space-y-1.5">
-      <Progress value={fraction * 100} />
-      <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
-        <Loader2Icon className="size-3.5 shrink-0 animate-spin" aria-hidden />
-        {/*
-          The live region carries the sentence, never the ticking number: a
-          countdown inside it would be announced on every tick. The number sits
-          in a sibling span, so screen readers hear "Building the schedule"
-          once, and the overrun wording once if it comes.
-        */}
-        <span aria-live="polite">
+      {/*
+        Named, so it isn't announced as a bare unlabelled progress bar. This is
+        the one part of the indicator a screen reader can usefully query on
+        demand — hence a real name rather than `aria-hidden` alongside the text.
+      */}
+      <Progress value={fraction * 100} aria-label="Schedule generation progress" />
+      {/*
+        Visual only. The announced copy is the live region in the form below;
+        this paragraph would otherwise duplicate it, and it carries the
+        countdown, which changes four times a second and must never reach a
+        screen reader.
+      */}
+      <p
+        className="text-muted-foreground flex items-center gap-1.5 text-xs"
+        aria-hidden="true"
+      >
+        <Loader2Icon className="size-3.5 shrink-0 animate-spin" />
+        <span>
           {overrun
             ? "Still working — this season is taking longer than usual."
             : "Building the schedule"}
@@ -350,6 +366,25 @@ export function ScheduleGenerateForm({
           </span>
         )}
       </div>
+
+      {/*
+        Permanently mounted, and empty when idle. A live region inserted into
+        the DOM with its text already in place is generally not announced — the
+        region has to exist *before* its content changes — so this deliberately
+        sits outside the `pending` branch instead of inside the indicator.
+
+        It carries the sentence only. The countdown lives in the visual
+        paragraph above, which is `aria-hidden`: a number ticking four times a
+        second inside a live region would be read out on every change.
+
+        The overrun wording stays visual. Announcing it would mean lifting the
+        indicator's elapsed-time state up to this component, and that state is
+        deliberately scoped to the indicator's mount — see the note on
+        GenerateProgressBar. Not worth trading that for a second announcement.
+      */}
+      <p aria-live="polite" className="sr-only">
+        {pending ? GENERATING_STATUS : ""}
+      </p>
     </form>
   );
 }
