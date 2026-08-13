@@ -24,7 +24,11 @@ export function LeagueSwitcher({
   if (leagues.length < 2) return null;
 
   return (
-    <form action={selectLeague} className={cn("flex items-center", className)}>
+    // `min-w-0` so this can give way. As a flex item its automatic minimum
+    // size is the select's width, which the cap below pins at 11rem — on a
+    // phone that rigid 176px is what pushed the header past the screen and put
+    // the whole page into horizontal scrolling.
+    <form action={selectLeague} className={cn("flex min-w-0 items-center", className)}>
       <label className="sr-only" htmlFor="league-switcher">
         Select league
       </label>
@@ -41,7 +45,10 @@ export function LeagueSwitcher({
             selectLeague(fd);
           })
         }
-        className="border-input bg-background hover:bg-secondary/60 h-8 max-w-[11rem] truncate rounded-md border px-2 text-sm font-medium transition-colors disabled:opacity-60"
+        // Shrinks between the two bounds and ellipsises what doesn't fit, so a
+        // long league name costs width only when there is width to spare. The
+        // 5rem floor keeps it a usable target once it has given all it can.
+        className="border-input bg-background hover:bg-secondary/60 h-8 max-w-[11rem] min-w-[5rem] truncate rounded-md border px-2 text-sm font-medium transition-colors disabled:opacity-60"
       >
         {leagues.map((l) => (
           <option key={l.slug} value={l.slug}>

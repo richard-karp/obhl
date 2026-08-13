@@ -24,7 +24,15 @@ export async function SiteHeader() {
         <div className="hidden md:block">
           <NavLinks />
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        {/*
+          `min-w-0` so the cluster can give way, same as the manage header. Its
+          automatic minimum is its min-content width, where the league select
+          contributes its full capped 11rem — a max-width clamps an intrinsic
+          contribution, a min-width does not lower it. Pinned, it left the bar
+          35px over its box just as the nav links appear at `md`. The switcher
+          shrinks and ellipsises rather than the links being cut off.
+        */}
+        <div className="ml-auto flex min-w-0 items-center gap-2">
           <LeagueSwitcher leagues={leagues} currentSlug={current?.slug ?? ""} />
           <ThemeToggle />
         </div>
