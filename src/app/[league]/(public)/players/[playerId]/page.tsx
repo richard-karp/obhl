@@ -30,11 +30,11 @@ const POS: Record<string, string> = { F: "Forward", D: "Defense", G: "Goalie" };
 export default async function PlayerProfilePage({
   params,
 }: {
-  params: Promise<{ playerId: string }>;
+  params: Promise<{ league: string; playerId: string }>;
 }) {
-  const { playerId } = await params;
-  const ctx = await getActiveContext();
-  if (!ctx?.season) return <NoSeason />;
+  const { league, playerId } = await params;
+  const ctx = await getActiveContext(league);
+  if (!ctx.season) return <NoSeason />;
 
   const bio = await getPlayerBio(playerId, ctx.season.id);
   if (!bio) notFound();
@@ -58,7 +58,7 @@ export default async function PlayerProfilePage({
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-wrap items-center gap-4">
-            <Link href={`/teams/${bio.team_slug}`}>
+            <Link href={`/${league}/teams/${bio.team_slug}`}>
               <TeamLogo
                 name={bio.team_name}
                 color={bio.team_color}
@@ -68,7 +68,7 @@ export default async function PlayerProfilePage({
             </Link>
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
-                <Link href={`/teams/${bio.team_slug}`} className="font-semibold hover:underline">
+                <Link href={`/${league}/teams/${bio.team_slug}`} className="font-semibold hover:underline">
                   {bio.team_name}
                 </Link>
                 {bio.jersey_number != null && (
@@ -205,7 +205,7 @@ export default async function PlayerProfilePage({
                           </TableCell>
                           <TableCell>
                             <Link
-                              href={`/teams/${row.opponent_slug}`}
+                              href={`/${league}/teams/${row.opponent_slug}`}
                               className="flex items-center gap-2 hover:underline"
                             >
                               <TeamLogo
@@ -267,7 +267,7 @@ export default async function PlayerProfilePage({
                     <TableRow key={row.opponent_id}>
                       <TableCell>
                         <Link
-                          href={`/teams/${row.opponent_slug}`}
+                          href={`/${league}/teams/${row.opponent_slug}`}
                           className="flex items-center gap-2 hover:underline"
                         >
                           <TeamLogo name={row.opponent_name} color={row.opponent_color} />

@@ -14,7 +14,13 @@ function diff(n: number) {
   return n > 0 ? `+${n}` : `${n}`;
 }
 
-export function StandingsTable({ rows }: { rows: RankedStanding[] }) {
+export function StandingsTable({
+  rows,
+  league,
+}: {
+  rows: RankedStanding[];
+  league: string;
+}) {
   return (
     <div className="overflow-hidden rounded-lg border">
       <Table>
@@ -40,7 +46,7 @@ export function StandingsTable({ rows }: { rows: RankedStanding[] }) {
               </TableCell>
               <TableCell>
                 <Link
-                  href={`/teams/${r.team_slug}`}
+                  href={`/${league}/teams/${r.team_slug}`}
                   className="flex items-center gap-2 font-medium hover:underline"
                 >
                   <TeamLogo name={r.team_name ?? ""} color={r.team_color} />

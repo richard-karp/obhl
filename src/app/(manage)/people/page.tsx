@@ -1,6 +1,6 @@
 import { requireManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getActiveContext } from "@/lib/queries/season";
+import { getCookieContext } from "@/lib/queries/season";
 import {
   CreateStaffForm,
   type CaptainOption,
@@ -27,7 +27,7 @@ const ROLE_LABEL: Record<string, string> = {
 export default async function PeoplePage() {
   await requireManager();
   const admin = createAdminClient();
-  const ctx = await getActiveContext();
+  const ctx = await getCookieContext();
 
   const [{ data: usersList }, { data: profiles }] = await Promise.all([
     admin.auth.admin.listUsers({ perPage: 1000 }),

@@ -8,9 +8,14 @@ import { NoSeason } from "@/components/public/no-season";
 
 export const metadata: Metadata = { title: "Standings" };
 
-export default async function StandingsPage() {
-  const ctx = await getActiveContext();
-  if (!ctx?.season) return <NoSeason />;
+export default async function StandingsPage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: slug } = await params;
+  const ctx = await getActiveContext(slug);
+  if (!ctx.season) return <NoSeason />;
   const rows = await getStandings(ctx.season.id);
 
   return (
@@ -22,7 +27,7 @@ export default async function StandingsPage() {
           description="Teams will appear here once they're enrolled in the season."
         />
       ) : (
-        <StandingsTable rows={rows} />
+        <StandingsTable rows={rows} league={slug} />
       )}
       <p className="text-muted-foreground text-xs">
         Tiebreakers: points, then wins, head-to-head, goal differential, goals

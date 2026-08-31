@@ -8,7 +8,7 @@ import { formatGameDateTime } from "@/lib/format";
 export default async function GamePage({
   params,
 }: {
-  params: Promise<{ gameId: string }>;
+  params: Promise<{ league: string; gameId: string }>;
 }) {
   const { gameId } = await params;
   const box = await getGameBoxScore(gameId);

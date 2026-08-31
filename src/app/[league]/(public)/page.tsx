@@ -21,9 +21,14 @@ function SectionLink({ href, children }: { href: string; children: React.ReactNo
   );
 }
 
-export default async function HomePage() {
-  const ctx = await getActiveContext();
-  if (!ctx?.season) return <NoSeason />;
+export default async function HomePage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: slug } = await params;
+  const ctx = await getActiveContext(slug);
+  if (!ctx.season) return <NoSeason />;
   const { league, season } = ctx;
 
   const [standings, leaders, upcoming, recent, announcements, latestGame] =
@@ -76,11 +81,11 @@ export default async function HomePage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Standings</CardTitle>
-              <SectionLink href="/standings">Full table →</SectionLink>
+              <SectionLink href={`/${slug}/standings`}>Full table →</SectionLink>
             </div>
           </CardHeader>
           <CardContent>
-            <StandingsTable rows={standings} />
+            <StandingsTable rows={standings} league={slug} />
           </CardContent>
         </Card>
 
@@ -88,7 +93,7 @@ export default async function HomePage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Points Leaders</CardTitle>
-              <SectionLink href="/stats">All stats →</SectionLink>
+              <SectionLink href={`/${slug}/stats`}>All stats →</SectionLink>
             </div>
           </CardHeader>
           <CardContent className="space-y-0.5">
@@ -121,14 +126,14 @@ export default async function HomePage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Recent Results</CardTitle>
-              <SectionLink href="/schedule">Schedule →</SectionLink>
+              <SectionLink href={`/${slug}/schedule`}>Schedule →</SectionLink>
             </div>
           </CardHeader>
           <CardContent className="space-y-2">
             {recent.length === 0 ? (
               <EmptyState title="No games played yet" />
             ) : (
-              recent.map((g) => <GameRow key={g.id} game={g} />)
+              recent.map((g) => <GameRow key={g.id} game={g} league={slug} />)
             )}
           </CardContent>
         </Card>
@@ -140,7 +145,7 @@ export default async function HomePage() {
             {upcoming.length === 0 ? (
               <EmptyState title="No upcoming games" />
             ) : (
-              upcoming.map((g) => <GameRow key={g.id} game={g} />)
+              upcoming.map((g) => <GameRow key={g.id} game={g} league={slug} />)
             )}
           </CardContent>
         </Card>
@@ -163,7 +168,7 @@ export default async function HomePage() {
               {latestGame.three_stars.map((star, i) => (
                 <Link
                   key={star.player_id}
-                  href={`/players/${star.player_id}`}
+                  href={`/${slug}/players/${star.player_id}`}
                   className="hover:bg-muted/40 flex items-center gap-3 rounded-lg p-3 transition-colors"
                 >
                   <span className="text-muted-foreground text-2xl font-bold tabular-nums w-6 text-center">

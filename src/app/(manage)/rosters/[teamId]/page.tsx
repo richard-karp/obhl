@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getActiveContext } from "@/lib/queries/season";
+import { getCookieContext } from "@/lib/queries/season";
 import { AddPlayerForm } from "@/components/manage/add-player-form";
 import { removeRosterPlayer, toggleCaptain, updatePlayerStatus, setDefaultGoalie, setGoalieDay } from "@/lib/actions/rosters";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,7 +30,7 @@ export default async function RosterEditorPage({
 }) {
   await requireManager();
   const { teamId } = await params;
-  const ctx = await getActiveContext();
+  const ctx = await getCookieContext();
   if (!ctx?.season) {
     return <EmptyState title="No active season" />;
   }

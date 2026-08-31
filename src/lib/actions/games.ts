@@ -11,7 +11,12 @@ import { logAudit } from "@/lib/audit";
 // Scoring writes go through the USER's session client, so RLS enforces who can
 // do what (captain: own-team lineup; scorekeeper: stats; manager: all).
 
-const PUBLIC_PATHS = ["/", "/standings", "/stats", "/schedule"];
+const PUBLIC_PATHS = [
+  "/[league]",
+  "/[league]/standings",
+  "/[league]/stats",
+  "/[league]/schedule",
+];
 const STAT_COLS = new Set(["goals", "assists", "pim"]);
 
 type UserClient = Awaited<ReturnType<typeof createClient>>;
@@ -24,7 +29,7 @@ function check(error: { message: string } | null, what: string) {
 function revalidateAfterScore(gameId: string, alsoPublic = false) {
   revalidatePath(`/score/${gameId}`);
   revalidatePath("/score");
-  if (alsoPublic) for (const p of PUBLIC_PATHS) revalidatePath(p);
+  if (alsoPublic) for (const p of PUBLIC_PATHS) revalidatePath(p, "page");
 }
 
 /**
@@ -435,7 +440,7 @@ export async function generateGameRecap(formData: FormData) {
   });
 
   revalidateAfterScore(game_id, true);
-  revalidatePath("/");
+  revalidatePath("/[league]", "page");
 }
 
 // --- Game-day status changes (scorekeeper / manager): cancel, postpone, etc. ---

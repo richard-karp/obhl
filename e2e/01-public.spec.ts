@@ -1,5 +1,6 @@
 /**
- * Paths 1–5: public site — no auth required.
+ * Paths 1–5: public site — no auth required. Every route is league-scoped:
+ * these exercise `/obhl`, the seeded Oceanview league.
  * Assumes seeded data: 6 Oceanview teams (Sharks/Bears/Wolves/Ducks/Hawks/Bisons),
  * 3 finalized rounds, 2 upcoming rounds, 3 announcements.
  */
@@ -11,7 +12,7 @@ test.describe("Path 1 — Homepage widgets", () => {
   test("renders league name, standings, stat leaders, upcoming games, and announcements", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto("/obhl");
 
     // League name heading
     await expect(
@@ -43,7 +44,7 @@ test.describe("Path 1 — Homepage widgets", () => {
   test("shows the League Update card when an AI summary exists, hides it when null", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto("/obhl");
     // Freshly seeded DB has no ai_summary — card must NOT appear
     await expect(
       page.getByRole("heading", { name: "League Update" }),
@@ -57,7 +58,7 @@ test.describe("Path 2 — Stats tables and sorting", () => {
   test("skater stats load and rows are sortable by clicking column headers", async ({
     page,
   }) => {
-    await page.goto("/stats");
+    await page.goto("/obhl/stats");
 
     // Skaters tab is active by default
     await expect(page.getByRole("tab", { name: "Skaters" })).toBeVisible();
@@ -87,7 +88,7 @@ test.describe("Path 2 — Stats tables and sorting", () => {
   });
 
   test("Goalies tab loads and shows rows", async ({ page }) => {
-    await page.goto("/stats");
+    await page.goto("/obhl/stats");
     await page.getByRole("tab", { name: "Goalies" }).click();
     // After tab switch, the now-visible panel is the only active tabpanel
     await expect(
@@ -102,7 +103,7 @@ test.describe("Path 3 — Player profile", () => {
   test("clicking a skater from stats opens their profile with chart and game log", async ({
     page,
   }) => {
-    await page.goto("/stats");
+    await page.goto("/obhl/stats");
 
     // Click first player name link in skater table
     const tab = page.getByRole("tabpanel").first();
@@ -117,7 +118,7 @@ test.describe("Path 3 — Player profile", () => {
     await firstLink.click();
 
     // URL changed to /players/:id
-    await expect(page).toHaveURL(/\/players\//);
+    await expect(page).toHaveURL(/\/obhl\/players\//);
 
     // Page heading matches player name
     await expect(page.getByRole("heading", { name: playerName })).toBeVisible();
@@ -133,7 +134,7 @@ test.describe("Path 3 — Player profile", () => {
   test("status badges render for the Sharks captain on the team page", async ({
     page,
   }) => {
-    await page.goto("/teams/sharks");
+    await page.goto("/obhl/teams/sharks");
     // Shark captain (jersey #6) has a "C" badge
     await expect(
       page.locator("table tbody tr").filter({ hasText: "C" }).first(),
@@ -147,7 +148,7 @@ test.describe("Path 4 — Schedule and game detail", () => {
   test("schedule page shows upcoming and recent results sections", async ({
     page,
   }) => {
-    await page.goto("/schedule");
+    await page.goto("/obhl/schedule");
 
     // Upcoming section with scheduled games (GameRow cards, not a table)
     await expect(page.getByRole("heading", { name: "Upcoming" })).toBeVisible();
@@ -162,13 +163,13 @@ test.describe("Path 4 — Schedule and game detail", () => {
   test("clicking a finalized game opens its detail page with a score", async ({
     page,
   }) => {
-    await page.goto("/schedule");
+    await page.goto("/obhl/schedule");
 
-    // Finalized games in GameRow are wrapped in <Link href="/games/...">
-    const gameLink = page.locator('a[href^="/games/"]').first();
+    // Finalized games in GameRow are wrapped in <Link href="/obhl/games/...">
+    const gameLink = page.locator('a[href^="/obhl/games/"]').first();
     await expect(gameLink).toBeVisible();
     await gameLink.click();
-    await expect(page).toHaveURL(/\/games\//);
+    await expect(page).toHaveURL(/\/obhl\/games\//);
 
     // Box score shows two numeric scores (away–home)
     await expect(page.locator("text=/\\d+/").first()).toBeVisible();
@@ -179,14 +180,14 @@ test.describe("Path 4 — Schedule and game detail", () => {
 
 test.describe("Path 5 — Teams list and team detail", () => {
   test("teams list shows all 6 Oceanview teams", async ({ page }) => {
-    await page.goto("/teams");
+    await page.goto("/obhl/teams");
     for (const name of ["Sharks", "Bears", "Wolves", "Ducks", "Hawks", "Bisons"]) {
       await expect(page.getByText(name).first()).toBeVisible();
     }
   });
 
   test("Sharks team page shows roster with 14+ players", async ({ page }) => {
-    await page.goto("/teams/sharks");
+    await page.goto("/obhl/teams/sharks");
 
     // Team name heading
     await expect(

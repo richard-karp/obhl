@@ -10,9 +10,14 @@ import { NoSeason } from "@/components/public/no-season";
 
 export const metadata: Metadata = { title: "Stats" };
 
-export default async function StatsPage() {
-  const ctx = await getActiveContext();
-  if (!ctx?.season) return <NoSeason />;
+export default async function StatsPage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: slug } = await params;
+  const ctx = await getActiveContext(slug);
+  if (!ctx.season) return <NoSeason />;
 
   const [skaters, goalies] = await Promise.all([
     getSkaterLeaders(ctx.season.id),
@@ -31,14 +36,14 @@ export default async function StatsPage() {
           {skaters.length === 0 ? (
             <EmptyState title="No skater stats yet" />
           ) : (
-            <SkaterStatsTable rows={skaters} />
+            <SkaterStatsTable rows={skaters} league={slug} />
           )}
         </TabsContent>
         <TabsContent value="goalies">
           {goalies.length === 0 ? (
             <EmptyState title="No goalie stats yet" />
           ) : (
-            <GoalieStatsTable rows={goalies} />
+            <GoalieStatsTable rows={goalies} league={slug} />
           )}
         </TabsContent>
       </Tabs>

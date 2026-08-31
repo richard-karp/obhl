@@ -56,7 +56,13 @@ function SortHead({
   );
 }
 
-export function GoalieStatsTable({ rows }: { rows: GoalieStat[] }) {
+export function GoalieStatsTable({
+  rows,
+  league,
+}: {
+  rows: GoalieStat[];
+  league: string;
+}) {
   const [sortCol, setSortCol] = useState<SortCol>("gaa");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -92,13 +98,13 @@ export function GoalieStatsTable({ rows }: { rows: GoalieStat[] }) {
           {sorted.map((r) => (
             <TableRow key={`${r.player_id}-${r.team_id}`}>
               <TableCell className="font-medium">
-                <Link href={`/players/${r.player_id}`} className="hover:underline">
+                <Link href={`/${league}/players/${r.player_id}`} className="hover:underline">
                   {r.first_name} {r.last_name}
                 </Link>
               </TableCell>
               <TableCell className="hidden sm:table-cell">
                 <Link
-                  href={`/teams/${r.team_slug}`}
+                  href={`/${league}/teams/${r.team_slug}`}
                   className="flex items-center gap-2 hover:underline"
                 >
                   <TeamLogo name={r.team_name ?? ""} color={r.team_color} />

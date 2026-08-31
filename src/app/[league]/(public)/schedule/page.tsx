@@ -33,8 +33,10 @@ function groupByDate(games: GameWithTeams[]) {
 
 function GroupedGames({
   groups,
+  league,
 }: {
   groups: ReturnType<typeof groupByDate>;
+  league: string;
 }) {
   return (
     <div className="space-y-6">
@@ -45,7 +47,7 @@ function GroupedGames({
           </h3>
           <div className="space-y-2">
             {group.games.map((g) => (
-              <GameRow key={g.id} game={g} />
+              <GameRow key={g.id} game={g} league={league} />
             ))}
           </div>
         </section>
@@ -55,12 +57,15 @@ function GroupedGames({
 }
 
 export default async function SchedulePage({
+  params,
   searchParams,
 }: {
+  params: Promise<{ league: string }>;
   searchParams: Promise<{ team?: string }>;
 }) {
-  const ctx = await getActiveContext();
-  if (!ctx?.season) return <NoSeason />;
+  const { league: slug } = await params;
+  const ctx = await getActiveContext(slug);
+  if (!ctx.season) return <NoSeason />;
   const { team } = await searchParams;
 
   const teams = await getEnrolledTeams(ctx.season.id);
@@ -108,14 +113,14 @@ export default async function SchedulePage({
             {upcomingGroups.length === 0 ? (
               <EmptyState title="No upcoming games" />
             ) : (
-              <GroupedGames groups={upcomingGroups} />
+              <GroupedGames groups={upcomingGroups} league={slug} />
             )}
           </section>
 
           {resultGroups.length > 0 ? (
             <section className="space-y-4">
               <h2 className="text-lg font-bold tracking-tight">Recent Results</h2>
-              <GroupedGames groups={resultGroups} />
+              <GroupedGames groups={resultGroups} league={slug} />
             </section>
           ) : null}
         </div>

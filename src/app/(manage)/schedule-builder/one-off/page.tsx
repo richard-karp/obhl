@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getActiveContext } from "@/lib/queries/season";
+import { getCookieContext } from "@/lib/queries/season";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { getSeasonNights } from "@/lib/queries/schedule";
 import { OneOffGameForm } from "@/components/manage/one-off-game-form";
@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
  */
 export default async function OneOffGamePage() {
   await requireManager();
-  const ctx = await getActiveContext();
+  const ctx = await getCookieContext();
   if (!ctx?.season) {
     return (
       <div className="space-y-4">

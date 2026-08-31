@@ -280,7 +280,7 @@ export async function generateLeagueSummary(formData: FormData) {
     .eq("id", season_id);
   if (error) throw new Error(`Save summary failed: ${error.message}`);
 
-  revalidatePath("/");
+  revalidatePath("/[league]", "page");
   revalidatePath(`/seasons/${season_id}`);
 }
 

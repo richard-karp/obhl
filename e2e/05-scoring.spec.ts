@@ -57,8 +57,8 @@ test.describe("Path 10 — Score a game end-to-end", () => {
     await expect(page.getByText("Final").first()).toBeVisible();
 
     // Finalized game appears as a link on public schedule
-    await page.goto("/schedule");
-    await expect(page.locator('a[href^="/games/"]').first()).toBeVisible();
+    await page.goto("/obhl/schedule");
+    await expect(page.locator('a[href^="/obhl/games/"]').first()).toBeVisible();
   });
 });
 

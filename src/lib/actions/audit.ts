@@ -52,7 +52,7 @@ export async function revertAuditEntries(
             entity_type: "game",
             entity_id: entry.entity_id,
           });
-          revalidatePath("/");
+          revalidatePath("/[league]", "page");
           break;
         }
 
@@ -176,7 +176,7 @@ export async function revertAuditEntries(
   }
 
   revalidatePath("/audit");
-  revalidatePath("/");
+  revalidatePath("/[league]", "page");
 
   if (errors.length) return { error: errors.join("; ") };
   return { ok: true };

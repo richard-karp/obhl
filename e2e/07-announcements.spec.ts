@@ -33,8 +33,8 @@ test.describe("Path 13 — Announcements", () => {
     await page.waitForLoadState("networkidle");
     await expect(page.getByText(TEST_TITLE)).toBeVisible();
 
-    // Visible on public homepage
-    await page.goto("/");
+    // Visible on the league homepage
+    await page.goto("/obhl");
     await expect(page.getByText(TEST_TITLE)).toBeVisible();
 
     // Delete from manage page
@@ -47,8 +47,8 @@ test.describe("Path 13 — Announcements", () => {
     await page.waitForLoadState("networkidle");
     await expect(page.getByText(TEST_TITLE)).not.toBeVisible();
 
-    // Gone from homepage
-    await page.goto("/");
+    // Gone from the league homepage
+    await page.goto("/obhl");
     await expect(page.getByText(TEST_TITLE)).not.toBeVisible();
   });
 });

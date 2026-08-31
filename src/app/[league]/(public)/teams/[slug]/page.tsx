@@ -15,11 +15,11 @@ import { NoSeason } from "@/components/public/no-season";
 export default async function TeamPage({
   params,
 }: {
-  params: Promise<{ slug: string }>;
+  params: Promise<{ league: string; slug: string }>;
 }) {
-  const { slug } = await params;
-  const ctx = await getActiveContext();
-  if (!ctx?.season) return <NoSeason />;
+  const { league, slug } = await params;
+  const ctx = await getActiveContext(league);
+  if (!ctx.season) return <NoSeason />;
 
   const detail = await getTeamBySlug(ctx.league.id, ctx.season.id, slug);
   if (!detail) notFound();
@@ -112,7 +112,7 @@ export default async function TeamPage({
               <h2 className="text-muted-foreground text-sm font-semibold">
                 Goaltending
               </h2>
-              <GoalieStatsTable rows={detail.goalies} />
+              <GoalieStatsTable rows={detail.goalies} league={league} />
             </div>
           ) : null}
         </TabsContent>
@@ -127,7 +127,7 @@ export default async function TeamPage({
           {detail.games.length === 0 ? (
             <EmptyState title="No games scheduled" />
           ) : (
-            detail.games.map((g) => <GameRow key={g.id} game={g} />)
+            detail.games.map((g) => <GameRow key={g.id} game={g} league={league} />)
           )}
         </TabsContent>
       </Tabs>

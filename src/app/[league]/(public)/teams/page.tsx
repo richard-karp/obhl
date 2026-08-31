@@ -10,9 +10,14 @@ import { NoSeason } from "@/components/public/no-season";
 
 export const metadata: Metadata = { title: "Teams" };
 
-export default async function TeamsPage() {
-  const ctx = await getActiveContext();
-  if (!ctx?.season) return <NoSeason />;
+export default async function TeamsPage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: slug } = await params;
+  const ctx = await getActiveContext(slug);
+  if (!ctx.season) return <NoSeason />;
   const teams = await getEnrolledTeams(ctx.season.id);
 
   return (
@@ -23,7 +28,7 @@ export default async function TeamsPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {teams.map((t) => (
-            <Link key={t.id} href={`/teams/${t.slug}`}>
+            <Link key={t.id} href={`/${slug}/teams/${t.slug}`}>
               <Card className="hover:border-primary transition-colors">
                 <CardContent className="flex items-center gap-3 p-4">
                   <TeamLogo

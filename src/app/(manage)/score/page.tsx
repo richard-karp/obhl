@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/auth/guards";
-import { getActiveContext } from "@/lib/queries/season";
+import { getCookieContext } from "@/lib/queries/season";
 import { getSchedule } from "@/lib/queries/schedule";
 import { GameStatusBadge } from "@/components/shared/game-status-badge";
 import { TeamLogo } from "@/components/shared/team-logo";
@@ -19,7 +19,7 @@ import { formatGameDateTime } from "@/lib/format";
 
 export default async function ScoreGamesPage() {
   await requireRole("scorekeeper", "league_manager");
-  const ctx = await getActiveContext();
+  const ctx = await getCookieContext();
   if (!ctx?.season) {
     return <EmptyState title="No active season" />;
   }

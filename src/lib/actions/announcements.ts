@@ -32,7 +32,7 @@ export async function createAnnouncement(
   if (error) return { ok: false, message: error.message };
 
   revalidatePath("/announcements");
-  revalidatePath("/");
+  revalidatePath("/[league]", "page");
   return { ok: true, message: "Announcement posted." };
 }
 
@@ -42,5 +42,5 @@ export async function deleteAnnouncement(formData: FormData) {
   const id = String(formData.get("id"));
   await admin.from("announcements").delete().eq("id", id);
   revalidatePath("/announcements");
-  revalidatePath("/");
+  revalidatePath("/[league]", "page");
 }

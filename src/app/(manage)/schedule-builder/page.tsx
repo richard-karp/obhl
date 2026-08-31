@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getActiveContext } from "@/lib/queries/season";
+import { getCookieContext } from "@/lib/queries/season";
 import { ScheduleBuilderPanel } from "@/components/manage/schedule-builder-panel";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 
 export default async function ScheduleBuilderPage() {
   await requireManager();
-  const ctx = await getActiveContext();
+  const ctx = await getCookieContext();
   if (!ctx?.season) {
     return (
       <div className="space-y-4">

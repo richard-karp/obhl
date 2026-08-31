@@ -135,8 +135,13 @@ export function ManageNav({
               {ROLE_LABEL[role]}
             </Badge>
           ) : null}
+          {/*
+            The public site is per-league now, so this points at the league the
+            switcher has selected rather than the root league picker. Falls back
+            to the picker when nothing is selected.
+          */}
           <Link
-            href="/"
+            href={currentSlug ? `/${currentSlug}` : "/"}
             className="text-muted-foreground hidden text-sm hover:underline sm:inline"
           >
             View site

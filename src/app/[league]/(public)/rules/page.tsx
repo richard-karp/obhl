@@ -4,13 +4,16 @@ import { getRules } from "@/lib/queries/rules";
 import { RulesRenderer } from "@/components/public/rules-renderer";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
-import { NoSeason } from "@/components/public/no-season";
 
 export const metadata: Metadata = { title: "Rules" };
 
-export default async function RulesPage() {
-  const ctx = await getActiveContext();
-  if (!ctx) return <NoSeason />;
+export default async function RulesPage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: slug } = await params;
+  const ctx = await getActiveContext(slug);
   const rules = await getRules(ctx.league.id);
 
   return (

@@ -39,7 +39,13 @@ function TeamLine({
   );
 }
 
-export function GameRow({ game }: { game: GameWithTeams }) {
+export function GameRow({
+  game,
+  league,
+}: {
+  game: GameWithTeams;
+  league: string;
+}) {
   const final = game.status === "final";
   const homeWin = final && game.home_goals > game.away_goals;
   const awayWin = final && game.away_goals > game.home_goals;
@@ -81,7 +87,7 @@ export function GameRow({ game }: { game: GameWithTeams }) {
   );
 
   return final ? (
-    <Link href={`/games/${game.id}`} className="block">
+    <Link href={`/${league}/games/${game.id}`} className="block">
       {body}
     </Link>
   ) : (

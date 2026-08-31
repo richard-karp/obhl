@@ -307,12 +307,12 @@ export type PublishState = { ok: boolean; message: string } | null;
 function revalidateAfterPublish(seasonId: string) {
   revalidatePath("/schedule-builder");
   revalidatePath(`/seasons/${seasonId}`);
-  revalidatePath("/schedule");
+  revalidatePath("/[league]/schedule", "page");
   // The scoring list reads through getSchedule, so a replace changes which games
   // it shows. The old publishSchedule didn't revalidate it either — that gap was
   // invisible while publishing only ever added games.
   revalidatePath("/score");
-  revalidatePath("/");
+  revalidatePath("/[league]", "page");
 }
 
 /**
@@ -699,9 +699,9 @@ export async function applyOneOffGame(
   revalidatePath("/schedule-builder");
   revalidatePath("/schedule-builder/one-off");
   revalidatePath(`/seasons/${seasonId}`);
-  revalidatePath("/schedule");
+  revalidatePath("/[league]/schedule", "page");
   revalidatePath("/score");
-  revalidatePath("/");
+  revalidatePath("/[league]", "page");
 
   const touched = input.changes.length;
   return {

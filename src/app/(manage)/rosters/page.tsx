@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getActiveContext } from "@/lib/queries/season";
+import { getCookieContext } from "@/lib/queries/season";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 
 export default async function RostersPage() {
   await requireManager();
-  const ctx = await getActiveContext();
+  const ctx = await getCookieContext();
   if (!ctx?.season) {
     return <EmptyState title="No active season" description="Create and activate a season first." />;
   }

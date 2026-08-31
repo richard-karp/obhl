@@ -77,7 +77,7 @@ test.describe("Path 8 — AI league summary", () => {
     const summaryText = await page.locator("p.italic").first().innerText();
     expect(summaryText.length).toBeGreaterThan(20);
 
-    await page.goto("/");
+    await page.goto("/obhl");
     await expect(
       page.getByRole("heading", { name: "League Update" }),
     ).toBeVisible();

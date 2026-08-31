@@ -26,7 +26,7 @@ export async function saveRules(content: unknown) {
     },
     { onConflict: "league_id" },
   );
-  revalidatePath("/rules");
+  revalidatePath("/[league]/rules", "page");
   revalidatePath("/rules/edit");
   return error ? { ok: false, message: error.message } : { ok: true };
 }

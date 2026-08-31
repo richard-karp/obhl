@@ -39,12 +39,12 @@ test.describe("Path 16 — League Rules", () => {
     await expect(page.getByText("Saved.")).toBeVisible({ timeout: 10000 });
 
     // Verify content appears on the public rules page
-    await page.goto("/rules");
+    await page.goto("/obhl/rules");
     await expect(page.getByText(RULES_TEXT)).toBeVisible();
   });
 
   test("public rules page is accessible without login", async ({ page }) => {
-    await page.goto("/rules");
+    await page.goto("/obhl/rules");
     // Either shows rules content or the empty state — never an auth redirect
     await expect(page).not.toHaveURL(/\/login/);
     await expect(page.locator("h1").filter({ hasText: "League Rules" })).toBeVisible();

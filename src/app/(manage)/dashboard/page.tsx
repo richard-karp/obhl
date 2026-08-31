@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/guards";
 import { createClient } from "@/utils/supabase/server";
-import { getActiveContext } from "@/lib/queries/season";
+import { getCookieContext } from "@/lib/queries/season";
 import { getSchedule } from "@/lib/queries/schedule";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,7 @@ function ActionCard({
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const ctx = await getActiveContext();
+  const ctx = await getCookieContext();
   const seasonLabel = ctx?.season?.name ?? "No active season";
 
   if (!user.role) {
@@ -91,7 +91,11 @@ export default async function DashboardPage() {
       ) : null}
 
       {user.role === "captain" ? (
-        <CaptainPanel userId={user.id} seasonId={ctx?.season?.id ?? null} />
+        <CaptainPanel
+          userId={user.id}
+          seasonId={ctx?.season?.id ?? null}
+          leagueSlug={ctx?.league.slug ?? null}
+        />
       ) : null}
     </div>
   );
@@ -100,9 +104,13 @@ export default async function DashboardPage() {
 async function CaptainPanel({
   userId,
   seasonId,
+  leagueSlug,
 }: {
   userId: string;
   seasonId: string | null;
+  // The public team page is league-scoped now; without a league there is
+  // nowhere to send them.
+  leagueSlug: string | null;
 }) {
   const supabase = await createClient();
   const { data: profile } = await supabase
@@ -194,12 +202,14 @@ async function CaptainPanel({
             })}
           </div>
         )}
-        <Link
-          href={`/teams/${team.slug}`}
-          className="text-primary inline-block text-sm hover:underline"
-        >
-          View team page →
-        </Link>
+        {leagueSlug ? (
+          <Link
+            href={`/${leagueSlug}/teams/${team.slug}`}
+            className="text-primary inline-block text-sm hover:underline"
+          >
+            View team page →
+          </Link>
+        ) : null}
       </CardContent>
     </Card>
   );
