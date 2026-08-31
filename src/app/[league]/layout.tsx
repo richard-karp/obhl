@@ -23,7 +23,15 @@ export async function generateMetadata({
   if (!league) return {};
   return {
     title: { absolute: league.name, template: `%s · ${league.name}` },
-    openGraph: { title: league.name, type: "website" },
+    // `openGraph` is replaced wholesale by the deepest segment that defines it,
+    // not merged, so the root layout's description has to be restated here or
+    // league links preview with no text under the title.
+    openGraph: {
+      title: league.name,
+      description:
+        "Standings, schedules, stats, teams, and rules for the league.",
+      type: "website",
+    },
   };
 }
 
