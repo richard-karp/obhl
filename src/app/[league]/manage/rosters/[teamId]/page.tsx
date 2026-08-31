@@ -42,7 +42,9 @@ export default async function RosterEditorPage({
     .select("id, name, color, league_id, logo_path")
     .eq("id", teamId)
     .maybeSingle();
-  if (!team) notFound();
+  // The id says nothing about which league it belongs to, so the slug in the
+  // URL is the only claim of ownership — enforce it rather than trust it.
+  if (!team || team.league_id !== ctx.league.id) notFound();
 
   const [{ data: roster }, { data: goalieDays }] = await Promise.all([
     admin

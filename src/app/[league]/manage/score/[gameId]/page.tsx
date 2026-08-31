@@ -42,6 +42,7 @@ export default async function ScoreGamePage({
     .from("games")
     .select(
       `id, status, scheduled_at, home_goals, away_goals, finalized_at, season_id,
+       season:seasons!inner(league_id),
        home_goalie_id, away_goalie_id,
        home_goalie_is_sub, away_goalie_is_sub,
        home_empty_net_against, away_empty_net_against,
@@ -51,7 +52,9 @@ export default async function ScoreGamePage({
     )
     .eq("id", gameId)
     .maybeSingle();
-  if (!game) notFound();
+  // The id says nothing about which league it belongs to, so the slug in the
+  // URL is the only claim of ownership — enforce it rather than trust it.
+  if (!game || game.season.league_id !== league.id) notFound();
 
   const homeT = game.home_team as any;
   const awayT = game.away_team as any;

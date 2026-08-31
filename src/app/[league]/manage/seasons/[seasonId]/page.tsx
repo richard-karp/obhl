@@ -73,7 +73,9 @@ export default async function SeasonSetupPage({
     .select("id, name, league_id, is_active, starts_on, ends_on, ai_summary")
     .eq("id", seasonId)
     .maybeSingle();
-  if (!season) notFound();
+  // The id says nothing about which league it belongs to, so the slug in the
+  // URL is the only claim of ownership — enforce it rather than trust it.
+  if (!season || season.league_id !== league.id) notFound();
 
   const [{ data: enrolled }, { data: captains }, { count: publishedCount }] =
     await Promise.all([
