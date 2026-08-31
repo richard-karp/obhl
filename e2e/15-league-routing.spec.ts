@@ -32,6 +32,34 @@ test.describe("Path 16 — Per-league routing", () => {
     await expect(page.getByRole("link", { name: "Sharks" })).toHaveCount(0);
   });
 
+  test("a game cannot be viewed under another league's URL", async ({ page }) => {
+    // Games are addressed by id alone, so the URL's league is the only thing
+    // asserting ownership — and nothing about the id enforces it.
+    //
+    // Sourced from Harbor, not Oceanview: the manage specs all run against the
+    // cookie-default league (obhl) and 11-schedule-builder regenerates its
+    // schedule, so by the time this file runs Oceanview may have no finalized
+    // game left to link to. Nothing touches Harbor.
+    await page.goto("/harbor/schedule");
+    const href = await page
+      .locator('a[href^="/harbor/games/"]')
+      .first()
+      .getAttribute("href");
+    const gameId = href!.split("/").pop()!;
+
+    await page.goto(`/harbor/games/${gameId}`);
+    await expect(page.getByRole("heading", { name: /@/ })).toBeVisible();
+
+    // Asserted on the body, not the status: `(public)/loading.tsx` puts pages
+    // inside a Suspense boundary, so the shell has already flushed as 200 by the
+    // time a page-level `notFound()` runs and only the body swaps. That is
+    // long-standing behaviour for every page-level notFound here — an unknown
+    // league slug, caught in the layout above the boundary, does return a 404.
+    await page.goto(`/obhl/games/${gameId}`);
+    await expect(page.getByText("That page couldn't be found.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: /@/ })).toHaveCount(0);
+  });
+
   test("each league home shows its own name and announcements", async ({
     page,
   }) => {

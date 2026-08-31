@@ -20,7 +20,10 @@ export async function getGameBoxScore(gameId: string) {
   const { data: game } = await supabase
     .from("games")
     .select(
+      // `season.league_id` is what lets the page reject a game belonging to a
+      // different league than the one in its URL.
       `id, scheduled_at, status, week, round, home_goals, away_goals, result_type, season_id,
+       season:seasons!inner(league_id),
        home_team:teams!games_home_team_id_fkey(id, name, slug, color),
        away_team:teams!games_away_team_id_fkey(id, name, slug, color)`,
     )

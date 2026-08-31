@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { getActiveContext } from "@/lib/queries/season";
 import { getGameBoxScore } from "@/lib/queries/games";
 import { BoxScore } from "@/components/public/box-score";
 import { PageHeader } from "@/components/shared/page-header";
@@ -10,9 +11,19 @@ export default async function GamePage({
 }: {
   params: Promise<{ league: string; gameId: string }>;
 }) {
-  const { gameId } = await params;
-  const box = await getGameBoxScore(gameId);
+  const { league, gameId } = await params;
+  const [ctx, box] = await Promise.all([
+    getActiveContext(league),
+    getGameBoxScore(gameId),
+  ]);
   if (!box) notFound();
+
+  // Games are addressed by id alone, so nothing about the id says which league
+  // it belongs to. Without this, /harbor/games/<an-obhl-id> renders Oceanview's
+  // box score under Harbor's header. Checked against the league rather than its
+  // active season so links to a finished season's games keep resolving.
+  if (box.game.season.league_id !== ctx.league.id) notFound();
+
   const { game } = box;
 
   return (
