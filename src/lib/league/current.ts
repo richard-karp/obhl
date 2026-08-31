@@ -1,5 +1,4 @@
 import { cache } from "react";
-import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
 import type { Database } from "@/lib/db/types";
@@ -38,41 +37,6 @@ export const resolveLeagueBySlug = cache(async function resolveLeagueBySlug(
     .maybeSingle();
   return data ?? null;
 });
-
-/**
- * The cookie-selected league, kept only for the manage tools until they move
- * under `/[league]/manage`. Delete with `LEAGUE_COOKIE` in Step C.
- *
- * @deprecated Use {@link resolveLeagueBySlug}.
- */
-export const LEAGUE_COOKIE = "obhl_league";
-
-/** @deprecated Use {@link resolveLeagueBySlug}. */
-export async function resolveCurrentLeague(
-  client: Client,
-): Promise<Tables<"leagues"> | null> {
-  const store = await cookies();
-  const slug = store.get(LEAGUE_COOKIE)?.value;
-
-  if (slug) {
-    const { data } = await client
-      .from("leagues")
-      .select("*")
-      .eq("slug", slug)
-      .eq("is_public", true)
-      .maybeSingle();
-    if (data) return data;
-  }
-
-  const { data } = await client
-    .from("leagues")
-    .select("*")
-    .eq("is_public", true)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  return data ?? null;
-}
 
 /** Public leagues only — the root landing page. */
 export async function getPublicLeagues(client: Client): Promise<LeagueOption[]> {
