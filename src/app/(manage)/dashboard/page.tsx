@@ -147,7 +147,9 @@ async function CaptainPanel({
       }) ?? null;
   }
 
-  if (!team) {
+  // `leagueSlug` is null exactly when there is no context, which is also when
+  // `seasonId` is null and no team can be found — one impossibility, checked once.
+  if (!team || !leagueSlug) {
     return (
       <EmptyState
         title="No team to captain this season"
@@ -202,14 +204,12 @@ async function CaptainPanel({
             })}
           </div>
         )}
-        {leagueSlug ? (
-          <Link
-            href={`/${leagueSlug}/teams/${team.slug}`}
-            className="text-primary inline-block text-sm hover:underline"
-          >
-            View team page →
-          </Link>
-        ) : null}
+        <Link
+          href={`/${leagueSlug}/teams/${team.slug}`}
+          className="text-primary inline-block text-sm hover:underline"
+        >
+          View team page →
+        </Link>
       </CardContent>
     </Card>
   );
