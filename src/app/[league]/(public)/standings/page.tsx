@@ -13,9 +13,10 @@ export default async function StandingsPage({
 }: {
   params: Promise<{ league: string }>;
 }) {
-  const { league: slug } = await params;
-  const ctx = await getActiveContext(slug);
+  const { league: leagueParam } = await params;
+  const ctx = await getActiveContext(leagueParam);
   if (!ctx.season) return <NoSeason />;
+  const slug = ctx.league.slug;
   const rows = await getStandings(ctx.season.id);
 
   return (

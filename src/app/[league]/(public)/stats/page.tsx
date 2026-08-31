@@ -15,9 +15,10 @@ export default async function StatsPage({
 }: {
   params: Promise<{ league: string }>;
 }) {
-  const { league: slug } = await params;
-  const ctx = await getActiveContext(slug);
+  const { league: leagueParam } = await params;
+  const ctx = await getActiveContext(leagueParam);
   if (!ctx.season) return <NoSeason />;
+  const slug = ctx.league.slug;
 
   const [skaters, goalies] = await Promise.all([
     getSkaterLeaders(ctx.season.id),

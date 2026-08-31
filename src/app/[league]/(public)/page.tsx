@@ -26,10 +26,13 @@ export default async function HomePage({
 }: {
   params: Promise<{ league: string }>;
 }) {
-  const { league: slug } = await params;
-  const ctx = await getActiveContext(slug);
+  const { league: leagueParam } = await params;
+  const ctx = await getActiveContext(leagueParam);
   if (!ctx.season) return <NoSeason />;
   const { league, season } = ctx;
+  // The resolved slug, not the URL's — `/OBHL` resolves, and links built from
+  // it should still be the canonical `/obhl`.
+  const slug = league.slug;
 
   const [standings, leaders, upcoming, recent, announcements, latestGame] =
     await Promise.all([

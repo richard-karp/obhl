@@ -63,9 +63,10 @@ export default async function SchedulePage({
   params: Promise<{ league: string }>;
   searchParams: Promise<{ team?: string }>;
 }) {
-  const { league: slug } = await params;
-  const ctx = await getActiveContext(slug);
+  const { league: leagueParam } = await params;
+  const ctx = await getActiveContext(leagueParam);
   if (!ctx.season) return <NoSeason />;
+  const slug = ctx.league.slug;
   const { team } = await searchParams;
 
   const teams = await getEnrolledTeams(ctx.season.id);

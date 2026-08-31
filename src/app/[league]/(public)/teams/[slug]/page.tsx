@@ -17,9 +17,10 @@ export default async function TeamPage({
 }: {
   params: Promise<{ league: string; slug: string }>;
 }) {
-  const { league, slug } = await params;
-  const ctx = await getActiveContext(league);
+  const { league: leagueParam, slug } = await params;
+  const ctx = await getActiveContext(leagueParam);
   if (!ctx.season) return <NoSeason />;
+  const league = ctx.league.slug;
 
   const detail = await getTeamBySlug(ctx.league.id, ctx.season.id, slug);
   if (!detail) notFound();
