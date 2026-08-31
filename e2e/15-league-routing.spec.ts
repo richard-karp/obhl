@@ -230,6 +230,86 @@ test.describe("Path 16 — Per-league routing", () => {
     await expect(page.getByText(name)).toHaveCount(0);
   });
 
+  // ── A manage URL's league is enforced, not decorative ─────────────────────
+  //
+  // All three of these pages look their entity up by id with the admin client,
+  // past RLS. The slug in the URL is the only thing asserting the entity belongs
+  // to the league whose nav is wrapped around it.
+
+  async function signInAsManager(page: import("@playwright/test").Page) {
+    await page.goto("/login");
+    await page.getByRole("button", { name: "Manager" }).click();
+    await page.waitForURL("/");
+  }
+
+  /** First id in the hrefs of a Harbor manage list page. */
+  async function harborId(
+    page: import("@playwright/test").Page,
+    listPath: string,
+    hrefPrefix: string,
+  ) {
+    await page.goto(listPath);
+    const href = await page
+      .locator(`a[href^="${hrefPrefix}"]`)
+      .first()
+      .getAttribute("href");
+    return href!.slice(hrefPrefix.length);
+  }
+
+  test("a season from another league is not editable under this one", async ({
+    page,
+  }) => {
+    await signInAsManager(page);
+    const id = await harborId(
+      page,
+      "/harbor/manage/seasons",
+      "/harbor/manage/seasons/",
+    );
+
+    const own = await page.goto(`/harbor/manage/seasons/${id}`);
+    expect(own?.status()).toBe(200);
+
+    const foreign = await page.goto(`/obhl/manage/seasons/${id}`);
+    expect(foreign?.status()).toBe(404);
+    await expect(page.getByText("That page couldn't be found.")).toBeVisible();
+  });
+
+  test("a roster from another league is not editable under this one", async ({
+    page,
+  }) => {
+    await signInAsManager(page);
+    const id = await harborId(
+      page,
+      "/harbor/manage/rosters",
+      "/harbor/manage/rosters/",
+    );
+
+    const own = await page.goto(`/harbor/manage/rosters/${id}`);
+    expect(own?.status()).toBe(200);
+
+    const foreign = await page.goto(`/obhl/manage/rosters/${id}`);
+    expect(foreign?.status()).toBe(404);
+    await expect(page.getByText("That page couldn't be found.")).toBeVisible();
+  });
+
+  test("a game from another league is not scoreable under this one", async ({
+    page,
+  }) => {
+    await signInAsManager(page);
+    const id = await harborId(
+      page,
+      "/harbor/manage/score",
+      "/harbor/manage/score/",
+    );
+
+    const own = await page.goto(`/harbor/manage/score/${id}`);
+    expect(own?.status()).toBe(200);
+
+    const foreign = await page.goto(`/obhl/manage/score/${id}`);
+    expect(foreign?.status()).toBe(404);
+    await expect(page.getByText("That page couldn't be found.")).toBeVisible();
+  });
+
   test("a section stays marked on its detail pages", async ({ page }) => {
     await page.goto("/obhl/teams/sharks");
     const nav = page.getByRole("navigation").first();
