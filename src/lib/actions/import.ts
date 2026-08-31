@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { isReservedLeagueSlug } from "@/lib/league/reserved-slugs";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
 import {
@@ -95,6 +96,23 @@ export async function runEsportsdeskImport(
     return { ok: false, message: "Missing the source URL or a league name." };
   }
 
+  // The slug is the league's address, so a name that cannot produce a usable
+  // one is rejected before the import does any work. Both cases would otherwise
+  // create a league nobody can open, and there is no UI to delete one.
+  const leagueSlug = slugify(leagueName);
+  if (!leagueSlug) {
+    return {
+      ok: false,
+      message: `"${leagueName}" has no letters or numbers to build a URL from — the league would have no address. Pick a different name.`,
+    };
+  }
+  if (isReservedLeagueSlug(leagueSlug)) {
+    return {
+      ok: false,
+      message: `"${leagueName}" makes the slug "${leagueSlug}", which is reserved — the league would be unreachable at /${leagueSlug}. Pick a different name.`,
+    };
+  }
+
   const admin = createAdminClient();
   let parsed: ParsedLeague;
   try {
@@ -105,7 +123,7 @@ export async function runEsportsdeskImport(
 
   const { data: league, error: lErr } = await admin
     .from("leagues")
-    .insert({ name: leagueName, slug: slugify(leagueName), is_public: true })
+    .insert({ name: leagueName, slug: leagueSlug, is_public: true })
     .select("id")
     .single();
   if (lErr) {
