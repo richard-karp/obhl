@@ -1,6 +1,6 @@
 import { requireManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getCookieContext } from "@/lib/queries/season";
+import { getActiveContext } from "@/lib/queries/season";
 import {
   CreateStaffForm,
   type CaptainOption,
@@ -24,10 +24,15 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export default async function PeoplePage() {
+export default async function PeoplePage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: leagueSlug } = await params;
   await requireManager();
   const admin = createAdminClient();
-  const ctx = await getCookieContext();
+  const ctx = await getActiveContext(leagueSlug);
 
   const [{ data: usersList }, { data: profiles }] = await Promise.all([
     admin.auth.admin.listUsers({ perPage: 1000 }),
@@ -35,7 +40,7 @@ export default async function PeoplePage() {
   ]);
 
   let captains: CaptainOption[] = [];
-  if (ctx?.season) {
+  if (ctx.season) {
     const { data: caps } = await admin
       .from("team_players")
       .select(

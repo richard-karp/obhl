@@ -74,12 +74,29 @@ export async function resolveCurrentLeague(
   return data ?? null;
 }
 
-/** All public leagues, for the root landing page and the manage switcher. */
+/** Public leagues only — the root landing page. */
 export async function getPublicLeagues(client: Client): Promise<LeagueOption[]> {
   const { data } = await client
     .from("leagues")
     .select("id, name, slug")
     .eq("is_public", true)
+    .order("created_at", { ascending: true });
+  return data ?? [];
+}
+
+/**
+ * Every league the caller can see, for the manage switcher. A staged league is
+ * absent from `getPublicLeagues`, so a switcher built from that list would show
+ * its own manager a selected value that isn't among its options — and the
+ * browser would render some other league's name as the current one.
+ *
+ * RLS still decides what "can see" means: managers get every league, everyone
+ * else only the public ones.
+ */
+export async function getAllLeagues(client: Client): Promise<LeagueOption[]> {
+  const { data } = await client
+    .from("leagues")
+    .select("id, name, slug")
     .order("created_at", { ascending: true });
   return data ?? [];
 }

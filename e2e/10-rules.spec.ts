@@ -7,7 +7,10 @@ import type { Page } from "@playwright/test";
 async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
-  await page.waitForURL("/dashboard");
+  // Sign-in lands on the league picker — there is no league-agnostic dashboard
+  // any more. Every caller below expects to be inside a league's manage tools.
+  await page.waitForURL("/");
+  await page.goto("/obhl/manage/dashboard");
 }
 
 const RULES_TEXT = `E2E test rule: no high-sticking at ${Date.now()}`;
@@ -15,7 +18,7 @@ const RULES_TEXT = `E2E test rule: no high-sticking at ${Date.now()}`;
 test.describe("Path 16 — League Rules", () => {
   test("rules editor page loads with toolbar and save button", async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/rules/edit");
+    await page.goto("/obhl/manage/rules/edit");
 
     await expect(page.locator("h1").filter({ hasText: "League Rules" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Save rules" })).toBeVisible();
@@ -28,7 +31,7 @@ test.describe("Path 16 — League Rules", () => {
 
   test("manager saves rules and they appear on the public rules page", async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/rules/edit");
+    await page.goto("/obhl/manage/rules/edit");
 
     // Type into the Tiptap contenteditable editor
     const editor = page.locator('[contenteditable="true"]');

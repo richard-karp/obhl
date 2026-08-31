@@ -50,7 +50,7 @@ export async function createStaffAccount(
   });
   if (pErr) return { ok: false, message: pErr.message };
 
-  revalidatePath("/people");
+  revalidatePath("/[league]/manage/people", "page");
   return { ok: true, message: `${email} added as ${role.replace("league_", "")}.` };
 }
 
@@ -65,7 +65,7 @@ export async function updateStaffRole(formData: FormData) {
     .from("profiles")
     .update({ role, player_id: role === "captain" ? undefined : null })
     .eq("id", id);
-  revalidatePath("/people");
+  revalidatePath("/[league]/manage/people", "page");
 }
 
 /** Manager removes a staff account entirely (profile cascades). */
@@ -74,5 +74,5 @@ export async function removeStaff(formData: FormData) {
   const id = String(formData.get("id"));
   const admin = createAdminClient();
   await admin.auth.admin.deleteUser(id);
-  revalidatePath("/people");
+  revalidatePath("/[league]/manage/people", "page");
 }

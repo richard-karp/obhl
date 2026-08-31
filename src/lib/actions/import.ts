@@ -249,8 +249,10 @@ export async function runEsportsdeskImport(
   } catch (e) {
     // Rosters already imported successfully; surface the schedule failure but
     // don't roll back the (useful) teams + players.
-    revalidatePath("/seasons");
-    revalidatePath("/", "layout");
+    revalidatePath("/[league]/manage/seasons", "page");
+    revalidatePath("/[league]", "layout");
+    // This import creates a league; the root landing page lists them.
+    revalidatePath("/");
     return {
       ok: true,
       message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}, but the schedule import failed (${(e as Error).message}). Delete this league and re-run to retry, or build the schedule manually.`,
@@ -339,16 +341,20 @@ export async function runEsportsdeskImport(
     }
     statRowCount = rosterRows.length;
   } catch (e) {
-    revalidatePath("/seasons");
-    revalidatePath("/", "layout");
+    revalidatePath("/[league]/manage/seasons", "page");
+    revalidatePath("/[league]", "layout");
+    // This import creates a league; the root landing page lists them.
+    revalidatePath("/");
     return {
       ok: true,
       message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}, but player stats failed (${(e as Error).message}). Standings are complete; delete this league and re-run to retry the stats.`,
     };
   }
 
-  revalidatePath("/seasons");
-  revalidatePath("/", "layout");
+  revalidatePath("/[league]/manage/seasons", "page");
+  revalidatePath("/[league]", "layout");
+  // This import creates a league; the root landing page lists them.
+  revalidatePath("/");
   return {
     ok: true,
     message: `Imported ${teamCount} teams, ${playerCount} players, ${gameCount} games, and ${statRowCount} stat lines into "${leagueName}" — ${seasonName}. It's inactive; set it active when ready, and set any goalie positions in Rosters (esportsdesk rarely records them).`,

@@ -7,13 +7,16 @@ import type { Page } from "@playwright/test";
 async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
-  await page.waitForURL("/dashboard");
+  // Sign-in lands on the league picker — there is no league-agnostic dashboard
+  // any more. Every caller below expects to be inside a league's manage tools.
+  await page.waitForURL("/");
+  await page.goto("/obhl/manage/dashboard");
 }
 
 test.describe("Path 14 — People & Roles", () => {
   test.beforeEach(async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/people");
+    await page.goto("/obhl/manage/people");
   });
 
   test("renders staff table with seeded accounts and role labels", async ({

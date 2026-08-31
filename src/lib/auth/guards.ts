@@ -8,10 +8,12 @@ export async function requireUser(): Promise<SessionUser> {
   return user;
 }
 
-/** Redirects to /dashboard if signed in but lacking one of the given roles. */
+/** Redirects to the league picker if signed in but lacking one of the given roles. */
 export async function requireRole(...roles: AppRole[]): Promise<SessionUser> {
   const user = await requireUser();
-  if (!user.role || !roles.includes(user.role)) redirect("/dashboard");
+  // Not /<league>/manage/dashboard: a guard has no league in hand, and the
+  // picker is the one page that needs none.
+  if (!user.role || !roles.includes(user.role)) redirect("/");
   return user;
 }
 

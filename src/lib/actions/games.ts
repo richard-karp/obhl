@@ -27,8 +27,8 @@ function check(error: { message: string } | null, what: string) {
 }
 
 function revalidateAfterScore(gameId: string, alsoPublic = false) {
-  revalidatePath(`/score/${gameId}`);
-  revalidatePath("/score");
+  revalidatePath("/[league]/manage/score/[gameId]", "page");
+  revalidatePath("/[league]/manage/score", "page");
   if (alsoPublic) for (const p of PUBLIC_PATHS) revalidatePath(p, "page");
 }
 

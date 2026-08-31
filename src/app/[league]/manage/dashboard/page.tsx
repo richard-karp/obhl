@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/guards";
 import { createClient } from "@/utils/supabase/server";
-import { getCookieContext } from "@/lib/queries/season";
+import { getActiveContext } from "@/lib/queries/season";
 import { getSchedule } from "@/lib/queries/schedule";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,10 +32,17 @@ function ActionCard({
   );
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: leagueParam } = await params;
   const user = await requireUser();
-  const ctx = await getCookieContext();
-  const seasonLabel = ctx?.season?.name ?? "No active season";
+  const ctx = await getActiveContext(leagueParam);
+  // The resolved slug, not the URL's — links stay canonical from /OBHL.
+  const leagueSlug = ctx.league.slug;
+  const seasonLabel = ctx.season?.name ?? "No active season";
 
   if (!user.role) {
     return (
@@ -58,22 +65,22 @@ export default async function DashboardPage() {
       {user.role === "league_manager" ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <ActionCard
-            href="/people"
+            href={`/${leagueSlug}/manage/people`}
             title="People & Roles"
             description="Create staff accounts and assign manager, captain, or scorekeeper roles."
           />
           <ActionCard
-            href="/seasons"
+            href={`/${leagueSlug}/manage/seasons`}
             title="Seasons"
             description="Create seasons, set the active one, and enroll teams (carry forward)."
           />
           <ActionCard
-            href="/rosters"
+            href={`/${leagueSlug}/manage/rosters`}
             title="Rosters"
             description="Add players to teams and set numbers, positions, and captains."
           />
           <ActionCard
-            href="/score"
+            href={`/${leagueSlug}/manage/score`}
             title="Games"
             description="Browse the schedule and open the scoresheet for any game."
           />
@@ -83,7 +90,7 @@ export default async function DashboardPage() {
       {user.role === "scorekeeper" ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <ActionCard
-            href="/score"
+            href={`/${leagueSlug}/manage/score`}
             title="Score Games"
             description="Open a game to set rosters, record goals and penalties, and finalize."
           />
@@ -93,8 +100,8 @@ export default async function DashboardPage() {
       {user.role === "captain" ? (
         <CaptainPanel
           userId={user.id}
-          seasonId={ctx?.season?.id ?? null}
-          leagueSlug={ctx?.league.slug ?? null}
+          seasonId={ctx.season?.id ?? null}
+          leagueSlug={ctx.league.slug}
         />
       ) : null}
     </div>
@@ -108,9 +115,7 @@ async function CaptainPanel({
 }: {
   userId: string;
   seasonId: string | null;
-  // The public team page is league-scoped now; without a league there is
-  // nowhere to send them.
-  leagueSlug: string | null;
+  leagueSlug: string;
 }) {
   const supabase = await createClient();
   const { data: profile } = await supabase
@@ -147,9 +152,7 @@ async function CaptainPanel({
       }) ?? null;
   }
 
-  // `leagueSlug` is null exactly when there is no context, which is also when
-  // `seasonId` is null and no team can be found — one impossibility, checked once.
-  if (!team || !leagueSlug) {
+  if (!team) {
     return (
       <EmptyState
         title="No team to captain this season"
@@ -197,7 +200,7 @@ async function CaptainPanel({
                     <span className="font-medium">{opp?.name ?? "TBD"}</span>
                   </span>
                   <Button asChild size="sm">
-                    <Link href={`/score/${g.id}`}>Set lineup</Link>
+                    <Link href={`/${leagueSlug}/manage/score/${g.id}`}>Set lineup</Link>
                   </Button>
                 </div>
               );

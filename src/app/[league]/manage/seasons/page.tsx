@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { resolveCurrentLeague } from "@/lib/league/current";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import { setActiveSeason } from "@/lib/actions/seasons";
 import { CreateSeasonForm } from "@/components/manage/create-season-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,10 +19,15 @@ import { PageHeader } from "@/components/shared/page-header";
 import { formatLongDate } from "@/lib/format";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export default async function SeasonsPage() {
+export default async function SeasonsPage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: leagueSlug } = await params;
   await requireManager();
   const admin = createAdminClient();
-  const league = await resolveCurrentLeague(admin);
+  const league = await resolveLeagueBySlug(leagueSlug);
   const { data: seasons } = await admin
     .from("seasons")
     .select("id, name, starts_on, ends_on, is_active, season_teams(count)")
@@ -38,7 +43,7 @@ export default async function SeasonsPage() {
           <CardTitle className="text-base">Create a season</CardTitle>
         </CardHeader>
         <CardContent>
-          <CreateSeasonForm />
+          <CreateSeasonForm leagueId={league!.id} leagueSlug={league!.slug} />
         </CardContent>
       </Card>
 
@@ -70,7 +75,7 @@ export default async function SeasonsPage() {
                   </TableCell>
                   <TableCell className="space-x-2 text-right">
                     <Button asChild variant="outline" size="sm">
-                      <Link href={`/seasons/${s.id}`}>Setup</Link>
+                      <Link href={`/${league!.slug}/manage/seasons/${s.id}`}>Setup</Link>
                     </Button>
                     {!s.is_active ? (
                       <form action={setActiveSeason} className="inline">

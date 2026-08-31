@@ -8,7 +8,10 @@ import type { Page } from "@playwright/test";
 async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
-  await page.waitForURL("/dashboard");
+  // Sign-in lands on the league picker — there is no league-agnostic dashboard
+  // any more. Every caller below expects to be inside a league's manage tools.
+  await page.waitForURL("/");
+  await page.goto("/obhl/manage/dashboard");
 }
 
 /**
@@ -17,7 +20,7 @@ async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain
  * through its setup page, which renders the same ScheduleBuilderPanel.
  */
 async function goToFallSeasonSetup(page: Page) {
-  await page.goto("/seasons");
+  await page.goto("/obhl/manage/seasons");
   await page
     .getByRole("row", { name: /Fall 2026/ })
     .getByRole("link", { name: "Setup" })
@@ -27,15 +30,15 @@ async function goToFallSeasonSetup(page: Page) {
 
 test("page loads with heading and active season description", async ({ page }) => {
   await signedInAs(page, "Manager");
-  await page.goto("/schedule-builder");
+  await page.goto("/obhl/manage/schedule-builder");
   await expect(page.getByText("Schedule Builder")).toBeVisible();
   await expect(page.getByText(/active/)).toBeVisible();
 });
 
 test("scorekeeper cannot reach /schedule-builder", async ({ page }) => {
   await signedInAs(page, "Scorekeeper");
-  await page.goto("/schedule-builder");
-  await expect(page).toHaveURL(/login|dashboard/);
+  await page.goto("/obhl/manage/schedule-builder");
+  await expect(page).toHaveURL("/");
 });
 
 test.describe("Path 17 — Schedule Builder", () => {
@@ -268,7 +271,7 @@ test.describe("Path 17 — Schedule Builder", () => {
 
   test("a started season locks the builder", async ({ page }) => {
     // The active Spring 2026 season is in the past, so it has started.
-    await page.goto("/schedule-builder");
+    await page.goto("/obhl/manage/schedule-builder");
     await expect(page.getByText("The season is under way")).toBeVisible();
     await expect(page.getByText("Generate a balanced schedule")).toHaveCount(0);
     await expect(

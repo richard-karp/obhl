@@ -1,17 +1,24 @@
 import Link from "next/link";
 import { requireManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getCookieContext } from "@/lib/queries/season";
+import { getActiveContext } from "@/lib/queries/season";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 
-export default async function RostersPage() {
+export default async function RostersPage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: leagueParam } = await params;
   await requireManager();
-  const ctx = await getCookieContext();
-  if (!ctx?.season) {
+  const ctx = await getActiveContext(leagueParam);
+  // The resolved slug, not the URL's — links stay canonical from /OBHL.
+  const leagueSlug = ctx.league.slug;
+  if (!ctx.season) {
     return <EmptyState title="No active season" description="Create and activate a season first." />;
   }
   // Manager-only page: read past RLS, so a season the public-read policies
@@ -34,7 +41,7 @@ export default async function RostersPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {teams.map((t) => (
-            <Link key={t.id} href={`/rosters/${t.id}`}>
+            <Link key={t.id} href={`/${leagueSlug}/manage/rosters/${t.id}`}>
               <Card className="hover:border-primary transition-colors">
                 <CardContent className="flex items-center gap-3 p-4">
                   <TeamLogo name={t.name} color={t.color} className="size-10 text-sm" />

@@ -11,24 +11,25 @@ import { Badge } from "@/components/ui/badge";
 import type { AppRole } from "@/lib/auth/session";
 import type { LeagueOption } from "@/lib/league/current";
 
-const LINKS: Record<AppRole, { href: string; label: string }[]> = {
+/** Paths relative to `/<league>/manage`. */
+const LINKS: Record<AppRole, { path: string; label: string }[]> = {
   league_manager: [
-    { href: "/dashboard", label: "Dashboard" },
-    { href: "/people", label: "People & Roles" },
-    { href: "/seasons", label: "Seasons" },
-    { href: "/rosters", label: "Rosters" },
-    { href: "/schedule-builder", label: "Schedule" },
-    { href: "/score", label: "Games" },
-    { href: "/announcements", label: "Announcements" },
-    { href: "/rules/edit", label: "Rules" },
-    { href: "/import", label: "Import" },
-    { href: "/audit", label: "Audit Log" },
+    { path: "/dashboard", label: "Dashboard" },
+    { path: "/people", label: "People & Roles" },
+    { path: "/seasons", label: "Seasons" },
+    { path: "/rosters", label: "Rosters" },
+    { path: "/schedule-builder", label: "Schedule" },
+    { path: "/score", label: "Games" },
+    { path: "/announcements", label: "Announcements" },
+    { path: "/rules/edit", label: "Rules" },
+    { path: "/import", label: "Import" },
+    { path: "/audit", label: "Audit Log" },
   ],
   scorekeeper: [
-    { href: "/dashboard", label: "Dashboard" },
-    { href: "/score", label: "Score Games" },
+    { path: "/dashboard", label: "Dashboard" },
+    { path: "/score", label: "Score Games" },
   ],
-  captain: [{ href: "/dashboard", label: "Dashboard" }],
+  captain: [{ path: "/dashboard", label: "Dashboard" }],
 };
 
 /**
@@ -59,16 +60,24 @@ const ROLE_LABEL: Record<AppRole, string> = {
   captain: "Captain",
 };
 
-function Links({ links }: { links: { href: string; label: string }[] }) {
+function Links({
+  links,
+  base,
+}: {
+  links: { path: string; label: string }[];
+  base: string;
+}) {
   const pathname = usePathname();
   return (
     <>
       {links.map((l) => {
-        const active = pathname === l.href || pathname.startsWith(l.href + "/");
+        const href = `${base}${l.path}`;
+        const active = pathname === href || pathname.startsWith(href + "/");
         return (
           <Link
-            key={l.href}
-            href={l.href}
+            key={l.path}
+            href={href}
+            aria-current={active ? "page" : undefined}
             className={cn(
               "rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors",
               active
@@ -93,9 +102,10 @@ export function ManageNav({
   leagues: LeagueOption[];
   currentSlug: string;
 }) {
+  const base = `/${currentSlug}/manage`;
   const links = role
     ? LINKS[role]
-    : [{ href: "/dashboard", label: "Dashboard" }];
+    : [{ path: "/dashboard", label: "Dashboard" }];
 
   // The manager's ten links cannot sit beside the account controls at any
   // window size, so they get the full-width row to themselves — the same row
@@ -111,12 +121,12 @@ export function ManageNav({
           across two lines is what keeps the account controls inside the screen;
           pinning it to one line costs ~47px and pushes them back out.
         */}
-        <Link href="/dashboard" className="font-bold tracking-tight">
+        <Link href={`${base}/dashboard`} className="font-bold tracking-tight">
           OBHL <span className="text-muted-foreground font-normal">Manage</span>
         </Link>
         {linksNeedOwnRow ? null : (
           <nav className="hidden items-center gap-1 md:flex">
-            <Links links={links} />
+            <Links links={links} base={base} />
           </nav>
         )}
         {/*
@@ -129,19 +139,18 @@ export function ManageNav({
           on the select, which has its own floor.
         */}
         <div className="ml-auto flex min-w-0 items-center gap-2">
-          <LeagueSwitcher leagues={leagues} currentSlug={currentSlug} />
+          <LeagueSwitcher
+            leagues={leagues}
+            currentSlug={currentSlug}
+            rootPath="/manage/dashboard"
+          />
           {role ? (
             <Badge variant="secondary" className="hidden sm:inline-flex">
               {ROLE_LABEL[role]}
             </Badge>
           ) : null}
-          {/*
-            The public site is per-league now, so this points at the league the
-            switcher has selected rather than the root league picker. Falls back
-            to the picker when nothing is selected.
-          */}
           <Link
-            href={currentSlug ? `/${currentSlug}` : "/"}
+            href={`/${currentSlug}`}
             className="text-muted-foreground hidden text-sm hover:underline sm:inline"
           >
             View site
@@ -170,7 +179,7 @@ export function ManageNav({
           landmark is ever exposed.
         */}
         <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 py-1">
-          <Links links={links} />
+          <Links links={links} base={base} />
         </nav>
       </div>
     </header>

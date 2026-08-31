@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getCookieContext } from "@/lib/queries/season";
+import { getActiveContext } from "@/lib/queries/season";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { getSeasonNights } from "@/lib/queries/schedule";
 import { OneOffGameForm } from "@/components/manage/one-off-game-form";
@@ -15,10 +15,17 @@ import { Button } from "@/components/ui/button";
  * it. Deliberately not part of the schedule builder: that page is pre-season
  * (draft → review → publish), while this only makes sense once games are live.
  */
-export default async function OneOffGamePage() {
+export default async function OneOffGamePage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: leagueParam } = await params;
   await requireManager();
-  const ctx = await getCookieContext();
-  if (!ctx?.season) {
+  const ctx = await getActiveContext(leagueParam);
+  // The resolved slug, not the URL's — links stay canonical from /OBHL.
+  const leagueSlug = ctx.league.slug;
+  if (!ctx.season) {
     return (
       <div className="space-y-4">
         <EmptyState
@@ -27,7 +34,7 @@ export default async function OneOffGamePage() {
         />
         <div className="text-center">
           <Button asChild size="sm">
-            <Link href="/seasons">Go to Seasons</Link>
+            <Link href={`/${leagueSlug}/manage/seasons`}>Go to Seasons</Link>
           </Button>
         </div>
       </div>
@@ -52,7 +59,7 @@ export default async function OneOffGamePage() {
         description={`${ctx.season.name} · tournament final or semifinals, mid-season`}
       >
         <Button asChild size="sm" variant="outline">
-          <Link href="/schedule-builder">Schedule Builder</Link>
+          <Link href={`/${leagueSlug}/manage/schedule-builder`}>Schedule Builder</Link>
         </Button>
       </PageHeader>
 

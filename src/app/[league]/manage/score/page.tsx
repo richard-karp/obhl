@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/auth/guards";
-import { getCookieContext } from "@/lib/queries/season";
+import { getActiveContext } from "@/lib/queries/season";
 import { getSchedule } from "@/lib/queries/schedule";
 import { GameStatusBadge } from "@/components/shared/game-status-badge";
 import { TeamLogo } from "@/components/shared/team-logo";
@@ -17,10 +17,17 @@ import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatGameDateTime } from "@/lib/format";
 
-export default async function ScoreGamesPage() {
+export default async function ScoreGamesPage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: leagueParam } = await params;
   await requireRole("scorekeeper", "league_manager");
-  const ctx = await getCookieContext();
-  if (!ctx?.season) {
+  const ctx = await getActiveContext(leagueParam);
+  // The resolved slug, not the URL's — links stay canonical from /OBHL.
+  const leagueSlug = ctx.league.slug;
+  if (!ctx.season) {
     return <EmptyState title="No active season" />;
   }
   const games = await getSchedule(ctx.season.id);
@@ -32,7 +39,9 @@ export default async function ScoreGamesPage() {
         description="Open a game to set rosters, record scoring, and finalize."
       >
         <Button asChild size="sm" variant="outline">
-          <Link href="/schedule-builder/one-off">Schedule a one-off game</Link>
+          <Link href={`/${leagueSlug}/manage/schedule-builder/one-off`}>
+            Schedule a one-off game
+          </Link>
         </Button>
       </PageHeader>
       {games.length === 0 ? (
@@ -76,7 +85,7 @@ export default async function ScoreGamesPage() {
                       size="sm"
                       variant={g.status === "scheduled" || g.status === "in_progress" ? "default" : "outline"}
                     >
-                      <Link href={`/score/${g.id}`}>
+                      <Link href={`/${leagueSlug}/manage/score/${g.id}`}>
                         {g.status === "final"
                           ? "Edit"
                           : g.status === "cancelled" || g.status === "postponed"

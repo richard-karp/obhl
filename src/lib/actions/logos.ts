@@ -25,6 +25,6 @@ export async function uploadTeamLogo(formData: FormData) {
   if (error) return;
 
   await admin.from("teams").update({ logo_path: path }).eq("id", teamId);
-  revalidatePath(`/rosters/${teamId}`);
+  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
   revalidatePath("/[league]/teams", "page");
 }

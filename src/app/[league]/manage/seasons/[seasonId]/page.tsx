@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import {
   setActiveSeason,
   carryForwardEnrollment,
@@ -59,10 +60,12 @@ function StepChip({
 export default async function SeasonSetupPage({
   params,
 }: {
-  params: Promise<{ seasonId: string }>;
+  params: Promise<{ league: string; seasonId: string }>;
 }) {
   await requireManager();
-  const { seasonId } = await params;
+  const { league: leagueSlug, seasonId } = await params;
+  const league = await resolveLeagueBySlug(leagueSlug);
+  if (!league) notFound();
   const admin = createAdminClient();
 
   const { data: season } = await admin
@@ -249,7 +252,7 @@ export default async function SeasonSetupPage({
               description="Enroll at least two teams above, then the schedule builder appears here."
             />
           ) : (
-            <ScheduleBuilderPanel seasonId={seasonId} />
+            <ScheduleBuilderPanel seasonId={seasonId} league={league.slug} />
           )}
         </CardContent>
       </Card>

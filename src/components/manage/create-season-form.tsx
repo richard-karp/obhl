@@ -7,7 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export function CreateSeasonForm() {
+export function CreateSeasonForm({
+  leagueId,
+  leagueSlug,
+}: {
+  leagueId: string;
+  leagueSlug: string;
+}) {
   const router = useRouter();
   const [state, action, pending] = useActionState<SeasonActionState, FormData>(
     createSeason,
@@ -16,11 +22,13 @@ export function CreateSeasonForm() {
 
   // On success, continue to the new season's setup (add teams next).
   useEffect(() => {
-    if (state?.ok && state.seasonId) router.push(`/seasons/${state.seasonId}`);
-  }, [state, router]);
+    if (state?.ok && state.seasonId)
+      router.push(`/${leagueSlug}/manage/seasons/${state.seasonId}`);
+  }, [state, router, leagueSlug]);
 
   return (
     <form action={action} className="grid gap-4 sm:grid-cols-3">
+      <input type="hidden" name="league_id" value={leagueId} />
       <div className="space-y-2">
         <Label htmlFor="name">Name</Label>
         <Input id="name" name="name" placeholder="Fall 2026" required />

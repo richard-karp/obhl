@@ -1,16 +1,23 @@
 import Link from "next/link";
 import { requireManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getCookieContext } from "@/lib/queries/season";
+import { getActiveContext } from "@/lib/queries/season";
 import { ScheduleBuilderPanel } from "@/components/manage/schedule-builder-panel";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 
-export default async function ScheduleBuilderPage() {
+export default async function ScheduleBuilderPage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: leagueParam } = await params;
   await requireManager();
-  const ctx = await getCookieContext();
-  if (!ctx?.season) {
+  const ctx = await getActiveContext(leagueParam);
+  // The resolved slug, not the URL's — links stay canonical from /OBHL.
+  const leagueSlug = ctx.league.slug;
+  if (!ctx.season) {
     return (
       <div className="space-y-4">
         <EmptyState
@@ -19,7 +26,7 @@ export default async function ScheduleBuilderPage() {
         />
         <div className="text-center">
           <Button asChild size="sm">
-            <Link href="/seasons">Go to Seasons</Link>
+            <Link href={`/${leagueSlug}/manage/seasons`}>Go to Seasons</Link>
           </Button>
         </div>
       </div>
@@ -38,7 +45,7 @@ export default async function ScheduleBuilderPage() {
         title="Schedule Builder"
         description={`${ctx.season.name} (active) · ${count ?? 0} teams enrolled`}
       />
-      <ScheduleBuilderPanel seasonId={ctx.season.id} />
+      <ScheduleBuilderPanel seasonId={ctx.season.id} league={leagueSlug} />
     </div>
   );
 }

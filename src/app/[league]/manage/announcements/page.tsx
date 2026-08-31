@@ -1,6 +1,6 @@
 import { requireManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { resolveCurrentLeague } from "@/lib/league/current";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import { deleteAnnouncement } from "@/lib/actions/announcements";
 import { AnnouncementForm } from "@/components/manage/announcement-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,10 +9,15 @@ import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatLongDate } from "@/lib/format";
 
-export default async function AnnouncementsPage() {
+export default async function AnnouncementsPage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: leagueSlug } = await params;
   await requireManager();
   const admin = createAdminClient();
-  const league = await resolveCurrentLeague(admin);
+  const league = await resolveLeagueBySlug(leagueSlug);
 
   const { data: announcements } = await admin
     .from("announcements")
@@ -32,7 +37,7 @@ export default async function AnnouncementsPage() {
           <CardTitle className="text-base">New announcement</CardTitle>
         </CardHeader>
         <CardContent>
-          <AnnouncementForm />
+          <AnnouncementForm leagueId={league!.id} />
         </CardContent>
       </Card>
 

@@ -175,7 +175,7 @@ export async function revertAuditEntries(
     }
   }
 
-  revalidatePath("/audit");
+  revalidatePath("/[league]/manage/audit", "page");
   revalidatePath("/[league]", "page");
 
   if (errors.length) return { error: errors.join("; ") };

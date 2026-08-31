@@ -60,5 +60,6 @@ export async function devSignIn(formData: FormData) {
     path: "/",
     maxAge: 60 * 60 * 24 * 7,
   });
-  redirect("/dashboard");
+  // The picker, not a dashboard: /dashboard is league-scoped now.
+  redirect("/");
 }

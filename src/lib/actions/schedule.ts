@@ -7,7 +7,6 @@ import { logAudit } from "@/lib/audit";
 import { buildBalancedPairings } from "@/lib/schedule/roundRobin";
 import { assignNights } from "@/lib/schedule/assignNights";
 import { enumerateNights } from "@/lib/schedule/capacity";
-import { resolveCurrentLeague } from "@/lib/league/current";
 import {
   planOneOff,
   checkOneOffWrite,
@@ -28,35 +27,29 @@ type Admin = ReturnType<typeof createAdminClient>;
  * the current league — used by the per-season setup hub), else the active season
  * (used by the standalone /schedule-builder).
  *
- * An explicit id that doesn't resolve returns null rather than falling back.
- * Falling back retargets the write at a season the manager never named: the
- * `obhl_league` cookie is global, so switching league in a second tab makes the
- * first tab's `/seasons/<A>` form resolve against league B, where season A
- * doesn't exist. Every action here now replaces or repairs a published
- * schedule, so the fallback's cost is league B's active season losing its games
- * — refusing is the only safe reading of "I asked for A and A isn't here".
+ * A season that doesn't resolve returns null rather than falling back to
+ * whichever season happened to be active. Every action here replaces or repairs
+ * a published schedule, so the cost of guessing is a season losing its games —
+ * refusing is the only safe reading of "I asked for A and A isn't here".
+ *
+ * There used to be a second guard here, `.eq("league_id", <current league>)`,
+ * and a fallback to that league's active season. Both existed because the league
+ * came from the global `obhl_league` cookie: switching league in a second tab
+ * made the first tab's `/seasons/<A>` form resolve against league B. The league
+ * is in the URL now, so there is no ambient league left for a form's season id
+ * to disagree with, and every caller names its season explicitly — the form is
+ * only ever rendered by a league-scoped page, and `seasons/[seasonId]` 404s a
+ * season belonging to another league before the form is drawn.
  */
 async function targetSeason(admin: Admin, explicit = "") {
-  const league = await resolveCurrentLeague(admin);
-  if (!league) return null;
+  if (!explicit) return null;
 
-  if (explicit) {
-    const { data } = await admin
-      .from("seasons")
-      .select("id")
-      .eq("id", explicit)
-      .eq("league_id", league.id)
-      .maybeSingle();
-    return data?.id ?? null;
-  }
-
-  const { data: season } = await admin
+  const { data } = await admin
     .from("seasons")
     .select("id")
-    .eq("league_id", league.id)
-    .eq("is_active", true)
+    .eq("id", explicit)
     .maybeSingle();
-  return season?.id ?? null;
+  return data?.id ?? null;
 }
 
 export type GenerateState = { ok: boolean; message: string } | null;
@@ -271,16 +264,16 @@ export async function generateSchedule(
       // The delete has already committed, so the old draft is gone and nothing
       // replaced it. Revalidate before returning: the page is showing a draft
       // that no longer exists, and a message alone would leave it there.
-      revalidatePath("/schedule-builder");
-      revalidatePath(`/seasons/${seasonId}`);
+      revalidatePath("/[league]/manage/schedule-builder", "page");
+      revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
       return {
         ok: false,
         message: `The previous draft was cleared but the new one couldn't be saved. ${insertError.message}`,
       };
     }
   }
-  revalidatePath("/schedule-builder");
-  revalidatePath(`/seasons/${seasonId}`);
+  revalidatePath("/[league]/manage/schedule-builder", "page");
+  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
 
   // A run that places nothing isn't an error — it deleted the old drafts and
   // wrote a valid empty result — but reporting it as a success would be a lie
@@ -304,14 +297,14 @@ export type PublishState = { ok: boolean; message: string } | null;
  * without this leaves the manager looking at the draft that no longer exists,
  * under a button that will fail the same way again.
  */
-function revalidateAfterPublish(seasonId: string) {
-  revalidatePath("/schedule-builder");
-  revalidatePath(`/seasons/${seasonId}`);
+function revalidateAfterPublish() {
+  revalidatePath("/[league]/manage/schedule-builder", "page");
+  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
   revalidatePath("/[league]/schedule", "page");
   // The scoring list reads through getSchedule, so a replace changes which games
   // it shows. The old publishSchedule didn't revalidate it either — that gap was
   // invisible while publishing only ever added games.
-  revalidatePath("/score");
+  revalidatePath("/[league]/manage/score", "page");
   revalidatePath("/[league]", "page");
 }
 
@@ -345,14 +338,14 @@ export async function publishSchedule(
   if (!row) return { ok: false, message: "Nothing happened — try again." };
 
   if (row.refused === "started") {
-    revalidateAfterPublish(seasonId);
+    revalidateAfterPublish();
     return {
       ok: false,
       message: "The season is under way — the schedule can no longer be replaced.",
     };
   }
   if (row.refused === "no_draft") {
-    revalidateAfterPublish(seasonId);
+    revalidateAfterPublish();
     return { ok: false, message: "There's no draft to publish." };
   }
 
@@ -370,7 +363,7 @@ export async function publishSchedule(
     });
   }
 
-  revalidateAfterPublish(seasonId);
+  revalidateAfterPublish();
 
   return {
     ok: true,
@@ -413,14 +406,14 @@ export async function removeSchedule(
   if (!row) return { ok: false, message: "Nothing happened — try again." };
 
   if (row.refused === "started") {
-    revalidateAfterPublish(seasonId);
+    revalidateAfterPublish();
     return {
       ok: false,
       message: "The season is under way — the schedule can no longer be removed.",
     };
   }
   if (row.refused === "no_games") {
-    revalidateAfterPublish(seasonId);
+    revalidateAfterPublish();
     return { ok: false, message: "There's no published schedule to remove." };
   }
 
@@ -443,7 +436,7 @@ export async function removeSchedule(
     new_data: { published_games: 0 },
   });
 
-  revalidateAfterPublish(seasonId);
+  revalidateAfterPublish();
 
   return {
     ok: true,
@@ -458,8 +451,8 @@ export async function discardSchedule(formData: FormData) {
   const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
   if (!seasonId) return;
   await admin.from("games").delete().eq("season_id", seasonId).eq("is_draft", true);
-  revalidatePath("/schedule-builder");
-  revalidatePath(`/seasons/${seasonId}`);
+  revalidatePath("/[league]/manage/schedule-builder", "page");
+  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
 }
 
 /* ------------------------------------------------------------------ one-off */
@@ -696,11 +689,11 @@ export async function applyOneOffGame(
     if (error) return { ok: false, message: error.message };
   }
 
-  revalidatePath("/schedule-builder");
-  revalidatePath("/schedule-builder/one-off");
-  revalidatePath(`/seasons/${seasonId}`);
+  revalidatePath("/[league]/manage/schedule-builder", "page");
+  revalidatePath("/[league]/manage/schedule-builder/one-off", "page");
+  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
   revalidatePath("/[league]/schedule", "page");
-  revalidatePath("/score");
+  revalidatePath("/[league]/manage/score", "page");
   revalidatePath("/[league]", "page");
 
   const touched = input.changes.length;

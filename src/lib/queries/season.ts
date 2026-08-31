@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { notFound } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
-import { resolveCurrentLeague, resolveLeagueBySlug } from "@/lib/league/current";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import type { Tables } from "@/lib/db/helpers";
 
 export type League = Tables<"leagues">;
@@ -35,18 +35,5 @@ const getActiveSeason = cache(async function getActiveSeason(
 export async function getActiveContext(slug: string): Promise<ActiveContext> {
   const league = await resolveLeagueBySlug(slug);
   if (!league) notFound();
-  return { league, season: await getActiveSeason(league.id) };
-}
-
-/**
- * Cookie-selected league and its active season, for the manage tools until they
- * move under `/[league]/manage`. Delete in Step B.
- *
- * @deprecated Use {@link getActiveContext}.
- */
-export async function getCookieContext(): Promise<ActiveContext | null> {
-  const supabase = await createClient();
-  const league = await resolveCurrentLeague(supabase);
-  if (!league) return null;
   return { league, season: await getActiveSeason(league.id) };
 }

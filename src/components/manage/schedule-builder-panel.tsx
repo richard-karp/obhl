@@ -32,7 +32,13 @@ const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * season_id so they target this season, not whatever is currently active. Used
  * by the season setup hub and by the standalone /schedule-builder (active season).
  */
-export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
+export async function ScheduleBuilderPanel({
+  seasonId,
+  league,
+}: {
+  seasonId: string;
+  league: string;
+}) {
   const admin = createAdminClient();
 
   const { data: season } = await admin
@@ -223,7 +229,7 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
                 <p>
                   To slot in a tournament final or semifinals,{" "}
                   <Link
-                    href="/schedule-builder/one-off"
+                    href={`/${league}/manage/schedule-builder/one-off`}
                     className="text-foreground font-medium underline"
                   >
                     schedule a one-off game
@@ -259,7 +265,7 @@ export async function ScheduleBuilderPanel({ seasonId }: { seasonId: string }) {
             — it takes over a game on a night that&apos;s already scheduled and
             repairs the rest of the season around it.{" "}
             <Link
-              href="/schedule-builder/one-off"
+              href={`/${league}/manage/schedule-builder/one-off`}
               className="text-foreground font-medium underline"
             >
               Schedule a one-off game

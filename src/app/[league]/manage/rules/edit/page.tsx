@@ -1,14 +1,17 @@
 import { requireManager } from "@/lib/auth/guards";
-import { getCookieContext } from "@/lib/queries/season";
+import { getActiveContext } from "@/lib/queries/season";
 import { getRules } from "@/lib/queries/rules";
 import { RulesEditor } from "@/components/manage/rules-editor";
 import { PageHeader } from "@/components/shared/page-header";
-import { EmptyState } from "@/components/shared/empty-state";
 
-export default async function EditRulesPage() {
+export default async function EditRulesPage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: leagueSlug } = await params;
   await requireManager();
-  const ctx = await getCookieContext();
-  if (!ctx) return <EmptyState title="No league found" />;
+  const ctx = await getActiveContext(leagueSlug);
   const rules = await getRules(ctx.league.id);
 
   return (

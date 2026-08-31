@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/auth/guards";
 import { createClient } from "@/utils/supabase/server";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import {
   ScoreBoard,
   type ScoreBoardData,
@@ -29,10 +30,12 @@ const byNumber = (a: { number: number | null }, b: { number: number | null }) =>
 export default async function ScoreGamePage({
   params,
 }: {
-  params: Promise<{ gameId: string }>;
+  params: Promise<{ league: string; gameId: string }>;
 }) {
   const user = await requireRole("captain", "scorekeeper", "league_manager");
-  const { gameId } = await params;
+  const { league: leagueSlug, gameId } = await params;
+  const league = await resolveLeagueBySlug(leagueSlug);
+  if (!league) notFound();
   const supabase = await createClient();
 
   const { data: game } = await supabase
