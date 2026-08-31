@@ -20,7 +20,7 @@ export default async function EditRulesPage({
         title="League Rules"
         description="Edit the rules shown on the public site."
       />
-      <RulesEditor initialContent={rules?.content ?? null} />
+      <RulesEditor leagueId={ctx.league.id} initialContent={rules?.content ?? null} />
     </div>
   );
 }

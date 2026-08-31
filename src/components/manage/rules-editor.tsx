@@ -33,7 +33,13 @@ function ToolbarButton({
   );
 }
 
-export function RulesEditor({ initialContent }: { initialContent: unknown }) {
+export function RulesEditor({
+  leagueId,
+  initialContent,
+}: {
+  leagueId: string;
+  initialContent: unknown;
+}) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -57,7 +63,7 @@ export function RulesEditor({ initialContent }: { initialContent: unknown }) {
     if (!editor) return;
     setSaving(true);
     setMessage("");
-    const res = await saveRules(editor.getJSON());
+    const res = await saveRules(leagueId, editor.getJSON());
     setSaving(false);
     setMessage(res?.ok ? "Saved." : res?.message ?? "Error saving.");
   }
