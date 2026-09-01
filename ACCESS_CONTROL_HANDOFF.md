@@ -1,4 +1,4 @@
-# Per-league access control — shipped; a deploy and one item still open
+# Per-league access control — shipped; the database is deployed, #13 is not
 
 **Protocol — read this and nothing else to resume.**
 
@@ -6,58 +6,54 @@
    `docs/superpowers/specs/2026-08-31-per-league-routing-design.md` (383 lines)
    or PR #13's description — what still binds is inlined below.
 2. ⛔ **Hazards, before any instruction:**
-   - **The hosted database is four migrations behind the code.** See *Next
-     action*. Merging #13 before applying them locks every manager out of
-     every league.
    - `npx supabase db reset --linked` **wipes production**. Use `db push`.
+   - **`ENABLE_DEV_LOGIN=true` is live on production.** Anyone can take a
+     manager session on the public site until it is removed — see item 4.
    - Do not change the `app_role` enum or the JWT hook (`0010_auth_hook.sql`).
      The model is membership-only *so that* both stay untouched; changing the
      hook also means re-enabling it by hand in the Supabase dashboard.
 3. Numbers here were **watched appear**. Where a claim is a reading of the code
    rather than a measurement, it says so in those words.
 4. Verify with `npm test && npm run test:e2e`. Baseline on this branch:
-   **250 unit passed; 117 e2e passed, 1 skipped, 0 failed.** The skip is the
-   AI-summary test, gated on an API key — not a regression.
+   **250 unit passed; 117 e2e passed, 1 skipped, 0 failed** (re-run
+   2026-09-01, unchanged). The skip is the AI-summary test, gated on an API
+   key — not a regression.
 
-**Status: items 1 and 2 are built, committed and pushed.** PR #13
-(`feat/per-league-access-control`, commits `32edd7a` + `8100662`) is open
-against `main` and mergeable. Nothing has been deployed.
+**Status: both parked pieces are built, committed and pushed** — staff access
+scoped to league membership (`32edd7a`) and per-league naming for the calendar
+and CSV exports (`8100662`). PR #13 (`feat/per-league-access-control`) is open
+against `main` and mergeable. The database half is deployed; the code is not.
 
-## Next action — apply 0029–0032 to the hosted database
+## Next action — merge PR #13
 
-Measured 2026-09-01 with `npx supabase migration list --linked` against
-`bipxqfszjwncjquymhon`: remote is at **0028**. Local `0029`, `0030`, `0031`,
-`0032` are **not applied**.
+**The schema gap is closed.** Measured 2026-09-01 with
+`npx supabase migration list --linked` against `bipxqfszjwncjquymhon`: `0029`,
+`0030`, `0031` and `0032` all appear in the **Remote** column. They were
+applied with `db push` **from this branch** — `0032` exists only here, so the
+same push run from `main` would have applied the other three, reported success,
+and left the backfill behind.
 
-Three of those four pre-date this work — they shipped in PR #12, which is
-already merged — so `main` is *already* schema-behind-code today, which is the
-direction `EXPORTS_HANDOFF` §6 records as the dangerous one. `/manage/audit`
-filters on `audit_log.league_id`, a column the hosted database does not have.
+`0032`'s backfill worked. Signed in as a manager on `obhl.vercel.app`,
+`/manage/people` lists all three staff profiles rather than only the signed-in
+one — and that page's policy requires `shares_league_with()`, which is true
+only when two profiles share a `profile_leagues` row. So membership was
+populated and today's access is preserved. `/manage/audit` loads too, which
+settles which database production talks to: it filters on
+`audit_log.league_id`, a column that did not exist there before `0031`.
 
-    npx supabase db push        # NOT db reset --linked
-
-Expect four migrations applied. `0032` tightens RLS **and** backfills every
-existing profile into every existing league in the same transaction; that
-backfill is what preserves today's access, so it must land before the code.
-
-*Reading, not measured:* PR #13's Vercel preview built green, and a green
-deploy check means it compiled, not that it works. If the preview inherits the
-project's env vars it is running this branch against the 0028-era database,
-where `profile_leagues` does not exist and every manager is locked out.
-`vercel env ls` would settle which database it points at.
+Nothing gates the merge any more.
 
 ## Open, in priority order
 
 | # | Item | Where |
 |---|---|---|
-| 1 | Apply 0029–0032, then merge #13 | above |
-| 2 | No CI runs the tests — no `.github/workflows` at all; the only PR checks are Vercel's deploy and preview comments | — |
-| 3 | `npm run build` does not typecheck test files; `tsc --noEmit -p e2e/tsconfig.json` is run by hand. A `"typecheck"` script closes it | `EXPORTS_HANDOFF` §5.1 |
-| 4 | `saveRules` writes no audit entry | below |
-| 5 | `ENABLE_DEV_LOGIN=true` in a real deploy lets anyone sign in as any role — five one-click accounts now, two of them league-confined | `src/lib/auth/dev-login.ts` |
-| 6 | `previewEsportsdeskImport` fetches a user-supplied URL server-side | `src/lib/actions/import.ts` |
+| 1 | No CI runs the tests — no `.github` directory at all; the only PR checks are Vercel's deploy and preview comments | — |
+| 2 | `npm run build` does not typecheck test files; `tsc --noEmit -p e2e/tsconfig.json` is run by hand. A `"typecheck"` script closes it | `EXPORTS_HANDOFF` §5.1 |
+| 3 | `saveRules` writes no audit entry | below |
+| 4 | `ENABLE_DEV_LOGIN=true` lets anyone sign in as any role — **confirmed live on production 2026-09-01**, measured by taking a manager session from the public login page; five one-click accounts once #13 lands, two of them league-confined | `src/lib/auth/dev-login.ts` |
+| 5 | `previewEsportsdeskImport` fetches a user-supplied URL server-side | `src/lib/actions/import.ts` |
 
-## Item 3 — `saveRules` leaves no audit trail
+## `saveRules` leaves no audit trail
 
 Measured 2026-09-01 — `grep -c 'logAudit({' src/lib/actions/*.ts`, summed:
 **14** call sites, and `src/lib/actions/rules.ts` contributes **zero**. (An
@@ -123,8 +119,8 @@ that symmetry: `single-league-lead@` (manager) and `single-league-scorer@`
 
 ## Provenance
 
-Items 1 and 2 were parked out of the per-league routing project (PR #12,
-`32e77c7`) and built on 2026-09-01 in PR #13. The full routing design,
+Both parked pieces came out of the per-league routing project (PR #12,
+`32e77c7`) and were built on 2026-09-01 in PR #13. The full routing design,
 including alternatives rejected, is
 `docs/superpowers/specs/2026-08-31-per-league-routing-design.md` — open it only
 if you need *why* beyond what is inlined here. Operational launch steps are in
