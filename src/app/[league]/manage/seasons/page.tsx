@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireManager } from "@/lib/auth/guards";
+import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 import { setActiveSeason } from "@/lib/actions/seasons";
@@ -25,9 +25,9 @@ export default async function SeasonsPage({
   params: Promise<{ league: string }>;
 }) {
   const { league: leagueSlug } = await params;
-  await requireManager();
-  const admin = createAdminClient();
   const league = await resolveLeagueBySlug(leagueSlug);
+  await requireLeagueManager(league?.id);
+  const admin = createAdminClient();
   const { data: seasons } = await admin
     .from("seasons")
     .select("id, name, starts_on, ends_on, is_active, season_teams(count)")

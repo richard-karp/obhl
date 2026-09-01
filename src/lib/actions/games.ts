@@ -3,33 +3,35 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { requireRole } from "@/lib/auth/guards";
+import { requireLeagueRole, type AppRoleList } from "@/lib/auth/guards";
+import { leagueOfGame } from "@/lib/league/of-entity";
 import { leagueOffset } from "@/lib/format";
-import { computeThreeStars } from "@/lib/utils/three-stars";
 import { logAudit } from "@/lib/audit";
+import { check, revalidateAfterScore } from "@/lib/games/shared";
+import { finalizeGameById, reopenGameById } from "@/lib/games/finalize";
 
 // Scoring writes go through the USER's session client, so RLS enforces who can
 // do what (captain: own-team lineup; scorekeeper: stats; manager: all).
 
-const PUBLIC_PATHS = [
-  "/[league]",
-  "/[league]/standings",
-  "/[league]/stats",
-  "/[league]/schedule",
-];
 const STAT_COLS = new Set(["goals", "assists", "pim"]);
 
 type UserClient = Awaited<ReturnType<typeof createClient>>;
 
-/** Surface a DB/RLS error instead of silently "succeeding" with nothing saved. */
-function check(error: { message: string } | null, what: string) {
-  if (error) throw new Error(`${what} failed: ${error.message}`);
-}
-
-function revalidateAfterScore(gameId: string, alsoPublic = false) {
-  revalidatePath("/[league]/manage/score/[gameId]", "page");
-  revalidatePath("/[league]/manage/score", "page");
-  if (alsoPublic) for (const p of PUBLIC_PATHS) revalidatePath(p, "page");
+/**
+ * Role AND membership of the league this game belongs to.
+ *
+ * These forms carry a game id and nothing else — the league is in the URL of
+ * the scoresheet, not in the payload — so the guard derives it. The RLS
+ * policies (0032) carry the same membership test, which is what covers the
+ * writes here that go through the user's own client; this is the half that
+ * covers the reads, the admin-client write in `generateGameRecap`, and the
+ * refusal happening before any work is done.
+ */
+async function requireGameRole(gameId: string, ...roles: AppRoleList) {
+  return requireLeagueRole(
+    () => leagueOfGame(gameId, createAdminClient()),
+    ...roles,
+  );
 }
 
 /**
@@ -72,9 +74,9 @@ async function syncFinalScore(
  * their goal/assist/PIM counters.
  */
 export async function setLineup(formData: FormData) {
-  await requireRole("captain", "scorekeeper", "league_manager");
   const supabase = await createClient();
   const game_id = String(formData.get("game_id"));
+  await requireGameRole(game_id, "captain", "scorekeeper", "league_manager");
   const team_id = String(formData.get("team_id"));
   const checked = new Set(formData.getAll("player_ids").map(String));
 
@@ -114,9 +116,9 @@ export async function setLineup(formData: FormData) {
  * player's season stats (v_skater_stats inner-joins players).
  */
 export async function setSubstitutes(formData: FormData) {
-  await requireRole("captain", "scorekeeper", "league_manager");
   const supabase = await createClient();
   const game_id = String(formData.get("game_id"));
+  await requireGameRole(game_id, "captain", "scorekeeper", "league_manager");
   const team_id = String(formData.get("team_id"));
   const present = String(formData.get("present")) === "1";
 
@@ -150,10 +152,10 @@ export async function setSubstitutes(formData: FormData) {
  * can't lose an increment. First change bumps the game to in_progress.
  */
 export async function bumpStat(formData: FormData) {
-  await requireRole("scorekeeper", "league_manager");
   const supabase = await createClient();
   const id = String(formData.get("id"));
   const game_id = String(formData.get("game_id"));
+  await requireGameRole(game_id, "scorekeeper", "league_manager");
   const col = String(formData.get("col"));
   const delta = Number(formData.get("delta")) >= 0 ? 1 : -1;
   if (!id || !STAT_COLS.has(col)) return;
@@ -181,9 +183,14 @@ export async function bumpStat(formData: FormData) {
  * player). Affects goalie stats only, so revalidate the public pages.
  */
 export async function setGoalie(formData: FormData) {
-  const user = await requireRole("scorekeeper", "league_manager", "captain");
   const supabase = await createClient();
   const game_id = String(formData.get("game_id"));
+  const user = await requireGameRole(
+    game_id,
+    "scorekeeper",
+    "league_manager",
+    "captain",
+  );
   const side = String(formData.get("side"));
   if (side !== "home" && side !== "away") return;
 
@@ -234,9 +241,9 @@ export async function setGoalie(formData: FormData) {
  * are excluded from that team's goalie's GA/GAA.
  */
 export async function bumpEmptyNet(formData: FormData) {
-  await requireRole("scorekeeper", "league_manager");
   const supabase = await createClient();
   const game_id = String(formData.get("game_id"));
+  await requireGameRole(game_id, "scorekeeper", "league_manager");
   const side = String(formData.get("side"));
   const delta = Number(formData.get("delta")) >= 0 ? 1 : -1;
   if (side !== "home" && side !== "away") return;
@@ -252,75 +259,11 @@ export async function bumpEmptyNet(formData: FormData) {
 
 /** Finalize: set the official score from goal counters, lock the game, propagate. */
 export async function finalizeGame(formData: FormData) {
-  const user = await requireRole("scorekeeper", "league_manager");
   const game_id = String(formData.get("game_id"));
+  const user = await requireGameRole(game_id, "scorekeeper", "league_manager");
   await finalizeGameById(game_id, user.id);
 }
 
-/** Internal helper — all DB work for finalization. Callable by form action and revert. */
-export async function finalizeGameById(gameId: string, userId: string) {
-  const supabase = await createClient();
-
-  const { data: game } = await supabase
-    .from("games")
-    .select("id, home_team_id, away_team_id")
-    .eq("id", gameId)
-    .single();
-  if (!game) return;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: rostersRaw } = await (supabase as any)
-    .from("game_rosters")
-    .select(
-      "team_id, goals, assists, pim, is_substitute, player_id, " +
-      "players:players!game_rosters_player_id_fkey(first_name, last_name)",
-    )
-    .eq("game_id", gameId);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rosters: any[] = rostersRaw ?? [];
-
-  const sum = (teamId: string) =>
-    rosters
-      .filter((r) => r.team_id === teamId)
-      .reduce((s: number, r) => s + (r.goals ?? 0), 0);
-
-  const threeStars = computeThreeStars(
-    rosters
-      .filter((r) => !r.is_substitute && r.player_id)
-      .map((r) => ({
-        player_id: r.player_id,
-        first_name: r.players?.first_name ?? "",
-        last_name: r.players?.last_name ?? "",
-        goals: r.goals ?? 0,
-        assists: r.assists ?? 0,
-        pim: r.pim ?? 0,
-      })),
-  );
-
-  const { error } = await supabase
-    .from("games")
-    .update({
-      status: "final",
-      home_goals: sum(game.home_team_id),
-      away_goals: sum(game.away_team_id),
-      result_type: "regulation",
-      finalized_at: new Date().toISOString(),
-      finalized_by: userId,
-      three_stars: threeStars as unknown as import("@/lib/db/types").Json,
-    })
-    .eq("id", gameId);
-  check(error, "Finalize game");
-
-  void logAudit({
-    user_id: userId,
-    action: "finalize_game",
-    entity_type: "game",
-    entity_id: gameId,
-    new_data: { home_goals: sum(game.home_team_id), away_goals: sum(game.away_team_id) },
-  });
-
-  revalidateAfterScore(gameId, true);
-}
 
 /**
  * Reopen a completed game back to in-progress (scorekeeper / manager). The game
@@ -328,35 +271,21 @@ export async function finalizeGameById(gameId: string, userId: string) {
  * working on it before re-completing.
  */
 export async function reopenGame(formData: FormData) {
-  const user = await requireRole("scorekeeper", "league_manager");
   const game_id = String(formData.get("game_id"));
+  const user = await requireGameRole(game_id, "scorekeeper", "league_manager");
   await reopenGameById(game_id, user.id);
 }
 
-/** Internal helper — all DB work for reopening. Callable by form action and revert. */
-export async function reopenGameById(gameId: string, userId: string) {
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("games")
-    .update({ status: "in_progress", finalized_at: null, finalized_by: null })
-    .eq("id", gameId);
-  check(error, "Reopen game");
-  void logAudit({
-    user_id: userId,
-    action: "reopen_game",
-    entity_type: "game",
-    entity_id: gameId,
-  });
-  revalidateAfterScore(gameId, true);
-}
 
 /**
  * Generate an AI game recap using Claude and store it in games.ai_recap.
  * Requires ANTHROPIC_API_KEY env var. Manager-only.
  */
 export async function generateGameRecap(formData: FormData) {
-  const user = await requireRole("league_manager");
   const game_id = String(formData.get("game_id"));
+  // The recap is saved on the ADMIN client, so RLS does not stand behind this
+  // one — the guard is the whole of it.
+  const user = await requireGameRole(game_id, "league_manager");
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured.");
@@ -457,8 +386,9 @@ async function setStatus(
 
 /** Mark a game cancelled (drops out of upcoming + standings; no result). */
 export async function cancelGame(formData: FormData) {
-  await requireRole("scorekeeper", "league_manager");
-  await setStatus(String(formData.get("game_id")), "cancelled");
+  const game_id = String(formData.get("game_id"));
+  await requireGameRole(game_id, "scorekeeper", "league_manager");
+  await setStatus(game_id, "cancelled");
 }
 
 /**
@@ -472,8 +402,8 @@ export async function cancelGame(formData: FormData) {
  * column-to-column move.
  */
 export async function postponeGame(formData: FormData) {
-  await requireRole("scorekeeper", "league_manager");
   const game_id = String(formData.get("game_id"));
+  await requireGameRole(game_id, "scorekeeper", "league_manager");
   const supabase = await createClient();
   const { error } = await supabase.rpc("postpone_game", { p_game: game_id });
   check(error, "Postpone game");
@@ -487,8 +417,8 @@ export async function postponeGame(formData: FormData) {
  * date back from `postponed_from`.
  */
 export async function restoreGame(formData: FormData) {
-  await requireRole("scorekeeper", "league_manager");
   const game_id = String(formData.get("game_id"));
+  await requireGameRole(game_id, "scorekeeper", "league_manager");
   const supabase = await createClient();
   const { error } = await supabase.rpc("restore_game", { p_game: game_id });
   check(error, "Restore game");
@@ -497,9 +427,9 @@ export async function restoreGame(formData: FormData) {
 
 /** Move a game to a new date/time (and mark it scheduled). */
 export async function rescheduleGame(formData: FormData) {
-  await requireRole("scorekeeper", "league_manager");
   const supabase = await createClient();
   const game_id = String(formData.get("game_id"));
+  await requireGameRole(game_id, "scorekeeper", "league_manager");
   const dt = String(formData.get("scheduled_at") ?? "").trim();
   if (!dt) return;
   // datetime-local "YYYY-MM-DDTHH:MM" interpreted in the league zone (DST-aware).

@@ -1,4 +1,4 @@
-import { requireManager } from "@/lib/auth/guards";
+import { requireLeagueManager } from "@/lib/auth/guards";
 import { getActiveContext } from "@/lib/queries/season";
 import { getRules } from "@/lib/queries/rules";
 import { RulesEditor } from "@/components/manage/rules-editor";
@@ -10,8 +10,8 @@ export default async function EditRulesPage({
   params: Promise<{ league: string }>;
 }) {
   const { league: leagueSlug } = await params;
-  await requireManager();
   const ctx = await getActiveContext(leagueSlug);
+  await requireLeagueManager(ctx.league.id);
   const rules = await getRules(ctx.league.id);
 
   return (

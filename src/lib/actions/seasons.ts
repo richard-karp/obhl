@@ -3,7 +3,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { requireManager } from "@/lib/auth/guards";
+import { requireLeagueManager } from "@/lib/auth/guards";
+import { addLeagueMembership } from "@/lib/auth/membership";
+import { leagueOfSeason } from "@/lib/league/of-entity";
 import { getStandings } from "@/lib/queries/standings";
 import { getSkaterLeaders } from "@/lib/queries/stats";
 import { getRecentResults } from "@/lib/queries/schedule";
@@ -22,13 +24,9 @@ type Admin = ReturnType<typeof createAdminClient>;
  * An action holding a season id can just ask the season.
  */
 async function leagueIdOfSeason(admin: Admin, seasonId: string): Promise<string> {
-  const { data } = await admin
-    .from("seasons")
-    .select("league_id")
-    .eq("id", seasonId)
-    .maybeSingle();
-  if (!data) throw new Error("That season no longer exists.");
-  return data.league_id;
+  const leagueId = await leagueOfSeason(seasonId, admin);
+  if (!leagueId) throw new Error("That season no longer exists.");
+  return leagueId;
 }
 
 const slugify = (s: string) =>
@@ -42,7 +40,6 @@ export async function createSeason(
   _prev: SeasonActionState,
   formData: FormData,
 ): Promise<SeasonActionState> {
-  await requireManager();
   const admin = createAdminClient();
   const league_id = String(formData.get("league_id") ?? "");
   const name = String(formData.get("name") ?? "").trim();
@@ -50,6 +47,7 @@ export async function createSeason(
   const ends = String(formData.get("ends_on") ?? "") || null;
   if (!name) return { ok: false, message: "Season name is required." };
   if (!league_id) return { ok: false, message: "No league selected." };
+  await requireLeagueManager(league_id);
 
   const { data, error } = await admin
     .from("seasons")
@@ -75,10 +73,10 @@ export async function createTeamForSeason(
   _prev: TeamActionState,
   formData: FormData,
 ): Promise<TeamActionState> {
-  await requireManager();
   const admin = createAdminClient();
 
   const season_id = String(formData.get("season_id") ?? "");
+  await requireLeagueManager(() => leagueOfSeason(season_id, admin));
   const name = String(formData.get("name") ?? "").trim();
   const color = String(formData.get("color") ?? "").trim() || null;
   const captainName = String(formData.get("captain_name") ?? "").trim();
@@ -171,6 +169,9 @@ export async function createTeamForSeason(
           revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
           return { ok: false, message: `Added ${name} with captain ${captainName}, but couldn't create their login (${profErr.message}).` };
         }
+        // A role without a league reaches nothing: every manage page now asks
+        // for membership as well. Granted for the league this season is in.
+        await addLeagueMembership(userId, season.league_id);
       }
     }
   }
@@ -183,10 +184,10 @@ export async function createTeamForSeason(
 }
 
 export async function setActiveSeason(formData: FormData) {
-  await requireManager();
   const admin = createAdminClient();
   const id = String(formData.get("id"));
   const leagueId = await leagueIdOfSeason(admin, id);
+  await requireLeagueManager(leagueId);
   // Unset the current active first (one-active-per-league partial unique index),
   // then activate the chosen season — scoped to this league so a stray id can't
   // activate another league's season.
@@ -206,10 +207,10 @@ export async function setActiveSeason(formData: FormData) {
 }
 
 export async function unenrollTeam(formData: FormData) {
-  await requireManager();
   const admin = createAdminClient();
   const season_id = String(formData.get("season_id"));
   const team_id = String(formData.get("team_id"));
+  await requireLeagueManager(() => leagueOfSeason(season_id, admin));
   await admin
     .from("season_teams")
     .delete()
@@ -223,9 +224,9 @@ export async function unenrollTeam(formData: FormData) {
  * Pulls current standings, top scorers, and recent results. Manager-only.
  */
 export async function generateLeagueSummary(formData: FormData) {
-  await requireManager();
   const admin = createAdminClient();
   const season_id = String(formData.get("season_id"));
+  await requireLeagueManager(() => leagueOfSeason(season_id, admin));
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured.");
@@ -298,10 +299,10 @@ export async function generateLeagueSummary(formData: FormData) {
 
 /** Copies enrollment from the most recent prior season that had any. */
 export async function carryForwardEnrollment(formData: FormData) {
-  await requireManager();
   const admin = createAdminClient();
   const season_id = String(formData.get("season_id"));
   const leagueId = await leagueIdOfSeason(admin, season_id);
+  await requireLeagueManager(leagueId);
 
   const { data: priors } = await admin
     .from("seasons")

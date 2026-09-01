@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { isReservedLeagueSlug } from "@/lib/league/reserved-slugs";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
+import { addLeagueMembership } from "@/lib/auth/membership";
 import {
   fetchEsportsdeskLeague,
   fetchEsportsdeskSchedule,
@@ -84,7 +85,11 @@ export async function runEsportsdeskImport(
   _prev: ImportRunState,
   formData: FormData,
 ): Promise<ImportRunState> {
-  await requireManager();
+  // Role only, and deliberately: this creates a league that does not exist
+  // yet, so there is no membership to check it against. The page it is
+  // submitted from is league-guarded, and the new league's sole member is the
+  // manager who made it (granted below).
+  const manager = await requireManager();
   const url = String(formData.get("url") ?? "");
   const leagueName = String(formData.get("league_name") ?? "").trim();
   const seasonName =
@@ -135,6 +140,10 @@ export async function runEsportsdeskImport(
           : lErr.message,
     };
   }
+
+  // Before anything else is written: an imported league whose creator is not a
+  // member is a league nobody can open, and there is no UI to delete one.
+  await addLeagueMembership(manager.id, league.id);
 
   const { data: season, error: sErr } = await admin
     .from("seasons")

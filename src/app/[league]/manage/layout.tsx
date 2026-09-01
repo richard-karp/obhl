@@ -1,8 +1,8 @@
 import { redirect, notFound } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/session";
+import { getMemberLeagues } from "@/lib/auth/membership";
 import { ManageNav } from "@/components/manage/manage-nav";
-import { createClient } from "@/utils/supabase/server";
-import { getAllLeagues, resolveLeagueBySlug } from "@/lib/league/current";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 
 export default async function ManageLayout({
   children,
@@ -15,13 +15,16 @@ export default async function ManageLayout({
   if (!user) redirect("/login");
 
   const { league: slug } = await params;
-  const supabase = await createClient();
   const [league, leagues] = await Promise.all([
     // Resolved again rather than inherited: layouts cannot pass data down. The
     // lookup is memoized, so this is the same query `[league]/layout.tsx` and
     // the page beneath both make, answered once.
     resolveLeagueBySlug(slug),
-    getAllLeagues(supabase),
+    // The switcher offers the leagues this account is a member of, not every
+    // league it can read. RLS alone would still hand a manager every *public*
+    // league through the public-read policy, so the switcher would keep
+    // offering a league whose pages then bounce them back to the picker.
+    getMemberLeagues(user.id),
   ]);
   if (!league) notFound();
 

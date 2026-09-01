@@ -1,4 +1,4 @@
-import { requireManager } from "@/lib/auth/guards";
+import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 import { deleteAnnouncement } from "@/lib/actions/announcements";
@@ -15,9 +15,9 @@ export default async function AnnouncementsPage({
   params: Promise<{ league: string }>;
 }) {
   const { league: leagueSlug } = await params;
-  await requireManager();
-  const admin = createAdminClient();
   const league = await resolveLeagueBySlug(leagueSlug);
+  await requireLeagueManager(league?.id);
+  const admin = createAdminClient();
 
   const { data: announcements } = await admin
     .from("announcements")

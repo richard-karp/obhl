@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireManager } from "@/lib/auth/guards";
+import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { getActiveContext } from "@/lib/queries/season";
 import { getEnrolledTeams } from "@/lib/queries/teams";
@@ -14,8 +14,8 @@ export default async function RostersPage({
   params: Promise<{ league: string }>;
 }) {
   const { league: leagueParam } = await params;
-  await requireManager();
   const ctx = await getActiveContext(leagueParam);
+  await requireLeagueManager(ctx.league.id);
   // The resolved slug, not the URL's — links stay canonical from /OBHL.
   const leagueSlug = ctx.league.slug;
   if (!ctx.season) {

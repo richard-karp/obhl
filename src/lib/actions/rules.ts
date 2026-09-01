@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
-import { requireManager } from "@/lib/auth/guards";
+import { requireLeagueManager } from "@/lib/auth/guards";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
@@ -15,7 +15,7 @@ import { requireManager } from "@/lib/auth/guards";
  * that was unrecoverable.
  */
 export async function saveRules(leagueId: string, content: unknown) {
-  const user = await requireManager();
+  const user = await requireLeagueManager(leagueId);
   const supabase = await createClient();
 
   const { error } = await supabase.from("league_rules").upsert(

@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { requireManager } from "@/lib/auth/guards";
+import { requireLeagueManager } from "@/lib/auth/guards";
+import { leagueOfAnnouncement } from "@/lib/league/of-entity";
 
 export type AnnouncementActionState = { ok: boolean; message: string } | null;
 
@@ -11,13 +12,14 @@ export async function createAnnouncement(
   _prev: AnnouncementActionState,
   formData: FormData,
 ): Promise<AnnouncementActionState> {
-  const user = await requireManager();
-  const admin = createAdminClient();
   // From the form, not a cookie: this posts to the league whose page it was
   // submitted from. Resolved from the cookie it always picked the oldest
   // league, so an announcement written in one league appeared in another.
   const league_id = String(formData.get("league_id") ?? "");
   if (!league_id) return { ok: false, message: "No league selected." };
+  // …and the form's league is checked, not trusted: it is a hidden field.
+  const user = await requireLeagueManager(league_id);
+  const admin = createAdminClient();
 
   const title = String(formData.get("title") ?? "").trim();
   const body = String(formData.get("body") ?? "").trim();
@@ -39,9 +41,9 @@ export async function createAnnouncement(
 }
 
 export async function deleteAnnouncement(formData: FormData) {
-  await requireManager();
   const admin = createAdminClient();
   const id = String(formData.get("id"));
+  await requireLeagueManager(() => leagueOfAnnouncement(id, admin));
   await admin.from("announcements").delete().eq("id", id);
   revalidatePath("/[league]/manage/announcements", "page");
   revalidatePath("/[league]", "page");

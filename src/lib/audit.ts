@@ -1,5 +1,11 @@
 import { cookies } from "next/headers";
 import { createAdminClient } from "@/utils/supabase/admin";
+import {
+  leagueOfGame,
+  leagueOfSeason,
+  leagueOfTeam,
+  leagueOfTeamPlayer,
+} from "@/lib/league/of-entity";
 
 type AuditEntry = {
   user_id: string;
@@ -28,28 +34,14 @@ async function leagueOfEntity(
   entityId: string,
 ): Promise<string | null> {
   switch (entityType) {
-    case "team": {
-      const { data } = await admin
-        .from("teams").select("league_id").eq("id", entityId).maybeSingle();
-      return data?.league_id ?? null;
-    }
-    case "season": {
-      const { data } = await admin
-        .from("seasons").select("league_id").eq("id", entityId).maybeSingle();
-      return data?.league_id ?? null;
-    }
-    case "game": {
-      const { data } = await admin
-        .from("games").select("season:seasons!inner(league_id)")
-        .eq("id", entityId).maybeSingle();
-      return data?.season?.league_id ?? null;
-    }
-    case "team_player": {
-      const { data } = await admin
-        .from("team_players").select("season:seasons!inner(league_id)")
-        .eq("id", entityId).maybeSingle();
-      return data?.season?.league_id ?? null;
-    }
+    case "team":
+      return leagueOfTeam(entityId, admin);
+    case "season":
+      return leagueOfSeason(entityId, admin);
+    case "game":
+      return leagueOfGame(entityId, admin);
+    case "team_player":
+      return leagueOfTeamPlayer(entityId, admin);
     default:
       return null;
   }

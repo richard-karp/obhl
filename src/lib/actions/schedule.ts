@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { requireManager } from "@/lib/auth/guards";
+import { requireLeagueManager } from "@/lib/auth/guards";
+import { leagueOfSeason } from "@/lib/league/of-entity";
 import { logAudit } from "@/lib/audit";
 import { buildBalancedPairings } from "@/lib/schedule/roundRobin";
 import { assignNights } from "@/lib/schedule/assignNights";
@@ -52,6 +53,22 @@ async function targetSeason(admin: Admin, explicit = "") {
   return data?.id ?? null;
 }
 
+/**
+ * `targetSeason`, then the guard the season implies.
+ *
+ * Every action in this file replaces or repairs a published schedule, and the
+ * form carries a season id with no league beside it. Resolving the league from
+ * the season and checking membership is what stops a manager of one league
+ * regenerating another league's schedule from a hand-made request — the season
+ * lookup on its own only proves the id exists somewhere.
+ */
+async function targetSeasonForManager(admin: Admin, explicit = "") {
+  const seasonId = await targetSeason(admin, explicit);
+  if (!seasonId) return null;
+  const manager = await requireLeagueManager(() => leagueOfSeason(seasonId, admin));
+  return { seasonId, manager };
+}
+
 export type GenerateState = { ok: boolean; message: string } | null;
 
 /**
@@ -70,10 +87,10 @@ export async function generateSchedule(
   _prev: GenerateState,
   formData: FormData,
 ): Promise<GenerateState> {
-  await requireManager();
   const admin = createAdminClient();
-  const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
-  if (!seasonId) return { ok: false, message: "No season selected." };
+  const target = await targetSeasonForManager(admin, String(formData.get("season_id") ?? ""));
+  if (!target) return { ok: false, message: "No season selected." };
+  const { seasonId } = target;
 
   // A started season can't publish, so it shouldn't accept a draft either —
   // generating one would only produce a preview that can never be applied. Same
@@ -324,10 +341,10 @@ export async function publishSchedule(
   _prev: PublishState,
   formData: FormData,
 ): Promise<PublishState> {
-  const user = await requireManager();
   const admin = createAdminClient();
-  const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
-  if (!seasonId) return { ok: false, message: "No season selected." };
+  const target = await targetSeasonForManager(admin, String(formData.get("season_id") ?? ""));
+  if (!target) return { ok: false, message: "No season selected." };
+  const { seasonId, manager: user } = target;
 
   const { data, error } = await admin.rpc("replace_published_schedule", {
     p_season: seasonId,
@@ -392,10 +409,10 @@ export async function removeSchedule(
   _prev: RemoveState,
   formData: FormData,
 ): Promise<RemoveState> {
-  const user = await requireManager();
   const admin = createAdminClient();
-  const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
-  if (!seasonId) return { ok: false, message: "No season selected." };
+  const target = await targetSeasonForManager(admin, String(formData.get("season_id") ?? ""));
+  if (!target) return { ok: false, message: "No season selected." };
+  const { seasonId, manager: user } = target;
 
   const { data, error } = await admin.rpc("remove_published_schedule", {
     p_season: seasonId,
@@ -446,10 +463,10 @@ export async function removeSchedule(
 
 /** Discard all draft games for the season. */
 export async function discardSchedule(formData: FormData) {
-  await requireManager();
   const admin = createAdminClient();
-  const seasonId = await targetSeason(admin, String(formData.get("season_id") ?? ""));
-  if (!seasonId) return;
+  const target = await targetSeasonForManager(admin, String(formData.get("season_id") ?? ""));
+  if (!target) return;
+  const { seasonId } = target;
   await admin.from("games").delete().eq("season_id", seasonId).eq("is_draft", true);
   revalidatePath("/[league]/manage/schedule-builder", "page");
   revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
@@ -551,10 +568,10 @@ function readInput(
 export async function previewOneOffGame(
   input: OneOffInput,
 ): Promise<OneOffState> {
-  await requireManager();
   const admin = createAdminClient();
-  const seasonId = await targetSeason(admin, input.seasonId);
-  if (!seasonId) return { ok: false, message: "No season selected." };
+  const target = await targetSeasonForManager(admin, input.seasonId);
+  if (!target) return { ok: false, message: "No season selected." };
+  const { seasonId } = target;
 
   const { teams, indexOf, nights } = await loadContext(seasonId, admin);
   const bad = readInput(input, indexOf);
@@ -629,10 +646,10 @@ export async function applyOneOffGame(
     changes: { date: string; to: [number, number][] }[];
   },
 ): Promise<OneOffState> {
-  await requireManager();
   const admin = createAdminClient();
-  const seasonId = await targetSeason(admin, input.seasonId);
-  if (!seasonId) return { ok: false, message: "No season selected." };
+  const target = await targetSeasonForManager(admin, input.seasonId);
+  if (!target) return { ok: false, message: "No season selected." };
+  const { seasonId } = target;
 
   const { teams, indexOf, nights } = await loadContext(seasonId, admin);
   const bad = readInput(input, indexOf);

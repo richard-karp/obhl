@@ -7,10 +7,17 @@ import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "Staff sign in" };
 
+// The first three belong to every seeded league; the last two are confined to
+// one, and that is the point of them — without an account that cannot reach
+// every league, a guard that checks membership and a guard that checks nothing
+// behave identically. WHICH league each is confined to is the seed script's
+// business, not this file's: nothing here should know what leagues exist.
 const DEV_ACCOUNTS = [
   { label: "Manager", email: "manager@obhl.test" },
   { label: "Scorekeeper", email: "scorekeeper@obhl.test" },
   { label: "Captain", email: "captain@obhl.test" },
+  { label: "One-league mgr", email: "single-league-lead@obhl.test" },
+  { label: "One-league scorer", email: "single-league-scorer@obhl.test" },
 ];
 
 export default async function LoginPage({
