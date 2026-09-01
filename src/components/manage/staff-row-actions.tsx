@@ -4,6 +4,18 @@ import { updateStaffRole, removeStaff } from "@/lib/actions/people";
 import { Button } from "@/components/ui/button";
 
 export function StaffRowActions({ id, role }: { id: string; role: string }) {
+  // No controls for a manager row. Every manager can open this page, so
+  // offering them would mean any manager could demote or delete any other —
+  // and Remove deletes the account outright. The server refuses this too;
+  // this is what stops the page presenting it as available.
+  if (role === "league_manager") {
+    return (
+      <p className="text-muted-foreground text-right text-xs">
+        Managers are changed by hand
+      </p>
+    );
+  }
+
   return (
     <div className="flex items-center justify-end gap-2">
       <form action={updateStaffRole}>
