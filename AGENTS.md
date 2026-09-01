@@ -18,6 +18,12 @@ front which section matters for which kind of change.
   date. Section 4 describes a way to silently corrupt game rows while believing
   you are simplifying; read it before touching postponement or the one-off
   planner.
+- **`ACCESS_CONTROL_HANDOFF.md`** — who can do what, and where: the
+  `profile_leagues` membership model, the guards over every manage page and
+  server action, and the RLS half that backs them. It also carries the current
+  **deployment gap** — the hosted database is behind the code, and merging past
+  that locks every manager out. Read it before touching a guard, an RLS policy,
+  or anything under `src/lib/auth`.
 
 `docs/superpowers/specs/` holds the per-change design docs these summarise,
 including the alternatives that were considered and rejected. Reach for a spec

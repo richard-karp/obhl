@@ -214,10 +214,14 @@ database.** A clean `db reset` has no postponed rows to convert. It was verified
 by shaping a row like production's, running the `update` verbatim, and rolling
 back. If you need to re-verify, that's the recipe.
 
-**Deployment state.** The hosted database (`bipxqfszjwncjquymhon`) has `0026`;
-`main` does not yet have the code that calls it, and `0027` is not applied
-anywhere but local. There is no CI workflow or `vercel.json` in the repo, so the
-deploy trigger is unknown.
+**Deployment state lives in `ACCESS_CONTROL_HANDOFF.md`**, not here. This
+paragraph used to name which migrations the hosted database had, and went stale
+— it said `0026` when the answer was `0028`. Two homes for one moving fact is
+how that happens; regenerate it with `npx supabase migration list --linked`
+rather than quoting either file.
+
+There is still no CI workflow or `vercel.json` in the repo, so nothing runs the
+tests on a PR and the deploy trigger is unknown.
 
 Schema-ahead-of-code is the correct direction and is harmless — the functions
 are simply uncalled. The reverse is not. `getPublishState` fails closed on an
