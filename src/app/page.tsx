@@ -1,9 +1,27 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
 import { getPublicLeagues } from "@/lib/league/current";
-import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
+
+/**
+ * Wording for the one page that belongs to no league, and so has no league name
+ * to borrow. Override per deployment with NEXT_PUBLIC_SITE_TITLE and
+ * NEXT_PUBLIC_SITE_SUBTITLE; both take effect on the next deploy.
+ *
+ * `||` rather than `??` on purpose — an env var set to an empty string is the
+ * usual way this gets misconfigured, and blank wording is worse than the
+ * default.
+ */
+const TITLE = process.env.NEXT_PUBLIC_SITE_TITLE || "Choose your league";
+const SUBTITLE =
+  process.env.NEXT_PUBLIC_SITE_SUBTITLE ||
+  "Standings, schedules, stats, teams, and rules.";
+
+// `absolute` so the tab matches the heading rather than picking up the root
+// layout's "%s · OBHL" template, which would read oddly against a custom title.
+export const metadata: Metadata = { title: { absolute: TITLE } };
 
 /**
  * Root landing page: the one place that isn't league-scoped. Every league lives
@@ -19,11 +37,9 @@ export default async function LandingPage() {
       <div className="mb-10 flex items-start justify-between gap-4">
         <div className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            Choose your league
+            {TITLE}
           </h1>
-          <p className="text-muted-foreground">
-            Standings, schedules, stats, teams, and rules.
-          </p>
+          <p className="text-muted-foreground">{SUBTITLE}</p>
         </div>
         <ThemeToggle />
       </div>
@@ -36,20 +52,18 @@ export default async function LandingPage() {
           description="Once a league is published it will appear here."
         />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <ul className="space-y-3">
           {leagues.map((l) => (
-            <Link key={l.slug} href={`/${l.slug}`}>
-              <Card className="hover:border-primary h-full transition-colors">
-                <CardContent className="space-y-1 p-5">
-                  <span className="block font-semibold">{l.name}</span>
-                  <span className="text-muted-foreground block text-sm">
-                    /{l.slug}
-                  </span>
-                </CardContent>
-              </Card>
-            </Link>
+            <li key={l.slug}>
+              <Link
+                href={`/${l.slug}`}
+                className="hover:border-primary hover:bg-muted/40 block rounded-lg border px-4 py-3 font-medium transition-colors"
+              >
+                {l.name}
+              </Link>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
       <footer className="text-muted-foreground mt-auto pt-10 text-sm">
