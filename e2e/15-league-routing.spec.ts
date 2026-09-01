@@ -310,6 +310,39 @@ test.describe("Path 16 — Per-league routing", () => {
     await expect(page.getByText("That page couldn't be found.")).toBeVisible();
   });
 
+  test("the audit log shows only this league's actions", async ({ page }) => {
+    // Reverting an audit entry is a write — it reopens games and restores
+    // player status — and until 0031 the log had no league at all, so every
+    // manager saw and could revert every league's entries.
+    const SUSPENSION = /Updated is suspended for/;
+    await signInAsManager(page);
+
+    await page.goto("/obhl/manage/audit");
+    const oceanviewBefore = await page.getByText(SUSPENSION).count();
+
+    // Suspend a Harbor player: one audit entry, against Harbor.
+    const teamId = await harborId(
+      page,
+      "/harbor/manage/rosters",
+      "/harbor/manage/rosters/",
+    );
+    await page.goto(`/harbor/manage/rosters/${teamId}`);
+    const row = page.locator("table tbody tr").nth(2);
+    await row.getByRole("button", { name: "Suspend" }).click();
+    await expect(
+      row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" }),
+    ).toBeVisible();
+
+    // Harbor's log has it — which also proves logAudit resolved the league,
+    // since an entry with no league_id is filtered out of every scoped view.
+    await page.goto("/harbor/manage/audit");
+    expect(await page.getByText(SUSPENSION).count()).toBeGreaterThan(0);
+
+    // Oceanview's is untouched.
+    await page.goto("/obhl/manage/audit");
+    expect(await page.getByText(SUSPENSION).count()).toBe(oceanviewBefore);
+  });
+
   test("a section stays marked on its detail pages", async ({ page }) => {
     await page.goto("/obhl/teams/sharks");
     const nav = page.getByRole("navigation").first();

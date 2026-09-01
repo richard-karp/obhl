@@ -82,6 +82,7 @@ export type Database = {
           entity_id: string
           entity_type: string
           id: string
+          league_id: string | null
           new_data: Json | null
           old_data: Json | null
           session_id: string | null
@@ -93,6 +94,7 @@ export type Database = {
           entity_id: string
           entity_type: string
           id?: string
+          league_id?: string | null
           new_data?: Json | null
           old_data?: Json | null
           session_id?: string | null
@@ -104,12 +106,21 @@ export type Database = {
           entity_id?: string
           entity_type?: string
           id?: string
+          league_id?: string | null
           new_data?: Json | null
           old_data?: Json | null
           session_id?: string | null
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "audit_log_league_id_fkey"
+            columns: ["league_id"]
+            isOneToOne: false
+            referencedRelation: "leagues"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       divisions: {
         Row: {

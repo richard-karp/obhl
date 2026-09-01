@@ -1,13 +1,22 @@
 import { cookies } from "next/headers";
 import { requireManager } from "@/lib/auth/guards";
+import { notFound } from "next/navigation";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { AuditSessionList, type AuditSession } from "@/components/manage/audit-session-list";
 import { revertAuditEntries } from "@/lib/actions/audit";
 
-export default async function AuditLogPage() {
+export default async function AuditLogPage({
+  params,
+}: {
+  params: Promise<{ league: string }>;
+}) {
+  const { league: leagueSlug } = await params;
   await requireManager();
+  const league = await resolveLeagueBySlug(leagueSlug);
+  if (!league) notFound();
   const admin = createAdminClient();
   const cookieStore = await cookies();
   const currentSessionId = cookieStore.get("audit_session")?.value ?? null;
@@ -15,6 +24,8 @@ export default async function AuditLogPage() {
   const { data: rows } = await admin
     .from("audit_log")
     .select("id, created_at, user_id, action, entity_type, entity_id, new_data, old_data, session_id")
+    // Entries written before audit_log had a league have none, and stay out.
+    .eq("league_id", league.id)
     .order("created_at", { ascending: false })
     .limit(500);
 
@@ -195,7 +206,11 @@ export default async function AuditLogPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Audit Log" description="Recent staff actions" />
-      <AuditSessionList sessions={sessions} revertAction={revertAuditEntries} />
+      <AuditSessionList
+        sessions={sessions}
+        leagueId={league.id}
+        revertAction={revertAuditEntries}
+      />
     </div>
   );
 }
