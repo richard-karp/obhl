@@ -8,7 +8,11 @@
 2. ⛔ **Hazards, before any instruction:**
    - `npx supabase db reset --linked` **wipes production**. Use `db push`.
    - **`ENABLE_DEV_LOGIN=true` is live on production.** Anyone can take a
-     manager session on the public site until it is removed — see item 4.
+     manager session on the public site until it is removed — see *Next action*.
+   - **Until #13 merges, `0032` and this file exist only on
+     `feat/per-league-access-control`.** `migration list` shows `0032` with an
+     empty **Local** column when `main` is checked out, and a `supabase db
+     reset` run there builds a database with no `profile_leagues`.
    - Do not change the `app_role` enum or the JWT hook (`0010_auth_hook.sql`).
      The model is membership-only *so that* both stay untouched; changing the
      hook also means re-enabling it by hand in the Supabase dashboard.
@@ -24,24 +28,22 @@ scoped to league membership (`32edd7a`) and per-league naming for the calendar
 and CSV exports (`8100662`). PR #13 (`feat/per-league-access-control`) is open
 against `main` and mergeable. The database half is deployed; the code is not.
 
-## Next action — merge PR #13
+## Next action — two commands, neither runnable by an agent
 
-**The schema gap is closed.** Measured 2026-09-01 with
-`npx supabase migration list --linked` against `bipxqfszjwncjquymhon`: `0029`,
-`0030`, `0031` and `0032` all appear in the **Remote** column. They were
-applied with `db push` **from this branch** — `0032` exists only here, so the
-same push run from `main` would have applied the other three, reported success,
-and left the backfill behind.
+`gh` and `vercel env` are both denied by the auto-mode classifier, so a human
+runs these. Order does not matter; both are outstanding as of 2026-09-01.
 
-`0032`'s backfill worked. Signed in as a manager on `obhl.vercel.app`,
-`/manage/people` lists all three staff profiles rather than only the signed-in
-one — and that page's policy requires `shares_league_with()`, which is true
-only when two profiles share a `profile_leagues` row. So membership was
-populated and today's access is preserved. `/manage/audit` loads too, which
-settles which database production talks to: it filters on
-`audit_log.league_id`, a column that did not exist there before `0031`.
+    gh pr merge 13 --merge
+    vercel env rm ENABLE_DEV_LOGIN production && vercel --prod
 
-Nothing gates the merge any more.
+Nothing gates the merge. 0029–0032 are applied to `bipxqfszjwncjquymhon` and
+verified: all four in the **Remote** column of `npx supabase migration list
+--linked`, and `0032`'s backfill confirmed working — `/manage/people` lists all
+three staff profiles for a manager on `obhl.vercel.app`, which resolves only
+through `shares_league_with()`. They were pushed **from this branch**; the same
+command run from `main` would have applied three and skipped the backfill.
+
+**After merging, this section is stale** — replace it with whatever is next.
 
 ## Open, in priority order
 
@@ -50,8 +52,13 @@ Nothing gates the merge any more.
 | 1 | No CI runs the tests — no `.github` directory at all; the only PR checks are Vercel's deploy and preview comments | — |
 | 2 | `npm run build` does not typecheck test files; `tsc --noEmit -p e2e/tsconfig.json` is run by hand. A `"typecheck"` script closes it | `EXPORTS_HANDOFF` §5.1 |
 | 3 | `saveRules` writes no audit entry | below |
-| 4 | `ENABLE_DEV_LOGIN=true` lets anyone sign in as any role — **confirmed live on production 2026-09-01**, measured by taking a manager session from the public login page; five one-click accounts once #13 lands, two of them league-confined | `src/lib/auth/dev-login.ts` |
-| 5 | `previewEsportsdeskImport` fetches a user-supplied URL server-side | `src/lib/actions/import.ts` |
+
+`ENABLE_DEV_LOGIN` was item 4, now a *Next action* — a live auth bypass, not
+backlog. **Item 5 closed 2026-09-01: `previewEsportsdeskImport` is not an
+SSRF.** It never fetches the pasted string; it regexes two numeric ids out of
+it and fetches a hardcoded esportsdesk host with one of four literal paths.
+It reads like SSRF at a glance, which is presumably how it was filed originally
+— the reasoning is in `src/lib/import/esportsdesk.ts`; do not re-file it.
 
 ## `saveRules` leaves no audit trail
 
