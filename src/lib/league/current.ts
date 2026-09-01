@@ -47,3 +47,36 @@ export async function getPublicLeagues(client: Client): Promise<LeagueOption[]> 
     .order("created_at", { ascending: true });
   return data ?? [];
 }
+
+/**
+ * The league a season / team belongs to, for the public export routes.
+ *
+ * Distinct from `lib/league/of-entity`, which answers the same question on the
+ * ADMIN client and returns only an id, because it is deciding whether a caller
+ * may act. These are for feeds: they read through RLS, so a league that isn't
+ * publicly visible names itself to nobody, and they return what a calendar or a
+ * filename needs.
+ */
+export async function publicLeagueOfSeason(
+  seasonId: string,
+): Promise<LeagueOption | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("seasons")
+    .select("leagues!inner(id, name, slug)")
+    .eq("id", seasonId)
+    .maybeSingle();
+  return data?.leagues ?? null;
+}
+
+export async function publicLeagueOfTeam(
+  teamId: string,
+): Promise<LeagueOption | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("teams")
+    .select("leagues!inner(id, name, slug)")
+    .eq("id", teamId)
+    .maybeSingle();
+  return data?.leagues ?? null;
+}

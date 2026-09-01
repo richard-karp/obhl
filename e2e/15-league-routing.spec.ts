@@ -343,6 +343,42 @@ test.describe("Path 16 — Per-league routing", () => {
     expect(await page.getByText(SUSPENSION).count()).toBe(oceanviewBefore);
   });
 
+  test("a league's calendar and CSV are named for that league", async ({
+    request,
+  }) => {
+    // `buildIcs` always took the calendar name as an argument, but the routes
+    // passed a literal, so BOTH leagues' feeds arrived in a subscriber's
+    // calendar app called "OBHL Schedule". The event UIDs are deliberately
+    // unchanged — see EXPORTS_HANDOFF §3.
+    const db = admin();
+    for (const slug of ["harbor", "obhl"]) {
+      const { data: league } = await db
+        .from("leagues")
+        .select("id, name")
+        .eq("slug", slug)
+        .single();
+      const { data: season } = await db
+        .from("seasons")
+        .select("id")
+        .eq("league_id", league!.id)
+        .eq("is_active", true)
+        .single();
+
+      const ics = await request.get(`/api/schedule/${season!.id}`);
+      expect(ics.ok()).toBeTruthy();
+      expect(await ics.text()).toContain(`${league!.name} Schedule`);
+      expect(ics.headers()["content-disposition"]).toContain(
+        `${slug}-schedule.ics`,
+      );
+
+      const csv = await request.get(`/api/schedule/${season!.id}/schedule.csv`);
+      expect(csv.ok()).toBeTruthy();
+      expect(csv.headers()["content-disposition"]).toContain(
+        `${slug}-schedule.csv`,
+      );
+    }
+  });
+
   test("a section stays marked on its detail pages", async ({ page }) => {
     await page.goto("/obhl/teams/sharks");
     const nav = page.getByRole("navigation").first();

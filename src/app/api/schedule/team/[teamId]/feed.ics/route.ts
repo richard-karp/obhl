@@ -2,6 +2,7 @@ import { getTeamFeedGames } from "@/lib/queries/schedule";
 import { buildIcs, type IcsGame } from "@/lib/export/ics";
 import { isExportableFixture } from "@/lib/export/fixtures";
 import { isUuid } from "@/lib/db/uuid";
+import { publicLeagueOfTeam } from "@/lib/league/current";
 
 // Stable subscription feed for a team (webcal://…/feed.ics). Cacheable.
 export async function GET(
@@ -13,7 +14,13 @@ export async function GET(
   // rather than an empty feed.
   if (!isUuid(teamId)) return new Response("Not found", { status: 404 });
 
-  const games = await getTeamFeedGames(teamId);
+  // Named for the league, so a subscriber with feeds from two of them can tell
+  // the calendars apart. The event UIDs are deliberately untouched — they are
+  // subscription identity, and EXPORTS_HANDOFF §3 leans on their stability.
+  const [games, league] = await Promise.all([
+    getTeamFeedGames(teamId),
+    publicLeagueOfTeam(teamId),
+  ]);
   const ics = buildIcs(
     games
       .filter((g) => isExportableFixture(g.status))
@@ -28,7 +35,7 @@ export async function GET(
           away_goals: g.away_goals,
         }),
       ),
-    "OBHL Team Schedule",
+    league ? `${league.name} — Team Schedule` : "Team Schedule",
   );
 
   return new Response(ics, {

@@ -21,6 +21,12 @@ export function buildIcs(games: IcsGame[], calName: string): string {
           ? `${g.away} ${g.away_goals ?? 0}–${g.home_goals ?? 0} ${g.home} (Final)`
           : `${g.away} @ ${g.home}`;
       return {
+        // `@obhl` is an opaque namespace, not the league — the calendar's
+        // visible name is `calName`, which the routes fill from the league.
+        // Do not "fix" it: the UID is subscription identity, so changing it
+        // drops and re-adds every event in a subscriber's calendar (losing
+        // their reminders) and duplicates them for anyone who downloaded the
+        // one-time file. EXPORTS_HANDOFF §3 leans on this staying stable.
         uid: `game-${g.id}@obhl`,
         start: [
           d.getUTCFullYear(),
