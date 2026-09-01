@@ -1,4 +1,4 @@
-# Per-league access control — shipped; the database is deployed, #13 is not
+# Per-league access control — shipped, with CI and the audit gap closed
 
 **Protocol — read this and nothing else to resume.**
 
@@ -7,76 +7,115 @@
    or PR #13's description — what still binds is inlined below.
 2. ⛔ **Hazards, before any instruction:**
    - `npx supabase db reset --linked` **wipes production**. Use `db push`.
-   - **`ENABLE_DEV_LOGIN=true` is live on production.** Anyone can take a
-     manager session on the public site until it is removed — see *Next action*.
-   - **Until #13 merges, `0032` and this file exist only on
-     `feat/per-league-access-control`.** `migration list` shows `0032` with an
-     empty **Local** column when `main` is checked out, and a `supabase db
-     reset` run there builds a database with no `profile_leagues`.
+     `npm run db:reset` is the *local* one and is safe.
    - Do not change the `app_role` enum or the JWT hook (`0010_auth_hook.sql`).
      The model is membership-only *so that* both stay untouched; changing the
      hook also means re-enabling it by hand in the Supabase dashboard.
+   - `ENABLE_DEV_LOGIN=true` on a production deploy hands anyone with the URL a
+     manager session — `devLoginEnabled()` in `src/lib/auth/dev-login.ts`. It is
+     on by default outside a production build, which is what the e2e suite
+     rides; it must never be set on `obhl.vercel.app`.
 3. Numbers here were **watched appear**. Where a claim is a reading of the code
    rather than a measurement, it says so in those words.
-4. Verify with `npm test && npm run test:e2e`. Baseline on this branch:
-   **250 unit passed; 117 e2e passed, 1 skipped, 0 failed** (re-run
-   2026-09-01, unchanged). The skip is the AI-summary test, gated on an API
-   key — not a regression.
+4. Verify with `npm test && npm run test:e2e`. Baseline:
+   **250 unit passed; 118 e2e passed, 1 skipped, 0 failed** (measured
+   2026-09-01). The unit count is unchanged and was watched three times over,
+   because the schedule tests are wall-clock bounded and one green run proves
+   nothing. e2e went 117 → **118**: the added test is the audit-visibility one
+   in `e2e/10-rules.spec.ts` described below. The skip is the AI-summary test,
+   gated on an API key — not a regression.
 
-**Status: both parked pieces are built, committed and pushed** — staff access
-scoped to league membership (`32edd7a`) and per-league naming for the calendar
-and CSV exports (`8100662`). PR #13 (`feat/per-league-access-control`) is open
-against `main` and mergeable. The database half is deployed; the code is not.
+**Status: nothing is parked.** Staff access scoped to league membership
+(`32edd7a`) and per-league naming for the calendar and CSV exports (`8100662`)
+shipped in PR #13. The three items that sat open under it — no CI, no
+`typecheck` script, no audit entry for `saveRules` — shipped in
+`feat/ci-and-rules-audit`. Migrations 0029–0032 are applied to
+`bipxqfszjwncjquymhon` and verified: all four in the **Remote** column of `npx
+supabase migration list --linked`, and `0032`'s backfill confirmed by
+`/manage/people` listing all three staff profiles for a manager on
+`obhl.vercel.app`, which resolves only through `shares_league_with()`.
 
-## Next action — two commands, neither runnable by an agent
+## Next action
 
-`gh` and `vercel env` are both denied by the auto-mode classifier, so a human
-runs these. Order does not matter; both are outstanding as of 2026-09-01.
+**Human-only, and outstanding as of 2026-09-01.** `vercel env` is denied to an
+agent under the auto-mode classifier, so a human runs this:
 
-    gh pr merge 13 --merge
     vercel env rm ENABLE_DEV_LOGIN production && vercel --prod
 
-Nothing gates the merge. 0029–0032 are applied to `bipxqfszjwncjquymhon` and
-verified: all four in the **Remote** column of `npx supabase migration list
---linked`, and `0032`'s backfill confirmed working — `/manage/people` lists all
-three staff profiles for a manager on `obhl.vercel.app`, which resolves only
-through `shares_league_with()`. They were pushed **from this branch**; the same
-command run from `main` would have applied three and skipped the backfill.
+While `ENABLE_DEV_LOGIN=true` is set on production, anyone with the URL can take
+a manager session on `obhl.vercel.app`. Confirm it is gone by loading
+https://obhl.vercel.app/login and checking the "Quick sign-in (test mode)" panel
+is absent — then **delete this section**; nothing replaces it.
 
-**After merging, this section is stale** — replace it with whatever is next.
+Everything else is closed. `LAUNCH.md` carries the remaining operational steps.
 
-## Open, in priority order
+## What CI runs
 
-| # | Item | Where |
-|---|---|---|
-| 1 | No CI runs the tests — no `.github` directory at all; the only PR checks are Vercel's deploy and preview comments | — |
-| 2 | `npm run build` does not typecheck test files; `tsc --noEmit -p e2e/tsconfig.json` is run by hand. A `"typecheck"` script closes it | `EXPORTS_HANDOFF` §5.1 |
-| 3 | `saveRules` writes no audit entry | below |
+`.github/workflows/ci.yml`, on every PR and every push to `main`, in two jobs:
 
-`ENABLE_DEV_LOGIN` was item 4, now a *Next action* — a live auth bypass, not
-backlog. **Item 5 closed 2026-09-01: `previewEsportsdeskImport` is not an
-SSRF.** It never fetches the pasted string; it regexes two numeric ids out of
-it and fetches a hardcoded esportsdesk host with one of four literal paths.
-It reads like SSRF at a glance, which is presumably how it was filed originally
-— the reasoning is in `src/lib/import/esportsdesk.ts`; do not re-file it.
+- **check** — `npm run typecheck`, then `npm test`. No database, no browser.
+- **e2e** — `npx supabase start`, an `.env.local` written from `supabase status
+  -o env`, then `npm run test:e2e`. Playwright's `globalSetup` resets and seeds
+  the database and `playwright.config.ts` starts the dev server, so the job
+  only has to supply Supabase and the env file.
 
-## `saveRules` leaves no audit trail
+Two things about that job are load-bearing and easy to undo:
 
-Measured 2026-09-01 — `grep -c 'logAudit({' src/lib/actions/*.ts`, summed:
-**14** call sites, and `src/lib/actions/rules.ts` contributes **zero**. (An
-earlier note said 16; this session moved two into `src/lib/games/finalize.ts`.
-Regenerate rather than quoting either figure.) It is the only manage action
-that records nothing, and `league_rules` (`0006_rules.sql`)
-keeps no history, so an overwrite is unrecoverable. Commit `e0fd273` fixed the
-half where it wrote to the *wrong league*; traceability is still open.
+- **`.env.local`, not job-level `env:`.** Three separate things read it —
+  `playwright.config.ts` through dotenv, `next dev`, and
+  `scripts/seed-users.mjs` through `--env-file-if-exists`. Exporting the
+  variables into the job environment feeds the first two and not the third.
+- **`ENABLE_DEV_LOGIN` is deliberately unset.** The suite signs in through the
+  dev panel, which `devLoginEnabled()` turns on for any non-production build.
+  Setting it in CI would work and would add one more place to forget it.
 
-**The trap:** `leagueOfEntity` in `src/lib/audit.ts` switches on `entity_type`
-and handles exactly four — `team`, `season`, `game`, `team_player` — returning
-`null` otherwise. A null-league entry is filtered out of every league-scoped
-view *and* hidden by RLS (`manages_league(null)` is false). So adding
-`logAudit({ entity_type: "league_rules", … })` alone writes an entry that is
-correct and **never appears**. Add the type to that switch in the same change;
-its per-entity resolvers are in `src/lib/league/of-entity.ts`.
+`npm run typecheck` is `tsc --noEmit && tsc --noEmit -p e2e/tsconfig.json`. The
+second half is the point: `next build` does not typecheck test files, and
+`e2e/tsconfig.json` is the CommonJS resolution Playwright actually runs them
+under, which the root config does not reproduce.
+
+## `saveRules` writes an audit entry — and the trap under it
+
+`saveRules` (`src/lib/actions/rules.ts`) now logs `save_rules` against
+`entity_type: "league_rules"`, carrying the replaced document in `old_data`.
+`league_rules` still keeps no history of its own, so that entry is the only
+copy of the previous rules after an overwrite; it is `await`ed rather than
+`void`ed for that reason, matching `remove_schedule` in
+`src/lib/actions/schedule.ts`.
+
+**The trap it sat behind, which is still armed for the next entity type:**
+`leagueOfEntity` in `src/lib/audit.ts` switches on `entity_type`. A type it
+does not handle returns `null`, and a null league is filtered out of every
+league-scoped view *and* hidden by RLS (`manages_league(null)` is false). So
+adding a `logAudit` call alone writes an entry that is **correct and never
+appears**. Add the type to that switch in the same change; the per-entity
+resolvers are in `src/lib/league/of-entity.ts`.
+
+`e2e/10-rules.spec.ts` guards exactly this: it saves rules and then asserts the
+entry is visible on `/obhl/manage/audit`, which reads with `.eq("league_id",
+…)`. Watched fail with the `"league_rules"` case removed from the switch —
+the save still succeeded and the entry still landed; it was simply invisible.
+
+Both `old_data` and `new_data` carry the **whole Tiptap document**, not a
+summary — a summary would not make an overwrite recoverable, which is the
+entire point. That is a bigger audit payload than any other action writes, and
+the audit page selects `old_data, new_data` for up to 500 rows. Accepted
+because rules are saved a handful of times a season, not per game; if
+`save_rules` ever becomes frequent, drop `new_data` first — the current
+document is always readable from `league_rules` itself.
+
+Not done, and a reasonable next step: `save_rules` is not revertible.
+`old_data` holds what a revert would need, but `revertAuditEntries`
+(`src/lib/actions/audit.ts`) has no case for it, and `isRevertible` in the
+audit page returns false, so the UI does not offer it.
+
+## Already decided — do not re-file
+
+**`previewEsportsdeskImport` is not an SSRF** (closed 2026-09-01). It never
+fetches the pasted string; it regexes two numeric ids out of it and fetches a
+hardcoded esportsdesk host with one of four literal paths. It reads like SSRF
+at a glance, which is presumably how it was filed originally — the reasoning is
+in `src/lib/import/esportsdesk.ts`.
 
 ## Traps this area sets
 
@@ -127,8 +166,9 @@ that symmetry: `single-league-lead@` (manager) and `single-league-scorer@`
 ## Provenance
 
 Both parked pieces came out of the per-league routing project (PR #12,
-`32e77c7`) and were built on 2026-09-01 in PR #13. The full routing design,
-including alternatives rejected, is
+`32e77c7`) and were built on 2026-09-01 in PR #13; CI, the `typecheck` script
+and the `saveRules` audit entry followed in `feat/ci-and-rules-audit`. The full
+routing design, including alternatives rejected, is
 `docs/superpowers/specs/2026-08-31-per-league-routing-design.md` — open it only
 if you need *why* beyond what is inlined here. Operational launch steps are in
 `LAUNCH.md`.
