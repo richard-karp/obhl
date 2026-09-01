@@ -19,8 +19,11 @@ function withAuditSession(response: NextResponse): NextResponse {
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   // Only allow same-origin relative paths (block "//evil.com" and absolute URLs).
-  const rawNext = searchParams.get("next") ?? "/dashboard";
-  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
+  // There is no league-agnostic dashboard any more — the manage tools live at
+  // /<league>/manage — and a magic link cannot know which league was meant, so
+  // both the default and the sanitising fallback land on the league picker.
+  const rawNext = searchParams.get("next") ?? "/";
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;

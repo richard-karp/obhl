@@ -7,11 +7,14 @@ import type { Page } from "@playwright/test";
 async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
-  await page.waitForURL("/dashboard");
+  // Sign-in lands on the league picker — there is no league-agnostic dashboard
+  // any more. Every caller below expects to be inside a league's manage tools.
+  await page.waitForURL("/");
+  await page.goto("/obhl/manage/dashboard");
 }
 
 async function goToActiveSeasonSetup(page: Page) {
-  await page.goto("/seasons");
+  await page.goto("/obhl/manage/seasons");
   await page
     .getByRole("row", { name: /Spring 2026/ })
     .getByRole("link", { name: "Setup" })
@@ -22,7 +25,7 @@ async function goToActiveSeasonSetup(page: Page) {
 test.describe("Path 7 — Season setup", () => {
   test("seasons list shows Spring 2026 with Active badge", async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/seasons");
+    await page.goto("/obhl/manage/seasons");
     await expect(page.getByText("Spring 2026")).toBeVisible();
     await expect(page.getByText("Active").first()).toBeVisible();
   });
@@ -77,7 +80,7 @@ test.describe("Path 8 — AI league summary", () => {
     const summaryText = await page.locator("p.italic").first().innerText();
     expect(summaryText.length).toBeGreaterThan(20);
 
-    await page.goto("/");
+    await page.goto("/obhl");
     await expect(
       page.getByRole("heading", { name: "League Update" }),
     ).toBeVisible();

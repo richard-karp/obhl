@@ -7,7 +7,10 @@ import type { Page } from "@playwright/test";
 async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
-  await page.waitForURL("/dashboard");
+  // Sign-in lands on the league picker — there is no league-agnostic dashboard
+  // any more. Every caller below expects to be inside a league's manage tools.
+  await page.waitForURL("/");
+  await page.goto("/obhl/manage/dashboard");
 }
 
 async function signOut(page: Page) {
@@ -16,7 +19,18 @@ async function signOut(page: Page) {
 }
 
 test.describe("Path 6 — Auth / Login / Session", () => {
-  test("dev quick sign-in as manager redirects to dashboard with correct role", async ({
+  test("dev quick sign-in lands on the league picker, not a dead /dashboard", async ({
+    page,
+  }) => {
+    await page.goto("/login");
+    await page.getByRole("button", { name: "Manager" }).click();
+    await page.waitForURL("/");
+    await expect(
+      page.getByRole("heading", { name: "Choose your league" }),
+    ).toBeVisible();
+  });
+
+  test("the manage dashboard shows the manager's tools", async ({
     page,
   }) => {
     await signedInAs(page, "Manager");
@@ -34,10 +48,10 @@ test.describe("Path 6 — Auth / Login / Session", () => {
     ).toBeVisible();
   });
 
-  test("unauthenticated access to /seasons redirects to /login", async ({
+  test("unauthenticated access to a manage route redirects to /login", async ({
     page,
   }) => {
-    await page.goto("/seasons");
+    await page.goto("/obhl/manage/seasons");
     await expect(page).toHaveURL(/\/login/);
   });
 

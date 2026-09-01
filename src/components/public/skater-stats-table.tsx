@@ -61,9 +61,11 @@ function SortHead({
 
 export function SkaterStatsTable({
   rows,
+  league,
   showRank = true,
 }: {
   rows: SkaterStat[];
+  league: string;
   showRank?: boolean;
 }) {
   const [sortCol, setSortCol] = useState<SortCol>("pts");
@@ -105,7 +107,7 @@ export function SkaterStatsTable({
                 </TableCell>
               ) : null}
               <TableCell className="font-medium">
-                <Link href={`/players/${r.player_id}`} className="hover:underline">
+                <Link href={`/${league}/players/${r.player_id}`} className="hover:underline">
                   {r.first_name} {r.last_name}
                 </Link>
                 {r.jersey_number != null ? (
@@ -116,7 +118,7 @@ export function SkaterStatsTable({
               </TableCell>
               <TableCell className="hidden sm:table-cell">
                 <Link
-                  href={`/teams/${r.team_slug}`}
+                  href={`/${league}/teams/${r.team_slug}`}
                   className="flex items-center gap-2 hover:underline"
                 >
                   <TeamLogo name={r.team_name ?? ""} color={r.team_color} />

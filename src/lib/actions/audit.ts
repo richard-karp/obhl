@@ -18,11 +18,25 @@ export async function revertAuditEntries(
   const auditIds = formData.getAll("auditId").map(String).filter(Boolean);
   if (auditIds.length === 0) return { error: "No actions selected." };
 
+  const leagueId = String(formData.get("league_id") ?? "");
+  if (!leagueId) return { error: "No league selected." };
+
+  // Reverting is a write — it reopens games, restores player status, undoes
+  // captaincy. Scoped to the league the form was submitted from, so an id
+  // belonging to another league cannot be reverted from this one.
   const { data: entries } = await admin
     .from("audit_log")
     .select("id, action, entity_type, entity_id, new_data, old_data, created_at")
     .in("id", auditIds)
+    .eq("league_id", leagueId)
     .order("created_at", { ascending: false });
+
+  if ((entries?.length ?? 0) !== auditIds.length) {
+    return {
+      error:
+        "Some of those actions are no longer available in this league.",
+    };
+  }
 
   const errors: string[] = [];
 
@@ -52,7 +66,7 @@ export async function revertAuditEntries(
             entity_type: "game",
             entity_id: entry.entity_id,
           });
-          revalidatePath("/");
+          revalidatePath("/[league]", "page");
           break;
         }
 
@@ -175,8 +189,8 @@ export async function revertAuditEntries(
     }
   }
 
-  revalidatePath("/audit");
-  revalidatePath("/");
+  revalidatePath("/[league]/manage/audit", "page");
+  revalidatePath("/[league]", "page");
 
   if (errors.length) return { error: errors.join("; ") };
   return { ok: true };

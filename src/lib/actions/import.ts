@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { isReservedLeagueSlug } from "@/lib/league/reserved-slugs";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
 import {
@@ -95,6 +96,23 @@ export async function runEsportsdeskImport(
     return { ok: false, message: "Missing the source URL or a league name." };
   }
 
+  // The slug is the league's address, so a name that cannot produce a usable
+  // one is rejected before the import does any work. Both cases would otherwise
+  // create a league nobody can open, and there is no UI to delete one.
+  const leagueSlug = slugify(leagueName);
+  if (!leagueSlug) {
+    return {
+      ok: false,
+      message: `"${leagueName}" has no letters or numbers to build a URL from — the league would have no address. Pick a different name.`,
+    };
+  }
+  if (isReservedLeagueSlug(leagueSlug)) {
+    return {
+      ok: false,
+      message: `"${leagueName}" makes the slug "${leagueSlug}", which is reserved — the league would be unreachable at /${leagueSlug}. Pick a different name.`,
+    };
+  }
+
   const admin = createAdminClient();
   let parsed: ParsedLeague;
   try {
@@ -105,7 +123,7 @@ export async function runEsportsdeskImport(
 
   const { data: league, error: lErr } = await admin
     .from("leagues")
-    .insert({ name: leagueName, slug: slugify(leagueName), is_public: true })
+    .insert({ name: leagueName, slug: leagueSlug, is_public: true })
     .select("id")
     .single();
   if (lErr) {
@@ -249,8 +267,10 @@ export async function runEsportsdeskImport(
   } catch (e) {
     // Rosters already imported successfully; surface the schedule failure but
     // don't roll back the (useful) teams + players.
-    revalidatePath("/seasons");
-    revalidatePath("/", "layout");
+    revalidatePath("/[league]/manage/seasons", "page");
+    revalidatePath("/[league]", "layout");
+    // This import creates a league; the root landing page lists them.
+    revalidatePath("/");
     return {
       ok: true,
       message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}, but the schedule import failed (${(e as Error).message}). Delete this league and re-run to retry, or build the schedule manually.`,
@@ -339,16 +359,20 @@ export async function runEsportsdeskImport(
     }
     statRowCount = rosterRows.length;
   } catch (e) {
-    revalidatePath("/seasons");
-    revalidatePath("/", "layout");
+    revalidatePath("/[league]/manage/seasons", "page");
+    revalidatePath("/[league]", "layout");
+    // This import creates a league; the root landing page lists them.
+    revalidatePath("/");
     return {
       ok: true,
       message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}, but player stats failed (${(e as Error).message}). Standings are complete; delete this league and re-run to retry the stats.`,
     };
   }
 
-  revalidatePath("/seasons");
-  revalidatePath("/", "layout");
+  revalidatePath("/[league]/manage/seasons", "page");
+  revalidatePath("/[league]", "layout");
+  // This import creates a league; the root landing page lists them.
+  revalidatePath("/");
   return {
     ok: true,
     message: `Imported ${teamCount} teams, ${playerCount} players, ${gameCount} games, and ${statRowCount} stat lines into "${leagueName}" — ${seasonName}. It's inactive; set it active when ready, and set any goalie positions in Rosters (esportsdesk rarely records them).`,

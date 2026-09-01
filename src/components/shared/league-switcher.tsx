@@ -1,25 +1,34 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useTransition } from "react";
-import { selectLeague } from "@/lib/actions/league";
 import type { LeagueOption } from "@/lib/league/current";
 import { cn } from "@/lib/utils";
 
 /**
- * Header league picker. Cookie-backed (see lib/actions/league.ts); changing it
- * re-renders the whole app for the chosen league. Renders nothing when there's
- * only one league. Requires JS: changing the select calls the server action via
- * a transition (a bare select wouldn't submit the form on its own).
+ * League picker. The league lives in the URL, so switching is navigation — it
+ * used to write a cookie, which nothing reads any more.
+ *
+ * A switch always lands on the chosen league's root (`rootPath`), never the
+ * equivalent sub-path: `/harbor/manage/seasons/<uuid>` names a season that
+ * belongs to Harbor, so carrying that path across to Oceanview would only 404.
+ *
+ * Renders nothing when there's only one league. Requires JS: a bare select
+ * wouldn't navigate on its own.
  */
 export function LeagueSwitcher({
   leagues,
   currentSlug,
+  rootPath = "",
   className,
 }: {
   leagues: LeagueOption[];
   currentSlug: string;
+  /** Appended to `/<slug>` — e.g. `/manage/dashboard` for the staff tools. */
+  rootPath?: string;
   className?: string;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   if (leagues.length < 2) return null;
 
@@ -28,7 +37,7 @@ export function LeagueSwitcher({
     // size is the select's width, which the cap below pins at 11rem — on a
     // phone that rigid 176px is what pushed the header past the screen and put
     // the whole page into horizontal scrolling.
-    <form action={selectLeague} className={cn("flex min-w-0 items-center", className)}>
+    <div className={cn("flex min-w-0 items-center", className)}>
       <label className="sr-only" htmlFor="league-switcher">
         Select league
       </label>
@@ -38,13 +47,10 @@ export function LeagueSwitcher({
         defaultValue={currentSlug}
         disabled={pending}
         aria-label="Select league"
-        onChange={(e) =>
-          startTransition(() => {
-            const fd = new FormData();
-            fd.set("slug", e.currentTarget.value);
-            selectLeague(fd);
-          })
-        }
+        onChange={(e) => {
+          const slug = e.currentTarget.value;
+          startTransition(() => router.push(`/${slug}${rootPath}`));
+        }}
         // Shrinks between the two bounds and ellipsises what doesn't fit, so a
         // long league name costs width only when there is width to spare. The
         // 5rem floor keeps it a usable target once it has given all it can.
@@ -56,6 +62,6 @@ export function LeagueSwitcher({
           </option>
         ))}
       </select>
-    </form>
+    </div>
   );
 }

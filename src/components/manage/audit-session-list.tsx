@@ -36,9 +36,11 @@ function fmt(iso: string) {
 
 function SessionCard({
   session,
+  leagueId,
   revertAction,
 }: {
   session: AuditSession;
+  leagueId: string;
   revertAction: RevertAction;
 }) {
   const [isOpen, setIsOpen] = useState(session.isCurrentSession);
@@ -83,6 +85,7 @@ function SessionCard({
       {isOpen && (
         <CardContent className="px-4 pb-4 pt-0 border-t">
           <form action={formAction} className="space-y-1 pt-3">
+            <input type="hidden" name="league_id" value={leagueId} />
             {revertible.map((entry) => (
               <label
                 key={entry.id}
@@ -150,9 +153,12 @@ function SessionCard({
 
 export function AuditSessionList({
   sessions,
+  leagueId,
   revertAction,
 }: {
   sessions: AuditSession[];
+  /** Carried into the revert form: a revert is scoped to one league. */
+  leagueId: string;
   revertAction: RevertAction;
 }) {
   if (sessions.length === 0) return null;
@@ -163,6 +169,7 @@ export function AuditSessionList({
         <SessionCard
           key={session.session_id ?? "__none__"}
           session={session}
+          leagueId={leagueId}
           revertAction={revertAction}
         />
       ))}

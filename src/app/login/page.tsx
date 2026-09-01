@@ -68,7 +68,7 @@ export default async function LoginPage({
 
         <p className="text-muted-foreground text-center text-xs">
           <Link href="/" className="hover:underline">
-            ← Back to the league site
+            ← Back to all leagues
           </Link>
         </p>
       </div>

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export function AnnouncementForm() {
+export function AnnouncementForm({ leagueId }: { leagueId: string }) {
   const [state, action, pending] = useActionState<
     AnnouncementActionState,
     FormData
@@ -17,6 +17,7 @@ export function AnnouncementForm() {
 
   return (
     <form action={action} className="space-y-3">
+      <input type="hidden" name="league_id" value={leagueId} />
       <div className="space-y-1">
         <Label htmlFor="title">Title</Label>
         <Input id="title" name="title" required placeholder="Playoffs start June 22" />

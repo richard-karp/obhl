@@ -8,7 +8,10 @@ import type { Page } from "@playwright/test";
 async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
-  await page.waitForURL("/dashboard");
+  // Sign-in lands on the league picker — there is no league-agnostic dashboard
+  // any more. Every caller below expects to be inside a league's manage tools.
+  await page.waitForURL("/");
+  await page.goto("/obhl/manage/dashboard");
 }
 
 // ── Path 19: Scorekeeper sees goalie buttons ────────────────────────────────
@@ -18,7 +21,7 @@ test.describe("Path 19 — Scorekeeper goalie buttons", () => {
     page,
   }) => {
     await signedInAs(page, "Scorekeeper");
-    await page.goto("/score");
+    await page.goto("/obhl/manage/score");
 
     await page
       .locator("table tbody tr")
@@ -67,7 +70,7 @@ test.describe("Path 20 — Default goalie on roster page", () => {
     page,
   }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/rosters");
+    await page.goto("/obhl/manage/rosters");
     await page.getByText("Sharks").click();
     await expect(page).toHaveURL(/\/rosters\//);
 
@@ -95,7 +98,7 @@ test.describe("Path 20 — Default goalie on roster page", () => {
     page,
   }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/rosters");
+    await page.goto("/obhl/manage/rosters");
     await page.getByText("Sharks").click();
     await expect(page).toHaveURL(/\/rosters\//);
 
@@ -107,7 +110,7 @@ test.describe("Path 20 — Default goalie on roster page", () => {
 
   test("manager can assign a goalie to a day and save it", async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/rosters");
+    await page.goto("/obhl/manage/rosters");
     await page.getByText("Sharks").click();
     await expect(page).toHaveURL(/\/rosters\//);
 

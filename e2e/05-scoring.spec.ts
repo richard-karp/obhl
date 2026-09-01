@@ -7,7 +7,10 @@ import type { Page } from "@playwright/test";
 async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
-  await page.waitForURL("/dashboard");
+  // Sign-in lands on the league picker — there is no league-agnostic dashboard
+  // any more. Every caller below expects to be inside a league's manage tools.
+  await page.waitForURL("/");
+  await page.goto("/obhl/manage/dashboard");
 }
 
 // ── Path 10: Score a game ───────────────────────────────────────────────────
@@ -17,7 +20,7 @@ test.describe("Path 10 — Score a game end-to-end", () => {
     page,
   }) => {
     await signedInAs(page, "Scorekeeper");
-    await page.goto("/score");
+    await page.goto("/obhl/manage/score");
 
     // Open first scheduled game
     await page
@@ -57,8 +60,8 @@ test.describe("Path 10 — Score a game end-to-end", () => {
     await expect(page.getByText("Final").first()).toBeVisible();
 
     // Finalized game appears as a link on public schedule
-    await page.goto("/schedule");
-    await expect(page.locator('a[href^="/games/"]').first()).toBeVisible();
+    await page.goto("/obhl/schedule");
+    await expect(page.locator('a[href^="/obhl/games/"]').first()).toBeVisible();
   });
 });
 
@@ -67,7 +70,7 @@ test.describe("Path 10 — Score a game end-to-end", () => {
 test.describe("Path 11 — Game management", () => {
   test("cancel a scheduled game and restore it", async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/score");
+    await page.goto("/obhl/manage/score");
 
     await page
       .locator("table tbody tr")
@@ -88,7 +91,7 @@ test.describe("Path 11 — Game management", () => {
 
   test("postpone a game and restore it", async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/score");
+    await page.goto("/obhl/manage/score");
 
     await page
       .locator("table tbody tr")
@@ -110,7 +113,7 @@ test.describe("Path 11 — Game management", () => {
     page,
   }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/score");
+    await page.goto("/obhl/manage/score");
 
     await page
       .locator("table tbody tr")

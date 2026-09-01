@@ -66,7 +66,7 @@ export async function addRosterPlayer(
     new_data: { player_id, team_id, season_id, position },
   });
 
-  revalidatePath(`/rosters/${team_id}`);
+  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
   return { ok: true, message: `${label} added to the roster.` };
 }
 
@@ -91,14 +91,13 @@ export async function removeRosterPlayer(formData: FormData) {
     entity_id: id,
     old_data: existing ?? { team_id },
   });
-  revalidatePath(`/rosters/${team_id}`);
+  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
 }
 
 export async function toggleCaptain(formData: FormData) {
   const manager = await requireManager();
   const admin = createAdminClient();
   const id = String(formData.get("id"));
-  const team_id = String(formData.get("team_id"));
   const make = formData.get("make") === "1";
   await admin.from("team_players").update({ is_captain: make }).eq("id", id);
   void logAudit({
@@ -108,7 +107,7 @@ export async function toggleCaptain(formData: FormData) {
     entity_id: id,
     new_data: { is_captain: make },
   });
-  revalidatePath(`/rosters/${team_id}`);
+  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
 }
 
 export async function setDefaultGoalie(formData: FormData) {
@@ -135,7 +134,7 @@ export async function setDefaultGoalie(formData: FormData) {
     entity_id: id,
     new_data: { is_default_goalie: make },
   });
-  revalidatePath(`/rosters/${team_id}`);
+  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
 }
 
 export async function setGoalieDay(formData: FormData) {
@@ -165,14 +164,13 @@ export async function setGoalieDay(formData: FormData) {
     entity_id: team_id,
     new_data: { day_of_week, player_id: player_id || null },
   });
-  revalidatePath(`/rosters/${team_id}`);
+  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
 }
 
 export async function updatePlayerStatus(formData: FormData) {
   const manager = await requireManager();
   const admin = createAdminClient();
   const id = String(formData.get("id"));
-  const team_id = String(formData.get("team_id"));
   const field = String(formData.get("field"));
 
   // Capture current value before update so revert can restore it
@@ -210,5 +208,5 @@ export async function updatePlayerStatus(formData: FormData) {
     old_data: oldVal !== undefined ? { [field]: oldVal } : null,
     new_data: { field, value: formData.get("value") },
   });
-  revalidatePath(`/rosters/${team_id}`);
+  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
 }
