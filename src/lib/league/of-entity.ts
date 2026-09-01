@@ -8,7 +8,7 @@ type Admin = ReturnType<typeof createAdminClient>;
  *
  * Server actions receive a season, team, game or roster id and no league — the
  * league lives in the URL of the page that rendered the form, not in the form.
- * A league-scoped guard therefore has to derive it, and these are the four
+ * A league-scoped guard therefore has to derive it, and these are the
  * derivations the schema supports. Each returns null when the id resolves to
  * nothing, and `requireLeagueRole(null, …)` refuses, so an unknown id fails
  * closed rather than skipping the check.
@@ -83,4 +83,27 @@ export async function leagueOfAnnouncement(
     .eq("id", announcementId)
     .maybeSingle();
   return data?.league_id ?? null;
+}
+
+/**
+ * League rules are audited under their league's own id, so this resolves a
+ * league id to itself.
+ *
+ * `league_rules` is one row per league (`0006_rules.sql`) and `saveRules`
+ * upserts, so on a first save there is no row id yet for an audit entry to
+ * name — the league id is the only stable handle the action holds. The id is
+ * still looked up rather than handed straight back: an id that matches no
+ * league returns null and fails closed, like the others.
+ */
+export async function leagueOfLeagueRules(
+  leagueId: string,
+  admin: Admin,
+): Promise<string | null> {
+  if (!leagueId) return null;
+  const { data } = await admin
+    .from("leagues")
+    .select("id")
+    .eq("id", leagueId)
+    .maybeSingle();
+  return data?.id ?? null;
 }
