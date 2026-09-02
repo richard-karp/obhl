@@ -138,10 +138,22 @@ the test go red. A test that only asserts the entry was *written* proves nothing
 - **CI does not run `npm run lint`**, though the script exists.
 - **No `.nvmrc` or `engines`** — `.github/workflows/ci.yml` is the de-facto
   source of truth for the Node version (22).
-- **CI's search budget is unproven on CI hardware.** The schedule tests bound
-  quality, reachable only if enough restarts fit in `OBHL_SLOT_BUDGET_MS`.
-  `vitest.config.ts` reads it from the environment (default unchanged). If the
-  bounds trip on a runner, **raise the budget; never loosen an assertion.**
+- **The unit suite is proven on CI hardware** — first run green in 1m41s with
+  the default `OBHL_SLOT_BUDGET_MS`. The env override in `vitest.config.ts`
+  stays as an unused lever; nothing needs it today.
+- **The e2e balance assertion is still unproven there.** The first CI run never
+  reached it: `11-schedule-builder.spec.ts` waits for the draft preview, and
+  Playwright's default 5s assertion timeout was *exactly* the generator's own
+  5s budget (`OBHL_SLOT_BUDGET_MS`, `src/lib/schedule/assignNights.ts`), so the
+  wait had no headroom and passed only where the search converged early.
+  `playwright.config.ts` now sets `expect: { timeout: 30_000 }`. **Do not tidy
+  that back to the default** — it must stay above the generator's budget.
+  With the wait fixed, CI now actually reaches the assertion that every team's
+  GP is 4. If a 2-core runner cannot converge in 5s it will fail *there*, on a
+  real quality bound. The lever then is `OBHL_SLOT_BUDGET_MS` in the **e2e
+  job's** env, which flows to `npm run dev` and so to the generator — no code
+  change, `envInt` already reads it. **Raise the budget; never loosen the
+  assertion.**
 - Supabase CLI 2.104 → 2.116, Vercel CLI 55 → 59.11.
 
 ## Provenance
