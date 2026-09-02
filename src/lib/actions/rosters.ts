@@ -92,7 +92,17 @@ export async function removeRosterPlayer(formData: FormData) {
   const admin = createAdminClient();
   const id = String(formData.get("id"));
   const team_id = String(formData.get("team_id"));
-  const manager = await requireLeagueManager(() => leagueOfTeamPlayer(id, admin));
+  // Resolved BEFORE the delete and reused twice. Afterwards the roster row is
+  // gone and `leagueOfTeamPlayer` has nothing to answer from, so an audit entry
+  // that resolves its own league lands with a null one — hidden by RLS and by
+  // every league-scoped view, which also puts it out of reach of the revert
+  // that `old_data` below exists to serve.
+  //
+  // Eager rather than the lazy `() => …` form, so an unauthenticated POST costs
+  // one lookup on its way to /login. `setActiveSeason` already trades the same
+  // way for the same reason.
+  const league_id = await leagueOfTeamPlayer(id, admin);
+  const manager = await requireLeagueManager(league_id);
 
   // Capture full row before deletion so revert can restore it
   const { data: existing } = await admin
@@ -107,6 +117,7 @@ export async function removeRosterPlayer(formData: FormData) {
     action: "remove_player",
     entity_type: "team_player",
     entity_id: id,
+    league_id,
     old_data: existing ?? { team_id },
   });
   revalidatePath("/[league]/manage/rosters/[teamId]", "page");
