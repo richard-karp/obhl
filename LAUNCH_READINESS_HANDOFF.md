@@ -125,6 +125,28 @@ the same change. Cost differs per file (*reading of the code*):
 Prove each one the way this area is tested: knock the switch case out and watch
 the test go red. A test that only asserts the entry was *written* proves nothing.
 
+## Tests: never submit an unverified form tamper
+
+The cross-league attack tests reach a server action by rewriting a form's hidden
+input and submitting. Setting `.value` on a React-rendered input **before
+hydration lands** is undone when React takes over, and the form then posts its
+ORIGINAL value. Laptops always win that race; a 2-core CI runner does not, and
+it cost two red builds before the cause was found.
+
+Both outcomes were seen on CI:
+
+- the original value is forbidden too → no refusal happens, the test fails
+  somewhere confusing (`a roster add cannot name another league's team`);
+- the original value is **permitted** → the action quietly succeeds and the test
+  passes *with the attack never having happened* (`a manager can be removed from
+  a league, but never yourself`, whose "self is still a member" check held
+  vacuously). This is the dangerous half: a green tick over an untested guard.
+
+All six sites in `e2e/16-league-membership.spec.ts` now go through one
+`tamper()` helper that settles, sets, then asserts `toHaveValue` before anything
+is submitted. **Keep new attack tests on that helper** — a raw `.value` write in
+this file is a bug, and there should be exactly one, inside the helper itself.
+
 ## 4 — Smaller, deliberately deferred
 
 - **`saveRules` read-then-upsert is not atomic** — two concurrent saves both
