@@ -8,10 +8,12 @@ on:
   push:
     branches: [main]
 
-# A second push to the same PR makes the first run's answer irrelevant.
+# A second push to the same PR makes the first run's answer irrelevant, so
+# supersede it. Pushes to `main` are never cancelled — each merge commit should
+# end up with a CI result of its own rather than being superseded by the next.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Types and unit tests: no database, no browser, so this is the fast answer.
