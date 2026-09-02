@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireLeagueManager } from "@/lib/auth/guards";
+import { logAudit } from "@/lib/audit";
 import {
   addLeagueMembership,
   removeLeagueMembership,
@@ -32,12 +33,26 @@ async function isManagerAccount(
   admin: ReturnType<typeof createAdminClient>,
   id: string,
 ): Promise<boolean> {
+  return (await staffSnapshot(admin, id))?.role === "league_manager";
+}
+
+/**
+ * What an account looks like before an action changes it.
+ *
+ * Read once and used twice: the manager guard above turns on `role`, and the
+ * audit entry needs the same value as `old_data` plus a name, so that the log
+ * reads as "Made Alex Chen a scorekeeper" rather than two opaque uuids.
+ */
+async function staffSnapshot(
+  admin: ReturnType<typeof createAdminClient>,
+  id: string,
+): Promise<{ role: string | null; display_name: string | null } | null> {
   const { data } = await admin
     .from("profiles")
-    .select("role")
+    .select("role, display_name")
     .eq("id", id)
     .maybeSingle();
-  return data?.role === "league_manager";
+  return data ? { role: data.role, display_name: data.display_name } : null;
 }
 
 /**
@@ -63,6 +78,37 @@ async function isMemberOf(
 }
 
 /**
+ * One audit entry for a staff change.
+ *
+ * `entity_id` is the LEAGUE id, not the profile id. A person spans leagues, so
+ * a profile id names no single one, and what changed here is *this league's*
+ * staff. `leagueOfEntity` in `src/lib/audit.ts` resolves `"league_staff"` the
+ * same way — without that case the entry is written with a null league, which
+ * RLS and every league-scoped view then hide, so it would be correct and
+ * invisible.
+ *
+ * Awaited rather than voided: a `void` promise can be left unfinished when the
+ * runtime freezes the function after the response, and who was granted or
+ * revoked access to a league is the last record worth losing. `logAudit`
+ * swallows its own errors, so awaiting cannot turn a successful change into a
+ * reported failure.
+ */
+async function logStaffChange(
+  actorId: string,
+  leagueId: string,
+  action: "add_staff" | "grant_league" | "update_staff_role" | "remove_staff",
+  data: { old_data?: object | null; new_data?: object | null },
+) {
+  await logAudit({
+    user_id: actorId,
+    action,
+    entity_type: "league_staff",
+    entity_id: leagueId,
+    ...data,
+  });
+}
+
+/**
  * Manager adds a staff account to THIS league — creating the login if the
  * person doesn't have one yet, and granting membership either way.
  *
@@ -76,7 +122,7 @@ export async function createStaffAccount(
 ): Promise<PeopleActionState> {
   const leagueId = String(formData.get("league_id") ?? "");
   if (!leagueId) return { ok: false, message: "No league selected." };
-  await requireLeagueManager(leagueId);
+  const actor = await requireLeagueManager(leagueId);
 
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const role = String(formData.get("role") ?? "") as AppRole;
@@ -123,6 +169,9 @@ export async function createStaffAccount(
       };
     }
     await addLeagueMembership(userId, leagueId);
+    await logStaffChange(actor.id, leagueId, "grant_league", {
+      new_data: { profile_id: userId, email, role: "league_manager" },
+    });
     revalidatePath("/[league]/manage/people", "page");
     return { ok: true, message: `${email} now manages this league too.` };
   }
@@ -139,6 +188,9 @@ export async function createStaffAccount(
   if (pErr) return { ok: false, message: pErr.message };
 
   await addLeagueMembership(userId, leagueId);
+  await logStaffChange(actor.id, leagueId, "add_staff", {
+    new_data: { profile_id: userId, email, role, display_name: displayName },
+  });
 
   revalidatePath("/[league]/manage/people", "page");
   return { ok: true, message: `${email} added as ${role.replace("league_", "")}.` };
@@ -148,18 +200,28 @@ export async function createStaffAccount(
 export async function updateStaffRole(formData: FormData) {
   const leagueId = String(formData.get("league_id") ?? "");
   if (!leagueId) return;
-  await requireLeagueManager(leagueId);
+  const actor = await requireLeagueManager(leagueId);
 
   const id = String(formData.get("id"));
   const role = String(formData.get("role")) as AppRole;
   if (!ROLES.includes(role)) return;
   const admin = createAdminClient();
   if (!(await isMemberOf(admin, id, leagueId))) return;
-  if (await isManagerAccount(admin, id)) return;
+
+  // Read once: the manager guard turns on this role, and the audit entry needs
+  // the same value as `old_data`.
+  const before = await staffSnapshot(admin, id);
+  if (before?.role === "league_manager") return;
+
   // Role only. This used to null `player_id` for any non-captain role, so
   // promoting a captain to manager quietly unlinked them from their player —
   // and the captain surface is derived from that link.
-  await admin.from("profiles").update({ role }).eq("id", id);
+  const { error } = await admin.from("profiles").update({ role }).eq("id", id);
+  if (error) return;
+  await logStaffChange(actor.id, leagueId, "update_staff_role", {
+    old_data: { profile_id: id, role: before?.role ?? null },
+    new_data: { profile_id: id, role, display_name: before?.display_name ?? null },
+  });
   revalidatePath("/[league]/manage/people", "page");
 }
 
@@ -194,6 +256,17 @@ export async function removeStaff(formData: FormData) {
   const admin = createAdminClient();
   if (!(await isMemberOf(admin, id, leagueId))) return;
   if (id === actor.id) return;
+
+  // Snapshot before the revoke: afterwards the membership row is gone, and the
+  // entry is the only thing saying who held this league and in what role.
+  const before = await staffSnapshot(admin, id);
   await removeLeagueMembership(id, leagueId);
+  await logStaffChange(actor.id, leagueId, "remove_staff", {
+    old_data: {
+      profile_id: id,
+      role: before?.role ?? null,
+      display_name: before?.display_name ?? null,
+    },
+  });
   revalidatePath("/[league]/manage/people", "page");
 }

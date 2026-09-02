@@ -127,6 +127,27 @@ export default async function AuditLogPage({
         return "Generated AI recap";
       case "save_rules":
         return "Updated league rules";
+      // Staff entries name the person from their own payload: entity_id is the
+      // league, not the profile, so there is no id here to look a name up from.
+      case "add_staff": {
+        const who = typeof nd?.display_name === "string" ? nd.display_name : nd?.email;
+        const r = typeof nd?.role === "string" ? nd.role.replace("league_", "") : "staff";
+        return `Added ${typeof who === "string" ? who : "an account"} as ${r}`;
+      }
+      case "grant_league": {
+        const who = typeof nd?.email === "string" ? nd.email : "a manager";
+        return `Gave ${who} this league`;
+      }
+      case "update_staff_role": {
+        const who = typeof nd?.display_name === "string" ? nd.display_name : "someone";
+        const from = typeof od?.role === "string" ? od.role.replace("league_", "") : "?";
+        const to = typeof nd?.role === "string" ? nd.role.replace("league_", "") : "?";
+        return `Changed ${who} from ${from} to ${to}`;
+      }
+      case "remove_staff": {
+        const who = typeof od?.display_name === "string" ? od.display_name : "someone";
+        return `Removed ${who} from this league`;
+      }
       case "add_player": {
         const pid = typeof nd?.player_id === "string" ? nd.player_id : null;
         const name = pid ? playerNameMap.get(pid) : undefined;
