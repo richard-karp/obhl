@@ -15,6 +15,16 @@ type AuditEntry = {
   entity_id: string;
   old_data?: object | null;
   new_data?: object | null;
+  /**
+   * The league to file under, when the caller already knows it.
+   *
+   * For actions that DESTROY the entity they are logging: once the row is gone
+   * `leagueOfEntity` has nothing to resolve from and returns null, and a null
+   * league is hidden by RLS and filtered out of every league-scoped view — so
+   * the entry is written correctly and never appears. Resolve the league before
+   * the delete and pass it here.
+   */
+  league_id?: string | null;
 };
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -62,7 +72,9 @@ export async function logAudit(entry: AuditEntry) {
     const admin = createAdminClient();
     await admin.from("audit_log").insert({
       session_id: session_id ?? undefined,
-      league_id: await leagueOfEntity(admin, entry.entity_type, entry.entity_id),
+      league_id:
+        entry.league_id ??
+        (await leagueOfEntity(admin, entry.entity_type, entry.entity_id)),
       user_id: entry.user_id,
       action: entry.action,
       entity_type: entry.entity_type,

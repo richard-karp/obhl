@@ -8,6 +8,7 @@ export function StaffRowActions({
   role,
   leagueId,
   canRemove,
+  canPromote,
 }: {
   id: string;
   role: string;
@@ -20,6 +21,14 @@ export function StaffRowActions({
    * appears to do nothing.
    */
   canRemove: boolean;
+  /**
+   * Whether promoting this row to manager would be honoured. A role is
+   * instance-wide, so it lands in every league this person belongs to — and
+   * `updateStaffRole` refuses one that would reach a league the viewer is not
+   * in. Refused silently, like Remove, so the option is withheld rather than
+   * offered and ignored.
+   */
+  canPromote: boolean;
 }) {
   const remove = canRemove ? (
     <form action={removeStaff}>
@@ -64,8 +73,15 @@ export function StaffRowActions({
           defaultValue={role}
           onChange={(e) => e.currentTarget.form?.requestSubmit()}
           className="border-input bg-background h-8 rounded-md border px-2 text-sm"
+          title={
+            canPromote
+              ? undefined
+              : "This person also works a league you are not in. A role applies everywhere, so making them a manager here would make them one there too."
+          }
         >
-          <option value="league_manager">Manager</option>
+          {canPromote ? (
+            <option value="league_manager">Manager</option>
+          ) : null}
           <option value="scorekeeper">Scorekeeper</option>
           <option value="captain">Captain</option>
         </select>

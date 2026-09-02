@@ -290,6 +290,272 @@ test.describe("Path 17 — Per-league membership", () => {
     }
   });
 
+  test("adding an existing account cannot rewrite the role it holds elsewhere", async ({
+    page,
+  }) => {
+    // "Add a staff account" reaches an account that already exists: createUser
+    // fails on a known address, the id is looked up, and the profile is then
+    // upserted. `profiles.role` is ONE instance-wide column (0009 reads it as
+    // the role source; 0010's hook copies it into the JWT), so that upsert
+    // rewrites the role the account uses in EVERY league it belongs to.
+    //
+    // The victim here belongs only to a league this manager is not in, and the
+    // fixture test above asserts those two leagues differ. Granting them
+    // `league_manager` therefore makes them a manager of a league the actor
+    // cannot reach — through the ordinary form, with no tampering.
+    //
+    // createStaffAccount is the one action in people.ts that never calls
+    // `isMemberOf`; updateStaffRole and removeStaff both do.
+    const victim = "single-league-scorer@obhl.test";
+    const db = admin();
+    const outsideLeague = await leagueId(LEAD_IN);
+
+    const { data: before } = await db
+      .from("profiles")
+      .select("id, role, display_name")
+      .eq("display_name", "Single League Scorer")
+      .single();
+    // State the precondition rather than assume it: if the seed ever makes this
+    // account a manager, the upsert below is a no-op and the test would pass
+    // while proving nothing.
+    expect(before!.role, "victim must start as a non-manager").toBe("scorekeeper");
+
+    const memberships = async () => {
+      const { data } = await db
+        .from("profile_leagues")
+        .select("league_id")
+        .eq("profile_id", before!.id);
+      return (data ?? []).map((r) => r.league_id as string);
+    };
+    expect(await memberships()).not.toContain(outsideLeague);
+
+    try {
+      await signInAs(page, "One-league mgr");
+      await page.goto(`/${LEAD_IN}/manage/people`);
+
+      const card = page
+        .locator('[data-slot="card"]')
+        .filter({ hasText: "Add a staff account" });
+      await card.getByLabel("Email").fill(victim);
+      // Their own display name, so the blast radius of a passing-today run is
+      // the role alone. Left blank this field defaults to the email address and
+      // overwrites the column that `beforeAll` derives the fixture from.
+      await card.getByLabel("Display name").fill(before!.display_name!);
+      await card.getByRole("combobox").click();
+      await page.getByRole("option", { name: "League manager" }).click();
+      await submitAndSettle(
+        page,
+        card.getByRole("button", { name: "Add staff account" }).click(),
+      );
+
+      // The refusal is VISIBLE, and asserted before the database checks. The
+      // two below can both hold on a form that never submitted at all, which
+      // would make this test pass while proving nothing once the guard lands —
+      // the inverse of the vacuous-pass trap described above.
+      //
+      // Which refusal: the victim holds `scorekeeper` and this form submits
+      // `league_manager`, so the role-mismatch branch answers first and the
+      // `mayWriteProfileOf` check below it never runs. That one is the narrower
+      // second layer — it decides only the case where an existing login has no
+      // role to compare against — so naming its message here asserted a guard
+      // this fixture cannot reach, while the escalation was in fact refused.
+      await expect(
+        card.getByText(/already has an account as scorekeeper/),
+      ).toBeVisible();
+
+      // The subject of the test: a manager of one league changed what an
+      // account is allowed to do in another.
+      //
+      // Soft, both of them, so a failing run reports the whole effect rather
+      // than stopping at the first half of it.
+      const { data: after } = await db
+        .from("profiles")
+        .select("role")
+        .eq("id", before!.id)
+        .single();
+      expect
+        .soft(
+          after!.role,
+          "a manager of another league rewrote this account's global role",
+        )
+        .toBe("scorekeeper");
+
+      // And did not hand themselves the membership either.
+      expect
+        .soft(await memberships(), "…and granted it their own league")
+        .not.toContain(outsideLeague);
+    } finally {
+      await db
+        .from("profiles")
+        .update({ role: before!.role, display_name: before!.display_name })
+        .eq("id", before!.id);
+      await db
+        .from("profile_leagues")
+        .delete()
+        .eq("profile_id", before!.id)
+        .eq("league_id", outsideLeague);
+    }
+  });
+
+  test("a manager cannot promote someone who works a league they don't share", async ({
+    page,
+  }) => {
+    // The SECOND step of the same escalation, and the reason refusing the
+    // profile write above does not close it.
+    //
+    // Step one is permitted on purpose: adding an existing account at the role
+    // it already holds grants membership and touches no profile — that is how
+    // one person works two leagues. But it also makes the actor share a league
+    // with them, so `isMemberOf` then passes in `updateStaffRole`, which
+    // constrains only a manager DEMOTION. `league_manager` is instance-wide, so
+    // the promotion lands in the league the actor cannot see.
+    //
+    // `mayWriteProfileOf` cannot catch this: step one creates the very sharing
+    // it tests for. Neither can RLS — 0032's `shares_league_with(id)` permits
+    // the identical sequence for the identical reason.
+    //
+    // Both steps go through the ordinary forms. Nothing is tampered with.
+    const victim = "single-league-scorer@obhl.test";
+    const db = admin();
+    const shared = await leagueId(LEAD_IN);
+    const theirs = await leagueId(SCORER_IN);
+
+    const { data: before } = await db
+      .from("profiles")
+      .select("id, role, display_name")
+      .eq("display_name", "Single League Scorer")
+      .single();
+    expect(before!.role, "victim must start as a non-manager").toBe("scorekeeper");
+
+    try {
+      await signInAs(page, "One-league mgr");
+      await page.goto(`/${LEAD_IN}/manage/people`);
+
+      // ── Step 1: the permitted grant ──────────────────────────────────────
+      const card = page
+        .locator('[data-slot="card"]')
+        .filter({ hasText: "Add a staff account" });
+      await card.getByLabel("Email").fill(victim);
+      // Their own display name: the add form writes no profile on this path,
+      // but leaving it blank would default the column to the email address that
+      // `beforeAll` derives the whole fixture from.
+      await card.getByLabel("Display name").fill(before!.display_name!);
+      await card.getByRole("combobox").click();
+      await page.getByRole("option", { name: "Scorekeeper" }).click();
+      await submitAndSettle(
+        page,
+        card.getByRole("button", { name: "Add staff account" }).click(),
+      );
+      // Asserted, not assumed. If step one were refused, step two would be
+      // refused for THAT reason and this test would prove nothing.
+      await expect(card.getByText(/now works this league too/)).toBeVisible();
+
+      // ── Step 2: the escalation, refused at both layers ───────────────────
+      await page.reload();
+      const row = page.locator("table tbody tr").filter({ hasText: victim });
+      await expect(row, "the grant should have put them in this table").toHaveCount(1);
+
+      // The page withholds the option, because the server would refuse it.
+      const select = row.getByLabel("Change role");
+      await expect(
+        select.locator('option[value="league_manager"]'),
+        "Manager should not be offered for someone who works a league you are not in",
+      ).toHaveCount(0);
+
+      // The guard is the server, though — so submit it anyway. Withholding the
+      // option is a courtesy to the manager, not a control on the request.
+      await forgeAndSubmit(page, select, "league_manager");
+
+      const { data: after } = await db
+        .from("profiles")
+        .select("role")
+        .eq("id", before!.id)
+        .single();
+      expect(
+        after!.role,
+        "a manager of one league minted a manager of another",
+      ).toBe("scorekeeper");
+
+      // Visible too, not only in the table: a promoted row loses its role
+      // control and reads "Role changed by hand", so this would not survive.
+      await page.reload();
+      await expect(
+        page
+          .locator("table tbody tr")
+          .filter({ hasText: victim })
+          .getByLabel("Change role"),
+      ).toHaveValue("scorekeeper");
+
+      // Refusing the promotion must not cost them the league they came from.
+      const { data: still } = await db
+        .from("profile_leagues")
+        .select("league_id")
+        .eq("profile_id", before!.id);
+      expect((still ?? []).map((r) => r.league_id)).toContain(theirs);
+    } finally {
+      await db
+        .from("profiles")
+        .update({ role: before!.role, display_name: before!.display_name })
+        .eq("id", before!.id);
+      await db
+        .from("profile_leagues")
+        .delete()
+        .eq("profile_id", before!.id)
+        .eq("league_id", shared);
+    }
+  });
+
+  test("a manager can still promote someone whose leagues they all share", async ({
+    page,
+  }) => {
+    // The control for the test above. `mayPromoteToManager` refusing every
+    // promotion would satisfy that one exactly as well as a correct guard does,
+    // and handing a second person a manager account is the flow the whole
+    // membership model exists to support — so it has to be shown working.
+    //
+    // Both accounts here are seeded into every league, so containment holds and
+    // the promotion reaches no league the actor is not already a manager of.
+    const subject = "scorekeeper@obhl.test";
+    const db = admin();
+
+    const { data: before } = await db
+      .from("profiles")
+      .select("id, role")
+      .eq("display_name", "Score Keeper")
+      .single();
+    expect(before!.role, "control subject must start as a non-manager").toBe(
+      "scorekeeper",
+    );
+
+    try {
+      await signInAs(page, "Manager");
+      await page.goto(`/${LEAD_IN}/manage/people`);
+
+      const row = page.locator("table tbody tr").filter({ hasText: subject });
+      const select = row.getByLabel("Change role");
+      // Offered here, unlike the row in the test above.
+      await expect(
+        select.locator('option[value="league_manager"]'),
+      ).toHaveCount(1);
+
+      await submitAndSettle(page, select.selectOption("league_manager"));
+
+      const { data: after } = await db
+        .from("profiles")
+        .select("role")
+        .eq("id", before!.id)
+        .single();
+      expect(after!.role, "the permitted promotion was refused too").toBe(
+        "league_manager",
+      );
+    } finally {
+      await db
+        .from("profiles")
+        .update({ role: before!.role })
+        .eq("id", before!.id);
+    }
+  });
+
   // ── The other half: RLS, for a session talking to PostgREST directly ──────
   //
   // The app guards gate the UI. A staff account also holds a real Supabase
@@ -426,7 +692,7 @@ test.describe("Path 17 — Per-league membership", () => {
    * and the test passes whether the guard is there or not. That is how the
    * first version of these tests passed against a deliberately broken guard.
    */
-  async function submitAndSettle(page: Page, click: Promise<void>) {
+  async function submitAndSettle(page: Page, click: Promise<unknown>) {
     const posted = page.waitForResponse((r) => r.request().method() === "POST");
     await click;
     await posted;
@@ -454,6 +720,39 @@ test.describe("Path 17 — Per-league membership", () => {
     await page.waitForLoadState("networkidle");
     await field.evaluate((el, v) => ((el as HTMLInputElement).value = v), value);
     await expect(field).toHaveValue(value);
+  }
+
+  /**
+   * Choose a value a `<select>` does not offer, and submit its form.
+   *
+   * The page half of a withheld option is not the guard — the server is. This
+   * is the request that ignores what the page offered.
+   *
+   * `tamper` cannot express it: assigning a `<select>` a value it has no option
+   * for leaves the value unchanged, so tamper's own `toHaveValue` check would
+   * fail before anything was submitted. Same discipline otherwise — settle
+   * first, prove the forged value actually took, and only then submit, because
+   * a run that quietly posted the ORIGINAL value would read as a pass while
+   * proving nothing.
+   *
+   * Submitted through `requestSubmit()` rather than a synthetic change event:
+   * assigning `.value` fires no change, and that is the handler the row relies
+   * on — so a dispatched event is one more thing that can silently not happen.
+   */
+  async function forgeAndSubmit(page: Page, select: Locator, value: string) {
+    await page.waitForLoadState("networkidle");
+    await select.evaluate((el, v) => {
+      const sel = el as HTMLSelectElement;
+      const option = document.createElement("option");
+      option.value = v;
+      sel.append(option);
+      sel.value = v;
+    }, value);
+    await expect(select).toHaveValue(value);
+    await submitAndSettle(
+      page,
+      select.evaluate((el) => (el as HTMLSelectElement).form?.requestSubmit()),
+    );
   }
 
   /** Roster rows whose team and season belong to different leagues — always 0. */

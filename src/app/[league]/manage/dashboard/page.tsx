@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth/guards";
 import { isLeagueMember } from "@/lib/auth/membership";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveContext } from "@/lib/queries/season";
 import { getSchedule } from "@/lib/queries/schedule";
@@ -41,13 +42,18 @@ export default async function DashboardPage({
 }) {
   const { league: leagueParam } = await params;
   const user = await requireUser();
-  const ctx = await getActiveContext(leagueParam);
+  // The league alone first, so a request that is about to be refused does not
+  // also pay for the active-season lookup. `resolveLeagueBySlug` is
+  // cache()-wrapped, so `getActiveContext` below reuses this answer.
+  const league = await resolveLeagueBySlug(leagueParam);
+  if (!league) notFound();
   // Membership, not role, decides which leagues a staff account can open. The
   // check is on a *roled* account only: an account with no role yet belongs to
   // no league either, and refusing it here would make the explanation below —
   // the one page that tells someone why nothing works — unreachable. It renders
   // no league data, so there is nothing for it to leak.
-  if (user.role && !(await isLeagueMember(user.id, ctx.league.id))) redirect("/");
+  if (user.role && !(await isLeagueMember(user.id, league.id))) redirect("/");
+  const ctx = await getActiveContext(leagueParam);
   // The resolved slug, not the URL's — links stay canonical from /OBHL.
   const leagueSlug = ctx.league.slug;
   const seasonLabel = ctx.season?.name ?? "No active season";

@@ -97,6 +97,10 @@ export async function revertAuditEntries(
             action: "revert_add_player",
             entity_type: "team_player",
             entity_id: entry.entity_id,
+            // The row was just deleted, so this entry cannot resolve its own
+            // league. It is already known: every entry here was read with
+            // `.eq("league_id", leagueId)` above.
+            league_id: leagueId,
           });
           break;
         }

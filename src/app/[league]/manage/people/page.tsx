@@ -6,6 +6,7 @@ import {
   type CaptainOption,
 } from "@/components/manage/create-staff-form";
 import { StaffRowActions } from "@/components/manage/staff-row-actions";
+import { memberLeagueIds } from "@/lib/auth/membership";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -23,7 +24,6 @@ const ROLE_LABEL: Record<string, string> = {
   captain: "Captain",
 };
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export default async function PeoplePage({
   params,
 }: {
@@ -43,12 +43,19 @@ export default async function PeoplePage({
     .eq("league_id", ctx.league.id);
   const memberIds = (members ?? []).map((m) => m.profile_id);
 
-  const [{ data: usersList }, { data: profiles }] = await Promise.all([
-    admin.auth.admin.listUsers({ perPage: 1000 }),
-    memberIds.length
-      ? admin.from("profiles").select("id, role, display_name").in("id", memberIds)
-      : Promise.resolve({ data: [] as { id: string; role: string | null; display_name: string | null }[] }),
-  ]);
+  const [{ data: usersList }, { data: profiles }, { data: allMemberships }] =
+    await Promise.all([
+      admin.auth.admin.listUsers({ perPage: 1000 }),
+      memberIds.length
+        ? admin.from("profiles").select("id, role, display_name").in("id", memberIds)
+        : Promise.resolve({ data: [] as { id: string; role: string | null; display_name: string | null }[] }),
+      // Every league these people work, not just this one — a promotion to
+      // manager reaches all of them. One query for the table, rather than one
+      // per row.
+      memberIds.length
+        ? admin.from("profile_leagues").select("profile_id, league_id").in("profile_id", memberIds)
+        : Promise.resolve({ data: [] as { profile_id: string; league_id: string }[] }),
+    ]);
 
   let captains: CaptainOption[] = [];
   if (ctx.season) {
@@ -59,7 +66,7 @@ export default async function PeoplePage({
       )
       .eq("season_id", ctx.season.id)
       .eq("is_captain", true);
-    captains = (caps ?? []).map((c: any) => ({
+    captains = (caps ?? []).map((c) => ({
       id: c.player_id,
       label: `${c.players?.first_name} ${c.players?.last_name} (${c.teams?.name})`,
     }));
@@ -75,6 +82,19 @@ export default async function PeoplePage({
   // The one refusal `removeStaff` makes, so a row can render the reason rather
   // than a button that silently does nothing. It also covers the sole manager
   // of a league, who is necessarily whoever is looking at this page.
+
+  // The same idea for the role control: `updateStaffRole` refuses a promotion
+  // to manager that would reach a league the viewer is not in (a role is
+  // instance-wide), and refuses it silently. Worked out here so the option is
+  // withheld instead of offered and ignored. `mayPromoteToManager` is the
+  // server-side twin — this decides what to render, that decides what happens.
+  const viewerLeagues = new Set(await memberLeagueIds(viewer.id));
+  const leaguesOf = new Map<string, string[]>();
+  for (const m of allMemberships ?? []) {
+    leaguesOf.set(m.profile_id, [...(leaguesOf.get(m.profile_id) ?? []), m.league_id]);
+  }
+  const canPromote = (id: string) =>
+    (leaguesOf.get(id) ?? []).every((l) => viewerLeagues.has(l));
 
   return (
     <div className="space-y-6">
@@ -116,6 +136,7 @@ export default async function PeoplePage({
                     role={s.role ?? "scorekeeper"}
                     leagueId={ctx.league.id}
                     canRemove={s.id !== viewer.id}
+                    canPromote={canPromote(s.id)}
                   />
                 </TableCell>
               </TableRow>
@@ -133,4 +154,3 @@ export default async function PeoplePage({
     </div>
   );
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */

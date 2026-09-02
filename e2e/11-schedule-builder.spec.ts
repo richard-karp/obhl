@@ -41,7 +41,30 @@ test("scorekeeper cannot reach /schedule-builder", async ({ page }) => {
   await expect(page).toHaveURL("/");
 });
 
+/**
+ * How long an assertion may wait on a generate.
+ *
+ * `playwright.config.ts` sets a 15s assertion timeout and reasons it from the
+ * generator's `OBHL_SLOT_BUDGET_MS` (5s). That is one budget short of what a
+ * generate actually spends: `assignNights` runs Phase S at FIVE candidates —
+ * 160, 140 on three seeds, then 200 — each on its own budget, so the search
+ * alone can reach ~25s before anything renders (SCHEDULE_HANDOFF §5).
+ *
+ * The gap hid because generate time is hardware-bound: this file's spacing test
+ * takes ~3s on a laptop, ~10s on a quiet CI runner, and blew the 15s ceiling on
+ * a loaded one. Raising the global timeout instead would slow every genuine
+ * failure in the suite by 30s, which the config comment explicitly warns off.
+ *
+ * Applies ONLY to assertions waiting on a generate. Anything else that needs
+ * this long is a bug, not a slow search.
+ */
+const AFTER_GENERATE = { timeout: 45_000 };
+
 test.describe("Path 17 — Schedule Builder", () => {
+  // Two of these tests generate twice, and a generate can be ~25s of search on
+  // a slow runner — the 60s default would be the next thing to fail.
+  test.describe.configure({ timeout: 150_000 });
+
   test.beforeEach(async ({ page }) => {
     await signedInAs(page, "Manager");
     await goToFallSeasonSetup(page);
@@ -101,7 +124,7 @@ test.describe("Path 17 — Schedule Builder", () => {
     await page.getByRole("button", { name: "Generate schedule" }).click();
 
     // Draft preview appears: balance report and a Publish button.
-    await expect(page.getByText("Balance report")).toBeVisible();
+    await expect(page.getByText("Balance report")).toBeVisible(AFTER_GENERATE);
     await expect(page.getByRole("button", { name: /Publish \d+ games/ })).toBeVisible();
 
     // Every team's GP cell should read 4 (equal games per team). Scoped to the
@@ -137,7 +160,9 @@ test.describe("Path 17 — Schedule Builder", () => {
     await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
     await page.getByRole("button", { name: "Generate schedule" }).click();
 
-    await expect(page.getByText(/Generated a \d+-game draft schedule/)).toBeVisible();
+    await expect(
+      page.getByText(/Generated a \d+-game draft schedule/),
+    ).toBeVisible(AFTER_GENERATE);
 
     await page.getByRole("button", { name: "Discard draft" }).click();
     await expect(page.getByText("No draft schedule")).toBeVisible();
@@ -173,7 +198,7 @@ test.describe("Path 17 — Schedule Builder", () => {
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
     await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
     await page.getByRole("button", { name: "Generate schedule" }).click();
-    await expect(page.getByText("Balance report")).toBeVisible();
+    await expect(page.getByText("Balance report")).toBeVisible(AFTER_GENERATE);
 
     await expect(page.getByText("Spacing checks")).toBeVisible();
     for (const label of [
@@ -218,7 +243,7 @@ test.describe("Path 17 — Schedule Builder", () => {
 
     await generate();
     const publishButton = page.getByRole("button", { name: /Publish \d+ games/ });
-    await expect(publishButton).toBeVisible();
+    await expect(publishButton).toBeVisible(AFTER_GENERATE);
     const published = Number((await publishButton.textContent())!.match(/\d+/)![0]);
     await publishButton.click();
 
@@ -237,7 +262,7 @@ test.describe("Path 17 — Schedule Builder", () => {
     await generate();
     await expect(
       page.getByRole("button", { name: "Replace published schedule" }),
-    ).toBeVisible();
+    ).toBeVisible(AFTER_GENERATE);
     await expect(page.getByRole("button", { name: /Publish \d+ games/ })).toHaveCount(0);
 
     // The live schedule stays visible in replace mode. It used to be suppressed
