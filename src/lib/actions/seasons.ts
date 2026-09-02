@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireLeagueManager } from "@/lib/auth/guards";
+import { logAudit } from "@/lib/audit";
 import { addLeagueMembership } from "@/lib/auth/membership";
 import { leagueOfSeason } from "@/lib/league/of-entity";
 import { getStandings } from "@/lib/queries/standings";
@@ -47,7 +48,7 @@ export async function createSeason(
   const ends = String(formData.get("ends_on") ?? "") || null;
   if (!name) return { ok: false, message: "Season name is required." };
   if (!league_id) return { ok: false, message: "No league selected." };
-  await requireLeagueManager(league_id);
+  const manager = await requireLeagueManager(league_id);
 
   const { data, error } = await admin
     .from("seasons")
@@ -61,6 +62,17 @@ export async function createSeason(
     .select("id")
     .single();
   if (error) return { ok: false, message: error.message };
+  // Awaited rather than voided, here and below: a void promise can be left
+  // unfinished when the runtime freezes the function after the response, and
+  // `logAudit` swallows its own errors, so awaiting cannot turn a successful
+  // change into a reported failure. Same trade as `people.ts`.
+  await logAudit({
+    user_id: manager.id,
+    action: "create_season",
+    entity_type: "season",
+    entity_id: data.id,
+    new_data: { name, starts_on: starts, ends_on: ends },
+  });
   revalidatePath("/[league]/manage/seasons", "page");
   return { ok: true, message: `Season "${name}" created.`, seasonId: data.id };
 }
@@ -76,7 +88,7 @@ export async function createTeamForSeason(
   const admin = createAdminClient();
 
   const season_id = String(formData.get("season_id") ?? "");
-  await requireLeagueManager(() => leagueOfSeason(season_id, admin));
+  const manager = await requireLeagueManager(() => leagueOfSeason(season_id, admin));
   const name = String(formData.get("name") ?? "").trim();
   const color = String(formData.get("color") ?? "").trim() || null;
   const captainName = String(formData.get("captain_name") ?? "").trim();
@@ -176,6 +188,16 @@ export async function createTeamForSeason(
     }
   }
 
+  // Logged once, at the end, for the outcome that actually reached here: the
+  // early returns above are partial failures that say so in their own message,
+  // and each already rolled back what it could.
+  await logAudit({
+    user_id: manager.id,
+    action: "create_team",
+    entity_type: "team",
+    entity_id: team.id,
+    new_data: { name, season_id, captain: captainName || null },
+  });
   revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
   return {
     ok: true,
@@ -187,7 +209,18 @@ export async function setActiveSeason(formData: FormData) {
   const admin = createAdminClient();
   const id = String(formData.get("id"));
   const leagueId = await leagueIdOfSeason(admin, id);
-  await requireLeagueManager(leagueId);
+  const manager = await requireLeagueManager(leagueId);
+
+  // Which season is being replaced, read before the update that clears it —
+  // afterwards nothing says what was live, and that is the whole point of the
+  // entry.
+  const { data: was } = await admin
+    .from("seasons")
+    .select("id, name")
+    .eq("league_id", leagueId)
+    .eq("is_active", true)
+    .maybeSingle();
+
   // Unset the current active first (one-active-per-league partial unique index),
   // then activate the chosen season — scoped to this league so a stray id can't
   // activate another league's season.
@@ -202,6 +235,19 @@ export async function setActiveSeason(formData: FormData) {
     .eq("id", id)
     .eq("league_id", leagueId);
   if (e2) throw new Error(`Activating season failed: ${e2.message}`);
+  const { data: now } = await admin
+    .from("seasons")
+    .select("name")
+    .eq("id", id)
+    .maybeSingle();
+  await logAudit({
+    user_id: manager.id,
+    action: "set_active_season",
+    entity_type: "season",
+    entity_id: id,
+    old_data: was ? { season_id: was.id, name: was.name } : null,
+    new_data: { season_id: id, name: now?.name ?? null },
+  });
   revalidatePath("/[league]/manage/seasons", "page");
   revalidatePath("/[league]", "layout");
 }
@@ -210,12 +256,32 @@ export async function unenrollTeam(formData: FormData) {
   const admin = createAdminClient();
   const season_id = String(formData.get("season_id"));
   const team_id = String(formData.get("team_id"));
-  await requireLeagueManager(() => leagueOfSeason(season_id, admin));
+  const manager = await requireLeagueManager(() => leagueOfSeason(season_id, admin));
+
+  // The team's name, read before the enrollment goes: the team row survives an
+  // unenroll, but reading it here keeps the entry readable even if the team is
+  // later deleted outright.
+  const { data: team } = await admin
+    .from("teams")
+    .select("name")
+    .eq("id", team_id)
+    .maybeSingle();
+
   await admin
     .from("season_teams")
     .delete()
     .eq("season_id", season_id)
     .eq("team_id", team_id);
+  // Filed under the SEASON, which outlives the enrollment row — so
+  // `leagueOfEntity` still resolves a league and the entry stays visible. The
+  // `season_teams` row itself has no id here and would resolve to nothing.
+  await logAudit({
+    user_id: manager.id,
+    action: "unenroll_team",
+    entity_type: "season",
+    entity_id: season_id,
+    old_data: { team_id, name: team?.name ?? null },
+  });
   revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
 }
 
@@ -226,7 +292,7 @@ export async function unenrollTeam(formData: FormData) {
 export async function generateLeagueSummary(formData: FormData) {
   const admin = createAdminClient();
   const season_id = String(formData.get("season_id"));
-  await requireLeagueManager(() => leagueOfSeason(season_id, admin));
+  const manager = await requireLeagueManager(() => leagueOfSeason(season_id, admin));
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured.");
@@ -293,6 +359,14 @@ export async function generateLeagueSummary(formData: FormData) {
     .eq("id", season_id);
   if (error) throw new Error(`Save summary failed: ${error.message}`);
 
+  await logAudit({
+    user_id: manager.id,
+    action: "generate_summary",
+    entity_type: "season",
+    entity_id: season_id,
+    new_data: { summary },
+  });
+
   revalidatePath("/[league]", "page");
   revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
 }
@@ -302,7 +376,7 @@ export async function carryForwardEnrollment(formData: FormData) {
   const admin = createAdminClient();
   const season_id = String(formData.get("season_id"));
   const leagueId = await leagueIdOfSeason(admin, season_id);
-  await requireLeagueManager(leagueId);
+  const manager = await requireLeagueManager(leagueId);
 
   const { data: priors } = await admin
     .from("seasons")
@@ -323,6 +397,7 @@ export async function carryForwardEnrollment(formData: FormData) {
     }
   }
 
+  let carried = 0;
   if (sourceId) {
     const { data: src } = await admin
       .from("season_teams")
@@ -333,7 +408,18 @@ export async function carryForwardEnrollment(formData: FormData) {
       await admin
         .from("season_teams")
         .upsert(rows, { onConflict: "season_id,team_id" });
+      carried = rows.length;
     }
   }
+  // Logged even when it carried nothing: "the manager pressed this and no
+  // season had teams to copy" is the reading someone will want when the roster
+  // is unexpectedly empty.
+  await logAudit({
+    user_id: manager.id,
+    action: "carry_forward_enrollment",
+    entity_type: "season",
+    entity_id: season_id,
+    new_data: { from_season_id: sourceId, teams: carried },
+  });
   revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
 }

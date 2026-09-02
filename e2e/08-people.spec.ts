@@ -3,6 +3,16 @@
  */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+
+/** Service-role client, for undoing a grant the UI has no way to reverse here. */
+function admin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SECRET_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+}
 
 async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
   await page.goto("/login");
@@ -151,5 +161,87 @@ test.describe("Path 14 — People & Roles", () => {
     // "Manager" in its role <select>.
     await expect(managerRow.locator("td").nth(2)).toHaveText("Manager");
     await expect(managerRow).not.toContainText("Demoted");
+  });
+
+  /**
+   * The one branch of `createStaffAccount` nothing else drives: an existing
+   * MANAGER handed a second league.
+   *
+   * It is the branch that writes `grant_league` — reached when the submitted
+   * role matches the one the account already holds, so no profile is written
+   * and only membership changes. That is deliberately the flow that lets one
+   * person manage both leagues, and it is the one an audit log most needs to
+   * record.
+   *
+   * Its own test rather than a line bolted onto another, because it changes how
+   * many managers a league has, and `16-league-membership.spec.ts` reasons about
+   * exactly that — for `harbor` in every one of its tests, and its `beforeAll`
+   * fails loudly by name if this account is left in two leagues. The grant is
+   * undone in `finally`.
+   */
+  test("granting an existing manager a second league is audited", async ({
+    page,
+  }) => {
+    const guest = "single-league-lead@obhl.test";
+    const db = admin();
+    const { data: league } = await db
+      .from("leagues")
+      .select("id")
+      .eq("slug", "obhl")
+      .single();
+    const { data: profile } = await db
+      .from("profiles")
+      .select("id")
+      .eq("display_name", "Single League Manager")
+      .single();
+    // Stated, not assumed: if the seed ever puts this account in obhl already,
+    // the add below is a no-op and the test would pass having granted nothing.
+    const { data: mine } = await db
+      .from("profile_leagues")
+      .select("league_id")
+      .eq("profile_id", profile!.id);
+    expect(
+      (mine ?? []).map((r) => r.league_id),
+      "the guest manager must start outside this league",
+    ).not.toContain(league!.id);
+
+    try {
+      await page.goto("/obhl/manage/people");
+      const card = page
+        .locator('[data-slot="card"]')
+        .filter({ hasText: "Add a staff account" });
+      await card.getByLabel("Email").fill(guest);
+      await card.getByLabel("Display name").fill("Single League Manager");
+      await card.getByRole("combobox").click();
+      await page.getByRole("option", { name: "League manager" }).click();
+      await card.getByRole("button", { name: "Add staff account" }).click();
+
+      // The manager wording, not the scorekeeper one — this is the branch under
+      // test, and the other says "now works this league too".
+      await expect(card.getByText(/now manages this league too/)).toBeVisible();
+
+      await page.goto("/obhl/manage/audit");
+      await expect(page.getByText(`Gave ${guest} this league`)).toBeVisible();
+
+      // Visible on the page is the half that matters, but an entry filed under
+      // no league renders as nothing at all — indistinguishable from one that
+      // was never written. So read the row too.
+      const { data: entry } = await db
+        .from("audit_log")
+        .select("league_id, new_data")
+        .eq("action", "grant_league")
+        .eq("entity_id", league!.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      expect(entry, "grant_league wrote no audit entry").not.toBeNull();
+      expect(entry!.league_id).toBe(league!.id);
+    } finally {
+      await db
+        .from("profile_leagues")
+        .delete()
+        .eq("profile_id", profile!.id)
+        .eq("league_id", league!.id);
+    }
   });
 });

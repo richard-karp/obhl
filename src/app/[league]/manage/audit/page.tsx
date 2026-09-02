@@ -127,6 +127,37 @@ export default async function AuditLogPage({
         return "Generated AI recap";
       case "save_rules":
         return "Updated league rules";
+      // Season, announcement, logo and import entries name their subject from
+      // their own payload for the same reason the staff ones do: the entity id
+      // is a season or a league, not the thing that changed, and for the
+      // destructive ones the row it would name is gone.
+      case "create_season":
+        return `Created season ${typeof nd?.name === "string" ? nd.name : ""}`.trim();
+      case "set_active_season": {
+        const to = typeof nd?.name === "string" ? nd.name : "a season";
+        const from = typeof od?.name === "string" ? od.name : null;
+        return from ? `Made ${to} the active season (was ${from})` : `Made ${to} the active season`;
+      }
+      case "create_team":
+        return `Added team ${typeof nd?.name === "string" ? nd.name : ""}`.trim();
+      case "unenroll_team":
+        return `Removed ${typeof od?.name === "string" ? od.name : "a team"} from this season`;
+      case "carry_forward_enrollment": {
+        const n = typeof nd?.teams === "number" ? nd.teams : 0;
+        return n
+          ? `Carried ${n} team${n === 1 ? "" : "s"} forward from the previous season`
+          : "Carried enrollment forward, but no earlier season had teams";
+      }
+      case "generate_summary":
+        return "Generated AI league summary";
+      case "create_announcement":
+        return `Posted "${typeof nd?.title === "string" ? nd.title : "an announcement"}"`;
+      case "delete_announcement":
+        return `Deleted "${typeof od?.title === "string" ? od.title : "an announcement"}"`;
+      case "upload_logo":
+        return "Uploaded a team logo";
+      case "import_league":
+        return `Imported league ${typeof nd?.name === "string" ? nd.name : ""}`.trim();
       // Staff entries name the person from their own payload: entity_id is the
       // league, not the profile, so there is no id here to look a name up from.
       case "add_staff": {

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { isReservedLeagueSlug } from "@/lib/league/reserved-slugs";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
+import { logAudit } from "@/lib/audit";
 import { addLeagueMembership } from "@/lib/auth/membership";
 import {
   fetchEsportsdeskLeague,
@@ -144,6 +145,21 @@ export async function runEsportsdeskImport(
   // Before anything else is written: an imported league whose creator is not a
   // member is a league nobody can open, and there is no UI to delete one.
   await addLeagueMembership(manager.id, league.id);
+
+  // Filed here rather than at the end, because every exit below this point is a
+  // success that reports partial results, and two of them return early. The
+  // league exists from this line on, so `entity_type: "league"` resolves — an
+  // entry filed against a league is the only kind this import can leave, since
+  // the season, teams and players it goes on to create are all consequences of
+  // it. What the run actually produced is in the message the manager sees; what
+  // the log needs to say is that a league appeared and who made it.
+  await logAudit({
+    user_id: manager.id,
+    action: "import_league",
+    entity_type: "league",
+    entity_id: league.id,
+    new_data: { name: leagueName, slug: leagueSlug, source: url },
+  });
 
   const { data: season, error: sErr } = await admin
     .from("seasons")
