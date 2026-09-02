@@ -33,13 +33,31 @@ nobody has closed, and the audit-log gaps in item 3.
 
 ## Next action
 
-**Item 1, then item 2. Both need a human.** Item 1 is one command:
+⛔ **Item 0 gates item 1: prove you can still get in.** The dev-login panel is
+currently the only *verified* way into production's manage tools. Removing it
+without a working real sign-in locks everyone out, silently — `getSessionUser`
+(`src/lib/auth/session.ts`) reads the role from the JWT claim with **no database
+fallback**, so if the Custom Access Token hook is off, sign-in still appears to
+succeed and every user has `role: null`. SMTP or a missing redirect-allow-list
+entry break it earlier, at the magic link. Item 2 then deletes the fallback
+accounts too, and recovery is SQL against production.
+
+So first, on `obhl.vercel.app`, with a **real** (non-`@obhl.test`) manager:
+request a magic link, sign in, and confirm `/manage/dashboard` shows the Manager
+badge. `LAUNCH.md` Phase 2 lists what to check if it fails, and Phase 4 covers
+creating that account if none exists.
+
+**Then item 1, then item 2. Both need a human.** Item 1 is one command:
 
     vercel env rm ENABLE_DEV_LOGIN production && vercel --prod
 
 Confirm at https://obhl.vercel.app/login that the "Quick sign-in (test mode)"
 panel is gone. **That does not finish the job** — go straight to item 2, which
 is a separate door the same person is best placed to close.
+
+Items 3-5 come after. They are improvements; 1 and 2 are an open door — and
+while the bypass is live, #13's access control is moot on production anyway,
+since anyone can hold a manager session regardless of what it enforces.
 
 ## Open, in priority order
 
