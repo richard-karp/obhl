@@ -63,6 +63,17 @@ test.describe("Path 16 — League Rules", () => {
 
     await page.goto("/obhl/manage/audit");
     await expect(page.getByText("Updated league rules").first()).toBeVisible();
+
+    // Saving again without editing must not add a second entry: these entries
+    // carry two whole documents, and re-saving an untouched page changed
+    // nothing. Only the current session's card is expanded, so a count here is
+    // a count of this test's own entries.
+    await page.goto("/obhl/manage/rules/edit");
+    await page.getByRole("button", { name: "Save rules" }).click();
+    await expect(page.getByText("Saved.")).toBeVisible({ timeout: 10000 });
+
+    await page.goto("/obhl/manage/audit");
+    await expect(page.getByText("Updated league rules")).toHaveCount(1);
   });
 
   test("public rules page is accessible without login", async ({ page }) => {
