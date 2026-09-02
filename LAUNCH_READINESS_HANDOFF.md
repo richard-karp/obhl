@@ -14,17 +14,18 @@
      classifier. **Ask a human to run them; do not work around it.**
 3. Every number here was **watched appear** on 2026-09-02. Where a claim is a
    reading of the code rather than a measurement, it says so in those words.
-   ⚠️ **Nothing about the hosted environment has been verified from here.** No
-   session has read production env vars or its auth user list. Every claim
-   about production below is an expectation to confirm, never a finding.
+   ⚠️ Of the hosted environment, **only the schema has been read**: `0029`-`0032`
+   are in the **Remote** column of `npx supabase migration list --linked`
+   (2026-09-02), so **the database is already ahead of the code — do not run
+   `db push`.** Production env vars and the auth user list are *unread*, so
+   items 1 and 2 below are expectations to confirm, never findings.
 4. Verify code changes with `npm test && npm run test:e2e`.
    Baseline: **250 unit passed; 118 e2e passed, 1 skipped, 0 failed.** The skip
    is the AI-summary test, gated on an API key — not a regression.
 
 **Status: the code is written; the doors are still open.** What remains is two
-production exposures nobody has closed, and audit coverage that was never as
-complete as the previous handoff claimed — neither of which any pending merge
-addresses. `LAUNCH.md` was corrected on 2026-09-02 and is trustworthy again.
+production exposures nobody has closed and the audit-log gaps in item 3 —
+neither of which any pending merge addresses.
 
 ⚠️ This file is written for the state *after* per-league access control (#13)
 and `feat/ci-and-rules-audit` land. **As of 2026-09-02 neither had merged.**
