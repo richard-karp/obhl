@@ -2,7 +2,7 @@
 
 **Protocol — read this and nothing else to resume.**
 
-1. This file is self-contained. `ACCESS_CONTROL_HANDOFF.md` (~190 lines) holds
+1. This file is self-contained. `ACCESS_CONTROL_HANDOFF.md` (~203 lines) holds
    the membership model and its traps — open it only when starting item 3.
    Do **not** read `docs/superpowers/specs/2026-08-31-per-league-routing-design.md`
    (383 lines); nothing outstanding depends on it.
@@ -10,8 +10,11 @@
    - `supabase db reset --linked` **wipes production**. Use `db push`.
    - **Items 1 and 2 are live exposure, not backlog.** Anyone with the URL may
      currently hold a manager session. Do them before any code work.
-   - `gh` and `vercel env` are denied to an agent under the auto-mode
-     classifier. **Ask a human to run them; do not work around it.**
+   - **Mutating** `gh` (`pr create`, `pr merge`) and `vercel env` are denied to
+     an agent under the auto-mode classifier — ask a human, do not work around
+     it. **Read-only `gh` works**: `run list`, `run view`, `run download`. On a
+     red CI run, pull the artifact and read `error-context.md` yourself; its
+     page snapshot has twice settled in seconds what guessing got wrong.
 3. Every number here was **watched appear** on 2026-09-02. Where a claim is a
    reading of the code rather than a measurement, it says so in those words.
    ⚠️ Of the hosted environment, **only the schema has been read**: `0029`-`0032`
@@ -23,15 +26,10 @@
    Baseline: **250 unit passed; 118 e2e passed, 1 skipped, 0 failed.** The skip
    is the AI-summary test, gated on an API key — not a regression.
 
-**Status: the code is written; the doors are still open.** What remains is two
-production exposures nobody has closed and the audit-log gaps in item 3 —
-neither of which any pending merge addresses.
-
-⚠️ This file describes `main` with **both** per-league access control (#13,
-merged 2026-09-02) and `feat/ci-and-rules-audit` in it. If the second is not
-there yet, point 4's baseline will not match. Confirm with:
-
-    git log --oneline origin/main | head -5
+**Status: all the code has shipped; the doors are still open.** Per-league
+access control (#13) and CI + the `saveRules` audit entry (#14, `ace8e0c`) are
+both in `main`, and CI is green there. What remains is two production exposures
+nobody has closed, and the audit-log gaps in item 3.
 
 ## Next action
 
@@ -125,6 +123,32 @@ the same change. Cost differs per file (*reading of the code*):
 Prove each one the way this area is tested: knock the switch case out and watch
 the test go red. A test that only asserts the entry was *written* proves nothing.
 
+## Not covered by the items above
+
+Two things this file does not track, recorded so nobody assumes it is exhaustive.
+
+**`LAUNCH.md` Phases 2-6 are unverified from here.** This file speaks only to
+Phase 1 (the test doors). The site is live with two leagues, so most of the rest
+presumably happened — but *presumably* is the operative word: nobody has checked
+SMTP, the Supabase redirect allow-list, or that the Custom Access Token hook is
+still enabled. The hook is the one that fails quietly: `getSessionUser` reads
+the role only from the JWT claim with no database fallback, so with it off
+sign-in still appears to work and nobody reaches the manage tools.
+⚠️ **Phase 6 carries the only hard deadline in the project.** A published
+season locks the moment its first game night passes — `season_is_started`
+(`0026_replace_published_schedule.sql`) then permanently blocks generate,
+replace and remove, and no UI undoes it. If a real season is approaching, that
+outranks every item above.
+
+**PR #13 was never code-reviewed** (50 files, +2545/-327, merged as `7c7c4a7`).
+It has strong test evidence — `e2e/16-league-membership.spec.ts` drives ~30
+cross-league refusal cases, each watched fail against a deliberately broken
+guard — and CI is green. But no one has read it as a reviewer, and it is the
+change that decides who can reach what. Two of its tests turned out to be
+unreliable under slower hardware (see the tamper section below), which is the
+kind of thing a review might have caught earlier. Worth a pass before the league
+grows past one manager.
+
 ## Tests: never submit an unverified form tamper
 
 The cross-league attack tests reach a server action by rewriting a form's hidden
@@ -160,21 +184,22 @@ this file is a bug, and there should be exactly one, inside the helper itself.
 - **CI does not run `npm run lint`**, though the script exists.
 - **No `.nvmrc` or `engines`** — `.github/workflows/ci.yml` is the de-facto
   source of truth for the Node version (22).
-- **The unit suite is proven on CI hardware** — first run green in 1m41s with
-  the default `OBHL_SLOT_BUDGET_MS`. The env override in `vitest.config.ts`
-  stays as an unused lever; nothing needs it today.
-- **The e2e balance assertion is still unproven there.** The first CI run never
-  reached it: `11-schedule-builder.spec.ts` waits for the draft preview, and
-  Playwright's default 5s assertion timeout was *exactly* the generator's own
-  5s budget (`OBHL_SLOT_BUDGET_MS`, `src/lib/schedule/assignNights.ts`), so the
-  wait had no headroom and passed only where the search converged early.
-  `playwright.config.ts` now sets `expect: { timeout: 30_000 }`. **Do not tidy
-  that back to the default** — it must stay above the generator's budget.
-  With the wait fixed, CI now actually reaches the assertion that every team's
-  GP is 4. If a 2-core runner cannot converge in 5s it will fail *there*, on a
-  real quality bound. The lever then is `OBHL_SLOT_BUDGET_MS` in the **e2e
-  job's** env, which flows to `npm run dev` and so to the generator — no code
-  change, `envInt` already reads it. **Raise the budget; never loosen the
+- **CI is proven on runner hardware** — green on both jobs, unit at ~1m40s
+  across four runs, all with the default `OBHL_SLOT_BUDGET_MS`. The env
+  overrides in `vitest.config.ts` stay as unused levers.
+- **Two Playwright timeouts are load-bearing; do not tidy them back.**
+  `expect` is 15s and the per-test `timeout` is 60s
+  (`playwright.config.ts`). The generator is wall-clock budgeted at
+  `OBHL_SLOT_BUDGET_MS` (default 5s, `src/lib/schedule/assignNights.ts`), which
+  is exactly Playwright's *default* assertion timeout — so the default left a
+  wait with no headroom and it passed only where the search converged early.
+  `expect` must stay above the generator's budget, and well below `timeout`, or
+  a failed assertion eats the whole test budget and reports "Test timeout
+  exceeded" instead of naming the locator.
+  If the balance assertion (`every team's GP is 4`) ever fails on a runner,
+  that is the real quality bound: the lever is `OBHL_SLOT_BUDGET_MS` in the
+  **e2e job's** env, which flows through `npm run dev` to the generator — no
+  code change, `envInt` already reads it. **Raise the budget; never loosen the
   assertion.**
 - Supabase CLI 2.104 → 2.116, Vercel CLI 55 → 59.11.
 
