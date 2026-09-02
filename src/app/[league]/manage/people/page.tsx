@@ -43,18 +43,16 @@ export default async function PeoplePage({
     .eq("league_id", ctx.league.id);
   const memberIds = (members ?? []).map((m) => m.profile_id);
 
-  const [{ data: usersList }, { data: profiles }, { data: allMemberships }] =
-    await Promise.all([
-      admin.auth.admin.listUsers({ perPage: 1000 }),
-      memberIds.length
-        ? admin.from("profiles").select("id, role, display_name").in("id", memberIds)
-        : Promise.resolve({ data: [] as { id: string; role: string | null; display_name: string | null }[] }),
-      // Every league these people work, not just this one — a role change reaches
-      // all of them. One query for the table, rather than one per row.
-      memberIds.length
-        ? admin.from("profile_leagues").select("profile_id, league_id").in("profile_id", memberIds)
-        : Promise.resolve({ data: [] as { profile_id: string; league_id: string }[] }),
-    ]);
+  const [{ data: profiles }, { data: allMemberships }] = await Promise.all([
+    memberIds.length
+      ? admin.from("profiles").select("id, role, display_name").in("id", memberIds)
+      : Promise.resolve({ data: [] as { id: string; role: string | null; display_name: string | null }[] }),
+    // Every league these people work, not just this one — a role change reaches
+    // all of them. One query for the table, rather than one per row.
+    memberIds.length
+      ? admin.from("profile_leagues").select("profile_id, league_id").in("profile_id", memberIds)
+      : Promise.resolve({ data: [] as { profile_id: string; league_id: string }[] }),
+  ]);
 
   let captains: CaptainOption[] = [];
   if (ctx.season) {
@@ -71,8 +69,22 @@ export default async function PeoplePage({
     }));
   }
 
+  // Addresses for THIS league's staff, asked for by id.
+  //
+  // This was `listUsers({ perPage: 1000 })` — one page of the instance's auth
+  // users, joined against. A page says nothing about the rest, so past the
+  // thousandth auth user staff would start vanishing from this table with no
+  // error anywhere; `findUserIdByEmail` in `people.ts` was paged for the same
+  // reason. Paging here would answer it too, but it reads the whole auth table
+  // to pick out a handful. Asking per member costs the size of the league's
+  // staff instead of the instance's, and cannot truncate at all.
   const emailById = new Map(
-    (usersList?.users ?? []).map((u) => [u.id, u.email ?? "—"]),
+    await Promise.all(
+      memberIds.map(async (id) => {
+        const { data } = await admin.auth.admin.getUserById(id);
+        return [id, data.user?.email ?? "—"] as const;
+      }),
+    ),
   );
   const staff = (profiles ?? [])
     .map((p) => ({ ...p, email: emailById.get(p.id) ?? "—" }))
