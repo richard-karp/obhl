@@ -52,6 +52,34 @@ export async function getMemberLeagues(
   return data ?? [];
 }
 
+/**
+ * May this actor write the profile of an account that already exists?
+ *
+ * The app-side twin of 0032's `manager write profiles` policy, and needed
+ * because `people.ts` writes on the ADMIN client — the policy's
+ * `shares_league_with` test never runs on that path. `profiles.role` is one
+ * instance-wide column (0009 reads it as the role source, 0010's hook copies it
+ * into the JWT), so without this check a manager rewrites the role, display
+ * name and player link an account uses in a league they cannot see.
+ *
+ * One case is deliberately MORE permissive than the policy: an account that
+ * belongs to no league at all is writable by anyone, because there is no other
+ * league for the change to land in. That is what keeps "removed by mistake, add
+ * them back" working — `removeStaff` revokes the membership and leaves exactly
+ * that shape, and a literal reading of the policy would strand the account with
+ * nobody able to re-add it.
+ */
+export async function mayWriteProfileOf(
+  actorId: string,
+  profileId: string,
+): Promise<boolean> {
+  const [mine, theirs] = await Promise.all([
+    memberLeagueIds(actorId),
+    memberLeagueIds(profileId),
+  ]);
+  return theirs.length === 0 || mine.some((id) => theirs.includes(id));
+}
+
 /** Grant membership. Idempotent — re-adding an existing member is a no-op. */
 export async function addLeagueMembership(
   profileId: string,

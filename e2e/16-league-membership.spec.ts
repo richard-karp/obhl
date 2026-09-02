@@ -290,6 +290,106 @@ test.describe("Path 17 — Per-league membership", () => {
     }
   });
 
+  test("adding an existing account cannot rewrite the role it holds elsewhere", async ({
+    page,
+  }) => {
+    // "Add a staff account" reaches an account that already exists: createUser
+    // fails on a known address, the id is looked up, and the profile is then
+    // upserted. `profiles.role` is ONE instance-wide column (0009 reads it as
+    // the role source; 0010's hook copies it into the JWT), so that upsert
+    // rewrites the role the account uses in EVERY league it belongs to.
+    //
+    // The victim here belongs only to a league this manager is not in, and the
+    // fixture test above asserts those two leagues differ. Granting them
+    // `league_manager` therefore makes them a manager of a league the actor
+    // cannot reach — through the ordinary form, with no tampering.
+    //
+    // createStaffAccount is the one action in people.ts that never calls
+    // `isMemberOf`; updateStaffRole and removeStaff both do.
+    const victim = "single-league-scorer@obhl.test";
+    const db = admin();
+    const outsideLeague = await leagueId(LEAD_IN);
+
+    const { data: before } = await db
+      .from("profiles")
+      .select("id, role, display_name")
+      .eq("display_name", "Single League Scorer")
+      .single();
+    // State the precondition rather than assume it: if the seed ever makes this
+    // account a manager, the upsert below is a no-op and the test would pass
+    // while proving nothing.
+    expect(before!.role, "victim must start as a non-manager").toBe("scorekeeper");
+
+    const memberships = async () => {
+      const { data } = await db
+        .from("profile_leagues")
+        .select("league_id")
+        .eq("profile_id", before!.id);
+      return (data ?? []).map((r) => r.league_id as string);
+    };
+    expect(await memberships()).not.toContain(outsideLeague);
+
+    try {
+      await signInAs(page, "One-league mgr");
+      await page.goto(`/${LEAD_IN}/manage/people`);
+
+      const card = page
+        .locator('[data-slot="card"]')
+        .filter({ hasText: "Add a staff account" });
+      await card.getByLabel("Email").fill(victim);
+      // Their own display name, so the blast radius of a passing-today run is
+      // the role alone. Left blank this field defaults to the email address and
+      // overwrites the column that `beforeAll` derives the fixture from.
+      await card.getByLabel("Display name").fill(before!.display_name!);
+      await card.getByRole("combobox").click();
+      await page.getByRole("option", { name: "League manager" }).click();
+      await submitAndSettle(
+        page,
+        card.getByRole("button", { name: "Add staff account" }).click(),
+      );
+
+      // The refusal is VISIBLE, and asserted before the database checks. The
+      // two below can both hold on a form that never submitted at all, which
+      // would make this test pass while proving nothing once the guard lands —
+      // the inverse of the vacuous-pass trap described above.
+      await expect(
+        card.getByText(/already has an account in a league/),
+      ).toBeVisible();
+
+      // The subject of the test: a manager of one league changed what an
+      // account is allowed to do in another.
+      //
+      // Soft, both of them, so a failing run reports the whole effect rather
+      // than stopping at the first half of it.
+      const { data: after } = await db
+        .from("profiles")
+        .select("role")
+        .eq("id", before!.id)
+        .single();
+      expect
+        .soft(
+          after!.role,
+          "a manager of another league rewrote this account's global role",
+        )
+        .toBe("scorekeeper");
+
+      // And did not hand themselves the membership either.
+      expect
+        .soft(await memberships(), "…and granted it their own league")
+        .not.toContain(outsideLeague);
+    } finally {
+      await db
+        .from("profiles")
+        .update({ role: before!.role, display_name: before!.display_name })
+        .eq("id", before!.id);
+      await db
+        .from("profile_leagues")
+        .delete()
+        .eq("profile_id", before!.id)
+        .eq("league_id", outsideLeague);
+    }
+  });
+
   // ── The other half: RLS, for a session talking to PostgREST directly ──────
   //
   // The app guards gate the UI. A staff account also holds a real Supabase

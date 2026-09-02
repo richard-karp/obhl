@@ -6,6 +6,7 @@ import { requireLeagueManager } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit";
 import {
   addLeagueMembership,
+  mayWriteProfileOf,
   removeLeagueMembership,
 } from "@/lib/auth/membership";
 import type { AppRole } from "@/lib/auth/session";
@@ -13,28 +14,6 @@ import type { AppRole } from "@/lib/auth/session";
 export type PeopleActionState = { ok: boolean; message: string } | null;
 
 const ROLES: AppRole[] = ["league_manager", "captain", "scorekeeper"];
-
-/**
- * Whether the account being acted on is itself a manager.
- *
- * Manager accounts cannot be DEMOTED from this page. Every manager can reach
- * it, so without this any one of them could unmake any other — including the
- * person who set the league up, and including themselves.
- *
- * Removing a manager from a league is a different question and is allowed; see
- * `removeStaff`. Promoting someone to manager still works too. It is unmaking
- * one that is refused — do that by hand, deliberately, in SQL.
- *
- * The UI does not render the role control for a manager row, so reaching this
- * guard means a hand-made request. It returns quietly rather than throwing —
- * there is nowhere to put a message on a form action that returns void.
- */
-async function isManagerAccount(
-  admin: ReturnType<typeof createAdminClient>,
-  id: string,
-): Promise<boolean> {
-  return (await staffSnapshot(admin, id))?.role === "league_manager";
-}
 
 /**
  * What an account looks like before an action changes it.
@@ -109,6 +88,31 @@ async function logStaffChange(
 }
 
 /**
+ * The auth user id for an address, or null.
+ *
+ * Paged rather than one large page: `listUsers` returns a single page and says
+ * nothing about the rest, so a lone `perPage: 1000` call turns "this address
+ * exists" into "no such account" the moment an instance outgrows it — and the
+ * caller then reports the raw createUser error instead of adding the person.
+ * The loop stops at the first short page, and at a bound so a backend that
+ * ignores paging cannot spin here.
+ */
+async function findUserIdByEmail(
+  admin: ReturnType<typeof createAdminClient>,
+  email: string,
+): Promise<string | null> {
+  const perPage = 200;
+  for (let page = 1; page <= 50; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    if (error) return null;
+    const hit = data.users.find((u) => u.email?.toLowerCase() === email);
+    if (hit) return hit.id;
+    if (data.users.length < perPage) return null;
+  }
+  return null;
+}
+
+/**
  * Manager adds a staff account to THIS league — creating the login if the
  * person doesn't have one yet, and granting membership either way.
  *
@@ -138,42 +142,81 @@ export async function createStaffAccount(
 
   const admin = createAdminClient();
   let userId: string | undefined;
+  // Whether this address already had a login decides what may be written below:
+  // a brand-new account has no role anywhere to overwrite.
+  let existed = false;
   const { data: created, error } = await admin.auth.admin.createUser({
     email,
     email_confirm: true,
   });
   if (error) {
-    const { data: list } = await admin.auth.admin.listUsers({ perPage: 1000 });
-    userId = list.users.find((u) => u.email === email)?.id;
-    if (!userId) return { ok: false, message: error.message };
+    existed = true;
+    const found = await findUserIdByEmail(admin, email);
+    if (!found) return { ok: false, message: error.message };
+    userId = found;
   } else {
     userId = created.user.id;
   }
 
-  // "Add a staff account" reaches an *existing* account too: createUser fails
-  // for a known email, and the id is then looked up and its profile upserted.
-  // Submitting a manager's email here would therefore rewrite their role,
-  // display name and player link — the same demotion updateStaffRole refuses,
-  // through the form sitting directly under the table that lists every
-  // manager's address.
+  // ⛔ An EXISTING account's role is never rewritten here.
   //
-  // Adding an existing manager AS a manager is the exception, and it is the
-  // whole point of the membership model: it grants them this league without
-  // touching their profile. That is how a second manager is handed a league,
-  // and it is bounded — the guard above means the granter is already in it.
-  if (await isManagerAccount(admin, userId)) {
-    if (role !== "league_manager") {
+  // `profiles.role` is one account-wide column (`0003_membership.sql`): the JWT
+  // hook copies it (`0010`) and RLS resolves it through `auth_role()` (`0009`).
+  // Writing it from this page therefore changes what that person may do in
+  // *every* league they belong to. And this is the one action in this file that
+  // never calls `isMemberOf` — the address is typed in, so the target need have
+  // no connection to this league at all.
+  //
+  // Together those let a manager of one league hand `league_manager` to an
+  // account whose only league they cannot reach, through the ordinary form with
+  // no tampering. `e2e/16-league-membership.spec.ts` covers it.
+  //
+  // Adding an existing account is still how one person works two leagues: it
+  // grants membership and leaves the profile untouched.
+  const existing = await staffSnapshot(admin, userId);
+  if (existing?.role) {
+    if (existing.role !== role) {
+      const held = existing.role.replace("league_", "");
       return {
         ok: false,
-        message: `${email} is a manager account. Managers are changed by hand.`,
+        message:
+          existing.role === "league_manager"
+            ? `${email} is a manager account. Managers are changed by hand.`
+            : `${email} already has an account as ${held}. A role is account-wide, so this form will not change it — add them as ${held}, then change it from their row.`,
       };
     }
     await addLeagueMembership(userId, leagueId);
     await logStaffChange(actor.id, leagueId, "grant_league", {
-      new_data: { profile_id: userId, email, role: "league_manager" },
+      new_data: { profile_id: userId, email, role: existing.role },
     });
     revalidatePath("/[league]/manage/people", "page");
-    return { ok: true, message: `${email} now manages this league too.` };
+    return {
+      ok: true,
+      message:
+        existing.role === "league_manager"
+          ? `${email} now manages this league too.`
+          : `${email} now works this league too.`,
+    };
+  }
+
+  // Everything above this line either creates the account or only grants it a
+  // league. From here the profile itself is written, and `profiles.role` is
+  // instance-wide — so an existing account reachable in a league this manager
+  // cannot see would have the role IT uses there rewritten from here, through
+  // the ordinary form, with no tampering.
+  //
+  // Refusing rather than merely skipping the write: a member is reachable by
+  // `updateStaffRole`, which constrains nothing but a manager demotion, so
+  // granting the membership alone would leave the same rewrite one step away.
+  //
+  // The manager branch above is not subject to this and does not need to be —
+  // it writes no profile, and handing a co-manager a league is the flow the
+  // membership model exists for.
+  if (existed && !(await mayWriteProfileOf(actor.id, userId))) {
+    return {
+      ok: false,
+      message: `${email} already has an account in a league you don't manage. A manager of that league can add them, or they can be added here once you share one.`,
+    };
   }
 
   const { error: pErr } = await admin.from("profiles").upsert({
@@ -211,6 +254,17 @@ export async function updateStaffRole(formData: FormData) {
   // Read once: the manager guard turns on this role, and the audit entry needs
   // the same value as `old_data`.
   const before = await staffSnapshot(admin, id);
+
+  // A manager cannot be DEMOTED here. Every manager can reach this page, so
+  // without this any one of them could unmake any other — including whoever set
+  // the league up, and including themselves. Removing a manager from a league
+  // is a different question and is allowed (`removeStaff`), and promoting
+  // someone TO manager still works; it is unmaking one that is refused, and
+  // that is done by hand in SQL.
+  //
+  // The UI renders no role control on a manager's row, so reaching this means a
+  // hand-made request. It returns quietly rather than throwing: there is
+  // nowhere to put a message on a form action that returns void.
   if (before?.role === "league_manager") return;
 
   // Role only. This used to null `player_id` for any non-captain role, so
