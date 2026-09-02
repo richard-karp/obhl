@@ -69,6 +69,20 @@ Two things about that job are load-bearing and easy to undo:
   dev panel, which `devLoginEnabled()` turns on for any non-production build.
   Setting it in CI would work and would add one more place to forget it.
 
+Two settings exist because CI runs cold and on slower hardware than a laptop:
+
+- **`playwright.config.ts` waits 120s for the dev server**, not 30s. A cold
+  boot with no `.next` cache measured ~9s locally; a 2-core runner is several
+  times that, which was near the old limit. It costs nothing when the server is
+  quick.
+- **`vitest.config.ts` reads `OBHL_SLOT_BUDGET_MS` / `OBHL_SLOT_RESTARTS` from
+  the environment**, defaulting to the values that have always run locally. The
+  schedule tests bound *quality* (`slotWeekdaySpread <= 8` and friends), and
+  those bounds are only reachable if enough restarts fit in the budget — so on
+  slower hardware the lever is to **raise the budget, never to loosen an
+  assertion**. Nothing sets these in CI today; the first runs decide whether
+  anything needs to.
+
 `npm run typecheck` is `tsc --noEmit && tsc --noEmit -p e2e/tsconfig.json`. The
 second half is the point: `next build` does not typecheck test files, and
 `e2e/tsconfig.json` is the CommonJS resolution Playwright actually runs them
@@ -82,6 +96,24 @@ under, which the root config does not reproduce.
 copy of the previous rules after an overwrite; it is `await`ed rather than
 `void`ed for that reason, matching `remove_schedule` in
 `src/lib/actions/schedule.ts`.
+
+Two conditions gate the write, both on purpose. The upsert `.select("id")`s and
+the entry is written only if a **row comes back** — not merely if `error` is
+unset, because a policy-level refusal here need not set `error` (see *Traps*).
+And it is skipped when the document is **unchanged**, compared with a
+key-sorted serialisation: `previous.content` arrives from a `jsonb` column,
+which normalises key order, so a plain `JSON.stringify` comparison would call
+every save a change and quietly do nothing.
+
+**Known limitation — the read and the write are not atomic.** `saveRules` reads
+the previous document, then upserts. Two managers saving the same league's
+rules concurrently both read the same `previous`, so one entry's `old_data`
+names a document it did not actually overwrite. *This is a reading of the code;
+it has not been reproduced.* Left alone deliberately: closing it means making
+read-and-replace atomic, which realistically means a plpgsql function and a
+migration, and this area is not worth a migration for an unmeasured race on a
+page edited a few times a season. Revisit if rules editing ever becomes
+concurrent.
 
 **The trap it sat behind, which is still armed for the next entity type:**
 `leagueOfEntity` in `src/lib/audit.ts` switches on `entity_type`. A type it
