@@ -53,53 +53,33 @@ export async function getMemberLeagues(
 }
 
 /**
- * May this actor write the profile of an account that already exists?
+ * May this actor rewrite the profile of an account that already exists?
  *
  * The app-side twin of 0032's `manager write profiles` policy, and needed
  * because `people.ts` writes on the ADMIN client — the policy's
  * `shares_league_with` test never runs on that path. `profiles.role` is one
  * instance-wide column (0009 reads it as the role source, 0010's hook copies it
- * into the JWT), so without this check a manager rewrites the role, display
- * name and player link an account uses in a league they cannot see.
- *
- * One case is deliberately MORE permissive than the policy: an account that
- * belongs to no league at all is writable by anyone, because there is no other
- * league for the change to land in. That is what keeps "removed by mistake, add
- * them back" working — `removeStaff` revokes the membership and leaves exactly
- * that shape, and a literal reading of the policy would strand the account with
- * nobody able to re-add it.
- */
-export async function mayWriteProfileOf(
-  actorId: string,
-  profileId: string,
-): Promise<boolean> {
-  const [mine, theirs] = await Promise.all([
-    memberLeagueIds(actorId),
-    memberLeagueIds(profileId),
-  ]);
-  return theirs.length === 0 || mine.some((id) => theirs.includes(id));
-}
-
-/**
- * May this actor make this account a MANAGER?
- *
- * `profiles.role` is instance-wide, so a promotion to `league_manager` makes
- * them a manager of every league they belong to — not only the one it was
- * submitted from.
- *
- * `mayWriteProfileOf` cannot answer this. Adding an existing account at the
- * role it already holds is permitted on purpose and grants membership, so that
- * first step creates the very shared league an overlap test looks for; the
- * promotion then passes. 0032's `shares_league_with(id)` has the same shape and
- * permits the same two steps, so RLS is not a second chance here either.
+ * into the JWT), so a write here lands in EVERY league the account belongs to,
+ * not only the league the form was submitted from.
  *
  * The test is therefore CONTAINMENT, not overlap: every league the target works
- * must be one the actor works too. The caller has already established that the
- * actor is a manager, and a manager of every league they belong to (0009 reads
- * one instance-wide role), so a promotion that passes hands out no authority
- * the actor does not already hold.
+ * must be one the actor works too. Sharing *a* league is not enough, and 0032's
+ * `shares_league_with(id)` is not a second chance for the same reason — adding
+ * an existing account at the role it already holds is permitted on purpose and
+ * grants membership, so that first step manufactures the very shared league an
+ * overlap test looks for, and the write behind it then passes.
+ *
+ * An account in no league at all passes vacuously, which is what keeps "removed
+ * by mistake, add them back" working: `removeStaff` revokes the membership and
+ * leaves exactly that shape, and a stricter reading would strand the account
+ * with nobody able to re-add it.
+ *
+ * Both callers have already established that the actor is a manager — and a
+ * manager of every league they belong to, since 0009 reads one instance-wide
+ * role — so a write that passes this hands out no authority the actor does not
+ * already hold.
  */
-export async function mayPromoteToManager(
+export async function mayWriteProfileOf(
   actorId: string,
   profileId: string,
 ): Promise<boolean> {

@@ -49,9 +49,8 @@ export default async function PeoplePage({
       memberIds.length
         ? admin.from("profiles").select("id, role, display_name").in("id", memberIds)
         : Promise.resolve({ data: [] as { id: string; role: string | null; display_name: string | null }[] }),
-      // Every league these people work, not just this one — a promotion to
-      // manager reaches all of them. One query for the table, rather than one
-      // per row.
+      // Every league these people work, not just this one — a role change reaches
+      // all of them. One query for the table, rather than one per row.
       memberIds.length
         ? admin.from("profile_leagues").select("profile_id, league_id").in("profile_id", memberIds)
         : Promise.resolve({ data: [] as { profile_id: string; league_id: string }[] }),
@@ -83,17 +82,18 @@ export default async function PeoplePage({
   // than a button that silently does nothing. It also covers the sole manager
   // of a league, who is necessarily whoever is looking at this page.
 
-  // The same idea for the role control: `updateStaffRole` refuses a promotion
-  // to manager that would reach a league the viewer is not in (a role is
-  // instance-wide), and refuses it silently. Worked out here so the option is
-  // withheld instead of offered and ignored. `mayPromoteToManager` is the
-  // server-side twin — this decides what to render, that decides what happens.
+  // The same idea for the role control: a role is instance-wide, so changing it
+  // lands in every league that person works — and `updateStaffRole` refuses,
+  // silently, any change that would reach one the viewer is not in. Worked out
+  // here so the row says why instead of offering a control that does nothing.
+  // `mayWriteProfileOf` is the server-side twin — this decides what to render,
+  // that decides what happens, and they have to agree.
   const viewerLeagues = new Set(await memberLeagueIds(viewer.id));
   const leaguesOf = new Map<string, string[]>();
   for (const m of allMemberships ?? []) {
     leaguesOf.set(m.profile_id, [...(leaguesOf.get(m.profile_id) ?? []), m.league_id]);
   }
-  const canPromote = (id: string) =>
+  const canChangeRole = (id: string) =>
     (leaguesOf.get(id) ?? []).every((l) => viewerLeagues.has(l));
 
   return (
@@ -136,7 +136,7 @@ export default async function PeoplePage({
                     role={s.role ?? "scorekeeper"}
                     leagueId={ctx.league.id}
                     canRemove={s.id !== viewer.id}
-                    canPromote={canPromote(s.id)}
+                    canChangeRole={canChangeRole(s.id)}
                   />
                 </TableCell>
               </TableRow>

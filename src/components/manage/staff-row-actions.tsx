@@ -8,7 +8,7 @@ export function StaffRowActions({
   role,
   leagueId,
   canRemove,
-  canPromote,
+  canChangeRole,
 }: {
   id: string;
   role: string;
@@ -22,13 +22,13 @@ export function StaffRowActions({
    */
   canRemove: boolean;
   /**
-   * Whether promoting this row to manager would be honoured. A role is
+   * Whether ANY role change on this row would be honoured. A role is
    * instance-wide, so it lands in every league this person belongs to — and
-   * `updateStaffRole` refuses one that would reach a league the viewer is not
-   * in. Refused silently, like Remove, so the option is withheld rather than
-   * offered and ignored.
+   * `updateStaffRole` refuses every change that would reach a league the viewer
+   * is not in, not only a promotion to manager. Refused silently, like Remove,
+   * so the control is replaced by the reason rather than offered and ignored.
    */
-  canPromote: boolean;
+  canChangeRole: boolean;
 }) {
   const remove = canRemove ? (
     <form action={removeStaff}>
@@ -62,6 +62,24 @@ export function StaffRowActions({
     );
   }
 
+  // Nor is anyone's role editable from a league that does not contain all of
+  // theirs. Making this league's captain a scorekeeper would take the captaincy
+  // away in the other league they work too, which is not this manager's to do —
+  // so the row says so. Remove is still offered: it revokes THIS league only.
+  if (!canChangeRole) {
+    return (
+      <div className="flex items-center justify-end gap-2">
+        <span
+          className="text-muted-foreground text-xs"
+          title="A role applies in every league, and this person also works one you are not in. A manager of that league can change it."
+        >
+          Also works another league
+        </span>
+        {remove}
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center justify-end gap-2">
       <form action={updateStaffRole}>
@@ -73,15 +91,8 @@ export function StaffRowActions({
           defaultValue={role}
           onChange={(e) => e.currentTarget.form?.requestSubmit()}
           className="border-input bg-background h-8 rounded-md border px-2 text-sm"
-          title={
-            canPromote
-              ? undefined
-              : "This person also works a league you are not in. A role applies everywhere, so making them a manager here would make them one there too."
-          }
         >
-          {canPromote ? (
-            <option value="league_manager">Manager</option>
-          ) : null}
+          <option value="league_manager">Manager</option>
           <option value="scorekeeper">Scorekeeper</option>
           <option value="captain">Captain</option>
         </select>
