@@ -352,8 +352,15 @@ test.describe("Path 17 — Per-league membership", () => {
       // two below can both hold on a form that never submitted at all, which
       // would make this test pass while proving nothing once the guard lands —
       // the inverse of the vacuous-pass trap described above.
+      //
+      // Which refusal: the victim holds `scorekeeper` and this form submits
+      // `league_manager`, so the role-mismatch branch answers first and the
+      // `mayWriteProfileOf` check below it never runs. That one is the narrower
+      // second layer — it decides only the case where an existing login has no
+      // role to compare against — so naming its message here asserted a guard
+      // this fixture cannot reach, while the escalation was in fact refused.
       await expect(
-        card.getByText(/already has an account in a league/),
+        card.getByText(/already has an account as scorekeeper/),
       ).toBeVisible();
 
       // The subject of the test: a manager of one league changed what an
