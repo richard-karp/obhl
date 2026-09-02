@@ -18,7 +18,14 @@ import {
 
 export type CaptainOption = { id: string; label: string };
 
-export function CreateStaffForm({ captains }: { captains: CaptainOption[] }) {
+export function CreateStaffForm({
+  captains,
+  leagueId,
+}: {
+  captains: CaptainOption[];
+  /** The account is added to THIS league; the server checks membership too. */
+  leagueId: string;
+}) {
   const [state, action, pending] = useActionState<PeopleActionState, FormData>(
     createStaffAccount,
     null,
@@ -27,6 +34,7 @@ export function CreateStaffForm({ captains }: { captains: CaptainOption[] }) {
 
   return (
     <form action={action} className="grid gap-4 sm:grid-cols-2">
+      <input type="hidden" name="league_id" value={leagueId} />
       <div className="space-y-2">
         <Label htmlFor="email">Email</Label>
         <Input id="email" name="email" type="email" required placeholder="person@example.com" />

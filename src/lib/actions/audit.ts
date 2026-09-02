@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { requireManager } from "@/lib/auth/guards";
+import { requireLeagueManager } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit";
-import { finalizeGameById, reopenGameById } from "@/lib/actions/games";
+import { finalizeGameById, reopenGameById } from "@/lib/games/finalize";
 
 type RevertResult = { error: string } | { ok: true } | null;
 
@@ -12,7 +12,6 @@ export async function revertAuditEntries(
   _prev: RevertResult,
   formData: FormData,
 ): Promise<RevertResult> {
-  const manager = await requireManager();
   const admin = createAdminClient();
 
   const auditIds = formData.getAll("auditId").map(String).filter(Boolean);
@@ -20,6 +19,7 @@ export async function revertAuditEntries(
 
   const leagueId = String(formData.get("league_id") ?? "");
   if (!leagueId) return { error: "No league selected." };
+  const manager = await requireLeagueManager(leagueId);
 
   // Reverting is a write — it reopens games, restores player status, undoes
   // captaincy. Scoped to the league the form was submitted from, so an id

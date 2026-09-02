@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireManager } from "@/lib/auth/guards";
+import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { getActiveContext } from "@/lib/queries/season";
 import { AddPlayerForm } from "@/components/manage/add-player-form";
@@ -28,9 +28,9 @@ export default async function RosterEditorPage({
 }: {
   params: Promise<{ league: string; teamId: string }>;
 }) {
-  await requireManager();
   const { league: leagueSlug, teamId } = await params;
   const ctx = await getActiveContext(leagueSlug);
+  await requireLeagueManager(ctx.league.id);
   if (!ctx.season) {
     return <EmptyState title="No active season" />;
   }

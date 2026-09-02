@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth/guards";
+import { isLeagueMember } from "@/lib/auth/membership";
 import { createClient } from "@/utils/supabase/server";
 import { getActiveContext } from "@/lib/queries/season";
 import { getSchedule } from "@/lib/queries/schedule";
@@ -40,6 +42,12 @@ export default async function DashboardPage({
   const { league: leagueParam } = await params;
   const user = await requireUser();
   const ctx = await getActiveContext(leagueParam);
+  // Membership, not role, decides which leagues a staff account can open. The
+  // check is on a *roled* account only: an account with no role yet belongs to
+  // no league either, and refusing it here would make the explanation below —
+  // the one page that tells someone why nothing works — unreachable. It renders
+  // no league data, so there is nothing for it to leak.
+  if (user.role && !(await isLeagueMember(user.id, ctx.league.id))) redirect("/");
   // The resolved slug, not the URL's — links stay canonical from /OBHL.
   const leagueSlug = ctx.league.slug;
   const seasonLabel = ctx.season?.name ?? "No active season";
@@ -97,13 +105,19 @@ export default async function DashboardPage({
         </div>
       ) : null}
 
-      {user.role === "captain" ? (
-        <CaptainPanel
-          userId={user.id}
-          seasonId={ctx.season?.id ?? null}
-          leagueSlug={ctx.league.slug}
-        />
-      ) : null}
+      {/*
+        Keyed on the player link, not on the role. A person can be a manager
+        *and* captain a team — manager write access is a superset of a
+        captain's, so that needs no multi-role model, only for the captain
+        surface to stop being gated on `role === "captain"`. The panel resolves
+        its own team and renders nothing when there isn't one.
+      */}
+      <CaptainPanel
+        userId={user.id}
+        seasonId={ctx.season?.id ?? null}
+        leagueSlug={ctx.league.slug}
+        explainWhenAbsent={user.role === "captain"}
+      />
     </div>
   );
 }
@@ -112,10 +126,18 @@ async function CaptainPanel({
   userId,
   seasonId,
   leagueSlug,
+  explainWhenAbsent,
 }: {
   userId: string;
   seasonId: string | null;
   leagueSlug: string;
+  /**
+   * Whether "you captain nothing here" is worth saying. For an account whose
+   * role IS captain it is the whole page, so it gets an explanation; for a
+   * manager who happens not to captain a team it is just noise, so the panel
+   * renders nothing at all.
+   */
+  explainWhenAbsent: boolean;
 }) {
   const supabase = await createClient();
   const { data: profile } = await supabase
@@ -125,12 +147,12 @@ async function CaptainPanel({
     .maybeSingle();
 
   if (!profile?.player_id) {
-    return (
+    return explainWhenAbsent ? (
       <EmptyState
         title="No player linked"
         description="Your captain account isn't linked to a player yet. Ask a league manager to link you."
       />
-    );
+    ) : null;
   }
 
   let team: { id: string; name: string; slug: string; color: string | null } | null =
@@ -153,12 +175,12 @@ async function CaptainPanel({
   }
 
   if (!team) {
-    return (
+    return explainWhenAbsent ? (
       <EmptyState
         title="No team to captain this season"
         description="You don't captain a team in the current league's active season. Switch leagues in the header if your team is elsewhere."
       />
-    );
+    ) : null;
   }
 
   const games = (await getSchedule(seasonId!, { teamId: team.id })).filter(

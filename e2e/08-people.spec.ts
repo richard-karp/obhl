@@ -48,17 +48,24 @@ test.describe("Path 14 — People & Roles", () => {
     await expect(rows.first().getByRole("button").first()).toBeVisible();
   });
 
-  test("a manager account offers no role or remove control", async ({ page }) => {
-    // Every manager can open this page, so offering these would let any manager
-    // demote or delete any other — and Remove calls auth.admin.deleteUser,
-    // which does not come back. The server refuses it too.
+  test("a manager account offers no role control, and no remove when last", async ({
+    page,
+  }) => {
+    // Every manager can open this page, so a role control here would let any
+    // manager unmake any other. The server refuses it too.
+    //
+    // Remove IS offered for a manager in general — that is how a second manager
+    // account is taken back — but not here: this account is Oceanview's only
+    // manager, and removing it would leave the league with nobody able to grant
+    // anyone access to it. See 16-league-membership for the case where a league
+    // has two and the button appears.
     await page.goto("/obhl/manage/people");
 
     const managerRow = page
       .locator("table tbody tr")
       .filter({ hasText: "manager@obhl.test" });
     await expect(managerRow).toHaveCount(1);
-    await expect(managerRow.getByText("Managers are changed by hand")).toBeVisible();
+    await expect(managerRow.getByText("Role changed by hand")).toBeVisible();
     await expect(managerRow.getByRole("button", { name: "Remove" })).toHaveCount(0);
     await expect(managerRow.getByLabel("Change role")).toHaveCount(0);
 

@@ -2,6 +2,7 @@ import { getSchedule } from "@/lib/queries/schedule";
 import { buildScheduleCsv, type CsvGame } from "@/lib/export/csv";
 import { isExportableFixture } from "@/lib/export/fixtures";
 import { isUuid } from "@/lib/db/uuid";
+import { publicLeagueOfSeason } from "@/lib/league/current";
 
 /** The season's fixtures as a spreadsheet. One-time download, not a feed. */
 export async function GET(
@@ -14,7 +15,10 @@ export async function GET(
   // file that looks like a real but empty season.
   if (!isUuid(seasonId)) return new Response("Not found", { status: 404 });
 
-  const games = await getSchedule(seasonId);
+  const [games, league] = await Promise.all([
+    getSchedule(seasonId),
+    publicLeagueOfSeason(seasonId),
+  ]);
   const csv = buildScheduleCsv(
     games
       .filter((g) => isExportableFixture(g.status))
@@ -30,7 +34,7 @@ export async function GET(
   return new Response(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": 'attachment; filename="obhl-schedule.csv"',
+      "Content-Disposition": `attachment; filename="${league?.slug ?? "schedule"}-schedule.csv"`,
     },
   });
 }

@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { requireManager } from "@/lib/auth/guards";
+import { requireLeagueManager } from "@/lib/auth/guards";
 import { notFound } from "next/navigation";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 import { createAdminClient } from "@/utils/supabase/admin";
@@ -14,9 +14,9 @@ export default async function AuditLogPage({
   params: Promise<{ league: string }>;
 }) {
   const { league: leagueSlug } = await params;
-  await requireManager();
   const league = await resolveLeagueBySlug(leagueSlug);
   if (!league) notFound();
+  await requireLeagueManager(league.id);
   const admin = createAdminClient();
   const cookieStore = await cookies();
   const currentSessionId = cookieStore.get("audit_session")?.value ?? null;

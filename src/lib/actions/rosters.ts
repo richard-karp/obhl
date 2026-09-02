@@ -2,7 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { requireManager } from "@/lib/auth/guards";
+import {
+  requireLeagueManager,
+  requireLeagueManagerOf,
+} from "@/lib/auth/guards";
+import {
+  leagueOfSeason,
+  leagueOfTeam,
+  leagueOfTeamPlayer,
+} from "@/lib/league/of-entity";
 import { logAudit } from "@/lib/audit";
 
 export type RosterActionState = { ok: boolean; message: string } | null;
@@ -11,11 +19,21 @@ export async function addRosterPlayer(
   _prev: RosterActionState,
   formData: FormData,
 ): Promise<RosterActionState> {
-  const manager = await requireManager();
   const admin = createAdminClient();
 
   const season_id = String(formData.get("season_id"));
   const team_id = String(formData.get("team_id"));
+  // These forms carry ids, never a league — the league is in the URL of the
+  // page that rendered them. Every guard below therefore derives it from the
+  // rows being written, which is what makes a hand-made request naming another
+  // league's ids fail rather than pass.
+  //
+  // BOTH ids, because both are written. Guarding the season alone let a foreign
+  // `team_id` through, and `is_captain` rides in the same payload.
+  const manager = await requireLeagueManagerOf(
+    () => leagueOfSeason(season_id, admin),
+    () => leagueOfTeam(team_id, admin),
+  );
   const existing_id = String(formData.get("player_id") ?? "").trim();
   const first = String(formData.get("first_name") ?? "").trim();
   const last = String(formData.get("last_name") ?? "").trim();
@@ -71,10 +89,10 @@ export async function addRosterPlayer(
 }
 
 export async function removeRosterPlayer(formData: FormData) {
-  const manager = await requireManager();
   const admin = createAdminClient();
   const id = String(formData.get("id"));
   const team_id = String(formData.get("team_id"));
+  const manager = await requireLeagueManager(() => leagueOfTeamPlayer(id, admin));
 
   // Capture full row before deletion so revert can restore it
   const { data: existing } = await admin
@@ -95,9 +113,9 @@ export async function removeRosterPlayer(formData: FormData) {
 }
 
 export async function toggleCaptain(formData: FormData) {
-  const manager = await requireManager();
   const admin = createAdminClient();
   const id = String(formData.get("id"));
+  const manager = await requireLeagueManager(() => leagueOfTeamPlayer(id, admin));
   const make = formData.get("make") === "1";
   await admin.from("team_players").update({ is_captain: make }).eq("id", id);
   void logAudit({
@@ -111,12 +129,21 @@ export async function toggleCaptain(formData: FormData) {
 }
 
 export async function setDefaultGoalie(formData: FormData) {
-  const manager = await requireManager();
   const admin = createAdminClient();
   const id = String(formData.get("id")); // team_players.id
   const team_id = String(formData.get("team_id"));
   const season_id = String(formData.get("season_id"));
   const make = formData.get("make") === "1";
+  // All three, unconditionally. The `id` update only runs when setting, so
+  // guarding it only then looks precise — but `logAudit` below uses the id
+  // whatever `make` is, and it writes on the admin client, past RLS. Guarding
+  // the table writes alone therefore left an unset able to file an entry
+  // against another league's roster row, into that league's audit log.
+  const manager = await requireLeagueManagerOf(
+    () => leagueOfSeason(season_id, admin),
+    () => leagueOfTeam(team_id, admin),
+    () => leagueOfTeamPlayer(id, admin),
+  );
 
   // Clear any existing default on this team/season first, then set the new one.
   await admin
@@ -138,10 +165,16 @@ export async function setDefaultGoalie(formData: FormData) {
 }
 
 export async function setGoalieDay(formData: FormData) {
-  const manager = await requireManager();
   const admin = createAdminClient();
   const team_id = String(formData.get("team_id"));
   const season_id = String(formData.get("season_id"));
+  // Both ids are written, so both are checked — and against the SAME league.
+  // Two independent membership checks would pass for a person who manages both
+  // leagues while still writing one league's team into the other's season.
+  const manager = await requireLeagueManagerOf(
+    () => leagueOfSeason(season_id, admin),
+    () => leagueOfTeam(team_id, admin),
+  );
   const day_of_week = Number(formData.get("day_of_week"));
   const player_id = String(formData.get("player_id") ?? "").trim();
 
@@ -168,9 +201,9 @@ export async function setGoalieDay(formData: FormData) {
 }
 
 export async function updatePlayerStatus(formData: FormData) {
-  const manager = await requireManager();
   const admin = createAdminClient();
   const id = String(formData.get("id"));
+  const manager = await requireLeagueManager(() => leagueOfTeamPlayer(id, admin));
   const field = String(formData.get("field"));
 
   // Capture current value before update so revert can restore it

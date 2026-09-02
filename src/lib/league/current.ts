@@ -49,18 +49,34 @@ export async function getPublicLeagues(client: Client): Promise<LeagueOption[]> 
 }
 
 /**
- * Every league the caller can see, for the manage switcher. A staged league is
- * absent from `getPublicLeagues`, so a switcher built from that list would show
- * its own manager a selected value that isn't among its options — and the
- * browser would render some other league's name as the current one.
+ * The league a season / team belongs to, for the public export routes.
  *
- * RLS still decides what "can see" means: managers get every league, everyone
- * else only the public ones.
+ * Distinct from `lib/league/of-entity`, which answers the same question on the
+ * ADMIN client and returns only an id, because it is deciding whether a caller
+ * may act. These are for feeds: they read through RLS, so a league that isn't
+ * publicly visible names itself to nobody, and they return what a calendar or a
+ * filename needs.
  */
-export async function getAllLeagues(client: Client): Promise<LeagueOption[]> {
-  const { data } = await client
-    .from("leagues")
-    .select("id, name, slug")
-    .order("created_at", { ascending: true });
-  return data ?? [];
+export async function publicLeagueOfSeason(
+  seasonId: string,
+): Promise<LeagueOption | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("seasons")
+    .select("leagues!inner(id, name, slug)")
+    .eq("id", seasonId)
+    .maybeSingle();
+  return data?.leagues ?? null;
+}
+
+export async function publicLeagueOfTeam(
+  teamId: string,
+): Promise<LeagueOption | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("teams")
+    .select("leagues!inner(id, name, slug)")
+    .eq("id", teamId)
+    .maybeSingle();
+  return data?.leagues ?? null;
 }

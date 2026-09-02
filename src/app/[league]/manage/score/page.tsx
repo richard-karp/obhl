@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireRole } from "@/lib/auth/guards";
+import { requireLeagueRole } from "@/lib/auth/guards";
 import { getActiveContext } from "@/lib/queries/season";
 import { getSchedule } from "@/lib/queries/schedule";
 import { GameStatusBadge } from "@/components/shared/game-status-badge";
@@ -23,8 +23,8 @@ export default async function ScoreGamesPage({
   params: Promise<{ league: string }>;
 }) {
   const { league: leagueParam } = await params;
-  await requireRole("scorekeeper", "league_manager");
   const ctx = await getActiveContext(leagueParam);
+  await requireLeagueRole(ctx.league.id, "scorekeeper", "league_manager");
   // The resolved slug, not the URL's — links stay canonical from /OBHL.
   const leagueSlug = ctx.league.slug;
   if (!ctx.season) {

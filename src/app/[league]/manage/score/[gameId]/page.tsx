@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireRole } from "@/lib/auth/guards";
+import { requireLeagueRole } from "@/lib/auth/guards";
 import { createClient } from "@/utils/supabase/server";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 import {
@@ -32,10 +32,15 @@ export default async function ScoreGamePage({
 }: {
   params: Promise<{ league: string; gameId: string }>;
 }) {
-  const user = await requireRole("captain", "scorekeeper", "league_manager");
   const { league: leagueSlug, gameId } = await params;
   const league = await resolveLeagueBySlug(leagueSlug);
   if (!league) notFound();
+  const user = await requireLeagueRole(
+    league.id,
+    "captain",
+    "scorekeeper",
+    "league_manager",
+  );
   const supabase = await createClient();
 
   const { data: game } = await supabase
@@ -85,23 +90,24 @@ export default async function ScoreGamePage({
   const numberOf = new Map<string, number | null>();
   for (const r of roster ?? []) numberOf.set(r.player_id, r.jersey_number);
 
+  // Derived from the player link, not from `role === "captain"`. A person can
+  // be a manager and captain a team at once; keyed on the role, promoting a
+  // captain to manager silently took their captain surface away.
   let captainTeamId: string | null = null;
-  if (user.role === "captain") {
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("player_id")
-      .eq("id", user.id)
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("player_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (prof?.player_id) {
+    const { data: tp } = await supabase
+      .from("team_players")
+      .select("team_id")
+      .eq("player_id", prof.player_id)
+      .eq("is_captain", true)
+      .eq("season_id", game.season_id)
       .maybeSingle();
-    if (prof?.player_id) {
-      const { data: tp } = await supabase
-        .from("team_players")
-        .select("team_id")
-        .eq("player_id", prof.player_id)
-        .eq("is_captain", true)
-        .eq("season_id", game.season_id)
-        .maybeSingle();
-      captainTeamId = tp?.team_id ?? null;
-    }
+    captainTeamId = tp?.team_id ?? null;
   }
 
   const buildBoard = (t: any): TeamBoard => {
@@ -157,8 +163,11 @@ export default async function ScoreGamePage({
   const canManage = user.role === "league_manager";
   const allBoards = [buildBoard(awayT), buildBoard(homeT)];
   const score = (b: TeamBoard) => b.dressed.reduce((s, l) => s + l.goals, 0);
+  // One board for a captain who cannot score, both for anyone who can. Manager
+  // write access is a superset of a captain's, so a manager who also captains a
+  // team still gets the whole sheet.
   const boards =
-    user.role === "captain" && captainTeamId
+    !canScore && captainTeamId
       ? allBoards.filter((b) => b.id === captainTeamId)
       : allBoards;
 

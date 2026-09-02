@@ -419,6 +419,39 @@ export type Database = {
         }
         Relationships: []
       }
+      profile_leagues: {
+        Row: {
+          created_at: string
+          league_id: string
+          profile_id: string
+        }
+        Insert: {
+          created_at?: string
+          league_id: string
+          profile_id: string
+        }
+        Update: {
+          created_at?: string
+          league_id?: string
+          profile_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profile_leagues_league_id_fkey"
+            columns: ["league_id"]
+            isOneToOne: false
+            referencedRelation: "leagues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profile_leagues_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -836,11 +869,16 @@ export type Database = {
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       game_is_public_final: { Args: { p_game: string }; Returns: boolean }
+      game_league: { Args: { p_game: string }; Returns: string }
       is_captain_of: {
         Args: { p_season: string; p_team: string }
         Returns: boolean
       }
+      is_league_member: { Args: { p_league: string }; Returns: boolean }
+      keeps_score_for: { Args: { p_league: string }; Returns: boolean }
       league_is_public: { Args: { p_league: string }; Returns: boolean }
+      logo_object_league: { Args: { p_name: string }; Returns: string }
+      manages_league: { Args: { p_league: string }; Returns: boolean }
       player_is_public: { Args: { p_player: string }; Returns: boolean }
       postpone_game: { Args: { p_game: string }; Returns: undefined }
       remove_published_schedule: {
@@ -861,6 +899,8 @@ export type Database = {
       restore_game: { Args: { p_game: string }; Returns: undefined }
       season_is_public: { Args: { p_season: string }; Returns: boolean }
       season_is_started: { Args: { p_season: string }; Returns: boolean }
+      season_league: { Args: { p_season: string }; Returns: string }
+      shares_league_with: { Args: { p_profile: string }; Returns: boolean }
     }
     Enums: {
       app_role: "league_manager" | "captain" | "scorekeeper"

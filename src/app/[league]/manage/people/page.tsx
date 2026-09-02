@@ -1,4 +1,4 @@
-import { requireManager } from "@/lib/auth/guards";
+import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { getActiveContext } from "@/lib/queries/season";
 import {
@@ -30,13 +30,24 @@ export default async function PeoplePage({
   params: Promise<{ league: string }>;
 }) {
   const { league: leagueSlug } = await params;
-  await requireManager();
-  const admin = createAdminClient();
   const ctx = await getActiveContext(leagueSlug);
+  const viewer = await requireLeagueManager(ctx.league.id);
+  const admin = createAdminClient();
+
+  // This league's staff, not the instance's. The page listed every profile in
+  // the database, and its Remove button deleted the account outright — so a
+  // manager of one league was handed the other league's staff to delete.
+  const { data: members } = await admin
+    .from("profile_leagues")
+    .select("profile_id")
+    .eq("league_id", ctx.league.id);
+  const memberIds = (members ?? []).map((m) => m.profile_id);
 
   const [{ data: usersList }, { data: profiles }] = await Promise.all([
     admin.auth.admin.listUsers({ perPage: 1000 }),
-    admin.from("profiles").select("id, role, display_name"),
+    memberIds.length
+      ? admin.from("profiles").select("id, role, display_name").in("id", memberIds)
+      : Promise.resolve({ data: [] as { id: string; role: string | null; display_name: string | null }[] }),
   ]);
 
   let captains: CaptainOption[] = [];
@@ -61,6 +72,10 @@ export default async function PeoplePage({
     .map((p) => ({ ...p, email: emailById.get(p.id) ?? "—" }))
     .sort((a, b) => (a.role ?? "").localeCompare(b.role ?? ""));
 
+  // The one refusal `removeStaff` makes, so a row can render the reason rather
+  // than a button that silently does nothing. It also covers the sole manager
+  // of a league, who is necessarily whoever is looking at this page.
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -73,7 +88,7 @@ export default async function PeoplePage({
           <CardTitle className="text-base">Add a staff account</CardTitle>
         </CardHeader>
         <CardContent>
-          <CreateStaffForm captains={captains} />
+          <CreateStaffForm captains={captains} leagueId={ctx.league.id} />
         </CardContent>
       </Card>
 
@@ -96,7 +111,12 @@ export default async function PeoplePage({
                 </TableCell>
                 <TableCell>{ROLE_LABEL[s.role ?? ""] ?? "—"}</TableCell>
                 <TableCell>
-                  <StaffRowActions id={s.id} role={s.role ?? "scorekeeper"} />
+                  <StaffRowActions
+                    id={s.id}
+                    role={s.role ?? "scorekeeper"}
+                    leagueId={ctx.league.id}
+                    canRemove={s.id !== viewer.id}
+                  />
                 </TableCell>
               </TableRow>
             ))}
@@ -105,8 +125,10 @@ export default async function PeoplePage({
       </div>
 
       <p className="text-muted-foreground text-xs">
-        Staff sign in with a magic link — no passwords. Removing an account
-        revokes access immediately.
+        Staff sign in with a magic link — no passwords. This list is{" "}
+        {ctx.league.name} only, and Remove takes someone out of this league —
+        their account, and any other league they work in, are left alone. You
+        cannot remove yourself, or the last manager of a league.
       </p>
     </div>
   );

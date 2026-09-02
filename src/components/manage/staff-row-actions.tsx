@@ -3,16 +3,53 @@
 import { updateStaffRole, removeStaff } from "@/lib/actions/people";
 import { Button } from "@/components/ui/button";
 
-export function StaffRowActions({ id, role }: { id: string; role: string }) {
-  // No controls for a manager row. Every manager can open this page, so
-  // offering them would mean any manager could demote or delete any other —
-  // and Remove deletes the account outright. The server refuses this too;
-  // this is what stops the page presenting it as available.
+export function StaffRowActions({
+  id,
+  role,
+  leagueId,
+  canRemove,
+}: {
+  id: string;
+  role: string;
+  /** Both actions are scoped to this league; the server checks it, not trusts it. */
+  leagueId: string;
+  /**
+   * Whether Remove would actually be honoured. The server refuses silently —
+   * a form action returning void has nowhere to put a message — so the page
+   * works out the answer and this renders the reason instead of a button that
+   * appears to do nothing.
+   */
+  canRemove: boolean;
+}) {
+  const remove = canRemove ? (
+    <form action={removeStaff}>
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="league_id" value={leagueId} />
+      {/* Removes them from this league — it does not delete the account. */}
+      <Button
+        type="submit"
+        variant="ghost"
+        size="sm"
+        className="text-destructive"
+        title="Remove from this league"
+      >
+        Remove
+      </Button>
+    </form>
+  ) : null;
+
+  // A manager's ROLE is not editable here. Every manager can open this page, so
+  // offering it would let any manager unmake any other. Removing them from the
+  // league is a different question, and is offered — that is how a second
+  // manager account gets taken back.
   if (role === "league_manager") {
     return (
-      <p className="text-muted-foreground text-right text-xs">
-        Managers are changed by hand
-      </p>
+      <div className="flex items-center justify-end gap-2">
+        <span className="text-muted-foreground text-xs">
+          Role changed by hand
+        </span>
+        {remove}
+      </div>
     );
   }
 
@@ -20,6 +57,7 @@ export function StaffRowActions({ id, role }: { id: string; role: string }) {
     <div className="flex items-center justify-end gap-2">
       <form action={updateStaffRole}>
         <input type="hidden" name="id" value={id} />
+        <input type="hidden" name="league_id" value={leagueId} />
         <select
           name="role"
           aria-label="Change role"
@@ -32,12 +70,7 @@ export function StaffRowActions({ id, role }: { id: string; role: string }) {
           <option value="captain">Captain</option>
         </select>
       </form>
-      <form action={removeStaff}>
-        <input type="hidden" name="id" value={id} />
-        <Button type="submit" variant="ghost" size="sm" className="text-destructive">
-          Remove
-        </Button>
-      </form>
+      {remove}
     </div>
   );
 }
