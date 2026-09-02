@@ -638,13 +638,34 @@ test.describe("Path 17 — Per-league membership", () => {
       const removeForm = coRow.locator("form").filter({
         has: page.locator('input[name="league_id"]'),
       });
-      await removeForm
-        .locator('input[name="id"]')
-        .evaluate((el, id) => ((el as HTMLInputElement).value = id), self!.id);
+      // Hydration first. Setting .value on a React-rendered hidden input before
+      // hydration lands is silently undone when React takes over, and the form
+      // then posts its ORIGINAL id — which here is a *permitted* removal, so the
+      // "still a member" check below passes without the attack ever happening.
+      // That is what failed on CI: the co-manager was removed for real and this
+      // test proved nothing until a later line tripped over the missing row.
+      await page.waitForLoadState("networkidle");
+      const idInput = removeForm.locator('input[name="id"]');
+      await idInput.evaluate(
+        (el, id) => ((el as HTMLInputElement).value = id),
+        self!.id,
+      );
+      // Never submit an unverified tamper: if the value did not stick, fail here
+      // saying so, rather than downstream on a vacuous pass.
+      await expect(idInput).toHaveValue(self!.id);
+
       await submitAndSettle(
         page,
         removeForm.getByRole("button", { name: "Remove" }).click(),
       );
+      // The co-manager must still be here — proof the POST carried the tampered
+      // id and was refused, not the original id and quietly honoured.
+      await expect(
+        page.getByRole("cell", {
+          name: "single-league-lead@obhl.test",
+          exact: true,
+        }),
+      ).toHaveCount(1);
       const { data: stillMine } = await db
         .from("profile_leagues")
         .select("league_id")

@@ -17,7 +17,16 @@ export default defineConfig({
   // converge early. CI lost that race. Keep this comfortably above the
   // generator's budget; it is not a licence for slow assertions elsewhere, and
   // it costs nothing except on a genuine failure.
-  expect: { timeout: 30_000 },
+  //
+  // Keep this WELL BELOW `timeout` below. Setting the two equal (30s/30s, as a
+  // first attempt did) means a failing assertion consumes the whole test budget,
+  // so Playwright reports "Test timeout exceeded" instead of naming the locator
+  // that failed — and the assertion never gets its full window either.
+  expect: { timeout: 15_000 },
+
+  // Per-test budget. Above the assertion timeout so a single failed assertion
+  // reports as itself and still leaves room for the rest of the test.
+  timeout: 60_000,
 
   use: {
     baseURL: "http://localhost:3000",
