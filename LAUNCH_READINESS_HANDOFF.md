@@ -27,9 +27,9 @@
 production exposures nobody has closed and the audit-log gaps in item 3 —
 neither of which any pending merge addresses.
 
-⚠️ This file is written for the state *after* per-league access control (#13)
-and `feat/ci-and-rules-audit` land. **As of 2026-09-02 neither had merged.**
-Confirm before trusting the baseline in point 4:
+⚠️ This file describes `main` with **both** per-league access control (#13,
+merged 2026-09-02) and `feat/ci-and-rules-audit` in it. If the second is not
+there yet, point 4's baseline will not match. Confirm with:
 
     git log --oneline origin/main | head -5
 
