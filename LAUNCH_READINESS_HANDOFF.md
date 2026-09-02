@@ -17,11 +17,9 @@
      page snapshot has twice settled in seconds what guessing got wrong.
 3. Every number here was **watched appear** on 2026-09-02. Where a claim is a
    reading of the code rather than a measurement, it says so in those words.
-   ⚠️ Of the hosted environment, **only the schema has been read**: `0029`-`0032`
-   are in the **Remote** column of `npx supabase migration list --linked`
-   (2026-09-02), so **the database is already ahead of the code — do not run
-   `db push`.** Production env vars and the auth user list are *unread*, so
-   items 1 and 2 below are expectations to confirm, never findings.
+   ⚠️ Of production, **only the schema has been read** — `0029`-`0032` are on
+   Remote (2026-09-02), so **do not run `db push`**. Env vars and the auth user
+   list are unread: items 0-2 are expectations to confirm, never findings.
 4. Verify code changes with `npm test && npm run test:e2e`.
    Baseline: **250 unit passed; 118 e2e passed, 1 skipped, 0 failed.** The skip
    is the AI-summary test, gated on an API key — not a regression.
@@ -33,13 +31,26 @@ nobody has closed, and the audit-log gaps in item 3.
 
 ## Next action
 
-**Item 1, then item 2. Both need a human.** Item 1 is one command:
+⛔ **Item 0 gates item 1.** The dev-login panel is the only *verified* way into
+production's manage tools, and removing it without a working real sign-in locks
+everyone out **silently** — recovery is SQL against production. Why it fails
+quietly is under *Getting locked out* below.
+
+So first, on `obhl.vercel.app`, as a **real** (non-`@obhl.test`) manager:
+request a magic link, sign in, confirm `/manage/dashboard` shows the Manager
+badge. If it fails, `LAUNCH.md` Phase 2; if no such account exists, Phase 4.
+
+**Then item 1, then item 2. Both need a human.** Item 1 is one command:
 
     vercel env rm ENABLE_DEV_LOGIN production && vercel --prod
 
 Confirm at https://obhl.vercel.app/login that the "Quick sign-in (test mode)"
 panel is gone. **That does not finish the job** — go straight to item 2, which
 is a separate door the same person is best placed to close.
+
+Items 3-5 come after. They are improvements; 1 and 2 are an open door — and
+while the bypass is live, #13's access control is moot on production anyway,
+since anyone can hold a manager session regardless of what it enforces.
 
 ## Open, in priority order
 
@@ -126,6 +137,16 @@ the test go red. A test that only asserts the entry was *written* proves nothing
 ## Not covered by the items above
 
 Two things this file does not track, recorded so nobody assumes it is exhaustive.
+
+### Getting locked out
+
+`getSessionUser` (`src/lib/auth/session.ts`) reads the role from the JWT claim
+with **no database fallback** — `role: claims.app_metadata?.role ?? null`. So if
+the Custom Access Token hook is disabled, sign-in still appears to succeed and
+every user has `role: null`, reaching no manage tools at all. A missing SMTP
+config or redirect-allow-list entry breaks it one step earlier, at the magic
+link. Any of the three, with the dev-login panel already removed and the seeded
+accounts deleted, leaves no way in but SQL. That is why item 0 exists.
 
 **`LAUNCH.md` Phases 2-6 are unverified from here.** This file speaks only to
 Phase 1 (the test doors). The site is live with two leagues, so most of the rest
