@@ -6,6 +6,7 @@ import { requireLeagueManager } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit";
 import {
   addLeagueMembership,
+  mayPromoteToManager,
   mayWriteProfileOf,
   removeLeagueMembership,
 } from "@/lib/auth/membership";
@@ -266,6 +267,20 @@ export async function updateStaffRole(formData: FormData) {
   // hand-made request. It returns quietly rather than throwing: there is
   // nowhere to put a message on a form action that returns void.
   if (before?.role === "league_manager") return;
+
+  // ...and a promotion TO manager cannot reach a league the actor cannot see.
+  //
+  // Being a member of this league is not enough to authorise this one, because
+  // membership here is exactly what `createStaffAccount` hands out for free
+  // when the role matches. The role being written is instance-wide, so it lands
+  // in that person's OTHER leagues too — see `mayPromoteToManager`.
+  //
+  // Quiet, like the demotion above and for the same reason. The page does not
+  // offer the option when it would be refused, so reaching this means a
+  // hand-made request.
+  if (role === "league_manager" && !(await mayPromoteToManager(actor.id, id))) {
+    return;
+  }
 
   // Role only. This used to null `player_id` for any non-captain role, so
   // promoting a captain to manager quietly unlinked them from their player —

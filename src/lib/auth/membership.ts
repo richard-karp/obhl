@@ -80,6 +80,36 @@ export async function mayWriteProfileOf(
   return theirs.length === 0 || mine.some((id) => theirs.includes(id));
 }
 
+/**
+ * May this actor make this account a MANAGER?
+ *
+ * `profiles.role` is instance-wide, so a promotion to `league_manager` makes
+ * them a manager of every league they belong to — not only the one it was
+ * submitted from.
+ *
+ * `mayWriteProfileOf` cannot answer this. Adding an existing account at the
+ * role it already holds is permitted on purpose and grants membership, so that
+ * first step creates the very shared league an overlap test looks for; the
+ * promotion then passes. 0032's `shares_league_with(id)` has the same shape and
+ * permits the same two steps, so RLS is not a second chance here either.
+ *
+ * The test is therefore CONTAINMENT, not overlap: every league the target works
+ * must be one the actor works too. The caller has already established that the
+ * actor is a manager, and a manager of every league they belong to (0009 reads
+ * one instance-wide role), so a promotion that passes hands out no authority
+ * the actor does not already hold.
+ */
+export async function mayPromoteToManager(
+  actorId: string,
+  profileId: string,
+): Promise<boolean> {
+  const [mine, theirs] = await Promise.all([
+    memberLeagueIds(actorId),
+    memberLeagueIds(profileId),
+  ]);
+  return theirs.every((id) => mine.includes(id));
+}
+
 /** Grant membership. Idempotent — re-adding an existing member is a no-op. */
 export async function addLeagueMembership(
   profileId: string,
