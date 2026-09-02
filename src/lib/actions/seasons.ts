@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireLeagueManager } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit";
+import { findUserIdByEmail } from "@/lib/auth/users";
 import { addLeagueMembership } from "@/lib/auth/membership";
 import { leagueOfSeason } from "@/lib/league/of-entity";
 import { getStandings } from "@/lib/queries/standings";
@@ -165,8 +166,12 @@ export async function createTeamForSeason(
         email_confirm: true,
       });
       if (uErr) {
-        const { data: list } = await admin.auth.admin.listUsers({ perPage: 1000 });
-        userId = list?.users.find((u) => u.email === captainEmail)?.id;
+        // Paged: a single page of the instance's auth users would stop finding
+        // an existing captain once there are more than fit in it, and this
+        // branch's failure is silent — `userId` stays undefined, no profile is
+        // written, and the team is still reported added with a captain who
+        // cannot sign in.
+        userId = (await findUserIdByEmail(admin, captainEmail)) ?? undefined;
       } else {
         userId = created.user.id;
       }

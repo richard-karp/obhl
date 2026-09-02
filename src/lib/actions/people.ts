@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireLeagueManager } from "@/lib/auth/guards";
+import { findUserIdByEmail } from "@/lib/auth/users";
 import { logAudit } from "@/lib/audit";
 import {
   addLeagueMembership,
@@ -85,31 +86,6 @@ async function logStaffChange(
     entity_id: leagueId,
     ...data,
   });
-}
-
-/**
- * The auth user id for an address, or null.
- *
- * Paged rather than one large page: `listUsers` returns a single page and says
- * nothing about the rest, so a lone `perPage: 1000` call turns "this address
- * exists" into "no such account" the moment an instance outgrows it — and the
- * caller then reports the raw createUser error instead of adding the person.
- * The loop stops at the first short page, and at a bound so a backend that
- * ignores paging cannot spin here.
- */
-async function findUserIdByEmail(
-  admin: ReturnType<typeof createAdminClient>,
-  email: string,
-): Promise<string | null> {
-  const perPage = 200;
-  for (let page = 1; page <= 50; page++) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) return null;
-    const hit = data.users.find((u) => u.email?.toLowerCase() === email);
-    if (hit) return hit.id;
-    if (data.users.length < perPage) return null;
-  }
-  return null;
 }
 
 /**
