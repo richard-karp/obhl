@@ -23,7 +23,6 @@ const ROLE_LABEL: Record<string, string> = {
   captain: "Captain",
 };
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export default async function PeoplePage({
   params,
 }: {
@@ -59,7 +58,7 @@ export default async function PeoplePage({
       )
       .eq("season_id", ctx.season.id)
       .eq("is_captain", true);
-    captains = (caps ?? []).map((c: any) => ({
+    captains = (caps ?? []).map((c) => ({
       id: c.player_id,
       label: `${c.players?.first_name} ${c.players?.last_name} (${c.teams?.name})`,
     }));
@@ -133,4 +132,3 @@ export default async function PeoplePage({
     </div>
   );
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
