@@ -123,6 +123,32 @@ the same change. Cost differs per file (*reading of the code*):
 Prove each one the way this area is tested: knock the switch case out and watch
 the test go red. A test that only asserts the entry was *written* proves nothing.
 
+## Not covered by the items above
+
+Two things this file does not track, recorded so nobody assumes it is exhaustive.
+
+**`LAUNCH.md` Phases 2-6 are unverified from here.** This file speaks only to
+Phase 1 (the test doors). The site is live with two leagues, so most of the rest
+presumably happened — but *presumably* is the operative word: nobody has checked
+SMTP, the Supabase redirect allow-list, or that the Custom Access Token hook is
+still enabled. The hook is the one that fails quietly: `getSessionUser` reads
+the role only from the JWT claim with no database fallback, so with it off
+sign-in still appears to work and nobody reaches the manage tools.
+⚠️ **Phase 6 carries the only hard deadline in the project.** A published
+season locks the moment its first game night passes — `season_is_started`
+(`0026_replace_published_schedule.sql`) then permanently blocks generate,
+replace and remove, and no UI undoes it. If a real season is approaching, that
+outranks every item above.
+
+**PR #13 was never code-reviewed** (50 files, +2545/-327, merged as `7c7c4a7`).
+It has strong test evidence — `e2e/16-league-membership.spec.ts` drives ~30
+cross-league refusal cases, each watched fail against a deliberately broken
+guard — and CI is green. But no one has read it as a reviewer, and it is the
+change that decides who can reach what. Two of its tests turned out to be
+unreliable under slower hardware (see the tamper section below), which is the
+kind of thing a review might have caught earlier. Worth a pass before the league
+grows past one manager.
+
 ## Tests: never submit an unverified form tamper
 
 The cross-league attack tests reach a server action by rewriting a form's hidden
