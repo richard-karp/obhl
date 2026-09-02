@@ -650,6 +650,68 @@ test.describe("Path 17 — Per-league membership", () => {
     await client.auth.signOut();
   });
 
+  test("a session cannot mint a manager of another league through the API", async () => {
+    // The API half of "a manager cannot change the role of someone who works a
+    // league they don't share". The app guard runs in a server action, and a
+    // staff account holds a real Supabase session that never has to go near one
+    // — so the same test has to live in the policies (0033), or the app half
+    // would look finished and stop nothing.
+    //
+    // Both steps were watched succeeding here before that migration existed.
+    const db = admin();
+    const shared = await leagueId(LEAD_IN);
+    const { data: victim } = await db
+      .from("profiles")
+      .select("id, role")
+      .eq("display_name", "Single League Scorer")
+      .single();
+    expect(victim!.role, "victim must start as a non-manager").toBe("scorekeeper");
+
+    const client = await signedInClient("single-league-lead@obhl.test");
+    try {
+      // Step 1 is PERMITTED, and asserted so. Granting someone a league you
+      // manage is the flow the membership model exists for — and if it were
+      // refused, step 2 would fail for that reason and prove nothing.
+      const granted = await client
+        .from("profile_leagues")
+        .insert({ profile_id: victim!.id, league_id: shared })
+        .select();
+      expect(
+        granted.error,
+        "granting a league you manage should still be allowed",
+      ).toBeNull();
+
+      // Step 2 is the escalation: `profiles.role` is instance-wide, so this
+      // would make them a manager of the league they actually work, which this
+      // caller is not in.
+      await client
+        .from("profiles")
+        .update({ role: "league_manager" })
+        .eq("id", victim!.id);
+
+      // Read the ROW, not the error. An RLS-refused UPDATE matches no rows and
+      // reports no error at all, so asserting on `error` would pass whether the
+      // policy is there or not.
+      const { data: after } = await db
+        .from("profiles")
+        .select("role")
+        .eq("id", victim!.id)
+        .single();
+      expect(
+        after!.role,
+        "a session minted a manager of a league it cannot reach",
+      ).toBe("scorekeeper");
+    } finally {
+      await client.auth.signOut();
+      await db.from("profiles").update({ role: victim!.role }).eq("id", victim!.id);
+      await db
+        .from("profile_leagues")
+        .delete()
+        .eq("profile_id", victim!.id)
+        .eq("league_id", shared);
+    }
+  });
+
   test("a session can still write its OWN league's rows through the API", async () => {
     // The other side of the previous test: policies that refuse everything
     // would pass it, and this is what says they don't.
