@@ -22,9 +22,9 @@
    is the AI-summary test, gated on an API key — not a regression.
 
 **Status: the code is written; the doors are still open.** What remains is two
-production exposures nobody has closed, a runbook that now states three false
-things, and audit coverage that was never as complete as the previous handoff
-claimed — none of which any pending merge addresses.
+production exposures nobody has closed, and audit coverage that was never as
+complete as the previous handoff claimed — neither of which any pending merge
+addresses. `LAUNCH.md` was corrected on 2026-09-02 and is trustworthy again.
 
 ⚠️ This file is written for the state *after* per-league access control (#13)
 and `feat/ci-and-rules-audit` land. **As of 2026-09-02 neither had merged.**
@@ -49,8 +49,7 @@ is a separate door the same person is best placed to close.
 | 1 | `ENABLE_DEV_LOGIN` still set on production | Vercel env | one command |
 | 2 | Seeded test accounts live on production, password in git | Supabase dashboard | ~10 min |
 | 3 | Audit log does not cover the access-control actions | `src/lib/actions/people.ts` | ~half a day |
-| 4 | `LAUNCH.md` states three things that are now false | `LAUNCH.md:198-212`, `:33` | ~20 min |
-| 5 | Smaller deferred items | below | — |
+| 4 | Smaller deferred items | below | — |
 
 ---
 
@@ -125,24 +124,7 @@ the same change. Cost differs per file (*reading of the code*):
 Prove each one the way this area is tested: knock the switch case out and watch
 the test go red. A test that only asserts the entry was *written* proves nothing.
 
-## 4 — `LAUNCH.md` now states three false things
-
-All three are in the "Known limits at launch" section and were true before #13:
-
-- **`:198`** "Staff roles are not league-scoped" — they are now.
-- **`:203-204`** "a scorekeeper can score either league's games", "a second
-  manager has full access to both leagues" — both false; that is what
-  `profile_leagues` fixed. The section concludes *"stay the sole manager…
-  adding a scorekeeper or a second manager is the trigger for the per-league
-  membership work"*, which is precisely the work that shipped.
-- **`:211-212`** "People & Roles is global… `removeStaff` deletes the account
-  outright" — it removes league membership now (`people.ts:197`, and the
-  comment at `:169` records that it used to call `auth.admin.deleteUser`).
-
-It is the document you would hand someone onboarding a second league, so it is
-the worst-placed one to be stale. Fix `:33`'s account list at the same time.
-
-## 5 — Smaller, deliberately deferred
+## 4 — Smaller, deliberately deferred
 
 - **`saveRules` read-then-upsert is not atomic** — two concurrent saves both
   read the same previous document, so one audit entry's `old_data` names
@@ -163,8 +145,16 @@ the worst-placed one to be stale. Fix `:33`'s account list at the same time.
 
 ## Provenance
 
-Items 1, 2 and 4 come from `LAUNCH.md`, which remains the operational runbook —
-this file records only what is outstanding or wrong in it. Item 3 was found on
+Items 1 and 2 come from `LAUNCH.md`, which remains the operational runbook —
+this file records only what is still outstanding in it. Item 3 was found on
 2026-09-02 by counting `logAudit` call sites per action file, while closing the
 `saveRules` gap in `feat/ci-and-rules-audit`. The per-league work itself is
 `ACCESS_CONTROL_HANDOFF.md`.
+
+**Closed 2026-09-02 — do not re-file.** `LAUNCH.md`'s "Known limits at launch"
+said staff roles were not league-scoped, that a scorekeeper could score either
+league, that a second manager had access to both, and that People & Roles was
+global with `removeStaff` deleting accounts outright. Every one of those was
+true before per-league access control and is now rewritten against the code,
+together with Phase 1's account list, which named three of the five seeded
+accounts.

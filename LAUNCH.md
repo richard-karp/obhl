@@ -30,11 +30,21 @@ SQL. Get the slug right the first time.
 
 Do this before the URL is reachable by anyone.
 
-- [ ] **Delete `manager@obhl.test`, `scorekeeper@obhl.test`, `captain@obhl.test`**
-      (Dashboard → Authentication → Users). Their password is `hockey123`,
-      committed in `scripts/seed-users.mjs`. Supabase's password grant is
-      reachable with the anon key, so these are a way in regardless of any
-      application setting. A `db reset --linked` does **not** remove them.
+- [ ] **Delete all five seeded accounts** (Dashboard → Authentication → Users):
+
+          manager@obhl.test              scorekeeper@obhl.test
+          captain@obhl.test              single-league-lead@obhl.test
+          single-league-scorer@obhl.test
+
+      They share the password `hockey123`, committed in
+      `scripts/seed-users.mjs`. Supabase's password grant is reachable with the
+      anon key, so these are a way in **regardless of any application setting**
+      — removing `ENABLE_DEV_LOGIN` below does not close this door. A
+      `db reset --linked` does **not** remove them.
+
+      ⚠️ `single-league-lead@` is a **manager**. It and `single-league-scorer@`
+      arrived with the per-league membership tests, after this list was first
+      written — check for all five, not the three this used to name.
 - [ ] **Confirm `ENABLE_DEV_LOGIN` is not set** in the production environment:
       `vercel env ls production`. The one-click role buttons are off in a
       production build unless this is `true` (`src/lib/auth/dev-login.ts`), but
@@ -195,21 +205,32 @@ Against the live site, signed in as manager:
 
 Not defects to fix before going live — things to know while handing out accounts.
 
-**Staff roles are not league-scoped.** Every manage guard checks the role only.
-Concretely:
+**Staff access is scoped to league membership.** `profile_leagues` decides which
+leagues an account can reach, and every manage guard resolves the league from the
+URL and checks membership — not the role alone. Concretely:
 
-- **Captains are safe.** Their surface derives from `team_players` → season →
-  league, so a captain only ever sees their own team's games.
-- **A scorekeeper can score either league's games.**
-- **A second manager has full access to both leagues** (though they cannot demote
-  or delete you — `src/lib/actions/people.ts` refuses that).
+- **Captains** derive their surface from `team_players` → season → league, so a
+  captain only ever sees their own team's games.
+- **A scorekeeper** can score only in the leagues they belong to.
+- **A second manager** has full access to the leagues they belong to, and no
+  visibility into the others.
 
-So: stay the sole manager, and hand out captain accounts freely. Adding a
-scorekeeper or a second manager is the trigger for the per-league membership work
-(`profile_leagues`), not something to retrofit afterwards.
+So a scorekeeper or a second manager is a supported thing to hand out, not a
+reason to stay the sole manager. `ACCESS_CONTROL_HANDOFF.md` has the model and
+the traps.
 
-**People & Roles is global.** It lists every account across all leagues, and
-`removeStaff` deletes the account outright.
+**People & Roles is league-scoped.** `/<league>/manage/people` lists that
+league's staff only, and **Remove** revokes that one membership rather than
+deleting the account — the account, its role, its player link and its other
+leagues all survive, so it is reversible. Two rules there are worth knowing
+before you hand out accounts:
+
+- **You cannot remove yourself.** That one rule is also what stops a league
+  reaching zero managers, so there is no separate "last manager" check.
+- **A manager's role cannot be changed from this page at all** — not yours, not
+  anyone's (`updateStaffRole` refuses any account whose role is
+  `league_manager`). Demoting a manager is hand-written SQL against
+  `profiles.role`.
 
 **One timezone for the whole instance.** `LEAGUE_TZ` in `src/lib/format.ts` is
 module-level, so both leagues share it.
