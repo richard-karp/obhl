@@ -1,0 +1,93 @@
+# The tests that gate a merge. Before this existed the only PR checks were
+# Vercel's deploy and preview comments, which say nothing about whether the
+# suite passes.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A second push to the same PR makes the first run's answer irrelevant, so
+# supersede it. Pushes to `main` are never cancelled — each merge commit should
+# end up with a CI result of its own rather than being superseded by the next.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Types and unit tests: no database, no browser, so this is the fast answer.
+  check:
+    name: Typecheck and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # `npm run build` does not typecheck the test files; this does, including
+      # e2e/ under the CommonJS resolution Playwright actually runs it with.
+      - run: npm run typecheck
+      - run: npm test
+
+  # e2e needs the real stack: a local Supabase, a seeded database and a dev
+  # server. Split from `check` so a type error does not wait on Docker.
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-latest
+    # The suite runs single-worker by design (playwright.config.ts sets
+    # workers: 1, fullyParallel: false) and takes ~10 min locally; add image
+    # pulls for `supabase start` on a cold runner and 30 is uncomfortably tight.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      # The pinned CLI from devDependencies, not a floating one. `start` applies
+      # the migrations in supabase/migrations, so 0032 has to be on the branch
+      # for the membership tests to have a profile_leagues table to read.
+      - name: Start Supabase
+        run: npx supabase start
+
+      # Written to .env.local rather than the job env because three separate
+      # things read it: playwright.config.ts (via dotenv), `next dev`, and
+      # scripts/seed-users.mjs (via --env-file-if-exists).
+      - name: Write .env.local
+        run: |
+          set -euo pipefail
+          eval "$(npx supabase status -o env 2>/dev/null)"
+          cat > .env.local <<ENV
+          NEXT_PUBLIC_SUPABASE_URL=$API_URL
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$PUBLISHABLE_KEY
+          SUPABASE_SECRET_KEY=$SECRET_KEY
+          NEXT_PUBLIC_SITE_URL=http://localhost:3000
+          ENV
+
+      # e2e/global-setup.ts resets and seeds the database, and playwright.config
+      # starts the dev server. ENABLE_DEV_LOGIN is deliberately unset: the dev
+      # sign-in panel the suite uses is on by default outside a production
+      # build, and setting it here would be one more place to forget it.
+      - run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          # The reporter is `list`, so playwright-report/ often does not exist;
+          # test-results/ holds the failure screenshots. Missing one is normal.
+          if-no-files-found: ignore
+          retention-days: 7

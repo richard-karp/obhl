@@ -46,6 +46,36 @@ test.describe("Path 16 — League Rules", () => {
     await expect(page.getByText(RULES_TEXT)).toBeVisible();
   });
 
+  // Guards the trap in src/lib/audit.ts: an entity_type that leagueOfEntity
+  // does not handle logs with a null league, and the audit page filters on
+  // `league_id`. The entry would be written correctly and never be seen, so
+  // asserting it was written is not enough — it has to appear in the
+  // league-scoped view a manager actually reads.
+  test("saving rules appears in this league's audit log", async ({ page }) => {
+    await signedInAs(page, "Manager");
+    await page.goto("/obhl/manage/rules/edit");
+
+    const editor = page.locator('[contenteditable="true"]');
+    await editor.click();
+    await editor.fill(`Audited rule change at ${Date.now()}`);
+    await page.getByRole("button", { name: "Save rules" }).click();
+    await expect(page.getByText("Saved.")).toBeVisible({ timeout: 10000 });
+
+    await page.goto("/obhl/manage/audit");
+    await expect(page.getByText("Updated league rules").first()).toBeVisible();
+
+    // Saving again without editing must not add a second entry: these entries
+    // carry two whole documents, and re-saving an untouched page changed
+    // nothing. Only the current session's card is expanded, so a count here is
+    // a count of this test's own entries.
+    await page.goto("/obhl/manage/rules/edit");
+    await page.getByRole("button", { name: "Save rules" }).click();
+    await expect(page.getByText("Saved.")).toBeVisible({ timeout: 10000 });
+
+    await page.goto("/obhl/manage/audit");
+    await expect(page.getByText("Updated league rules")).toHaveCount(1);
+  });
+
   test("public rules page is accessible without login", async ({ page }) => {
     await page.goto("/obhl/rules");
     // Either shows rules content or the empty state — never an auth redirect

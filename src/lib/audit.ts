@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { createAdminClient } from "@/utils/supabase/admin";
 import {
   leagueOfGame,
+  leagueOfLeagueRules,
   leagueOfSeason,
   leagueOfTeam,
   leagueOfTeamPlayer,
@@ -22,11 +23,15 @@ type Admin = ReturnType<typeof createAdminClient>;
  * The league an audited entity belongs to, so the log can be read and reverted
  * per league.
  *
- * Resolved here rather than at the sixteen call sites: every one of them
- * already holds the entity id, and none of them holds a league. An entity type
- * that isn't listed logs with no league — the entry is still written, it just
- * won't appear in a league-scoped view, which is the safe direction for a
- * best-effort log.
+ * Resolved here rather than at each call site: every one of them already holds
+ * the entity id, and none of them holds a league.
+ *
+ * ⚠️ An entity type that isn't listed logs with no league. The entry is still
+ * written, but a null league is filtered out of every league-scoped view *and*
+ * hidden by RLS (`manages_league(null)` is false) — so it is correct and
+ * invisible. Safe for a best-effort log, and a silent no-op for anyone adding a
+ * new `entity_type`: add the type here in the same change that starts logging
+ * it.
  */
 async function leagueOfEntity(
   admin: Admin,
@@ -42,6 +47,8 @@ async function leagueOfEntity(
       return leagueOfGame(entityId, admin);
     case "team_player":
       return leagueOfTeamPlayer(entityId, admin);
+    case "league_rules":
+      return leagueOfLeagueRules(entityId, admin);
     default:
       return null;
   }

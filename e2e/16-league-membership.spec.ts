@@ -15,7 +15,7 @@
  * then fails for a reason that has nothing to do with the guard under test.
  */
 import { test, expect } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 
 /** Service-role client, for reading/restoring state the UI can't reach. */
@@ -432,6 +432,30 @@ test.describe("Path 17 — Per-league membership", () => {
     await posted;
   }
 
+  /**
+   * Point a hidden form field at something the server must refuse, and prove it
+   * took before anyone submits.
+   *
+   * Setting `.value` on a React-rendered input before hydration lands is undone
+   * when React takes over, and the form then posts its ORIGINAL value. Both ways
+   * that can go have now been seen on CI and neither on a laptop, where
+   * hydration always wins the race:
+   *
+   *  - where the original value is forbidden too, the action is refused for the
+   *    wrong reason, or not at all, and the test fails somewhere confusing;
+   *  - where the original value is PERMITTED — a co-manager's own Remove — the
+   *    action quietly succeeds and the test passes without the attack ever
+   *    happening. That one is the dangerous half: it proves nothing and says so
+   *    nowhere.
+   *
+   * So settle, set, and assert. Never submit an unverified tamper.
+   */
+  async function tamper(page: Page, field: Locator, value: string) {
+    await page.waitForLoadState("networkidle");
+    await field.evaluate((el, v) => ((el as HTMLInputElement).value = v), value);
+    await expect(field).toHaveValue(value);
+  }
+
   /** Roster rows whose team and season belong to different leagues — always 0. */
   async function crossLeagueRosterRows(db: ReturnType<typeof admin>) {
     const { data } = await db
@@ -473,9 +497,7 @@ test.describe("Path 17 — Per-league membership", () => {
       // The season stays the page's own; only the team is swapped. Guarding
       // the season alone passed this, and `is_captain` rides in the same
       // payload.
-      await form
-        .locator('input[name="team_id"]')
-        .evaluate((el, id) => ((el as HTMLInputElement).value = id), foreignTeam!.id);
+      await tamper(page, form.locator('input[name="team_id"]'), foreignTeam!.id);
       await form.getByLabel("First name").fill(first);
       await form.getByLabel("Last name").fill("Player");
       await submitAndSettle(
@@ -535,12 +557,8 @@ test.describe("Path 17 — Per-league membership", () => {
         .filter({ has: page.locator('input[name="season_id"]') })
         .filter({ has: page.locator('input[name="make"]') })
         .first();
-      await form
-        .locator('input[name="id"]')
-        .evaluate((el, id) => ((el as HTMLInputElement).value = id), victim!.id);
-      await form
-        .locator('input[name="make"]')
-        .evaluate((el) => ((el as HTMLInputElement).value = "1"));
+      await tamper(page, form.locator('input[name="id"]'), victim!.id);
+      await tamper(page, form.locator('input[name="make"]'), "1");
       await submitAndSettle(page, form.getByRole("button").first().click());
       await expect(page).toHaveURL("/");
 
@@ -583,12 +601,8 @@ test.describe("Path 17 — Per-league membership", () => {
       .filter({ has: page.locator('input[name="season_id"]') })
       .filter({ has: page.locator('input[name="make"]') })
       .first();
-    await form
-      .locator('input[name="id"]')
-      .evaluate((el, id) => ((el as HTMLInputElement).value = id), victim!.id);
-    await form
-      .locator('input[name="make"]')
-      .evaluate((el) => ((el as HTMLInputElement).value = "0"));
+    await tamper(page, form.locator('input[name="id"]'), victim!.id);
+    await tamper(page, form.locator('input[name="make"]'), "0");
     await submitAndSettle(page, form.getByRole("button").first().click());
     await expect(page).toHaveURL("/");
 
@@ -638,13 +652,23 @@ test.describe("Path 17 — Per-league membership", () => {
       const removeForm = coRow.locator("form").filter({
         has: page.locator('input[name="league_id"]'),
       });
-      await removeForm
-        .locator('input[name="id"]')
-        .evaluate((el, id) => ((el as HTMLInputElement).value = id), self!.id);
+      // The original id here is a PERMITTED removal, so an unapplied tamper
+      // removes the co-manager for real and the "still a member" check below
+      // passes without the attack happening. See `tamper`.
+      await tamper(page, removeForm.locator('input[name="id"]'), self!.id);
+
       await submitAndSettle(
         page,
         removeForm.getByRole("button", { name: "Remove" }).click(),
       );
+      // The co-manager must still be here — proof the POST carried the tampered
+      // id and was refused, not the original id and quietly honoured.
+      await expect(
+        page.getByRole("cell", {
+          name: "single-league-lead@obhl.test",
+          exact: true,
+        }),
+      ).toHaveCount(1);
       const { data: stillMine } = await db
         .from("profile_leagues")
         .select("league_id")

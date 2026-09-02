@@ -125,6 +125,8 @@ export default async function AuditLogPage({
         return "Reopened game";
       case "generate_recap":
         return "Generated AI recap";
+      case "save_rules":
+        return "Updated league rules";
       case "add_player": {
         const pid = typeof nd?.player_id === "string" ? nd.player_id : null;
         const name = pid ? playerNameMap.get(pid) : undefined;
