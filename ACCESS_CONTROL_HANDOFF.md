@@ -11,10 +11,11 @@
    - Do not change the `app_role` enum or the JWT hook (`0010_auth_hook.sql`).
      The model is membership-only *so that* both stay untouched; changing the
      hook also means re-enabling it by hand in the Supabase dashboard.
-   - `ENABLE_DEV_LOGIN=true` on a production deploy hands anyone with the URL a
-     manager session — `devLoginEnabled()` in `src/lib/auth/dev-login.ts`. It is
-     on by default outside a production build, which is what the e2e suite
-     rides; it must never be set on `obhl.vercel.app`.
+   - `ENABLE_DEV_LOGIN=true` on a production deploy hands anyone with the URL
+     a manager session — `devLoginEnabled()` in `src/lib/auth/dev-login.ts`.
+     It is on by default outside a production build, which is what the e2e
+     suite rides. Status of the hosted value lives in
+     `LAUNCH_READINESS_HANDOFF.md`, not here.
 3. Numbers here were **watched appear**. Where a claim is a reading of the code
    rather than a measurement, it says so in those words.
 4. Verify with `npm test && npm run test:e2e`. Baseline:
@@ -37,17 +38,13 @@ supabase migration list --linked`, and `0032`'s backfill confirmed by
 
 ## Next action
 
-**Human-only, and outstanding as of 2026-09-01.** `vercel env` is denied to an
-agent under the auto-mode classifier, so a human runs this:
+Nothing in this file's scope is outstanding. The per-league work shipped, and
+so did CI, the `typecheck` script and the `saveRules` audit entry.
 
-    vercel env rm ENABLE_DEV_LOGIN production && vercel --prod
-
-While `ENABLE_DEV_LOGIN=true` is set on production, anyone with the URL can take
-a manager session on `obhl.vercel.app`. Confirm it is gone by loading
-https://obhl.vercel.app/login and checking the "Quick sign-in (test mode)" panel
-is absent — then **delete this section**; nothing replaces it.
-
-Everything else is closed. `LAUNCH.md` carries the remaining operational steps.
+**Outstanding work now lives in `LAUNCH_READINESS_HANDOFF.md`** — two open
+production doors, three false claims in `LAUNCH.md`, and the audit-log gaps in
+`people.ts` / `seasons.ts` / `announcements.ts`. That file is the one to read
+first; this one is background for its item 3.
 
 ## What CI runs
 

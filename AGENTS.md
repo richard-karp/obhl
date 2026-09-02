@@ -11,6 +11,11 @@ own, and both have traps that look like tidying. Read the relevant handoff
 **before** changing either — they are written to be skimmed, and each says up
 front which section matters for which kind of change.
 
+- **`LAUNCH_READINESS_HANDOFF.md`** — the outstanding work between here and two
+  live leagues: two open production doors, the claims in `LAUNCH.md` that went
+  false, and the actions the audit log still does not cover. **Read this one
+  first** if you are picking the project up cold; it says which of the others
+  you actually need.
 - **`SCHEDULE_HANDOFF.md`** — the schedule generator: weekday balance, bye
   spacing, ice-time share, and why the phases are ordered as they are.
 - **`EXPORTS_HANDOFF.md`** — the CSV and calendar exports, the single read path
