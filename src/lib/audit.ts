@@ -1,8 +1,8 @@
 import { cookies } from "next/headers";
 import { createAdminClient } from "@/utils/supabase/admin";
 import {
+  leagueIdIfExists,
   leagueOfGame,
-  leagueOfLeagueRules,
   leagueOfSeason,
   leagueOfTeam,
   leagueOfTeamPlayer,
@@ -48,7 +48,8 @@ async function leagueOfEntity(
     case "team_player":
       return leagueOfTeamPlayer(entityId, admin);
     case "league_rules":
-      return leagueOfLeagueRules(entityId, admin);
+    case "league_staff":
+      return leagueIdIfExists(entityId, admin);
     default:
       return null;
   }

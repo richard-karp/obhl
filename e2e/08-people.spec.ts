@@ -77,6 +77,51 @@ test.describe("Path 14 — People & Roles", () => {
     await expect(otherRow.getByLabel("Change role")).toBeVisible();
   });
 
+  // Guards the trap in src/lib/audit.ts: an entity_type leagueOfEntity does not
+  // handle logs with a null league, which RLS and the audit page's league filter
+  // both hide. Asserting the row was written is not enough — it has to appear in
+  // the league-scoped view a manager actually reads.
+  test("adding a staff account appears in this league's audit log", async ({
+    page,
+  }) => {
+    const email = `audit-probe-${Date.now()}@obhl.test`;
+    const card = page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: "Add a staff account" });
+
+    await card.getByLabel("Email").fill(email);
+    await card.getByLabel("Display name").fill("Audit Probe");
+    await card.getByRole("button", { name: "Add staff account" }).click();
+    // By cell, not text: the success message repeats the address, and an
+    // unscoped match resolves to both.
+    await expect(page.getByRole("cell", { name: email, exact: true })).toBeVisible();
+
+    await page.goto("/obhl/manage/audit");
+    await expect(
+      page.getByText("Added Audit Probe as scorekeeper"),
+    ).toBeVisible();
+
+    // A role change too, on the account this test just made so nothing else
+    // depends on it. Captain, deliberately not Manager: promoting it would make
+    // the row un-demotable and leave a second manager in a league whose other
+    // tests reason about how many it has.
+    await page.goto("/obhl/manage/people");
+    const row = page
+      .locator("table tbody tr")
+      .filter({ hasText: email });
+    await row.getByLabel("Change role").selectOption("captain");
+    // By cell: the row's own select contains an <option>Captain</option> too,
+    // so an unscoped text match is ambiguous.
+    await expect(
+      row.getByRole("cell", { name: "Captain", exact: true }),
+    ).toBeVisible();
+
+    await page.goto("/obhl/manage/audit");
+    await expect(
+      page.getByText("Changed Audit Probe from scorekeeper to captain"),
+    ).toBeVisible();
+  });
+
   test("the add-account form cannot demote an existing manager", async ({
     page,
   }) => {

@@ -86,16 +86,19 @@ export async function leagueOfAnnouncement(
 }
 
 /**
- * League rules are audited under their league's own id, so this resolves a
- * league id to itself.
+ * Validates a league id, for entities audited under their league's own id.
  *
- * `league_rules` is one row per league (`0006_rules.sql`) and `saveRules`
- * upserts, so on a first save there is no row id yet for an audit entry to
- * name — the league id is the only stable handle the action holds. The id is
- * still looked up rather than handed straight back: an id that matches no
+ * Shaped differently from the resolvers above on purpose: those derive a league
+ * from some *other* entity, while this one is for things that are per-league
+ * already, where the entity id IS the league id. Two use it —
+ * `league_rules` (one row per league, and `saveRules` upserts, so a first save
+ * has no row id to name) and `league_staff` (a person spans leagues, so a
+ * profile id names no single one; the league is the entity being changed).
+ *
+ * Still a lookup rather than handing the argument back: an id matching no
  * league returns null and fails closed, like the others.
  */
-export async function leagueOfLeagueRules(
+export async function leagueIdIfExists(
   leagueId: string,
   admin: Admin,
 ): Promise<string | null> {

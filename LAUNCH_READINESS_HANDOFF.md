@@ -3,7 +3,7 @@
 **Protocol — read this and nothing else to resume.**
 
 1. This file is self-contained. `ACCESS_CONTROL_HANDOFF.md` (~203 lines) holds
-   the membership model and its traps — open it only when starting item 3.
+   the membership model and its traps — open it only when auditing another action.
    Do **not** read `docs/superpowers/specs/2026-08-31-per-league-routing-design.md`
    (383 lines); nothing outstanding depends on it.
 2. ⛔ **Hazards, before any instruction:**
@@ -27,7 +27,8 @@
 **Status: all the code has shipped; the doors are still open.** Per-league
 access control (#13) and CI + the `saveRules` audit entry (#14, `ace8e0c`) are
 both in `main`, and CI is green there. What remains is two production exposures
-nobody has closed, and the audit-log gaps in item 3.
+nobody has closed. `people.ts` now audits; the other unaudited actions are
+below.
 
 ## Next action
 
@@ -48,8 +49,8 @@ Confirm at https://obhl.vercel.app/login that the "Quick sign-in (test mode)"
 panel is gone. **That does not finish the job** — go straight to item 2, which
 is a separate door the same person is best placed to close.
 
-Items 3-5 come after. They are improvements; 1 and 2 are an open door — and
-while the bypass is live, #13's access control is moot on production anyway,
+Everything else comes after. Those are improvements; 1 and 2 are an open door —
+and while the bypass is live, #13's access control is moot on production anyway,
 since anyone can hold a manager session regardless of what it enforces.
 
 ## Open, in priority order
@@ -58,8 +59,7 @@ since anyone can hold a manager session regardless of what it enforces.
 |---|---|---|---|
 | 1 | `ENABLE_DEV_LOGIN` still set on production | Vercel env | one command |
 | 2 | Seeded test accounts live on production, password in git | Supabase dashboard | ~10 min |
-| 3 | Audit log does not cover the access-control actions | `src/lib/actions/people.ts` | ~half a day |
-| 4 | Smaller deferred items | below | — |
+| 3 | Smaller deferred items | below | — |
 
 ---
 
@@ -91,48 +91,49 @@ before the other two were seeded. **Check the Supabase auth user list directly.*
 Deleting them is dashboard work: Authentication → Users. A `db reset --linked`
 does *not* remove `auth.users`, so there is no shortcut.
 
-## 3 — The audit log misses the actions that grant and revoke access
+## The audit log still misses several actions
 
-The previous handoff said `saveRules` was "the only manage action that records
-nothing". **That was wrong.** Measured 2026-09-02 — for each file, exported
-actions vs `logAudit({` call sites:
+`people.ts` is done — `add_staff`, `grant_league`, `update_staff_role` and
+`remove_staff`, all under `entity_type: "league_staff"` with the **league** id
+as `entity_id`, since a person spans leagues and a profile id names no single
+one. `leagueOfEntity` resolves it through `leagueIdIfExists`, the same path
+`league_rules` uses.
+
+⚠️ **`grant_league` is untested.** It is the branch of `createStaffAccount` that
+hands an *existing manager* another league. Exercising it means adding a manager
+to a second league, which changes how many managers that league has — and
+`e2e/16-league-membership.spec.ts` reasons about exactly that. Worth covering,
+but not by bolting it onto an existing test.
+
+Still unaudited, measured 2026-09-02 by counting `logAudit({` call sites per
+action file — exported actions vs audited:
 
 | File | Actions | Audited |
 |---|---|---|
-| `people.ts` | 3 | **0** |
 | `seasons.ts` | 6 | **0** |
 | `announcements.ts` | 2 | **0** |
 | `import.ts` | 2 | **0** |
 | `logos.ts` | 1 | **0** |
-| `rosters.ts` | 6 | 6 |
-| `rules.ts` | 1 | 1 |
 
-**Start with `people.ts`** — `createStaffAccount:73`, `updateStaffRole:148`,
-`removeStaff:188`. In a codebase whose whole recent effort is per-league access
-control, granting and revoking access leaves no trace. That is higher-stakes
-than the `saveRules` gap that was prioritised over it.
-
-Then the destructive ones: `deleteAnnouncement` (`announcements.ts:43`),
-`unenrollTeam` (`seasons.ts:209`), `setActiveSeason` (`seasons.ts:186`),
+The destructive ones first: `unenrollTeam` (`seasons.ts:209`), `setActiveSeason`
+(`seasons.ts:186`), `deleteAnnouncement` (`announcements.ts:43`),
 `runEsportsdeskImport` (`import.ts:84`).
 
-⛔ **The trap — read `ACCESS_CONTROL_HANDOFF.md` before writing any of these.**
-`leagueOfEntity` in `src/lib/audit.ts` switches on `entity_type` and returns
-`null` for anything it does not handle. A null league is filtered out of every
-league-scoped view *and* hidden by RLS, so a `logAudit` call added alone writes
-an entry that is **correct and never appears**. Add the type to that switch in
-the same change. Cost differs per file (*reading of the code*):
+⛔ **The trap, every time.** `leagueOfEntity` in `src/lib/audit.ts` returns
+`null` for any `entity_type` it does not handle, and a null league is filtered
+out of every league-scoped view *and* hidden by RLS — so a `logAudit` call added
+alone writes an entry that is **correct and never appears**. Add the type to
+that switch in the same change. `seasons.ts` is cheapest (`leagueOfSeason`
+exists, `"season"` is already in the switch); `announcements.ts` needs one line,
+since `leagueOfAnnouncement` exists in `of-entity.ts` but was only ever wired up
+as a *guard* resolver.
 
-- **`seasons.ts`** — cheapest. `leagueOfSeason` exists; `"season"` is already
-  in the switch.
-- **`announcements.ts`** — one line. `leagueOfAnnouncement` exists in
-  `src/lib/league/of-entity.ts` but was only ever wired up as a *guard*
-  resolver, never added to the `leagueOfEntity` switch.
-- **`people.ts`** — needs a new resolver. A profile is not league-scoped on its
-  own, so audit against the league id directly, the shape `league_rules` uses.
+Prove each by knocking the switch case out and watching a test go red. And
+count rows per action afterwards — the suite was green while `update_staff_role`
+had written zero, because nothing exercised it:
 
-Prove each one the way this area is tested: knock the switch case out and watch
-the test go red. A test that only asserts the entry was *written* proves nothing.
+    select action, count(*), count(*) filter (where league_id is null) orphaned
+    from audit_log group by action;
 
 ## Not covered by the items above
 
@@ -192,7 +193,7 @@ All six sites in `e2e/16-league-membership.spec.ts` now go through one
 is submitted. **Keep new attack tests on that helper** — a raw `.value` write in
 this file is a bug, and there should be exactly one, inside the helper itself.
 
-## 4 — Smaller, deliberately deferred
+## 3 — Smaller, deliberately deferred
 
 - **`saveRules` read-then-upsert is not atomic** — two concurrent saves both
   read the same previous document, so one audit entry's `old_data` names
