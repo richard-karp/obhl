@@ -394,7 +394,7 @@ export async function runEsportsdeskImport(
     revalidatePath("/");
     return {
       ok: true,
-      message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}, but player stats failed (${(e as Error).message}). Standings are complete; delete this league and re-run to retry the stats.`,
+      message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}, but player stats failed (${(e as Error).message}). Standings are complete, but there is no way to delete this league and retry — re-running the import would create a second one.`,
     };
   }
 
