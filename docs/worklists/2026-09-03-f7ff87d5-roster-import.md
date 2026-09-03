@@ -10,9 +10,9 @@
 3. Claims are marked. "Watched" means the command was run and its output read. "A reading" means it follows from the code and has not been executed. Verified-by-measurement in this session: the `0024` goalie regression (§2 of the spec), `profiles` having no unique index on `player_id`, the public team route segment being `[slug]`, and every `file:line` cited below.
 4. **Baseline was NOT measured this session.** Establish it before changing anything: `npm test && npm run typecheck`. `LAUNCH_READINESS_HANDOFF.md` records 250 unit / 127 e2e on a *different* branch on 2026-09-02 — ⚠️ regenerate, do not quote.
 
-**Status: Task A1 is done.** Work happens on `feat/roster-import` in the worktree `/Users/richardkarp/dev/obhl-worktrees/roster-import`, branched off `main` with `284e25e` cherry-picked; the worktree needs its own `npm ci`. Task 0 remains the operator's; **Task A2 is the next agent task.**
+**Status: Tasks A1 and A2 are done.** Work happens on `feat/roster-import` in the worktree `/Users/richardkarp/dev/obhl-worktrees/roster-import`, branched off `main` with `284e25e` cherry-picked; the worktree needs its own `npm ci`. Task 0 remains the operator's; **Task A3 is the next agent task.**
 
-**Baseline measured 2026-09-03 on this branch, before any code change: 21 test files / 250 unit tests passing, `npm run typecheck` clean.** After A1: 22 files / 253 tests — the three new `slug` tests and nothing else moved. Re-measure after each task; do not quote these once further tasks land.
+**Baseline measured 2026-09-03 on this branch, before any code change: 21 test files / 250 unit tests passing, `npm run typecheck` clean.** After A1: 22 files / 253 tests — the three new `slug` tests and nothing else moved. A2 adds no tests of its own (it registers in `league-guards.test.ts`), so the counts are unchanged; its error paths are unproven until a real database exists. Re-measure after each task; do not quote these once further tasks land.
 
 One correction A1 turned up, for anyone writing tests against `slugify`: it collapses each run of non-alphanumerics to a *single hyphen*, so punctuation separates rather than disappears — `slugify("St. John's Ducks!")` is `st-john-s-ducks`. Step 1's example expectation below said `st-johns-ducks` and was wrong; the implementation is unchanged and remains the source of truth.
 
@@ -148,7 +148,7 @@ describe("slugify", () => {
 
 **Interfaces:** Produces `runRosterOnlyImport(prev: ImportRunState, formData: FormData): Promise<ImportRunState>`, reusing `ImportRunState` from `src/lib/actions/import.ts`.
 
-- [ ] **Step 1: Register the new action in the guard convention test**
+- [x] **Step 1: Register the new action in the guard convention test**
 
 ```ts
 const ROLE_ONLY_ALLOWED: Record<string, number> = {
@@ -167,9 +167,9 @@ const NO_LEAGUE_ACTIONS: Record<string, string> = {
 };
 ```
 
-- [ ] **Step 2: Run the suite** — `npm test -- league-guards`. Expected: PASS (registering a not-yet-existing file is inert; this confirms you start green).
+- [x] **Step 2: Run the suite** — `npm test -- league-guards`. Expected: PASS (registering a not-yet-existing file is inert; this confirms you start green).
 
-- [ ] **Step 3: Write `runRosterOnlyImport`**
+- [x] **Step 3: Write `runRosterOnlyImport`**
 
 ```ts
 "use server";
@@ -247,8 +247,8 @@ await admin.from("team_players").insert(rosterRows);
 8. `revalidatePath("/[league]/manage/seasons", "page")`, `revalidatePath("/[league]", "layout")`, `revalidatePath("/")`.
 9. Return `ok: true` with counts, plus the standing reminder that the season is inactive and goalie positions need setting.
 
-- [ ] **Step 4: Run the guard test** — `npm test -- league-guards`. If "uses no role-only guard in an action outside the allowlist" fails, count `requireManager()` occurrences in your file; it must be exactly 1.
-- [ ] **Step 5: Commit** — `git commit -m "feat: roster-only esportsdesk import"`
+- [x] **Step 4: Run the guard test** — `npm test -- league-guards`. If "uses no role-only guard in an action outside the allowlist" fails, count `requireManager()` occurrences in your file; it must be exactly 1.
+- [x] **Step 5: Commit** — `git commit -m "feat: roster-only esportsdesk import"`
 
 ## Task A3: Import page mode toggle
 

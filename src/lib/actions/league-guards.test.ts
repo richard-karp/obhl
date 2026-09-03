@@ -21,12 +21,17 @@ const MANAGE_DIR = join(process.cwd(), "src/app/[league]/manage");
 
 /**
  * Files allowed to use the role-only guards, with the count they may use, so
- * adding one more still fails. Only one qualifies: creating a league is the
- * single act with no league to be a member of yet — `runEsportsdeskImport`
- * grants the creating manager membership as its first write instead, and
+ * adding one more still fails. Only league *creation* qualifies: it is the
+ * single act with no league to be a member of yet. Both importers grant the
+ * creating manager membership as their first write instead, and
  * `previewEsportsdeskImport` only fetches an external URL and writes nothing.
  */
-const ROLE_ONLY_ALLOWED: Record<string, number> = { "import.ts": 2 };
+const ROLE_ONLY_ALLOWED: Record<string, number> = {
+  "import.ts": 2,
+  // runRosterOnlyImport creates the league it would otherwise be guarded
+  // against — the same exemption import.ts has, for the same reason.
+  "import-rosters.ts": 1,
+};
 
 /**
  * What counts as reaching a guard.
@@ -57,6 +62,8 @@ const NO_LEAGUE_ACTIONS: Record<string, string> = {
   "auth.ts:devSignIn": "sign-in happens before any league is known",
   "import.ts:previewEsportsdeskImport": "fetches an external URL and writes nothing",
   "import.ts:runEsportsdeskImport": "creates the league it would be guarded against",
+  "import-rosters.ts:runRosterOnlyImport":
+    "creates the league it would be guarded against",
 };
 
 /**
