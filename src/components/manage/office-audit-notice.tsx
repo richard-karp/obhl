@@ -1,6 +1,22 @@
 import type { OfficeAuditEntry } from "@/lib/audit";
 
 /**
+ * The same shape the audit entries beneath this band use
+ * (`audit-session-list.tsx`), and pinned to a locale for the same reason: a bare
+ * `toLocaleDateString()` renders in whatever locale and timezone the SERVER
+ * happens to have, which is neither the reader's nor stable across deploys.
+ */
+function fmt(iso: string) {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+/**
  * Prose fixed in one place so the two surfaces cannot drift.
  *
  * The role column and the office roster read "Commissioner" and "Deputy"; audit
@@ -52,9 +68,7 @@ export function OfficeAuditNotice({
             <li key={e.id} className="text-muted-foreground text-sm">
               {sentence(e)}
               {e.created_at ? (
-                <span className="ml-2 text-xs opacity-70">
-                  {new Date(e.created_at).toLocaleDateString()}
-                </span>
+                <span className="ml-2 text-xs opacity-70">{fmt(e.created_at)}</span>
               ) : null}
             </li>
           ))}
