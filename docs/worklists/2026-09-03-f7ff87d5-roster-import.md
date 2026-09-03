@@ -10,7 +10,7 @@
 3. Claims are marked. "Watched" means the command was run and its output read. "A reading" means it follows from the code and has not been executed. Verified-by-measurement in this session: the `0024` goalie regression (§2 of the spec), `profiles` having no unique index on `player_id`, the public team route segment being `[slug]`, and every `file:line` cited below.
 4. **Baseline was NOT measured this session.** Establish it before changing anything: `npm test && npm run typecheck`. `LAUNCH_READINESS_HANDOFF.md` records 250 unit / 127 e2e on a *different* branch on 2026-09-02 — ⚠️ regenerate, do not quote.
 
-**Status: Tasks A1 and A2 are done.** Work happens on `feat/roster-import` in the worktree `/Users/richardkarp/dev/obhl-worktrees/roster-import`, branched off `main` with `284e25e` cherry-picked; the worktree needs its own `npm ci`. Task 0 remains the operator's; **Task A3 is the next agent task.**
+**Status: A1 and A2 are done; A3's code is written but its e2e run is DEFERRED (see Task 0).** Work happens on `feat/roster-import` in the worktree `/Users/richardkarp/dev/obhl-worktrees/roster-import`, branched off `main` with `284e25e` cherry-picked; the worktree needs its own `npm ci`. Task 0 remains the operator's; **Task A4 is the next agent task.**
 
 **Baseline measured 2026-09-03 on this branch, before any code change: 21 test files / 250 unit tests passing, `npm run typecheck` clean.** After A1: 22 files / 253 tests — the three new `slug` tests and nothing else moved. A2 adds no tests of its own (it registers in `league-guards.test.ts`), so the counts are unchanged; its error paths are unproven until a real database exists. Re-measure after each task; do not quote these once further tasks land.
 
@@ -106,6 +106,7 @@ Not an agent task. Recorded here so the sequence is complete.
 - [ ] Empty the database.
 - [ ] While it is empty, close `LAUNCH_READINESS_HANDOFF.md` item 2 — the seeded accounts whose password is committed to this repo are a way in regardless of what is deployed.
 - [ ] Items 1 (`ENABLE_DEV_LOGIN`) and 3 (`0033` not pushed) are unrelated to this work but block going live at all.
+- [ ] **Then run Task A3's deferred e2e steps** — `npx playwright test e2e/17-roster-import.spec.ts`. Deferred on 2026-09-03 by decision, not oversight: `e2e/global-setup.ts` runs `npm run db:reset`, and a reset from this worktree applies `0032`, `0033`, `0035`+ **without `0034`**, which is not on this branch. Local Supabase is one shared instance, so doing that while the League Office session was live would have dropped `league_office` out from under it. Note `.env.local` is gitignored and absent from this worktree — copy it from `/Users/richardkarp/dev/obhl` before running.
 
 ---
 
@@ -254,7 +255,7 @@ await admin.from("team_players").insert(rosterRows);
 
 **Files:** Modify `src/components/manage/esportsdesk-import.tsx`, `src/app/[league]/manage/import/page.tsx`; create `e2e/17-roster-import.spec.ts`.
 
-- [ ] **Step 1: Write the failing e2e test**
+- [x] **Step 1: Write the failing e2e test**
 
 ```ts
 /** Roster-only import — teams and players, no games. */
@@ -272,9 +273,9 @@ test("rosters-only mode hides the game count in the preview", async ({ page }) =
 ```
 
 - [ ] **Step 2: Run it to verify it fails** — `npx playwright test e2e/17-roster-import.spec.ts` → no "rosters only" control.
-- [ ] **Step 3: Add the toggle.** A radio group, defaulting to **Rosters only** (the common case now): *Rosters only (new season setup)* → `runRosterOnlyImport`; *Full migration (teams, schedule, results, stats)* → `runEsportsdeskImport`. In rosters-only mode suppress the game-count line and reword the button to "Import rosters". `previewEsportsdeskImport` is unchanged — it fetches and writes nothing, which is why it is exempt in the guard test.
-- [ ] **Step 4: Run the test** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: rosters-only mode on the import page"`
+- [x] **Step 3: Add the toggle.** A radio group, defaulting to **Rosters only** (the common case now): *Rosters only (new season setup)* → `runRosterOnlyImport`; *Full migration (teams, schedule, results, stats)* → `runEsportsdeskImport`. In rosters-only mode suppress the game-count line and reword the button to "Import rosters". `previewEsportsdeskImport` is unchanged — it fetches and writes nothing, which is why it is exempt in the guard test.
+- [ ] **Step 4: Run the test** → PASS. ⚠️ **A pass here proves less than it looks.** The Step 1 test cannot fail: with no preview fetched there is no review card, and the card renders `N games (final results)` or `no schedule found` — neither matches `/games? found/`. It does verify the toggle exists and is checkable (which is what makes Step 2 fail for the right reason), but nothing about game-count suppression; that would need an outbound esportsdesk fetch from a test. A second test was added beside it covering what is reachable without the network: rosters-only is the default, and switching modes changes the blurb. **Neither test has ever been executed** — both only typecheck and lint.
+- [x] **Step 5: Commit** — `git commit -m "feat: rosters-only mode on the import page"`
 
 ## Task A4: Duplicate detection (pure)
 

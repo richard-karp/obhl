@@ -1,12 +1,13 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import {
   previewEsportsdeskImport,
   runEsportsdeskImport,
   type ImportPreviewState,
   type ImportRunState,
 } from "@/lib/actions/import";
+import { runRosterOnlyImport } from "@/lib/actions/import-rosters";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,10 +19,32 @@ export function EsportsdeskImport() {
     ImportPreviewState,
     FormData
   >(previewEsportsdeskImport, null);
-  const [run, runAction, running] = useActionState<ImportRunState, FormData>(
-    runEsportsdeskImport,
-    null,
-  );
+  // Rosters-only is the default: setting up a new season from last year's
+  // rosters is the common case now, and a full migration is the one-time act.
+  const [mode, setMode] = useState<"rosters" | "full">("rosters");
+  const rostersOnly = mode === "rosters";
+
+  // One hook per action rather than one hook over a dispatcher: each keeps its
+  // own result, so switching modes cannot show the message from the other
+  // importer — they report different things by design.
+  const [runFull, runFullAction, runningFull] = useActionState<
+    ImportRunState,
+    FormData
+  >(runEsportsdeskImport, null);
+  const [runRosters, runRostersAction, runningRosters] = useActionState<
+    ImportRunState,
+    FormData
+  >(runRosterOnlyImport, null);
+  const run = rostersOnly ? runRosters : runFull;
+  const runAction = rostersOnly ? runRostersAction : runFullAction;
+  // Derived from what happened, not from the current mode. A success describes
+  // a league that now exists, and carries the only report of which rosters came
+  // up short, so a stray click on the other radio must not discard it. An error
+  // is about an attempt being retried, so that one stays with its mode.
+  const completed = runRosters?.ok ? runRosters : runFull?.ok ? runFull : null;
+  // Either importer in flight disables both, so switching mode mid-run cannot
+  // start a second one alongside it.
+  const busy = runningRosters || runningFull;
 
   return (
     <div className="space-y-6">
@@ -30,7 +53,49 @@ export function EsportsdeskImport() {
         <CardHeader>
           <CardTitle className="text-base">1. Source</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <fieldset className="space-y-2">
+            <legend className="mb-2 text-sm font-medium">What to import</legend>
+            <div className="flex items-start gap-2">
+              <input
+                type="radio"
+                id="mode-rosters"
+                name="mode"
+                value="rosters"
+                checked={rostersOnly}
+                onChange={() => setMode("rosters")}
+                disabled={busy}
+                className="mt-1"
+              />
+              <div>
+                <Label htmlFor="mode-rosters">Rosters only (new season setup)</Label>
+                <p className="text-muted-foreground text-xs">
+                  Teams and players as a starting draft. No games, results, or
+                  stats — fix the rosters afterwards in Rosters.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <input
+                type="radio"
+                id="mode-full"
+                name="mode"
+                value="full"
+                checked={!rostersOnly}
+                onChange={() => setMode("full")}
+                disabled={busy}
+                className="mt-1"
+              />
+              <div>
+                <Label htmlFor="mode-full">
+                  Full migration (teams, schedule, results, stats)
+                </Label>
+                <p className="text-muted-foreground text-xs">
+                  A faithful one-time copy of a finished esportsdesk season.
+                </p>
+              </div>
+            </div>
+          </fieldset>
           <form action={previewAction} className="space-y-2">
             <Label htmlFor="url">esportsdesk league URL</Label>
             <div className="flex gap-2">
@@ -46,8 +111,10 @@ export function EsportsdeskImport() {
             </div>
             <p className="text-muted-foreground text-xs">
               Any esportsdesk page URL works as long as it has clientID and
-              leagueID. Pulls teams, rosters, and the schedule with final
-              results (one-time migration).
+              leagueID.{" "}
+              {rostersOnly
+                ? "Imports the teams and players only."
+                : "Pulls teams, rosters, and the schedule with final results (one-time migration)."}
             </p>
             {preview && !preview.ok ? (
               <p role="alert" aria-live="polite" className="text-destructive text-sm">
@@ -70,10 +137,15 @@ export function EsportsdeskImport() {
             <p className="text-muted-foreground text-sm">
               {preview.preview.teams.length} teams ·{" "}
               {preview.preview.teams.reduce((n, t) => n + t.players.length, 0)}{" "}
-              players ·{" "}
-              {preview.gameCount > 0
-                ? `${preview.gameCount} games (final results)`
-                : "no schedule found"}
+              players
+              {rostersOnly ? null : (
+                <>
+                  {" · "}
+                  {preview.gameCount > 0
+                    ? `${preview.gameCount} games (final results)`
+                    : "no schedule found"}
+                </>
+              )}
             </p>
 
             {/* Season picker — for leagues with multiple seasons, reloads the
@@ -123,9 +195,9 @@ export function EsportsdeskImport() {
               })}
             </div>
 
-            {run?.ok ? (
+            {completed ? (
               <p role="status" aria-live="polite" className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                {run.message}
+                {completed.message}
               </p>
             ) : (
               <form action={runAction} className="grid gap-3 sm:grid-cols-2 sm:items-end">
@@ -140,15 +212,20 @@ export function EsportsdeskImport() {
                   <Input id="season_name" name="season_name" defaultValue="Imported Season" />
                 </div>
                 <div className="flex items-center gap-3 sm:col-span-2">
-                  <Button type="submit" disabled={running}>
-                    {running ? "Importing…" : "Import into OBHL"}
+                  <Button type="submit" disabled={busy}>
+                    {busy
+                      ? "Importing…"
+                      : rostersOnly
+                        ? "Import rosters"
+                        : "Import into OBHL"}
                   </Button>
                   {run && !run.ok ? (
                     <p role="alert" className="text-destructive text-sm">{run.message}</p>
                   ) : null}
                   <span className="text-muted-foreground text-xs">
-                    Imports the selected season as a new inactive league. Set any
-                    goalie positions in Rosters (esportsdesk rarely records them).
+                    {rostersOnly
+                      ? "Creates a new inactive league with these teams and players and nothing else. Set any goalie positions in Rosters (esportsdesk rarely records them)."
+                      : "Imports the selected season as a new inactive league. Set any goalie positions in Rosters (esportsdesk rarely records them)."}
                   </span>
                 </div>
               </form>
