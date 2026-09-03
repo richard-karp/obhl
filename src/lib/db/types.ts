@@ -336,6 +336,32 @@ export type Database = {
           },
         ]
       }
+      league_office: {
+        Row: {
+          created_at: string
+          profile_id: string
+          tier: Database["public"]["Enums"]["office_tier"]
+        }
+        Insert: {
+          created_at?: string
+          profile_id: string
+          tier: Database["public"]["Enums"]["office_tier"]
+        }
+        Update: {
+          created_at?: string
+          profile_id?: string
+          tier?: Database["public"]["Enums"]["office_tier"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "league_office_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       league_rules: {
         Row: {
           content: Json | null
@@ -867,6 +893,7 @@ export type Database = {
         Args: { p_col: string; p_delta: number; p_id: string }
         Returns: undefined
       }
+      contains_leagues_of: { Args: { p_profile: string }; Returns: boolean }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       game_is_public_final: { Args: { p_game: string }; Returns: boolean }
       game_league: { Args: { p_game: string }; Returns: string }
@@ -879,6 +906,15 @@ export type Database = {
       league_is_public: { Args: { p_league: string }; Returns: boolean }
       logo_object_league: { Args: { p_name: string }; Returns: string }
       manages_league: { Args: { p_league: string }; Returns: boolean }
+      may_write_profile: { Args: { p_profile: string }; Returns: boolean }
+      my_office_tier: {
+        Args: never
+        Returns: Database["public"]["Enums"]["office_tier"]
+      }
+      office_tier_of: {
+        Args: { p_profile: string }
+        Returns: Database["public"]["Enums"]["office_tier"]
+      }
       player_is_public: { Args: { p_player: string }; Returns: boolean }
       postpone_game: { Args: { p_game: string }; Returns: undefined }
       remove_published_schedule: {
@@ -911,6 +947,7 @@ export type Database = {
         | "postponed"
         | "cancelled"
       game_type: "regular" | "playoff"
+      office_tier: "deputy" | "commissioner"
       penalty_class: "minor" | "major" | "misconduct"
       player_position: "F" | "D" | "G"
       result_type: "regulation" | "overtime" | "shootout"
@@ -1054,6 +1091,7 @@ export const Constants = {
         "cancelled",
       ],
       game_type: ["regular", "playoff"],
+      office_tier: ["deputy", "commissioner"],
       penalty_class: ["minor", "major", "misconduct"],
       player_position: ["F", "D", "G"],
       result_type: ["regulation", "overtime", "shootout"],
