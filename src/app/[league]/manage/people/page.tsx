@@ -69,23 +69,40 @@ export default async function PeoplePage({
     }));
   }
 
-  // Addresses for THIS league's staff, asked for by id.
+  // Addresses for THIS league's staff, asked for by id, a bounded number at a
+  // time.
   //
   // This was `listUsers({ perPage: 1000 })` — one page of the instance's auth
   // users, joined against. A page says nothing about the rest, so past the
   // thousandth auth user staff would start vanishing from this table with no
-  // error anywhere; `findUserIdByEmail` in `people.ts` was paged for the same
-  // reason. Paging here would answer it too, but it reads the whole auth table
-  // to pick out a handful. Asking per member costs the size of the league's
-  // staff instead of the instance's, and cannot truncate at all.
-  const emailById = new Map(
-    await Promise.all(
-      memberIds.map(async (id) => {
-        const { data } = await admin.auth.admin.getUserById(id);
+  // error anywhere.
+  //
+  // Paging that call would answer the truncation too, and is the worse trade:
+  // there is no batch-lookup-by-id in the admin API, so paging means reading the
+  // whole auth table, and each page has to come back before the next can be
+  // asked for. That is 50 serial round trips at ten thousand users, where asking
+  // per member is one wave of however many staff this league has. The cost
+  // tracks the league, which is what this page is about, rather than the
+  // instance, which only grows.
+  //
+  // Capped anyway. `Promise.all` over the whole list would fire one request per
+  // member with nothing bounding it, and a league with hundreds of staff would
+  // open hundreds of admin connections at once to render a table.
+  const LOOKUP_AT_A_TIME = 10;
+  const emailById = new Map<string, string>();
+  for (let i = 0; i < memberIds.length; i += LOOKUP_AT_A_TIME) {
+    const looked = await Promise.all(
+      memberIds.slice(i, i + LOOKUP_AT_A_TIME).map(async (id) => {
+        const { data, error } = await admin.auth.admin.getUserById(id);
+        // A lookup that failed is not an account without an address, and the
+        // two used to render identically — so a rate-limited page read as staff
+        // who simply have no email.
+        if (error) return [id, "(address unavailable)"] as const;
         return [id, data.user?.email ?? "—"] as const;
       }),
-    ),
-  );
+    );
+    for (const [id, email] of looked) emailById.set(id, email);
+  }
   const staff = (profiles ?? [])
     .map((p) => ({ ...p, email: emailById.get(p.id) ?? "—" }))
     .sort((a, b) => (a.role ?? "").localeCompare(b.role ?? ""));
