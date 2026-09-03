@@ -193,8 +193,11 @@ test.describe("Path 7 — Season setup", () => {
         );
       }
     } finally {
-      // Order matters: the season has to go before the team, or `season_teams`
-      // still references it.
+      // The two deletes are order-free — `season_teams` cascades from both
+      // sides (`0003_membership.sql`). What is NOT order-free is the restore
+      // below: by this point the probe season may be the active one, and a
+      // partial unique index allows a league only one, so it has to be gone
+      // before Spring 2026 can be made active again.
       if (seasonId) await db.from("seasons").delete().eq("id", seasonId);
       if (teamId) await db.from("teams").delete().eq("id", teamId);
       await db

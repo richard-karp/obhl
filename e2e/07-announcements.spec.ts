@@ -100,6 +100,15 @@ test.describe("Path 13 — Announcements", () => {
     await page.getByRole("button", { name: "Post announcement" }).click();
     await page.waitForLoadState("networkidle");
 
+    // The id, while the row still exists. Both audit assertions below scope to
+    // it — reading the newest rows by action instead would match an entry from
+    // any other announcement, including one an earlier test in this file made.
+    const { data: posted } = await db
+      .from("announcements")
+      .select("id")
+      .eq("title", title)
+      .single();
+
     await page.goto("/obhl/manage/audit");
     await expect(page.getByText(`Posted "${title}"`)).toBeVisible();
 
@@ -119,15 +128,13 @@ test.describe("Path 13 — Announcements", () => {
     const { data: entries } = await db
       .from("audit_log")
       .select("action, league_id")
-      .in("action", ["create_announcement", "delete_announcement"])
-      .order("created_at", { ascending: false })
-      .limit(2);
-    expect((entries ?? []).map((e) => e.action).sort()).toEqual([
-      "create_announcement",
-      "delete_announcement",
-    ]);
-    for (const e of entries ?? []) {
-      expect(e.league_id, `${e.action} was filed under no league`).toBe(league!.id);
+      .eq("entity_id", posted!.id);
+    const byAction = new Map((entries ?? []).map((e) => [e.action, e.league_id]));
+    for (const action of ["create_announcement", "delete_announcement"]) {
+      expect(byAction.has(action), `${action} wrote no audit entry`).toBe(true);
+      expect(byAction.get(action), `${action} was filed under no league`).toBe(
+        league!.id,
+      );
     }
   });
 });
