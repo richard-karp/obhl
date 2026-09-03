@@ -60,18 +60,22 @@ const ROLE_LABEL: Record<AppRole, string> = {
   captain: "Captain",
 };
 
+type NavLink = { path: string; label: string; absolute?: boolean };
+
 function Links({
   links,
   base,
 }: {
-  links: { path: string; label: string }[];
+  links: NavLink[];
   base: string;
 }) {
   const pathname = usePathname();
   return (
     <>
       {links.map((l) => {
-        const href = `${base}${l.path}`;
+        // `absolute` is for links that belong to no league — today only the
+        // League Office. Everything else is relative to `/<league>/manage`.
+        const href = l.absolute ? l.path : `${base}${l.path}`;
         const active = pathname === href || pathname.startsWith(href + "/");
         return (
           <Link
@@ -97,15 +101,33 @@ export function ManageNav({
   role,
   leagues,
   currentSlug,
+  officeTier,
 }: {
   role: AppRole | null;
   leagues: LeagueOption[];
   currentSlug: string;
+  /**
+   * The viewer's League Office tier, or null. Gated on the TIER, not the role:
+   * an office member's role is `league_manager` like anyone else's, so keying
+   * this off `LINKS` would show it to every manager.
+   */
+  officeTier: string | null;
 }) {
   const base = `/${currentSlug}/manage`;
-  const links = role
-    ? LINKS[role]
-    : [{ path: "/dashboard", label: "Dashboard" }];
+  const links: NavLink[] = [
+    ...(role ? LINKS[role] : [{ path: "/dashboard", label: "Dashboard" }]),
+    // Without this the page is reachable only by typing the URL. It is not in
+    // `LINKS` because that map is keyed on role and its paths are
+    // league-relative, and the office is neither.
+    //
+    // Does not disturb the measurement below: 0034 refuses a tier to anyone who
+    // is not a `league_manager`, so the only set this can extend is the
+    // manager's, which is already past MAX_INLINE_LINKS and on its own
+    // full-width row.
+    ...(officeTier
+      ? [{ path: "/manage/office", label: "League Office", absolute: true }]
+      : []),
+  ];
 
   // The manager's ten links cannot sit beside the account controls at any
   // window size, so they get the full-width row to themselves — the same row

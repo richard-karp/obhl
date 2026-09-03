@@ -1,6 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/session";
 import { getMemberLeagues } from "@/lib/auth/membership";
+import { officeTierOf } from "@/lib/auth/office";
 import { ManageNav } from "@/components/manage/manage-nav";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 
@@ -15,7 +16,7 @@ export default async function ManageLayout({
   if (!user) redirect("/login");
 
   const { league: slug } = await params;
-  const [league, leagues] = await Promise.all([
+  const [league, leagues, officeTier] = await Promise.all([
     // Resolved again rather than inherited: layouts cannot pass data down. The
     // lookup is memoized, so this is the same query `[league]/layout.tsx` and
     // the page beneath both make, answered once.
@@ -25,12 +26,20 @@ export default async function ManageLayout({
     // league through the public-read policy, so the switcher would keep
     // offering a league whose pages then bounce them back to the picker.
     getMemberLeagues(user.id),
+    // Memoized per request, and `getMemberLeagues` above already asked it, so
+    // this is a cache hit rather than another query.
+    officeTierOf(user.id),
   ]);
   if (!league) notFound();
 
   return (
     <div className="flex min-h-full flex-col">
-      <ManageNav role={user.role} leagues={leagues} currentSlug={league.slug} />
+      <ManageNav
+        role={user.role}
+        leagues={leagues}
+        currentSlug={league.slug}
+        officeTier={officeTier}
+      />
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
         {children}
       </main>
