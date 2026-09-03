@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { isReservedLeagueSlug } from "@/lib/league/reserved-slugs";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
+import { logAudit } from "@/lib/audit";
 import { addLeagueMembership } from "@/lib/auth/membership";
 import {
   fetchEsportsdeskLeague,
@@ -144,6 +145,27 @@ export async function runEsportsdeskImport(
   // Before anything else is written: an imported league whose creator is not a
   // member is a league nobody can open, and there is no UI to delete one.
   await addLeagueMembership(manager.id, league.id);
+
+  // Filed here rather than at the end, because the league exists from this line
+  // on and every later exit that keeps it reports partial results — two of them
+  // return early, both saying `ok: true` with what did and did not import.
+  //
+  // The one exit below that FAILS deletes the league again (the season insert),
+  // and this entry goes with it: `audit_log.league_id` is
+  // `references leagues(id) on delete cascade` (0031). So a rolled-back import
+  // leaves no entry, which is right — nothing was created.
+  //
+  // `entity_type: "league"` is the only thing this can be filed against. The
+  // season, teams and players it goes on to create are all consequences of the
+  // league, and what the run produced is in the message the manager sees; what
+  // the log needs to say is that a league appeared and who made it.
+  await logAudit({
+    user_id: manager.id,
+    action: "import_league",
+    entity_type: "league",
+    entity_id: league.id,
+    new_data: { name: leagueName, slug: leagueSlug, source: url },
+  });
 
   const { data: season, error: sErr } = await admin
     .from("seasons")

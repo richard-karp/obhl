@@ -3,10 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireLeagueManager } from "@/lib/auth/guards";
+import { findUserIdByEmail } from "@/lib/auth/users";
 import { logAudit } from "@/lib/audit";
 import {
   addLeagueMembership,
-  mayPromoteToManager,
   mayWriteProfileOf,
   removeLeagueMembership,
 } from "@/lib/auth/membership";
@@ -86,31 +86,6 @@ async function logStaffChange(
     entity_id: leagueId,
     ...data,
   });
-}
-
-/**
- * The auth user id for an address, or null.
- *
- * Paged rather than one large page: `listUsers` returns a single page and says
- * nothing about the rest, so a lone `perPage: 1000` call turns "this address
- * exists" into "no such account" the moment an instance outgrows it — and the
- * caller then reports the raw createUser error instead of adding the person.
- * The loop stops at the first short page, and at a bound so a backend that
- * ignores paging cannot spin here.
- */
-async function findUserIdByEmail(
-  admin: ReturnType<typeof createAdminClient>,
-  email: string,
-): Promise<string | null> {
-  const perPage = 200;
-  for (let page = 1; page <= 50; page++) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) return null;
-    const hit = data.users.find((u) => u.email?.toLowerCase() === email);
-    if (hit) return hit.id;
-    if (data.users.length < perPage) return null;
-  }
-  return null;
 }
 
 /**
@@ -206,13 +181,13 @@ export async function createStaffAccount(
   // cannot see would have the role IT uses there rewritten from here, through
   // the ordinary form, with no tampering.
   //
-  // Refusing rather than merely skipping the write: a member is reachable by
-  // `updateStaffRole`, which constrains nothing but a manager demotion, so
-  // granting the membership alone would leave the same rewrite one step away.
-  //
-  // The manager branch above is not subject to this and does not need to be —
-  // it writes no profile, and handing a co-manager a league is the flow the
-  // membership model exists for.
+  // Narrow, and easy to mistake for dead code: the branch above returns for
+  // every account that already holds a role, so what reaches here is a login
+  // that exists with no profile row or a null one. It stays because the write
+  // below is instance-wide whatever the row looked like first. The accounts it
+  // cannot see are covered twice over — refused above when the role differs,
+  // granted only a membership when it matches, and then held by the SAME test in
+  // `updateStaffRole`, which is the other way into an instance-wide role write.
   if (existed && !(await mayWriteProfileOf(actor.id, userId))) {
     return {
       ok: false,
@@ -268,19 +243,23 @@ export async function updateStaffRole(formData: FormData) {
   // nowhere to put a message on a form action that returns void.
   if (before?.role === "league_manager") return;
 
-  // ...and a promotion TO manager cannot reach a league the actor cannot see.
+  // ...and no role write here may reach a league the actor cannot see.
   //
-  // Being a member of this league is not enough to authorise this one, because
-  // membership here is exactly what `createStaffAccount` hands out for free
-  // when the role matches. The role being written is instance-wide, so it lands
-  // in that person's OTHER leagues too — see `mayPromoteToManager`.
+  // EVERY role, not only a promotion to manager. `profiles.role` is one
+  // instance-wide column, so making this league's captain a scorekeeper takes
+  // away their captaincy in the other league they work too — the same
+  // cross-league write as a promotion, pointed the other way, and reachable by
+  // the same two ordinary submissions with no tampering.
   //
-  // Quiet, like the demotion above and for the same reason. The page does not
-  // offer the option when it would be refused, so reaching this means a
+  // Being a member of this league is not enough to authorise any of it, because
+  // membership here is exactly what `createStaffAccount` hands out for free when
+  // the role matches — which is why `mayWriteProfileOf` tests containment rather
+  // than overlap.
+  //
+  // Quiet, like the demotion above and for the same reason. The page renders no
+  // role control at all where this would refuse, so reaching it means a
   // hand-made request.
-  if (role === "league_manager" && !(await mayPromoteToManager(actor.id, id))) {
-    return;
-  }
+  if (!(await mayWriteProfileOf(actor.id, id))) return;
 
   // Role only. This used to null `player_id` for any non-captain role, so
   // promoting a captain to manager quietly unlinked them from their player —

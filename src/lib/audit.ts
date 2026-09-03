@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { createAdminClient } from "@/utils/supabase/admin";
 import {
   leagueIdIfExists,
+  leagueOfAnnouncement,
   leagueOfGame,
   leagueOfSeason,
   leagueOfTeam,
@@ -57,8 +58,13 @@ async function leagueOfEntity(
       return leagueOfGame(entityId, admin);
     case "team_player":
       return leagueOfTeamPlayer(entityId, admin);
+    case "announcement":
+      return leagueOfAnnouncement(entityId, admin);
     case "league_rules":
     case "league_staff":
+    // An import creates the league it is filed under, so the league's own id is
+    // the only id the entry can name.
+    case "league":
       return leagueIdIfExists(entityId, admin);
     default:
       return null;

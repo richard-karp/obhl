@@ -18,17 +18,22 @@
 3. Every number here was **watched appear** on 2026-09-02. Where a claim is a
    reading of the code rather than a measurement, it says so in those words.
    ⚠️ Of production, **only the schema has been read** — `0029`-`0032` are on
-   Remote (2026-09-02), so **do not run `db push`**. Env vars and the auth user
-   list are unread: items 0-2 are expectations to confirm, never findings.
-4. Verify code changes with `npm test && npm run test:e2e`.
-   Baseline: **250 unit passed; 118 e2e passed, 1 skipped, 0 failed.** The skip
-   is the AI-summary test, gated on an API key — not a regression.
+   Remote (2026-09-02). `0033` is **not**, and pushing it is item 3: that is the
+   one `db push` this file asks for, and it is a human's to run. Env vars and
+   the auth user list are unread: items 0-2 are expectations to confirm, never
+   findings.
+4. Verify code changes with `npm test && npm run test:e2e`. Measured on
+   `fix/staff-list-paging-and-guard`, one full local run, 2026-09-02: **250
+   unit; 127 e2e passed / 1 skipped / 0 failed.** The skip is the AI-summary
+   test, gated on an API key — not a regression. ⚠️ The e2e count moves with
+   every merge; re-measure rather than quoting it.
 
-**Status: all the code has shipped; the doors are still open.** Per-league
-access control (#13) and CI + the `saveRules` audit entry (#14, `ace8e0c`) are
-both in `main`, and CI is green there. What remains is two production exposures
-nobody has closed. `people.ts` now audits; the other unaudited actions are
-below.
+**Status: the code is closed; the doors are not.** #13, #14, #17 and #18 are in
+`main`, and `fix/staff-list-paging-and-guard` closes what reviewing #18 turned
+up: the cross-league escalation in the app AND in RLS, the audit gaps, and the
+staff-list truncation. What is left needs a human with production access —
+**two open doors, one migration to push, and five unverified `LAUNCH.md`
+phases.** Nothing below can be done from a checkout.
 
 ## Next action
 
@@ -49,17 +54,25 @@ Confirm at https://obhl.vercel.app/login that the "Quick sign-in (test mode)"
 panel is gone. **That does not finish the job** — go straight to item 2, which
 is a separate door the same person is best placed to close.
 
-Everything else comes after. Those are improvements; 1 and 2 are an open door —
-and while the bypass is live, #13's access control is moot on production anyway,
-since anyone can hold a manager session regardless of what it enforces.
-
 ## Open, in priority order
 
 | # | Item | Where | Cost |
 |---|---|---|---|
 | 1 | `ENABLE_DEV_LOGIN` still set on production | Vercel env | one command |
 | 2 | Seeded test accounts live on production, password in git | Supabase dashboard | ~10 min |
-| 3 | Smaller deferred items | below | — |
+| 3 | **`0033` not pushed** — the RLS half of the escalation | `supabase db push` | one command |
+| 4 | `LAUNCH.md` Phases 2-6 never verified | production | below |
+| 5 | Smaller deferred items | below | — |
+
+Item 3 is new and it is a real gap, not a tidy-up. 0032 gated
+`manager write profiles` on *sharing* a league, which a manager can arrange:
+grant someone a league you manage (permitted, and the flow the model exists
+for), then rewrite the role that grant now lets you reach. Both steps were
+watched succeeding through an ordinary session on the anon key — no admin
+client, no app page. `0033_profile_write_containment.sql` swaps that policy for
+containment; until it is pushed, the app guard is the only one holding on
+production. It holds for every path through the site, so this is a second layer
+missing, not an open door.
 
 ---
 
@@ -91,53 +104,35 @@ before the other two were seeded. **Check the Supabase auth user list directly.*
 Deleting them is dashboard work: Authentication → Users. A `db reset --linked`
 does *not* remove `auth.users`, so there is no shortcut.
 
-## The audit log still misses several actions
+## Reference — the audit log is closed; the trap under it is not
 
-`people.ts` is done — `add_staff`, `grant_league`, `update_staff_role` and
-`remove_staff`, all under `entity_type: "league_staff"` with the **league** id
-as `entity_id`, since a person spans leagues and a profile id names no single
-one. `leagueOfEntity` resolves it through `leagueIdIfExists`, the same path
-`league_rules` uses.
+Every exported action now writes an entry. The one exception is
+`previewEsportsdeskImport`, which fetches and parses and changes nothing.
 
-⚠️ **`grant_league` is untested.** It is the branch of `createStaffAccount` that
-hands an *existing manager* another league. Exercising it means adding a manager
-to a second league, which changes how many managers that league has — and
-`e2e/16-league-membership.spec.ts` reasons about exactly that. Worth covering,
-but not by bolting it onto an existing test.
+⛔ **The trap stays, for whoever adds the next one.** `leagueOfEntity` in
+`src/lib/audit.ts` returns `null` for any `entity_type` it does not handle, and
+a null league is filtered out of every league-scoped view *and* hidden by RLS —
+so a `logAudit` call added alone writes an entry that is **correct and never
+appears**. Add the type to that switch in the same change, and prove it by
+knocking the case out and watching a test go red. Both new cases —
+`announcement` and `league` — were watched failing that way.
 
-Still unaudited, measured 2026-09-02 by counting `logAudit({` call sites per
-action file — exported actions vs audited:
+An action that DESTROYS what it logs cannot use the switch at all: pass
+`league_id` on the entry instead, resolved before the delete.
+`deleteAnnouncement` does. `unenrollTeam` does not need to, because it is filed
+under the season, which outlives the enrollment row.
 
-| File | Actions | Audited |
-|---|---|---|
-| `seasons.ts` | 6 | **0** |
-| `announcements.ts` | 2 | **0** |
-| `import.ts` | 2 | **0** |
-| `logos.ts` | 1 | **0** |
+`import_league` is the one entry with no test — the import fetches esportsdesk
+over the network, so nothing local can drive it. Its switch case is a reading of
+the code.
 
-The destructive ones first: `unenrollTeam` (`seasons.ts:209`), `setActiveSeason`
-(`seasons.ts:186`), `deleteAnnouncement` (`announcements.ts:43`),
-`runEsportsdeskImport` (`import.ts:84`).
-
-⛔ **The trap, every time.** `leagueOfEntity` in `src/lib/audit.ts` returns
-`null` for any `entity_type` it does not handle, and a null league is filtered
-out of every league-scoped view *and* hidden by RLS — so a `logAudit` call added
-alone writes an entry that is **correct and never appears**. Add the type to
-that switch in the same change. `seasons.ts` is cheapest (`leagueOfSeason`
-exists, `"season"` is already in the switch); `announcements.ts` needs one line,
-since `leagueOfAnnouncement` exists in `of-entity.ts` but was only ever wired up
-as a *guard* resolver.
-
-Prove each by knocking the switch case out and watching a test go red. And
-count rows per action afterwards — the suite was green while `update_staff_role`
-had written zero, because nothing exercised it:
+Count rows per action after any change here. The suite was once green while
+`update_staff_role` had written zero, because nothing exercised it:
 
     select action, count(*), count(*) filter (where league_id is null) orphaned
     from audit_log group by action;
 
-## Not covered by the items above
-
-Two things this file does not track, recorded so nobody assumes it is exhaustive.
+## 4 — `LAUNCH.md` Phases 2-6, and how they fail
 
 ### Getting locked out
 
@@ -162,14 +157,28 @@ season locks the moment its first game night passes — `season_is_started`
 replace and remove, and no UI undoes it. If a real season is approaching, that
 outranks every item above.
 
-**PR #13 was never code-reviewed** (50 files, +2545/-327, merged as `7c7c4a7`).
-It has strong test evidence — `e2e/16-league-membership.spec.ts` drives ~30
-cross-league refusal cases, each watched fail against a deliberately broken
-guard — and CI is green. But no one has read it as a reviewer, and it is the
-change that decides who can reach what. Two of its tests turned out to be
-unreliable under slower hardware (see the tamper section below), which is the
-kind of thing a review might have caught earlier. Worth a pass before the league
-grows past one manager.
+**PR #13 has now been reviewed** (50 files, +2545/-327, merged as `7c7c4a7`),
+2026-09-02. It found one thing, and it was the important kind: the RLS write
+policy on `profiles` tested *overlap* where it needed containment, so the
+escalation the app had just closed still worked through PostgREST. That is item
+3 above, closed by 0033 and still to be pushed.
+
+Everything else read as sound, and is recorded here so nobody re-derives it:
+every exported server action carries a league-scoped guard (the six in
+`schedule.ts` all route through `targetSeasonForManager`, the twelve in
+`games.ts` through `requireGameRole`); `requireLeagueManagerOf` requires the ids
+to *agree*, which per-id checks cannot; every guard fails closed on a null
+league, because `= null` is never true in SQL and `isLeagueMember` refuses an
+empty id; and the public feed routes read through RLS, so a staged league's
+schedule is empty rather than exposed — `publicLeagueOfSeason` decides only the
+calendar's name.
+
+Two deliberate looks-wrong-reads-right spots, left alone: `manager write
+memberships` checks only `league_id`, so a manager may grant their own league to
+any profile — that is the flow the membership model exists for, and closing
+step two is what makes keeping it safe. And the manage dashboard checks
+membership only for a *roled* account, because the page that explains "you have
+no role yet" would otherwise be unreachable; it renders no league data.
 
 ## Tests: never submit an unverified form tamper
 
@@ -193,7 +202,7 @@ All six sites in `e2e/16-league-membership.spec.ts` now go through one
 is submitted. **Keep new attack tests on that helper** — a raw `.value` write in
 this file is a bug, and there should be exactly one, inside the helper itself.
 
-## 3 — Smaller, deliberately deferred
+## 5 — Smaller, deliberately deferred
 
 - **`saveRules` read-then-upsert is not atomic** — two concurrent saves both
   read the same previous document, so one audit entry's `old_data` names
@@ -227,11 +236,15 @@ this file is a bug, and there should be exactly one, inside the helper itself.
 
 ## Provenance
 
-Items 1 and 2 come from `LAUNCH.md`, which remains the operational runbook —
-this file records only what is still outstanding in it. Item 3 was found on
-2026-09-02 by counting `logAudit` call sites per action file, while closing the
-`saveRules` gap in `feat/ci-and-rules-audit`. The per-league work itself is
-`ACCESS_CONTROL_HANDOFF.md`.
+Items 1, 2 and 4 come from `LAUNCH.md`, which remains the operational runbook —
+this file records only what is still outstanding in it. Item 3 came out of the
+PR #13 review on 2026-09-02.
+
+The work that closed the cross-league escalation and the audit gaps was tracked
+in `docs/worklists/2026-09-02-085d26f3-cross-league-and-audit.md`, now marked
+closed. **Do not open it to resume** — everything still outstanding is in this
+file. It is kept only because its measurements are the evidence behind the
+commits. The per-league design itself is `ACCESS_CONTROL_HANDOFF.md`.
 
 **Closed 2026-09-02 — do not re-file.** `LAUNCH.md`'s "Known limits at launch"
 said staff roles were not league-scoped, that a scorekeeper could score either
