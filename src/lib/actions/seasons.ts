@@ -11,6 +11,7 @@ import { leagueOfSeason } from "@/lib/league/of-entity";
 import { getStandings } from "@/lib/queries/standings";
 import { getSkaterLeaders } from "@/lib/queries/stats";
 import { getRecentResults } from "@/lib/queries/schedule";
+import { slugify } from "@/lib/utils/slug";
 
 export type SeasonActionState =
   | { ok: boolean; message: string; seasonId?: string }
@@ -30,12 +31,6 @@ async function leagueIdOfSeason(admin: Admin, seasonId: string): Promise<string>
   if (!leagueId) throw new Error("That season no longer exists.");
   return leagueId;
 }
-
-const slugify = (s: string) =>
-  s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 
 /** Step 1 of season setup: create a season (inactive until set active). */
 export async function createSeason(

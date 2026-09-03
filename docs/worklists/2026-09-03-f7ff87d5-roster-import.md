@@ -10,7 +10,11 @@
 3. Claims are marked. "Watched" means the command was run and its output read. "A reading" means it follows from the code and has not been executed. Verified-by-measurement in this session: the `0024` goalie regression (§2 of the spec), `profiles` having no unique index on `player_id`, the public team route segment being `[slug]`, and every `file:line` cited below.
 4. **Baseline was NOT measured this session.** Establish it before changing anything: `npm test && npm run typecheck`. `LAUNCH_READINESS_HANDOFF.md` records 250 unit / 127 e2e on a *different* branch on 2026-09-02 — ⚠️ regenerate, do not quote.
 
-**Status: nothing is implemented.** The spec is committed (`284e25e`); this plan is not in the repo. Task 0 is the operator's; **Task A1 is the first agent task.**
+**Status: Task A1 is done.** Work happens on `feat/roster-import` in the worktree `/Users/richardkarp/dev/obhl-worktrees/roster-import`, branched off `main` with `284e25e` cherry-picked; the worktree needs its own `npm ci`. Task 0 remains the operator's; **Task A2 is the next agent task.**
+
+**Baseline measured 2026-09-03 on this branch, before any code change: 21 test files / 250 unit tests passing, `npm run typecheck` clean.** After A1: 22 files / 253 tests — the three new `slug` tests and nothing else moved. Re-measure after each task; do not quote these once further tasks land.
+
+One correction A1 turned up, for anyone writing tests against `slugify`: it collapses each run of non-alphanumerics to a *single hyphen*, so punctuation separates rather than disappears — `slugify("St. John's Ducks!")` is `st-john-s-ducks`. Step 1's example expectation below said `st-johns-ducks` and was wrong; the implementation is unchanged and remains the source of truth.
 
 **Next action — create the worktree on a clean branch, then start Task A1:**
 
@@ -113,7 +117,7 @@ Not an agent task. Recorded here so the sequence is complete.
 
 **Interfaces:** Produces `export function slugify(s: string): string`.
 
-- [ ] **Step 1: Write the failing test** — copy the behaviour of the existing const exactly; this is an extraction, not a redesign.
+- [x] **Step 1: Write the failing test** — copy the behaviour of the existing const exactly; this is an extraction, not a redesign.
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -132,11 +136,11 @@ describe("slugify", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails** — `npm test -- slug` → module not found.
-- [ ] **Step 3: Move the implementation.** Copy the body from `src/lib/actions/import.ts:22` verbatim into `src/lib/utils/slug.ts` and export it. **Adjust the test to the real behaviour if it differs** — the existing const is the source of truth, and both call sites already depend on exactly what it does.
-- [ ] **Step 4: Replace both call sites** with `import { slugify } from "@/lib/utils/slug";` and delete the two private consts.
-- [ ] **Step 5: Run the full suite** — `npm test && npm run typecheck`. Expect no behaviour change anywhere.
-- [ ] **Step 6: Commit** — `git commit -m "refactor: share slugify instead of two private copies"`
+- [x] **Step 2: Run it to verify it fails** — `npm test -- slug` → module not found.
+- [x] **Step 3: Move the implementation.** Copy the body from `src/lib/actions/import.ts:22` verbatim into `src/lib/utils/slug.ts` and export it. **Adjust the test to the real behaviour if it differs** — the existing const is the source of truth, and both call sites already depend on exactly what it does.
+- [x] **Step 4: Replace both call sites** with `import { slugify } from "@/lib/utils/slug";` and delete the two private consts.
+- [x] **Step 5: Run the full suite** — `npm test && npm run typecheck`. Expect no behaviour change anywhere.
+- [x] **Step 6: Commit** — `git commit -m "refactor: share slugify instead of two private copies"`
 
 ## Task A2: Roster-only import action
 

@@ -15,12 +15,10 @@ import {
 } from "@/lib/import/esportsdesk";
 import { distributeStats } from "@/lib/import/distribute";
 import { leagueOffset } from "@/lib/format";
+import { slugify } from "@/lib/utils/slug";
 
 /** Normalize a name for matching across esportsdesk pages (roster vs stats). */
 const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-
-const slugify = (s: string) =>
-  s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
 export type ImportPreviewState =
   | { ok: true; preview: ParsedLeague; url: string; gameCount: number }
