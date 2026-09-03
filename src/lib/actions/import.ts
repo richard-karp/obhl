@@ -15,12 +15,10 @@ import {
 } from "@/lib/import/esportsdesk";
 import { distributeStats } from "@/lib/import/distribute";
 import { leagueOffset } from "@/lib/format";
+import { slugify } from "@/lib/utils/slug";
 
 /** Normalize a name for matching across esportsdesk pages (roster vs stats). */
 const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-
-const slugify = (s: string) =>
-  s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
 export type ImportPreviewState =
   | { ok: true; preview: ParsedLeague; url: string; gameCount: number }
@@ -396,7 +394,7 @@ export async function runEsportsdeskImport(
     revalidatePath("/");
     return {
       ok: true,
-      message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}, but player stats failed (${(e as Error).message}). Standings are complete; delete this league and re-run to retry the stats.`,
+      message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}, but player stats failed (${(e as Error).message}). Standings are complete, but there is no way to delete this league and retry — re-running the import would create a second one.`,
     };
   }
 
