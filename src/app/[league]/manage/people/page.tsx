@@ -115,12 +115,16 @@ export default async function PeoplePage({
   // construction rather than by two pieces of logic being kept in step by hand.
   // Containment stays the tier-0 test; `decideProfileWrite` ignores it above that.
   const viewerTier = officeTiers.get(viewer.id) ?? null;
-  const canChangeRole = (id: string) =>
+  // BOTH of `updateStaffRole`'s gates, in the same order, or the row offers what
+  // the server refuses. `decideProfileWrite` is the precedence half; the second
+  // clause is the demotion half — a manager may not unmake a peer, and the
+  // office is the tier that can.
+  const canChangeRole = (id: string, role: string | null) =>
     decideProfileWrite(
       viewerTier,
       officeTiers.get(id) ?? null,
       (leaguesOf.get(id) ?? []).every((l) => viewerLeagues.has(l)),
-    );
+    ) && (role !== "league_manager" || viewerTier !== null);
 
   return (
     <div className="space-y-6">
@@ -166,7 +170,7 @@ export default async function PeoplePage({
                     role={s.role ?? "scorekeeper"}
                     leagueId={ctx.league.id}
                     canRemove={s.id !== viewer.id}
-                    canChangeRole={canChangeRole(s.id)}
+                    canChangeRole={canChangeRole(s.id, s.role)}
                     officeTier={officeTiers.get(s.id) ?? null}
                   />
                 </TableCell>

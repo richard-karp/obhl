@@ -72,33 +72,32 @@ export function StaffRowActions({
     );
   }
 
-  // A manager's ROLE is not editable here. Every manager can open this page, so
-  // offering it would let any manager unmake any other. Removing them from the
-  // league is a different question, and is offered — that is how a second
-  // manager account gets taken back.
-  if (role === "league_manager") {
-    return (
-      <div className="flex items-center justify-end gap-2">
-        <span className="text-muted-foreground text-xs">
-          Role changed by a commissioner
-        </span>
-        {remove}
-      </div>
-    );
-  }
-
-  // Nor is anyone's role editable from a league that does not contain all of
-  // theirs. Making this league's captain a scorekeeper would take the captaincy
-  // away in the other league they work too, which is not this manager's to do —
-  // so the row says so. Remove is still offered: it revokes THIS league only.
+  // ⛔ ONE condition decides whether the control renders, and it is the same one
+  // the server applies. A manager's role is not editable by a PEER — every
+  // manager can open this page, so offering it would let any manager unmake any
+  // other — but the League Office outranks them, and `canChangeRole` already
+  // knows both facts.
+  //
+  // Testing `role === "league_manager"` ahead of it is what made a commissioner's
+  // row render nothing while `updateStaffRole` was willing to act: the page
+  // refused what the server permitted, which is the disagreement this component
+  // exists to prevent.
+  //
+  // Only the REASON differs, so only the reason branches. Remove is offered in
+  // both: revoking this league is a different question from changing a role.
   if (!canChangeRole) {
+    const managerPeer = role === "league_manager";
     return (
       <div className="flex items-center justify-end gap-2">
         <span
           className="text-muted-foreground text-xs"
-          title="A role applies in every league, and this person also works one you are not in. Changing it needs a manager of every league they work — if nobody is in all of them, a commissioner changes it."
+          title={
+            managerPeer
+              ? "A manager's role cannot be changed by another manager. Promoting someone TO manager still works, and removing them from this league is offered separately; unmaking a manager takes a commissioner."
+              : "A role applies in every league, and this person also works one you are not in. Changing it needs a manager of every league they work — if nobody is in all of them, a commissioner changes it."
+          }
         >
-          Also works another league
+          {managerPeer ? "Role changed by a commissioner" : "Also works another league"}
         </span>
         {remove}
       </div>
