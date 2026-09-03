@@ -15,8 +15,13 @@ import { join } from "node:path";
  */
 const ACTIONS_DIR = join(process.cwd(), "src/lib/actions");
 
-/** Paths that are legitimately outside a league: only the root landing page. */
-const ROOT_ALLOWLIST = new Set(["/"]);
+/**
+ * Paths that are legitimately outside a league: the root landing page, and the
+ * League Office. The office is instance-wide staff — it belongs to no league by
+ * design, and lives outside `[league]` for that reason — so a league-scoped path
+ * would revalidate the wrong thing, or nothing at all.
+ */
+const ROOT_ALLOWLIST = new Set(["/", "/manage/office"]);
 
 type Call = { file: string; path: string; type: string | null };
 
