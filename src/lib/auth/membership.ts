@@ -123,6 +123,19 @@ export async function getMemberLeagues(
  * Relying on either accident would leave the halves agreeing by luck. The tier
  * comparison below is the actual rule; containment is only the tier-0 test.
  *
+ * ⚠️ THE OFFICE BRANCHES HERE ARE UNREACHABLE FROM TODAY'S CALL SITES, and that
+ * is worth knowing before trusting them. `updateStaffRole` checks `isMemberOf`
+ * first, and an office member has no membership row; if one did — a promoted
+ * manager keeps theirs — the demotion guard would fire next, because every
+ * office member is a `league_manager`. `createStaffAccount` returns earlier
+ * still for any account that already holds a role. Watched: stubbing this
+ * function to `true` leaves the e2e forgery still refused.
+ *
+ * Keep them anyway. This is one half of a mirrored pair, and the mirror is the
+ * invariant — the RLS half IS reachable, by any session addressing PostgREST
+ * directly, and that is the half trap (b) was about. The rule itself is covered
+ * by `precedence.test.ts`.
+ *
  * An account in no league and no tier passes containment vacuously, which is
  * what keeps "removed by mistake, add them back" working: `removeStaff` revokes
  * the membership and leaves exactly that shape.
