@@ -65,8 +65,15 @@ export async function deleteAnnouncement(formData: FormData) {
   const admin = createAdminClient();
   const id = String(formData.get("id"));
   // Resolved eagerly rather than through the lazy `() => …` guard form, because
-  // the audit entry below needs the same answer and the row is about to be
-  // gone. `removeRosterPlayer` in `rosters.ts` trades the same way.
+  // the audit entry below needs the same answer and the row is about to be gone.
+  //
+  // The cost, which `LeagueRef` in `guards.ts` exists to avoid: the lookup now
+  // runs before the role check, so an unauthenticated POST pays one admin query
+  // on its way to /login. `removeRosterPlayer` in `rosters.ts` trades the same
+  // way for the same reason. Both would stop paying it if `leagueOfAnnouncement`
+  // were memoized per request the way `memberLeagueIds` is — which needs it to
+  // build its own client rather than take one, since an argument that is an
+  // object makes every call a cache miss.
   const league_id = await leagueOfAnnouncement(id, admin);
   const manager = await requireLeagueManager(league_id);
 

@@ -31,6 +31,26 @@
 --
 -- Step 1 is deliberately left permitted. It is the flow the membership model
 -- exists for, and closing step 2 is what makes it safe to keep.
+--
+-- ⚠️ This policy is not strictly tighter than the one it replaces. Containment
+-- passes vacuously where overlap failed, so two things a manager could NOT do
+-- through their own session under 0032 are permitted from here (both watched, on
+-- the anon key, as a manager of one league):
+--
+--   * INSERT a profiles row for an auth user that has none — including with
+--     role 'league_manager';
+--   * UPDATE the role of an existing profile that belongs to no league.
+--
+-- Neither hands out anything. A role with no league reaches nothing: every
+-- policy in 0032 asks `manages_league(...)`, which needs a membership row, and a
+-- manager can still only grant leagues they manage. So the reachable end state
+-- is a co-manager of a league they already manage, which People & Roles offers
+-- them anyway.
+--
+-- It is also the intended shape rather than a side effect: `mayWriteProfileOf`
+-- has always had this carve-out app-side, and 0032 did not, so a profile that
+-- `removeStaff` had emptied of leagues was writable through the app and refused
+-- through the API. The two halves now agree.
 
 create or replace function public.contains_leagues_of(p_profile uuid)
 returns boolean language sql stable security definer set search_path = public as $$

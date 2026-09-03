@@ -71,7 +71,7 @@ export function StaffRowActions({
       <div className="flex items-center justify-end gap-2">
         <span
           className="text-muted-foreground text-xs"
-          title="A role applies in every league, and this person also works one you are not in. A manager of that league can change it."
+          title="A role applies in every league, and this person also works one you are not in. Changing it needs a manager of every league they work — if nobody is in all of them, it is changed by hand."
         >
           Also works another league
         </span>
