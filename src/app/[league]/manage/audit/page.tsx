@@ -143,9 +143,12 @@ export default async function AuditLogPage({
       case "unenroll_team":
         return `Removed ${typeof od?.name === "string" ? od.name : "a team"} from this season`;
       case "carry_forward_enrollment": {
+        // `teams` counts what was actually added, so zero has two meanings and
+        // `from_season_id` is what separates them.
         const n = typeof nd?.teams === "number" ? nd.teams : 0;
-        return n
-          ? `Carried ${n} team${n === 1 ? "" : "s"} forward from the previous season`
+        if (n) return `Carried ${n} team${n === 1 ? "" : "s"} forward from the previous season`;
+        return nd?.from_season_id
+          ? "Carried enrollment forward; every team was already enrolled"
           : "Carried enrollment forward, but no earlier season had teams";
       }
       case "generate_summary":

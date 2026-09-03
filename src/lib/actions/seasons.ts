@@ -131,6 +131,25 @@ export async function createTeamForSeason(
     return { ok: false, message: `Couldn't enroll the team: ${enrollErr.message}` };
   }
 
+  // Logged HERE, not after the captain block, because from this line on the team
+  // survives every remaining exit. Three of them return `ok: false` — the
+  // captain's player row, its roster row, or its login failed — and each says so
+  // in its message while leaving the team enrolled, on purpose: a team without a
+  // captain is a valid state. Logging at the end therefore left exactly the
+  // teams whose creation went half-right unrecorded, which is the case an audit
+  // log is for.
+  //
+  // The captain is not in the payload for the same reason: nothing is known
+  // about it yet, and naming someone who then failed to get a login would make
+  // the entry assert the thing that did not happen.
+  await logAudit({
+    user_id: manager.id,
+    action: "create_team",
+    entity_type: "team",
+    entity_id: team.id,
+    new_data: { name, season_id },
+  });
+
   // Captain is optional and secondary: if a captain step fails, the team still
   // exists (a valid state), so report the partial outcome honestly instead of
   // rolling the whole team back or claiming full success.
@@ -193,16 +212,6 @@ export async function createTeamForSeason(
     }
   }
 
-  // Logged once, at the end, for the outcome that actually reached here: the
-  // early returns above are partial failures that say so in their own message,
-  // and each already rolled back what it could.
-  await logAudit({
-    user_id: manager.id,
-    action: "create_team",
-    entity_type: "team",
-    entity_id: team.id,
-    new_data: { name, season_id, captain: captainName || null },
-  });
   revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
   return {
     ok: true,
@@ -309,7 +318,10 @@ export async function generateLeagueSummary(formData: FormData) {
     getStandings(season_id, { client: admin }),
     getSkaterLeaders(season_id, { limit: 5, client: admin }),
     getRecentResults(season_id, { limit: 3, client: admin }),
-    admin.from("seasons").select("name").eq("id", season_id).maybeSingle(),
+    // `ai_summary` alongside the name, on the read that was already happening:
+    // the update below overwrites it, and the replaced text is the only thing
+    // this entry can say that the season row does not already hold.
+    admin.from("seasons").select("name, ai_summary").eq("id", season_id).maybeSingle(),
   ]);
 
   const standings = ranked.slice(0, 6);
@@ -369,7 +381,10 @@ export async function generateLeagueSummary(formData: FormData) {
     action: "generate_summary",
     entity_type: "season",
     entity_id: season_id,
-    new_data: { summary },
+    // Only the old one. The new summary is in `seasons.ai_summary` already, and
+    // regenerating is destructive — the previous text is gone the moment the
+    // update lands. Same reason `upload_logo` keeps `old_data`.
+    old_data: { summary: seasonRes.data?.ai_summary ?? null },
   });
 
   revalidatePath("/[league]", "page");
@@ -410,15 +425,22 @@ export async function carryForwardEnrollment(formData: FormData) {
       .eq("season_id", sourceId);
     const rows = (src ?? []).map((r) => ({ season_id, team_id: r.team_id }));
     if (rows.length) {
-      await admin
+      // `ignoreDuplicates` turns this into ON CONFLICT DO NOTHING, and the
+      // representation then comes back holding ONLY the rows that were inserted
+      // — which is the count the log wants. Behaviour is unchanged: the row is
+      // nothing but its own key, so the update branch it replaces wrote nothing.
+      // Pressing the button twice used to record "carried 6 teams" both times.
+      const { data: added } = await admin
         .from("season_teams")
-        .upsert(rows, { onConflict: "season_id,team_id" });
-      carried = rows.length;
+        .upsert(rows, { onConflict: "season_id,team_id", ignoreDuplicates: true })
+        .select("team_id");
+      carried = added?.length ?? 0;
     }
   }
-  // Logged even when it carried nothing: "the manager pressed this and no
-  // season had teams to copy" is the reading someone will want when the roster
-  // is unexpectedly empty.
+  // Logged even when it carried nothing, and the two ways that happens are kept
+  // apart by `from_season_id`: no earlier season had teams to copy, or they were
+  // all enrolled here already. Someone reading this because a roster is
+  // unexpectedly empty needs to tell those apart.
   await logAudit({
     user_id: manager.id,
     action: "carry_forward_enrollment",
