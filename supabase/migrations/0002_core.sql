@@ -40,9 +40,16 @@ create table teams (
   unique (league_id, slug)
 );
 
--- A person. Identity is GLOBAL (not league-scoped): the same human can play in
--- more than one league. League/season participation is layered on top via
--- team_players (team_players.season_id -> seasons.league_id).
+-- A person. Identity is GLOBAL *in the schema* (no league_id here): the same
+-- human can play in more than one league. League/season participation is
+-- layered on top via team_players (team_players.season_id -> seasons.league_id).
+--
+-- But every operation that could JOIN two identities is league-scoped. The
+-- duplicate merge (0035, src/lib/actions/players.ts) draws its candidates only
+-- from players reachable through team_players -> seasons -> league_id for one
+-- league, so the same human in two leagues stays two records and no merge can
+-- reach across. Global identity, league-scoped identity operations: both are
+-- true, and reading only the first sentence gets the merge rules wrong.
 create table players (
   id uuid primary key default gen_random_uuid(),
   first_name text not null,

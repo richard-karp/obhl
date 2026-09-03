@@ -10,7 +10,7 @@
 3. Claims are marked. "Watched" means the command was run and its output read. "A reading" means it follows from the code and has not been executed. Verified-by-measurement in this session: the `0024` goalie regression (§2 of the spec), `profiles` having no unique index on `player_id`, the public team route segment being `[slug]`, and every `file:line` cited below.
 4. **Baseline was NOT measured this session.** Establish it before changing anything: `npm test && npm run typecheck`. `LAUNCH_READINESS_HANDOFF.md` records 250 unit / 127 e2e on a *different* branch on 2026-09-02 — ⚠️ regenerate, do not quote.
 
-**Status: A1 and A2 are done; A3's code is written but its e2e run is DEFERRED (see Task 0).** Work happens on `feat/roster-import` in the worktree `/Users/richardkarp/dev/obhl-worktrees/roster-import`, branched off `main` with `284e25e` cherry-picked; the worktree needs its own `npm ci`. Task 0 remains the operator's; **Task A4 is the next agent task.**
+**Status: A1–A5 are done. A3's e2e run and A6's migration apply are both DEFERRED behind Task 0 (see there); A6 Steps 3–4 and all of A7 are BLOCKED until the apply happens.** Work happens on `feat/roster-import` in the worktree `/Users/richardkarp/dev/obhl-worktrees/roster-import`, branched off `main` with `284e25e` cherry-picked; the worktree needs its own `npm ci`. Task 0 remains the operator's, and it is now the critical path: **two Phase A tasks are waiting on it, not just the e2e run.**
 
 **Baseline measured 2026-09-03 on this branch, before any code change: 21 test files / 250 unit tests passing, `npm run typecheck` clean.** After A1: 22 files / 253 tests — the three new `slug` tests and nothing else moved. A2 adds no tests of its own (it registers in `league-guards.test.ts`), so the counts are unchanged; its error paths are unproven until a real database exists. Re-measure after each task; do not quote these once further tasks land.
 
@@ -106,6 +106,7 @@ Not an agent task. Recorded here so the sequence is complete.
 - [ ] Empty the database.
 - [ ] While it is empty, close `LAUNCH_READINESS_HANDOFF.md` item 2 — the seeded accounts whose password is committed to this repo are a way in regardless of what is deployed.
 - [ ] Items 1 (`ENABLE_DEV_LOGIN`) and 3 (`0033` not pushed) are unrelated to this work but block going live at all.
+- [ ] **Then apply `0035` and regenerate types** — `npm run db:reset && npm run gen-types` (A6 Step 2). This unblocks A6 Steps 3–4 (`src/lib/actions/players.ts`, which cannot typecheck until `player_distinct_pairs` is in `src/lib/db/types.ts`) and all of A7.
 - [ ] **Then run Task A3's deferred e2e steps** — `npx playwright test e2e/17-roster-import.spec.ts`. Deferred on 2026-09-03 by decision, not oversight: `e2e/global-setup.ts` runs `npm run db:reset`, and a reset from this worktree applies `0032`, `0033`, `0035`+ **without `0034`**, which is not on this branch. Local Supabase is one shared instance, so doing that while the League Office session was live would have dropped `league_office` out from under it. Note `.env.local` is gitignored and absent from this worktree — copy it from `/Users/richardkarp/dev/obhl` before running.
 
 ---
@@ -297,7 +298,7 @@ export function findDuplicateClusters(
 
 > **Normalize `dismissed` inside this function, not at the call site.** `0035` stores ordered pairs (`check (player_a < player_b)`). If a caller passes a pair in the other order and the comparison is literal, no dismissal ever matches — clusters reappear, the table fills up, and the whole feature looks like it is working. Sort each pair on the way in.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -369,9 +370,9 @@ describe("findDuplicateClusters", () => {
 
 > The last test encodes a deliberate choice: dismissing a *pair* does not dissolve a *cluster*. Three same-name records where only a–b are known-distinct still need the operator's eye on a–c and b–c.
 
-- [ ] **Step 2: Run it to verify it fails** — `npm test -- duplicates`.
-- [ ] **Step 3: Implement.** Normalize with the same rule the importer uses (lowercase, strip non-alphanumerics). Cluster on `normName(first + last)`; a cluster requires **two or more distinct `playerId`s**. Drop a cluster only when every pair within it is dismissed.
-- [ ] **Step 4: Run the tests** → PASS (6 tests).
+- [x] **Step 2: Run it to verify it fails** — `npm test -- duplicates`.
+- [x] **Step 3: Implement.** Normalize with the same rule the importer uses (lowercase, strip non-alphanumerics). Cluster on `normName(first + last)`; a cluster requires **two or more distinct `playerId`s**. Drop a cluster only when every pair within it is dismissed.
+- [x] **Step 4: Run the tests** → PASS — **7 tests, not 6**; the block above has seven `it` cases.
 - [ ] **Step 5: Commit** — `git commit -m "feat: detect same-name player clusters"`
 
 ## Task A5: Merge planning (pure)
@@ -415,7 +416,7 @@ export function planMerge(
 
 > **Why per-game and not pairwise.** An earlier draft returned `{keepId, deleteId, …}` pairs plus a flat "repoint these" list. With three duplicates in one game that double-counts, and when the kept player has no row for a game two duplicates both played, two rows repoint onto the same `(game_id, player_id)` and violate the unique constraint. One resolution per game handles 2-way and N-way identically.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -493,9 +494,9 @@ describe("planMerge", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails** — `npm test -- merge-plan`.
+- [x] **Step 2: Run it to verify it fails** — `npm test -- merge-plan`.
 
-- [ ] **Step 3: Implement, in this order** (the refusals come first, so no resolution is computed for a merge that will not happen):
+- [x] **Step 3: Implement, in this order** (the refusals come first, so no resolution is computed for a merge that will not happen):
 
 1. **`opposing-teams`** — group `games` by `gameId`; if any group holds more than one `teamId`, refuse. Two same-named records on both sides of one game is proof they are two people, and summing them would move goals across teams.
 2. **`different-active-teams`** — group `rosters` by `seasonId`; if any season holds more than one `teamId`, refuse. `left_on` does not exist until Phase B, so a dual-roster cannot be recorded as a departure; the operator removes one roster row first. **This refusal is also what keeps Task B1's new unique index creatable.**
@@ -503,14 +504,14 @@ describe("planMerge", () => {
 4. Per game: survivor is the row whose `playerId === keepId`, else the lowest `id`; `repoint = survivor.playerId !== keepId`; totals are the sum over every row in the group; `deleteIds` is the rest.
 5. Per `(seasonId, teamId)`: keep the richest roster row — a jersey beats none, then captaincy, then lowest `id` for determinism — and delete the others.
 
-- [ ] **Step 4: Run the tests** → PASS (7 tests).
+- [x] **Step 4: Run the tests** → PASS (7 tests).
 - [ ] **Step 5: Commit** — `git commit -m "feat: merge planning with per-game resolution and refusals"`
 
 ## Task A6: `mergePlayers` action + dismissal table
 
 **Files:** Create `supabase/migrations/0035_player_distinct_pairs.sql`, `src/lib/actions/players.ts`; modify `supabase/migrations/0002_core.sql` (comment only).
 
-- [ ] **Step 1: Write the migration**
+- [x] **Step 1: Write the migration** — written, **not applied** (see Step 2).
 
 ```sql
 -- Pairs the operator has judged to be two different people who share a name.
@@ -538,6 +539,8 @@ alter table player_distinct_pairs enable row level security;
 
 - [ ] **Step 2: Apply and regenerate types** — `npm run db:reset && npm run gen-types`.
 
+  ⛔ **BLOCKED, and not by choice.** `npm run db:reset` rebuilds the shared local database from *this worktree's* files, which lack `0034` — confirmed applied in the local DB by the other session (`supabase migration list` shows 0034 present in the database and absent locally). Resetting drops `league_office` out from under them. The additive alternative, `npx supabase migration up --local`, was refused by the sandbox's permission classifier. **Everything downstream of this stops here:** Step 3's action queries `player_distinct_pairs`, which is absent from the generated `src/lib/db/types.ts`, so it cannot typecheck. Do NOT hand-edit that generated file to get past this — a green typecheck against a table the database does not have is a false green.
+
 - [ ] **Step 3: Write the action**
 
 ```ts
@@ -561,7 +564,7 @@ const manager = await requireLeagueManager(league_id);
 
 - [ ] **Step 4: Run the tests** — `npm test -- merge-plan && npm test -- league-guards` → PASS.
 
-- [ ] **Step 5: Correct the stale identity comment.** `supabase/migrations/0002_core.sql:43` asserts "Identity is GLOBAL (not league-scoped)". Identity stays global *in the schema* — `players` still has no `league_id` — but every operation that could join two identities is now league-scoped. Amend it to say both. A comment asserting the opposite of what the code guarantees is load-bearing for the next reader's model.
+- [x] **Step 5: Correct the stale identity comment.** `supabase/migrations/0002_core.sql:43` asserts "Identity is GLOBAL (not league-scoped)". Identity stays global *in the schema* — `players` still has no `league_id` — but every operation that could join two identities is now league-scoped. Amend it to say both. A comment asserting the opposite of what the code guarantees is load-bearing for the next reader's model. — done; `0002_core.sql` now states both halves.
 
 - [ ] **Step 6: Commit** — `git commit -m "feat: league-scoped player merge"`
 
