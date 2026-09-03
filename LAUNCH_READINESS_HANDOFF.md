@@ -202,6 +202,47 @@ All six sites in `e2e/16-league-membership.spec.ts` now go through one
 is submitted. **Keep new attack tests on that helper** — a raw `.value` write in
 this file is a bug, and there should be exactly one, inside the helper itself.
 
+## The first commissioner (League Office, `0034`)
+
+Read this whole section before running anything; the block at the bottom is
+copy-paste and has no commentary after it.
+
+The League Office tier is **peer-flat** — no commissioner outranks another — so
+the first one cannot be created from the app, by anyone. That is deliberate: it
+is the same shape as manager demotion, and it means no single compromised office
+account can empty the tier. Locally `scripts/seed-users.mjs` appoints one; on
+production it is this.
+
+Three things the snippet depends on, all enforced by `0034`:
+
+- **The account must already exist and hold `role = 'league_manager'`.** A
+  trigger refuses a tier for any other role, and it is not a formality: the
+  office multiplies REACH, not ROLE, so a captain in the office would gain
+  cross-league visibility and no manager powers at all.
+- **Nothing touches `profile_leagues`.** The tier is purely additive, so removing
+  it later restores exactly the reach the person had before, with no repair step.
+- **`league_office` is granted to nobody** — not even `select`. Run this as the
+  service role / SQL editor, not through PostgREST.
+
+⚠️ Changing that person's role afterwards is refused while the tier is held; a
+second trigger enforces the documented order — remove the tier first, then the
+role is changeable.
+
+Replace the address, run it in the Supabase SQL editor, and expect exactly one
+row back. If it returns none, the account does not exist or is not a manager.
+
+COPY FROM HERE
+```sql
+insert into league_office (profile_id, tier)
+select p.id, 'commissioner'
+from profiles p
+join auth.users u on u.id = p.id
+where u.email = 'REPLACE@example.com'
+  and p.role = 'league_manager'
+returning profile_id, tier;
+```
+END COPY
+
 ## 5 — Smaller, deliberately deferred
 
 - **`saveRules` read-then-upsert is not atomic** — two concurrent saves both
