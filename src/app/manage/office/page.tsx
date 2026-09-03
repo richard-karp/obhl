@@ -54,11 +54,25 @@ export default async function OfficePage() {
   // is not cosmetic: 0034's trigger refuses a `league_office` row for anyone who
   // is not a `league_manager`, so offering a captain here would render a control
   // whose only possible outcome is a silent refusal.
-  const { data: managers } = await admin
-    .from("profiles")
-    .select("id, display_name")
-    .eq("role", "league_manager");
-  const candidates = (managers ?? []).filter((m) => !tiers.has(m.id));
+  //
+  // ⚠️ Only for a commissioner. A deputy sees no appoint form, and used to pay
+  // for it anyway — this query plus an address lookup per manager, all of it
+  // discarded before render.
+  //
+  // ⚠️ THE ADDRESS LOOKUPS SCALE WITH THE INSTANCE, NOT WITH THIS PAGE. There is
+  // no batch-lookup-by-id in the admin API, so populating the picker costs one
+  // request per manager, in waves of ten. That is a deliberate trade, not an
+  // oversight: the picker is how a commissioner identifies an account, and
+  // `display_name` is nullable, so dropping addresses would degrade the control
+  // to distinguish accounts by nothing. Managers are few by nature — the tier
+  // exists because too FEW people can reach across leagues. If an instance ever
+  // grows enough for this to bite, the fix is a typeahead that looks up on
+  // demand, not a shorter list.
+  const candidates = isCommissioner
+    ? ((
+        await admin.from("profiles").select("id, display_name").eq("role", "league_manager")
+      ).data ?? []).filter((m) => !tiers.has(m.id))
+    : [];
 
   const emails = await emailsByProfileId(admin, [
     ...tiers.keys(),
