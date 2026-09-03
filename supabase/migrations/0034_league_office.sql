@@ -126,6 +126,11 @@ $$;
 -- This is the RLS half of `mayWriteProfileOf` in src/lib/auth/membership.ts.
 -- ⚠️ They are ONE RULE WRITTEN TWICE and must be reviewed as a pair: same four
 -- branches, same order.
+--
+-- The pair answers WHO MAY WRITE A PROFILE, and nothing more. The triggers at the
+-- foot of this file constrain a single COLUMN while a tier is held — a
+-- commissioner permitted here may still be refused a deputy's `role`. Passing
+-- this is not permission for every column.
 
 create or replace function public.may_write_profile(p_profile uuid)
 returns boolean language sql stable security definer set search_path = public as $$
@@ -170,9 +175,30 @@ create policy "manager write profiles" on profiles
 
 create or replace function public.league_office_requires_manager()
 returns trigger language plpgsql security definer set search_path = public as $$
+declare v_role app_role;
 begin
-  if (select role from profiles where id = new.profile_id)
-     is distinct from 'league_manager'::app_role then
+  -- ⛔ `for update` IS LOAD-BEARING. Without it these two triggers race and both
+  -- allow the state they exist to forbid: each guards its invariant by reading
+  -- the OTHER table, and under READ COMMITTED neither sees the other's
+  -- uncommitted row. Concurrent "appoint P" and "demote P" then both pass, and
+  -- the result is a scorekeeper sitting in the office — which by the reach rules
+  -- above is scoring rights in EVERY league. Watched happening with two psql
+  -- sessions before this lock was added; the FK's `for key share` does not
+  -- conflict with the `update`'s `for no key update`, so nothing else
+  -- serialises them.
+  --
+  -- One lock closes BOTH orderings, because both paths then contend on this same
+  -- profiles row. Appoint-first: the demoter blocks, and once it proceeds its own
+  -- trigger sees the committed office row and refuses. Demote-first: the
+  -- appointer blocks here, then re-reads under READ COMMITTED and sees
+  -- 'scorekeeper'. Lock order is `profiles` first on both paths, so they cannot
+  -- deadlock against each other.
+  --
+  -- The other trigger needs no explicit lock: the `update profiles` that fires it
+  -- has already taken a row lock on exactly this row.
+  select role into v_role from profiles where id = new.profile_id for update;
+
+  if v_role is distinct from 'league_manager'::app_role then
     raise exception
       'league_office requires profiles.role = league_manager (profile %)', new.profile_id
       using errcode = 'check_violation';
