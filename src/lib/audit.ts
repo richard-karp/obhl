@@ -66,9 +66,92 @@ async function leagueOfEntity(
     // the only id the entry can name.
     case "league":
       return leagueIdIfExists(entityId, admin);
+    // ⛔ NULL BY DECISION, NOT BY DEFAULT. The League Office is instance-wide: a
+    // tier reaches every league, so there is no league to file an appointment
+    // under, and picking one would be a lie.
+    //
+    // This case looks redundant — `default` already returns null, and even an
+    // explicit `league_id: null` from the caller falls through to here, because
+    // `logAudit` resolves `entry.league_id ?? leagueOfEntity(...)` and `??`
+    // treats null as absent. That is exactly why it is written out. Reaching
+    // null by decision and reaching it by falling off the end of a switch are
+    // indistinguishable afterwards, and the warning above tells the next person
+    // that an unlisted type is a MISTAKE. Without this line, "office" looks like
+    // one of those mistakes forever.
+    //
+    // The consequence is intended and load-bearing: a null league is hidden by
+    // RLS and filtered out of every league-scoped view, so these entries never
+    // clutter a league's log. They are read on the admin client instead — see
+    // `recentOfficeAudit`.
+    case "office":
+      return null;
     default:
       return null;
   }
+}
+
+export type OfficeAuditEntry = {
+  id: string;
+  created_at: string | null;
+  action: string;
+  actor: string;
+  target: string;
+};
+
+/**
+ * Recent League Office appointments and removals.
+ *
+ * Read on the admin client on purpose: these entries carry no league, and a null
+ * league is hidden by `managers read audit_log` — so a session could never see
+ * them, which is what keeps them out of the per-league log.
+ *
+ * Names come from the entry's own snapshot first and the live profile only as a
+ * fallback. The snapshot is the point of an audit entry: after a profile is
+ * deleted it is the only thing left that says who this was.
+ */
+export async function recentOfficeAudit(limit = 5): Promise<OfficeAuditEntry[]> {
+  const admin = createAdminClient();
+  const { data: rows } = await admin
+    .from("audit_log")
+    .select("id, created_at, user_id, action, entity_id, old_data, new_data")
+    .eq("entity_type", "office")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (!rows?.length) return [];
+
+  const ids = [
+    ...new Set(
+      rows
+        .flatMap((r) => [r.user_id, r.entity_id])
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
+  ];
+  const { data: profiles } = await admin
+    .from("profiles")
+    .select("id, display_name")
+    .in("id", ids);
+  const nameById = new Map(
+    (profiles ?? []).map((p) => [p.id, p.display_name ?? null]),
+  );
+
+  const snapshotName = (blob: unknown): string | null => {
+    if (!blob || typeof blob !== "object") return null;
+    const name = (blob as { display_name?: unknown }).display_name;
+    return typeof name === "string" && name.length > 0 ? name : null;
+  };
+  const short = (id: string | null) => (id ? id.slice(0, 8) : "Unknown");
+
+  return rows.map((r) => ({
+    id: r.id,
+    created_at: r.created_at,
+    action: r.action,
+    actor: nameById.get(r.user_id ?? "") ?? short(r.user_id),
+    target:
+      snapshotName(r.new_data) ??
+      snapshotName(r.old_data) ??
+      nameById.get(r.entity_id) ??
+      short(r.entity_id),
+  }));
 }
 
 export async function logAudit(entry: AuditEntry) {

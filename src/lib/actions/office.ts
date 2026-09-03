@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireCommissioner } from "@/lib/auth/guards";
 import { officeTierOf } from "@/lib/auth/office";
+import { logAudit } from "@/lib/audit";
 
 /**
  * Appoint and remove deputies.
@@ -24,7 +25,7 @@ import { officeTierOf } from "@/lib/auth/office";
  */
 
 export async function appointDeputy(formData: FormData) {
-  await requireCommissioner();
+  const actor = await requireCommissioner();
 
   const id = String(formData.get("id") ?? "");
   if (!id) return;
@@ -39,16 +40,40 @@ export async function appointDeputy(formData: FormData) {
   // and 0034's trigger refuses anyone who is not a `league_manager` — a
   // commissioner cannot appoint a captain into a tier that would give them
   // nothing but cross-league reach.
+  // Snapshot the name BEFORE the write, for the same reason `removeStaff` does:
+  // the entry is the only thing that still says who this was once the profile is
+  // gone.
+  const { data: before } = await admin
+    .from("profiles")
+    .select("display_name")
+    .eq("id", id)
+    .maybeSingle();
+
   const { error } = await admin
     .from("league_office")
     .insert({ profile_id: id, tier: "deputy" });
   if (error) return;
 
+  // ⛔ `entity_type: "office"` resolves to a NULL league, by decision — see the
+  // `case "office"` in `leagueOfEntity`. One entry per action, not one per
+  // league: the tier reaches all of them.
+  await logAudit({
+    user_id: actor.id,
+    action: "appoint_deputy",
+    entity_type: "office",
+    entity_id: id,
+    new_data: {
+      profile_id: id,
+      tier: "deputy",
+      display_name: before?.display_name ?? null,
+    },
+  });
+
   revalidatePath("/manage/office");
 }
 
 export async function removeDeputy(formData: FormData) {
-  await requireCommissioner();
+  const actor = await requireCommissioner();
 
   const id = String(formData.get("id") ?? "");
   if (!id) return;
@@ -62,12 +87,30 @@ export async function removeDeputy(formData: FormData) {
   // `tier` is in the WHERE clause as well, so the read above cannot go stale
   // between the check and the delete: if this profile became a commissioner in
   // between, the delete matches nothing instead of removing one.
+  const { data: before } = await admin
+    .from("profiles")
+    .select("display_name")
+    .eq("id", id)
+    .maybeSingle();
+
   const { error } = await admin
     .from("league_office")
     .delete()
     .eq("profile_id", id)
     .eq("tier", "deputy");
   if (error) return;
+
+  await logAudit({
+    user_id: actor.id,
+    action: "remove_deputy",
+    entity_type: "office",
+    entity_id: id,
+    old_data: {
+      profile_id: id,
+      tier: "deputy",
+      display_name: before?.display_name ?? null,
+    },
+  });
 
   revalidatePath("/manage/office");
 }

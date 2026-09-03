@@ -7,6 +7,8 @@ import { emailsByProfileId } from "@/lib/auth/users";
 import { appointDeputy } from "@/lib/actions/office";
 import { OfficeRowActions } from "@/components/manage/office-row-actions";
 import { PageHeader } from "@/components/shared/page-header";
+import { OfficeAuditNotice } from "@/components/manage/office-audit-notice";
+import { recentOfficeAudit } from "@/lib/audit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -41,7 +43,12 @@ export default async function OfficePage() {
   const isCommissioner = viewerTier === "commissioner";
 
   const admin = createAdminClient();
-  const tiers = await listOfficeTiers();
+  const [tiers, officeLog] = await Promise.all([
+    listOfficeTiers(),
+    // This page is where office changes are readable at all — they carry no
+    // league, so every league-scoped view filters them out.
+    recentOfficeAudit(20),
+  ]);
 
   // Candidates are managers who are not already in the office. The role filter
   // is not cosmetic: 0034's trigger refuses a `league_office` row for anyone who
@@ -204,6 +211,14 @@ export default async function OfficePage() {
             ))}
           </TableBody>
         </Table>
+      </div>
+
+      <div className="mt-6">
+        <OfficeAuditNotice
+          entries={officeLog}
+          heading="Recent office changes"
+          emptyText="No appointments or removals logged yet."
+        />
       </div>
     </div>
   );
