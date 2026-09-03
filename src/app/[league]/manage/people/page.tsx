@@ -7,7 +7,8 @@ import {
 } from "@/components/manage/create-staff-form";
 import { StaffRowActions } from "@/components/manage/staff-row-actions";
 import { memberLeagueIds } from "@/lib/auth/membership";
-import { officeTiersOf } from "@/lib/auth/office";
+import { listOfficeTiers } from "@/lib/auth/office";
+import { decideProfileWrite } from "@/lib/auth/precedence";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -23,6 +24,13 @@ const ROLE_LABEL: Record<string, string> = {
   league_manager: "Manager",
   scorekeeper: "Scorekeeper",
   captain: "Captain",
+};
+
+// Fixed here and in League Office so the two surfaces cannot drift. Audit prose
+// says "a commissioner" and "a deputy commissioner"; these are the column form.
+const OFFICE_LABEL: Record<string, string> = {
+  commissioner: "Commissioner",
+  deputy: "Deputy",
 };
 
 export default async function PeoplePage({
@@ -42,7 +50,15 @@ export default async function PeoplePage({
     .from("profile_leagues")
     .select("profile_id")
     .eq("league_id", ctx.league.id);
-  const memberIds = (members ?? []).map((m) => m.profile_id);
+  const leagueMemberIds = (members ?? []).map((m) => m.profile_id);
+
+  // The office is unioned in EXPLICITLY. Its members reach every league without
+  // holding a `profile_leagues` row for any of them, so the query above cannot
+  // see them and no amount of widening it would — the row does not exist. They
+  // are listed because a manager looking at their own league's staff should see
+  // everyone who can act in it, and their rows are read-only here.
+  const officeTiers = await listOfficeTiers();
+  const memberIds = [...new Set([...leagueMemberIds, ...officeTiers.keys()])];
 
   const [{ data: profiles }, { data: allMemberships }] = await Promise.all([
     memberIds.length
@@ -118,20 +134,22 @@ export default async function PeoplePage({
   // here so the row says why instead of offering a control that does nothing.
   // `mayWriteProfileOf` is the server-side twin — this decides what to render,
   // that decides what happens, and they have to agree.
-  // League Office members, in one query for the table. Their rows are read-only
-  // here for EVERYONE, commissioners included: the tier is managed in exactly one
-  // place, and `removeStaff` refuses them outright — a promoted manager keeps the
-  // `profile_leagues` rows they had, so without this they would still be listed
-  // with a Remove button that silently does nothing.
-  const officeTiers = await officeTiersOf(memberIds);
-
   const viewerLeagues = new Set(await memberLeagueIds(viewer.id));
   const leaguesOf = new Map<string, string[]>();
   for (const m of allMemberships ?? []) {
     leaguesOf.set(m.profile_id, [...(leaguesOf.get(m.profile_id) ?? []), m.league_id]);
   }
+  // The SAME rule the server applies, not a second statement of it. What renders
+  // and what `updateStaffRole` permits have to agree, and they now agree by
+  // construction rather than by two pieces of logic being kept in step by hand.
+  // Containment stays the tier-0 test; `decideProfileWrite` ignores it above that.
+  const viewerTier = officeTiers.get(viewer.id) ?? null;
   const canChangeRole = (id: string) =>
-    (leaguesOf.get(id) ?? []).every((l) => viewerLeagues.has(l));
+    decideProfileWrite(
+      viewerTier,
+      officeTiers.get(id) ?? null,
+      (leaguesOf.get(id) ?? []).every((l) => viewerLeagues.has(l)),
+    );
 
   return (
     <div className="space-y-6">
@@ -166,7 +184,11 @@ export default async function PeoplePage({
                 <TableCell className="text-muted-foreground">
                   {s.display_name ?? "—"}
                 </TableCell>
-                <TableCell>{ROLE_LABEL[s.role ?? ""] ?? "—"}</TableCell>
+                <TableCell>
+                  {OFFICE_LABEL[officeTiers.get(s.id) ?? ""] ??
+                    ROLE_LABEL[s.role ?? ""] ??
+                    "—"}
+                </TableCell>
                 <TableCell>
                   <StaffRowActions
                     id={s.id}

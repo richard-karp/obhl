@@ -37,23 +37,16 @@ export const officeTierOf = cache(async function officeTierOf(
 });
 
 /**
- * Tiers for a list of profiles, in one query.
+ * Every office member, as profile id -> tier.
  *
- * For a page that renders many rows. `officeTierOf` is memoized per profile, so
- * asking it in a loop is correct but is one round trip per row; this is the same
- * answer for a whole table in one.
- *
- * Returns only the profiles that hold a tier — absence means tier-0, which is
- * almost everyone.
+ * The whole table on purpose. A page listing a league's staff cannot ask for the
+ * office members it already knows about, because the ones it needs are precisely
+ * the ones NOT in `profile_leagues` — membership there is a rule, not a row. The
+ * table is instance-wide staff and peer-flat, appointed only in SQL, so it is a
+ * handful of rows by construction.
  */
-export async function officeTiersOf(
-  profileIds: string[],
-): Promise<Map<string, OfficeTier>> {
-  if (profileIds.length === 0) return new Map();
+export async function listOfficeTiers(): Promise<Map<string, OfficeTier>> {
   const admin = createAdminClient();
-  const { data } = await admin
-    .from("league_office")
-    .select("profile_id, tier")
-    .in("profile_id", profileIds);
+  const { data } = await admin.from("league_office").select("profile_id, tier");
   return new Map((data ?? []).map((r) => [r.profile_id, r.tier]));
 }
