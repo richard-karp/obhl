@@ -9,6 +9,7 @@ export function StaffRowActions({
   leagueId,
   canRemove,
   canChangeRole,
+  officeTier,
 }: {
   id: string;
   role: string;
@@ -29,6 +30,13 @@ export function StaffRowActions({
    * so the control is replaced by the reason rather than offered and ignored.
    */
   canChangeRole: boolean;
+  /**
+   * The League Office tier this person holds, or null. An office row is
+   * read-only here for everyone — the tier is managed in League Office, and a
+   * row offering to change a deputy's underlying role while their tier lives on
+   * another page invites the wrong mental model of what the row controls.
+   */
+  officeTier: "commissioner" | "deputy" | null;
 }) {
   const remove = canRemove ? (
     <form action={removeStaff}>
@@ -46,6 +54,23 @@ export function StaffRowActions({
       </Button>
     </form>
   ) : null;
+
+  // The office first, because an office member is a `league_manager` too and
+  // would otherwise fall into the branch below and be offered a Remove that
+  // `removeStaff` refuses. Their membership is a rule rather than a row, so
+  // there is nothing here to revoke.
+  if (officeTier) {
+    return (
+      <div className="flex items-center justify-end gap-2">
+        <span
+          className="text-muted-foreground text-xs"
+          title="This account holds a League Office tier, which reaches every league. Both the tier and this person's role are managed in League Office."
+        >
+          Managed in League Office
+        </span>
+      </div>
+    );
+  }
 
   // A manager's ROLE is not editable here. Every manager can open this page, so
   // offering it would let any manager unmake any other. Removing them from the

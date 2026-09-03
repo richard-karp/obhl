@@ -7,6 +7,7 @@ import {
 } from "@/components/manage/create-staff-form";
 import { StaffRowActions } from "@/components/manage/staff-row-actions";
 import { memberLeagueIds } from "@/lib/auth/membership";
+import { officeTiersOf } from "@/lib/auth/office";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -117,6 +118,13 @@ export default async function PeoplePage({
   // here so the row says why instead of offering a control that does nothing.
   // `mayWriteProfileOf` is the server-side twin — this decides what to render,
   // that decides what happens, and they have to agree.
+  // League Office members, in one query for the table. Their rows are read-only
+  // here for EVERYONE, commissioners included: the tier is managed in exactly one
+  // place, and `removeStaff` refuses them outright — a promoted manager keeps the
+  // `profile_leagues` rows they had, so without this they would still be listed
+  // with a Remove button that silently does nothing.
+  const officeTiers = await officeTiersOf(memberIds);
+
   const viewerLeagues = new Set(await memberLeagueIds(viewer.id));
   const leaguesOf = new Map<string, string[]>();
   for (const m of allMemberships ?? []) {
@@ -166,6 +174,7 @@ export default async function PeoplePage({
                     leagueId={ctx.league.id}
                     canRemove={s.id !== viewer.id}
                     canChangeRole={canChangeRole(s.id)}
+                    officeTier={officeTiers.get(s.id) ?? null}
                   />
                 </TableCell>
               </TableRow>
