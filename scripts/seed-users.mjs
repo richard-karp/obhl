@@ -190,6 +190,17 @@ for (const s of staff) {
     : s.playsAsNonCaptain
       ? await findNonCaptainPlayer()
       : null;
+
+  // ⛔ A commissioner with no player link is a seed FAILURE, not a quieter
+  // success. The link is the whole of "a commissioner may also play", and
+  // without it that case stops being exercised while every test still reports
+  // green — the same shape as the truncation this script's header exists to
+  // prevent. Loud, like an unknown league slug.
+  let playerError = null;
+  if (s.playsAsNonCaptain && !player_id) {
+    playerError = "no non-captain player to link (seed.sql has none spare?)";
+    failures++;
+  }
   const { error } = await admin
     .from("profiles")
     .upsert({ id: userId, role: s.role, display_name: s.display_name, player_id });
@@ -240,7 +251,8 @@ for (const s of staff) {
       `${error ? ` ERROR: ${error.message}` : ""}` +
       `${memberError ? ` MEMBERSHIP ERROR: ${memberError}` : ""}` +
       `${officeError ? ` OFFICE ERROR: ${officeError}` : ""}` +
-      `${!error && !memberError && !officeError ? " ok" : ""}`,
+      `${playerError ? ` PLAYER ERROR: ${playerError}` : ""}` +
+      `${!error && !memberError && !officeError && !playerError ? " ok" : ""}`,
   );
 }
 
