@@ -1,9 +1,9 @@
 import "server-only";
 import { cache } from "react";
 import { createAdminClient } from "@/utils/supabase/admin";
-import type { Database } from "@/lib/db/types";
+import type { OfficeTier } from "./precedence";
 
-export type OfficeTier = Database["public"]["Enums"]["office_tier"];
+export type { OfficeTier };
 
 /**
  * The League Office tier this profile holds, or null for everyone else

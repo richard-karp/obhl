@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { officeTierOf } from "./office";
+import { decideProfileWrite } from "./precedence";
 import type { LeagueOption } from "@/lib/league/current";
 
 /**
@@ -94,6 +95,14 @@ export async function getMemberLeagues(
  * reviewed as a pair: the same branches, in the same order. They are the app half
  * and the RLS half of the same question.
  *
+ * That question is WHO MAY WRITE THIS PROFILE, and the pair is exhaustive of it.
+ * It is not exhaustive of every constraint on a profile write: 0034's triggers
+ * separately pin one COLUMN's value while a tier is held, so a commissioner who
+ * passes this test may still write a deputy's `display_name` or `player_id` and
+ * still be refused their `role` until the tier is removed. Two different
+ * questions, not a contradiction — but do not read agreement here as permission
+ * for any particular column.
+ *
  * The rule: YOU MAY WRITE A PROFILE ONLY IF YOUR TIER IS STRICTLY ABOVE THEIRS.
  * Commissioner over everyone but a commissioner; deputy over everyone outside
  * the office; a league manager over tier-0 accounts whose leagues theirs
@@ -127,15 +136,16 @@ export async function mayWriteProfileOf(
     officeTierOf(profileId),
   ]);
 
-  if (mineTier === "commissioner") return theirTier !== "commissioner";
-  if (mineTier === "deputy") return theirTier === null;
+  // Containment is the tier-0 test only, so it is not worth two more queries at
+  // an office tier — `decideProfileWrite` ignores the argument there.
+  if (mineTier !== null) return decideProfileWrite(mineTier, theirTier, false);
+  if (theirTier !== null) return decideProfileWrite(null, theirTier, false);
 
-  if (theirTier !== null) return false;
   const [mine, theirs] = await Promise.all([
     memberLeagueIds(actorId),
     memberLeagueIds(profileId),
   ]);
-  return theirs.every((id) => mine.includes(id));
+  return decideProfileWrite(null, null, theirs.every((id) => mine.includes(id)));
 }
 
 /** Grant membership. Idempotent — re-adding an existing member is a no-op. */
