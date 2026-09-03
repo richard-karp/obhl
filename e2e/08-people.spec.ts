@@ -75,7 +75,7 @@ test.describe("Path 14 — People & Roles", () => {
       .locator("table tbody tr")
       .filter({ hasText: "manager@obhl.test" });
     await expect(managerRow).toHaveCount(1);
-    await expect(managerRow.getByText("Role changed by hand")).toBeVisible();
+    await expect(managerRow.getByText("Role changed by a commissioner")).toBeVisible();
     await expect(managerRow.getByRole("button", { name: "Remove" })).toHaveCount(0);
     await expect(managerRow.getByLabel("Change role")).toHaveCount(0);
 
@@ -146,8 +146,8 @@ test.describe("Path 14 — People & Roles", () => {
     await page.getByRole("button", { name: "Add staff account" }).click();
 
     // The form's own refusal, not the row label — StaffRowActions renders
-    // "Managers are changed by hand" in the table too, so a looser matcher here
-    // passes with the guard removed.
+    // "Role changed by a commissioner" in the table too, so a looser matcher
+    // here passes with the guard removed.
     await expect(
       page.getByText(/manager@obhl\.test is a manager account/),
     ).toBeVisible();

@@ -11,6 +11,8 @@
 -- grants access only inside leagues they are already in, which is what removes
 -- the need for a superadmin tier.
 --
+-- ⚠️ Superseded by 0034: true of granting, false of revoking. See its header.
+--
 -- `players` is deliberately NOT scoped. A person is one human across leagues —
 -- the seed rosters the same two people in both — so the player row stays
 -- globally writable and league scoping rides on team_players instead.

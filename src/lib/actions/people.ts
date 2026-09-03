@@ -157,7 +157,7 @@ export async function createStaffAccount(
         ok: false,
         message:
           existing.role === "league_manager"
-            ? `${email} is a manager account. Managers are changed by hand.`
+            ? `${email} is a manager account. Managers are changed by a commissioner.`
             : `${email} already has an account as ${held}. A role is account-wide, so this form will not change it — add them as ${held}, then change it from their row.`,
       };
     }
@@ -231,12 +231,16 @@ export async function updateStaffRole(formData: FormData) {
   // the same value as `old_data`.
   const before = await staffSnapshot(admin, id);
 
-  // A manager cannot be DEMOTED here. Every manager can reach this page, so
-  // without this any one of them could unmake any other — including whoever set
-  // the league up, and including themselves. Removing a manager from a league
-  // is a different question and is allowed (`removeStaff`), and promoting
-  // someone TO manager still works; it is unmaking one that is refused, and
-  // that is done by hand in SQL.
+  // A manager cannot be demoted by a PEER. Every manager can reach this page,
+  // so without this any one of them could unmake any other — including whoever
+  // set the league up, and including themselves. Removing a manager from a
+  // league is a different question and is allowed (`removeStaff`), and
+  // promoting someone TO manager still works; it is unmaking one that is
+  // refused.
+  //
+  // The League Office is the tier that CAN: `officeTierOf` makes this refusal
+  // conditional on the actor holding no tier, so a commissioner or deputy
+  // demotes a manager where another manager cannot.
   //
   // The UI renders no role control on a manager's row, so reaching this means a
   // hand-made request. It returns quietly rather than throwing: there is
@@ -289,11 +293,19 @@ export async function updateStaffRole(formData: FormData) {
  * way back.
  *
  * Removing YOURSELF is refused — it would drop you out of a league you may be
- * the only way back into. That one rule is also what keeps a league from ever
- * reaching zero managers, so there is no separate "last manager" check: the
- * caller here is always a manager AND a member of this league, so if the target
- * is a different manager of it the league has at least two, and if the target
- * is its only manager then the target is the caller.
+ * the only way back into.
+ *
+ * ⚠️ That rule USED to double as the reason a league can never reach zero
+ * managers, which is why there is no separate "last manager" check: the caller
+ * was always a manager AND a member of this league, so either the league had
+ * two managers or the target was the caller. The League Office breaks that
+ * argument — a commissioner is neither a member of the league nor the target,
+ * so a commissioner can remove its only manager and take the league to zero,
+ * with nothing reporting it.
+ *
+ * Whether to add the explicit last-manager check the argument above says is
+ * unnecessary is an OPEN decision, not an oversight. See "Open questions" in
+ * docs/worklists/2026-09-03-678b2916-league-office.md.
  */
 export async function removeStaff(formData: FormData) {
   const leagueId = String(formData.get("league_id") ?? "");

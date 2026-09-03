@@ -55,7 +55,7 @@ export function StaffRowActions({
     return (
       <div className="flex items-center justify-end gap-2">
         <span className="text-muted-foreground text-xs">
-          Role changed by hand
+          Role changed by a commissioner
         </span>
         {remove}
       </div>
@@ -71,7 +71,7 @@ export function StaffRowActions({
       <div className="flex items-center justify-end gap-2">
         <span
           className="text-muted-foreground text-xs"
-          title="A role applies in every league, and this person also works one you are not in. Changing it needs a manager of every league they work — if nobody is in all of them, it is changed by hand."
+          title="A role applies in every league, and this person also works one you are not in. Changing it needs a manager of every league they work — if nobody is in all of them, a commissioner changes it."
         >
           Also works another league
         </span>
