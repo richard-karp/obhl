@@ -30,6 +30,17 @@ const ORIGIN = `http://localhost:${PORT}`;
 const SLUG = process.env.PROBE_LEAGUE ?? "obhl";
 const PASSWORD = "probe-password-123";
 
+// ⛔ LOCAL ONLY. This script creates auth users, sets passwords and deletes
+// `profiles` rows, and `.env.local` can point NEXT_PUBLIC_SUPABASE_URL at a real
+// deployment — so refuse outright rather than trusting the caller to have the
+// right env loaded. Same guard as `verify-transfers.mjs` and
+// `verify-roster-editing.mjs`; it was missing here.
+const isLocal = /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(url);
+if (!isLocal) {
+  console.error(`Refusing to run against ${url} — this script writes. Local only.`);
+  process.exit(1);
+}
+
 if (!anon || !secret) {
   console.error("Missing Supabase keys (they're in .env.local).");
   process.exit(1);
