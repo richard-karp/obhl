@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getActiveContext } from "@/lib/queries/season";
+import { getManageContext } from "@/lib/queries/season";
 import { AddPlayerForm } from "@/components/manage/add-player-form";
 import { TransferPlayerForm } from "@/components/manage/transfer-player-form";
 import { removeRosterPlayer, toggleCaptain, updatePlayerStatus, setDefaultGoalie, setGoalieDay } from "@/lib/actions/rosters";
@@ -20,20 +20,26 @@ import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { LogoUpload } from "@/components/manage/logo-upload";
+import { SeasonSwitcher } from "@/components/manage/season-switcher";
 
 const POS: Record<string, string> = { F: "Forward", D: "Defense", G: "Goalie" };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export default async function RosterEditorPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ league: string; teamId: string }>;
+  searchParams: Promise<{ season?: string }>;
 }) {
   const { league: leagueSlug, teamId } = await params;
-  const ctx = await getActiveContext(leagueSlug);
+  const { season: seasonParam } = await searchParams;
+  const ctx = await getManageContext(leagueSlug, seasonParam);
   await requireLeagueManager(ctx.league.id);
+  // A league with no seasons at all — the one case left. An imported season
+  // that nobody activated resolves like any other now, which is the point.
   if (!ctx.season) {
-    return <EmptyState title="No active season" />;
+    return <EmptyState title="No seasons yet" description="Create a season first." />;
   }
 
   const season = ctx.season;
@@ -91,7 +97,9 @@ export default async function RosterEditorPage({
 
   return (
     <div className="space-y-6">
-      <PageHeader title={`${team.name} — Roster`} description={season.name} />
+      <PageHeader title={`${team.name} — Roster`} description={season.name}>
+        <SeasonSwitcher ctx={ctx} />
+      </PageHeader>
 
       <Card>
         <CardHeader>

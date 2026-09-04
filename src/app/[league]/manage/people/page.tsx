@@ -1,6 +1,6 @@
 import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getActiveContext } from "@/lib/queries/season";
+import { getManageContext } from "@/lib/queries/season";
 import {
   CreateStaffForm,
   type CaptainOption,
@@ -20,6 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PageHeader } from "@/components/shared/page-header";
+import { SeasonSwitcher } from "@/components/manage/season-switcher";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
@@ -38,11 +39,16 @@ const OFFICE_LABEL: Record<string, string> = {
 
 export default async function PeoplePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ league: string }>;
+  searchParams: Promise<{ season?: string }>;
 }) {
   const { league: leagueSlug } = await params;
-  const ctx = await getActiveContext(leagueSlug);
+  const { season: seasonParam } = await searchParams;
+  // Season-scoped for one reason: the captain candidates below come from one
+  // season's rosters. Everything else on the page is league-wide.
+  const ctx = await getManageContext(leagueSlug, seasonParam);
   const viewer = await requireLeagueManager(ctx.league.id);
   const admin = createAdminClient();
 
@@ -138,6 +144,12 @@ export default async function PeoplePage({
         title="People & Roles"
         description="Create staff accounts and assign manager, captain, or scorekeeper roles."
       >
+        {/*
+          The switcher scopes the captain candidates in the form below, and
+          nothing else on this page — the staff list is league-wide. It is here
+          rather than in the brand bar for the reason on `SeasonSwitcher`.
+        */}
+        <SeasonSwitcher ctx={ctx} />
         {/*
           Here rather than in the top nav: the nav already carries its five
           inline links and a sixth pushes the whole set onto its own row, and

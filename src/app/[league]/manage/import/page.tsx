@@ -1,5 +1,5 @@
 import { requireLeagueManager } from "@/lib/auth/guards";
-import { getActiveContext } from "@/lib/queries/season";
+import { getManageContext } from "@/lib/queries/season";
 import { EsportsdeskImport } from "@/components/manage/esportsdesk-import";
 import { PageHeader } from "@/components/shared/page-header";
 
@@ -12,7 +12,9 @@ export default async function ImportPage({
   // league in hand to be guarded against — reachable under any league's URL by
   // anyone holding the manager role.
   const { league: leagueSlug } = await params;
-  const ctx = await getActiveContext(leagueSlug);
+  // No season argument and no switcher: this page reads `ctx.league` only —
+  // an import creates its own season — so a picker here would scope nothing.
+  const ctx = await getManageContext(leagueSlug);
   await requireLeagueManager(ctx.league.id);
   return (
     <div className="space-y-6">
