@@ -482,6 +482,101 @@ describe("a constrained generation prefers Phase P", () => {
   });
 });
 
+/**
+ * The three defects an independent review found after two self-review passes
+ * had missed them. All three were in the FEEDBACK path — the schedule was
+ * right, what the manager was told about it was not — which is exactly the
+ * class that ships unnoticed.
+ */
+describe("what the manager is told", () => {
+  const NIGHTS4: Night[] = ["2026-09-15", "2026-09-17", "2026-09-22", "2026-09-24"]
+    .map((date) => ({ date, slots: ["19:00", "20:15", "21:30"] }));
+  const SIX = ["a", "b", "c", "d", "e", "f"];
+
+  it("reports a set whose every constraint failed to resolve", () => {
+    // ⛔ `empty` is true here — nothing reached a solver phase — and gating the
+    // report on it meant the likeliest first mistake (a date that is not a game
+    // night) produced a cheerful success toast and no verdict at all.
+    const r = resolveConstraints(
+      [c("1", "a", "bye_on", { date: "2030-01-01" })],
+      { nights: NIGHTS4, teamIds: SIX },
+    );
+    expect(r.empty).toBe(true);
+    expect(r.items).toHaveLength(1);
+
+    const { report } = assignNights(buildBalancedPairings(SIX, 4), NIGHTS4, SIX, {
+      constraints: r,
+    });
+    expect(report.constraints).toHaveLength(1);
+    expect(report.constraints[0].satisfied).toBe(false);
+    expect(report.constraints[0].reason).toMatch(/not a game night/);
+  });
+
+  it("does not call two identical pins a contradiction", () => {
+    // Nothing stops a manager double-clicking Add, and any conflict at all
+    // makes `generateSchedule` refuse outright — so a stutter blocked a season.
+    const dup = { teamId: "a", kind: "slot_on" as const, params: { date: "2026-09-15", time: "20:15" } };
+    const r = resolveConstraints(
+      [{ id: "1", ...dup }, { id: "2", ...dup }],
+      { nights: NIGHTS4, teamIds: SIX },
+    );
+    expect(constraintConflicts(r, (id) => id.toUpperCase())).toEqual([]);
+  });
+
+  it("still calls two DIFFERENT ice times on one night a contradiction", () => {
+    const r = resolveConstraints(
+      [
+        c("1", "a", "slot_on", { date: "2026-09-15", time: "19:00" }),
+        c("2", "a", "slot_on", { date: "2026-09-15", time: "20:15" }),
+      ],
+      { nights: NIGHTS4, teamIds: SIX },
+    );
+    expect(constraintConflicts(r, (id) => id.toUpperCase())).toHaveLength(1);
+  });
+
+  it("judges a slot_bias off the placed games whichever planner placed them", () => {
+    // `slot_bias` asks where games LANDED, which is readable from any plan — so
+    // the fallback short-circuit must not swallow it and report it unmet.
+    const r = resolveConstraints(
+      [c("1", "a", "slot_bias", { from: NIGHTS4[0].date, to: NIGHTS4.at(-1)!.date, prefer: "early" })],
+      { nights: NIGHTS4, teamIds: SIX },
+    );
+    const out = evaluateConstraints(r, {
+      plays: SIX.map(() => new Array(NIGHTS4.length).fill(true)),
+      slotOf: (t) => (t === 0 ? 0 : 1),
+      plannerHonours: false,
+      plannerRan: false,
+    });
+    expect(out[0].satisfied).toBe(true);
+    expect(out[0].reason).toBeNull();
+  });
+
+  it("does not force Phase P for a bias-only set", () => {
+    // A `slot_bias` reaches no solver phase Phase P owns, so overriding the
+    // rank-off for it bought nothing: measured a rule-2 breach (consecutive-week
+    // byes 1 → 2) for a tie-break weighted at 4, which came back unmet anyway.
+    const teams = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"];
+    const dates = [
+      "2026-09-15", "2026-09-17", "2026-09-22", "2026-09-24", "2026-09-29",
+      "2026-10-01", "2026-10-06", "2026-10-08", "2026-10-13", "2026-10-15",
+      "2026-10-20",
+    ];
+    const nights: Night[] = dates.map((date) => ({ date, slots: ["19:00", "20:15", "21:30"] }));
+    const pairings = buildBalancedPairings(teams, 8);
+
+    const bare = assignNights(pairings, nights, teams).report;
+    const biased = assignNights(pairings, nights, teams, {
+      constraints: resolveConstraints(
+        [c("1", "t1", "slot_bias", { from: dates[0], to: dates[5], prefer: "early" })],
+        { nights, teamIds: teams },
+      ),
+    }).report;
+
+    expect(biased.spacing.byesConsecWeek).toBe(bare.spacing.byesConsecWeek);
+    expect(biased.spacing.byesMultiWeek).toBe(bare.spacing.byesMultiWeek);
+  });
+});
+
 describe("presentSpacing", () => {
   const raw = {
     byesMultiWeek: 3,

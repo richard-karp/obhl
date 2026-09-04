@@ -1721,7 +1721,20 @@ export function assignNights(
   //     teams on three sheets is three games a night, so all six play every
   //     night and nobody ever byes. `refuteConstraints` says so by arithmetic
   //     before a search runs. `play_on`, `slot_on` and `slot_bias` still work.
-  if (!resolved.empty) {
+  //
+  // ⚠️ GATED ON THE KINDS A PLANNER CAN ACT ON, not on `!empty`. `slot_bias`
+  // never reaches Phase P at all — it contributes no forced cell and no
+  // disjunction, so Phase P's matrix is byte-identical with and without it —
+  // yet `!empty` is true for a bias-only set and this branch was discarding the
+  // rank-off winner for nothing. Measured on the acceptance shape above: one
+  // bias took `byesConsecWeek` from 1 to 2 and the bias was STILL reported
+  // unmet. The league paid a rule-2 breach to buy a tie-break weighted at 4,
+  // and did not even get the tie-break.
+  const needsPhaseP =
+    resolved.forced.length > 0 ||
+    resolved.byeInWeek.length > 0 ||
+    resolved.slotPins.length > 0;
+  if (needsPhaseP) {
     if (exact) plan = exact;
   } else if (
     exact &&
@@ -1788,13 +1801,25 @@ export function assignNights(
     }
   }
   const byed = (t: number, n: number) => !playsMatrix[t][n];
-  const constraints = resolved.empty
-    ? []
-    : evaluateConstraints(resolved, {
-        plays: playsMatrix,
-        slotOf: (t, n) => slotAt.get(`${t}:${n}`) ?? null,
-        plannerHonours,
-      });
+  // ⛔ `items.length`, NOT `empty`. `empty` asks "did anything reach a solver
+  // phase", which is the right question for the short-circuits above and the
+  // WRONG one here. An unresolved constraint contributes to none of the four
+  // lists `empty` is computed from, so a set where EVERY constraint failed to
+  // resolve is `empty === true` with `items.length === 1` — and gating the
+  // report on it meant the single likeliest mistake, naming a date that turns
+  // out not to be a game night, produced a cheerful "Generated a 96-game draft
+  // schedule." and no verdict anywhere, while the request sat in the card
+  // looking honoured. It only ever worked when some OTHER constraint in the
+  // same set resolved.
+  const constraints =
+    resolved.items.length === 0
+      ? []
+      : evaluateConstraints(resolved, {
+          plays: playsMatrix,
+          slotOf: (t, n) => slotAt.get(`${t}:${n}`) ?? null,
+          plannerHonours,
+          plannerRan: exact !== null,
+        });
   const constraintCredits =
     resolved.empty || !plannerHonours
       ? ZERO_CREDITS

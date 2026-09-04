@@ -338,9 +338,21 @@ export function constraintConflicts(
   // Two teams pinned to one sheet of ice at one time, or one team pinned to two.
   const bySlot = new Map<string, ResolvedConstraint[]>();
   const byTeamNight = new Map<string, ResolvedConstraint[]>();
+  // ⛔ IDENTICAL PINS ARE ONE INSTRUCTION, NOT A CONTRADICTION. Nothing stops a
+  // manager adding the same request twice — `saveScheduleConstraint` is a plain
+  // insert, there is no unique index, and the team picker keeps its value after
+  // a successful add, so a double-click is enough. Counting the duplicate made
+  // `constraintConflicts` return "…pin the same team to two ice times on one
+  // night" naming the SAME ice time on both sides, and any conflict at all makes
+  // `generateSchedule` refuse outright — a stutter on the mouse blocked the
+  // whole season.
+  const seenPin = new Set<string>();
   for (const item of resolved.items) {
     if (item.unresolved || !item.slotPin) continue;
     const { team, night, slot } = item.slotPin;
+    const identity = `${team}:${night}:${slot}`;
+    if (seenPin.has(identity)) continue;
+    seenPin.add(identity);
     const sk = `${night}:${slot}`;
     (bySlot.get(sk) ?? bySlot.set(sk, []).get(sk)!).push(item);
     const tk = `${team}:${night}`;
@@ -361,6 +373,10 @@ export function constraintConflicts(
   }
   for (const group of byTeamNight.values()) {
     if (group.length < 2) continue;
+    // The dedupe above already drops identical pins; this says the rule out
+    // loud, so the check reads as "two DIFFERENT ice times" rather than
+    // depending on a Set three blocks up to be correct.
+    if (new Set(group.map((i) => i.slotPin!.slot)).size < 2) continue;
     out.push(
       `“${label(group[0])}” and “${label(group[1])}” pin the same team to two ice times on one night.`,
     );
@@ -460,9 +476,21 @@ export type ConstraintOutcome = {
   reason: string | null;
 };
 
-/** The reason every constraint carries when the fallback planner shipped. */
+/**
+ * Why a request went unanswered when the plan that shipped could not carry it.
+ *
+ * ⛔ TWO REASONS, because there are two situations and the single message named
+ * the rarer one. `plannerHonours` is false whenever the winning plan is not
+ * Phase P's — which is USUALLY because Phase P returned null and there was no
+ * competitor at all, not because a rank-off was lost. Telling a manager "the
+ * fallback produced a better schedule overall" when nothing was ever compared
+ * sends them looking for a trade-off that did not happen.
+ */
 export const FALLBACK_PLANNER_REASON =
   "the fallback planner produced a better schedule overall, and it cannot honour constraints";
+
+export const NO_PLAN_REASON =
+  "the generator could not build a schedule that forces game nights on this calendar — try more game nights, or fewer games per team";
 
 /**
  * Did each constraint actually land?
@@ -489,9 +517,15 @@ export function evaluateConstraints(
     slotOf: (team: number, night: number) => number | null;
     /** False when the winning plan came from a planner that cannot force cells. */
     plannerHonours: boolean;
+    /**
+     * Did Phase P produce a plan at all? Distinguishes "the fallback outranked
+     * it" from "there was nothing to rank", which are different answers to
+     * "why not?" and used to share one message.
+     */
+    plannerRan?: boolean;
   },
 ): ConstraintOutcome[] {
-  const { plays, slotOf, plannerHonours } = opts;
+  const { plays, slotOf, plannerHonours, plannerRan = true } = opts;
   /**
    * How many ice times night `n` actually handed out, from the placed games.
    *
@@ -515,8 +549,18 @@ export function evaluateConstraints(
     if (item.unresolved) {
       return { ...base, satisfied: false, reason: item.unresolved };
     }
-    if (!plannerHonours) {
-      return { ...base, satisfied: false, reason: FALLBACK_PLANNER_REASON };
+    // ⛔ ONLY THE KINDS THAT NEED PHASE P SHORT-CIRCUIT HERE. `slot_bias` is
+    // about where the games LANDED, which is readable off the placed games
+    // whichever planner placed them — so short-circuiting it threw away a
+    // verdict that was available, and reported a bias the schedule actually
+    // honours as unmet. The bye and play kinds genuinely cannot be answered:
+    // nothing forced them, so a coincidence is not compliance.
+    if (!plannerHonours && item.source.kind !== "slot_bias") {
+      return {
+        ...base,
+        satisfied: false,
+        reason: plannerRan ? FALLBACK_PLANNER_REASON : NO_PLAN_REASON,
+      };
     }
     const t = item.team;
     const played = (n: number) => plays[t]?.[n] === true;
