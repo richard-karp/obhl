@@ -6,6 +6,7 @@ import { officeTierOf, listOfficeTiers } from "@/lib/auth/office";
 import { emailsByProfileId } from "@/lib/auth/users";
 import { appointDeputy } from "@/lib/actions/office";
 import { OfficeRowActions } from "@/components/manage/office-row-actions";
+import { OfficePasswordForm } from "@/components/manage/office-password-form";
 import { PageHeader } from "@/components/shared/page-header";
 import { OfficeAuditNotice } from "@/components/manage/office-audit-notice";
 import { recentOfficeAudit } from "@/lib/audit";
@@ -190,6 +191,35 @@ export default async function OfficePage() {
                 <Button type="submit">Appoint as deputy</Button>
               </form>
             )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/*
+        Set-a-password, for the commissioner only.
+
+        ⛔ The card is drawn for a commissioner; `setStaffPassword` REFUSES anyone
+        else itself. Rendering is not a restriction — a form action is an endpoint
+        reachable by anyone who can construct the request, which is the trap
+        `ACCESS_CONTROL_HANDOFF.md` names.
+
+        This is the recovery path that needs no email at all: Supabase's built-in
+        mailer is rate-limited and branded as Supabase, and no staff account has a
+        password yet, so a commissioner setting one is the only way the first
+        password on this instance can exist.
+      */}
+      {isCommissioner ? (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="text-base">Set a staff password</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-muted-foreground text-sm">
+              For a staff account that cannot receive a sign-in link — a dead
+              address, or an inbox that is not answering. Any staff account
+              except another commissioner; your own is allowed.
+            </p>
+            <OfficePasswordForm />
           </CardContent>
         </Card>
       ) : null}
