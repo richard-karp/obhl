@@ -1,5 +1,5 @@
 /**
- * Path 22: Manager schedule constraints — telling the generator what to do,
+ * Path 23: Manager schedule constraints — telling the generator what to do,
  * and being told what it could not do.
  *
  * Driven through Fall 2026's setup page for the same reason `11-schedule-builder`
@@ -51,7 +51,7 @@ async function clearRequests(page: Page) {
   }
 }
 
-test.describe("Path 22 — schedule constraints", () => {
+test.describe("Path 23 — schedule constraints", () => {
   // A generate can be ~25 s of search, and two of these run one.
   test.describe.configure({ timeout: 150_000 });
 

@@ -48,7 +48,7 @@ export default async function RosterEditorPage({
   const admin = createAdminClient();
   const { data: team } = await admin
     .from("teams")
-    .select("id, name, color, league_id, logo_path")
+    .select("id, name, color, league_id, logo_path, logo_text_color")
     .eq("id", teamId)
     .maybeSingle();
   // The id says nothing about which league it belongs to, so the slug in the
@@ -137,6 +137,7 @@ export default async function RosterEditorPage({
             name={team.name}
             color={team.color}
             logoPath={team.logo_path}
+            textColor={team.logo_text_color}
             className="size-12 text-base"
           />
           <LogoUpload teamId={team.id} />
