@@ -5,6 +5,10 @@ const g = (o: Partial<GameRow> & { id: string; playerId: string }): GameRow => (
   gameId: "g1", teamId: "t1", goals: 0, assists: 0, pim: 0, ...o,
 });
 
+const r = (o: Partial<RosterRow> & { id: string; playerId: string }): RosterRow => ({
+  seasonId: "s", teamId: "t", jerseyNumber: null, isCaptain: false, leftOn: null, ...o,
+});
+
 describe("planMerge", () => {
   it("sums three records dressed for the same game into one row", () => {
     const plan = planMerge("keep", [], [
@@ -42,11 +46,40 @@ describe("planMerge", () => {
 
   it("refuses when the records are active on different teams in one season", () => {
     const rosters: RosterRow[] = [
-      { id: "a", playerId: "keep", seasonId: "s", teamId: "t1", jerseyNumber: 9, isCaptain: false },
-      { id: "b", playerId: "dupe1", seasonId: "s", teamId: "t2", jerseyNumber: 9, isCaptain: false },
+      r({ id: "a", playerId: "keep", teamId: "t1", jerseyNumber: 9 }),
+      r({ id: "b", playerId: "dupe1", teamId: "t2", jerseyNumber: 9 }),
     ];
     const plan = planMerge("keep", rosters, []);
     expect(plan).toMatchObject({ ok: false, reason: "different-active-teams" });
+  });
+
+  it("allows two teams in one season when one of them is a departure", () => {
+    // The shape a transferred player has. Refusing it would make everyone who
+    // ever moved teams permanently unmergeable.
+    const rosters: RosterRow[] = [
+      r({ id: "a", playerId: "keep", teamId: "t1", leftOn: "2026-02-01" }),
+      r({ id: "b", playerId: "dupe1", teamId: "t2" }),
+    ];
+    const plan = planMerge("keep", rosters, []);
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    // Different teams, so both rows survive and both repoint at keepId.
+    expect(plan.rosterKeep).toEqual(["a", "b"]);
+    expect(plan.rosterDelete).toEqual([]);
+  });
+
+  it("keeps the active row over a departed one on the same team", () => {
+    // richer would otherwise pick the departed row on its jersey and file the
+    // merged player as gone from a team they are currently on.
+    const rosters: RosterRow[] = [
+      r({ id: "gone", playerId: "keep", jerseyNumber: 17, isCaptain: true, leftOn: "2026-02-01" }),
+      r({ id: "here", playerId: "dupe1" }),
+    ];
+    const plan = planMerge("keep", rosters, []);
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.rosterKeep).toEqual(["here"]);
+    expect(plan.rosterDelete).toEqual(["gone"]);
   });
 
   it("refuses when two of the records have linked user accounts", () => {
@@ -61,8 +94,8 @@ describe("planMerge", () => {
 
   it("keeps the richer roster row on the same team and season", () => {
     const rosters: RosterRow[] = [
-      { id: "r1", playerId: "keep", seasonId: "s", teamId: "t", jerseyNumber: null, isCaptain: false },
-      { id: "r2", playerId: "dupe1", seasonId: "s", teamId: "t", jerseyNumber: 17, isCaptain: true },
+      r({ id: "r1", playerId: "keep" }),
+      r({ id: "r2", playerId: "dupe1", jerseyNumber: 17, isCaptain: true }),
     ];
     const plan = planMerge("keep", rosters, []);
     expect(plan.ok).toBe(true);

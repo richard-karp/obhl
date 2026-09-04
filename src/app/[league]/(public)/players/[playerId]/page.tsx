@@ -3,8 +3,10 @@ import Link from "next/link";
 import { getActiveContext } from "@/lib/queries/season";
 import {
   getPlayerBio,
-  getPlayerSkaterStats,
-  getPlayerGoalieStats,
+  getPlayerSkaterTotals,
+  getPlayerGoalieTotals,
+  getPlayerSkaterStatsByTeam,
+  getPlayerGoalieStatsByTeam,
   getPlayerGameLog,
   getPlayerStatsByOpponent,
 } from "@/lib/queries/players";
@@ -42,12 +44,18 @@ export default async function PlayerProfilePage({
 
   const isGoalie = bio.position === "G";
 
-  const [skaterStats, goalieStats, gameLog, byOpponent] = await Promise.all([
-    !isGoalie ? getPlayerSkaterStats(playerId, ctx.season.id) : Promise.resolve(null),
-    isGoalie ? getPlayerGoalieStats(playerId, ctx.season.id) : Promise.resolve(null),
-    !isGoalie ? getPlayerGameLog(playerId, ctx.season.id, 10) : Promise.resolve([]),
-    !isGoalie ? getPlayerStatsByOpponent(playerId, ctx.season.id) : Promise.resolve([]),
-  ]);
+  // The season total and the per-team split. The total is the headline; the
+  // split only renders when there is more than one team in it, which is the
+  // case a transfer creates and the total on its own hides.
+  const [skaterStats, goalieStats, skaterByTeam, goalieByTeam, gameLog, byOpponent] =
+    await Promise.all([
+      !isGoalie ? getPlayerSkaterTotals(playerId, ctx.season.id) : Promise.resolve(null),
+      isGoalie ? getPlayerGoalieTotals(playerId, ctx.season.id) : Promise.resolve(null),
+      !isGoalie ? getPlayerSkaterStatsByTeam(playerId, ctx.season.id) : Promise.resolve([]),
+      isGoalie ? getPlayerGoalieStatsByTeam(playerId, ctx.season.id) : Promise.resolve([]),
+      !isGoalie ? getPlayerGameLog(playerId, ctx.season.id, 10) : Promise.resolve([]),
+      !isGoalie ? getPlayerStatsByOpponent(playerId, ctx.season.id) : Promise.resolve([]),
+    ]);
 
   const fullName = `${bio.first_name} ${bio.last_name}`;
 
@@ -128,6 +136,39 @@ export default async function PlayerProfilePage({
                 </div>
               ))}
             </div>
+            {skaterByTeam.length > 1 && (
+              <Table className="mt-6">
+                <TableHeader>
+                  <TableRow className="bg-muted/40">
+                    <TableHead>Team</TableHead>
+                    <TableHead className="text-center">GP</TableHead>
+                    <TableHead className="text-center">G</TableHead>
+                    <TableHead className="text-center">A</TableHead>
+                    <TableHead className="text-center font-semibold">PTS</TableHead>
+                    <TableHead className="text-center">PIM</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {skaterByTeam.map((row) => (
+                    <TableRow key={row.team_id}>
+                      <TableCell>
+                        <Link
+                          href={`/${league}/teams/${row.team_slug}`}
+                          className="hover:underline"
+                        >
+                          {row.team_name}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-center">{row.gp ?? 0}</TableCell>
+                      <TableCell className="text-center">{row.g ?? 0}</TableCell>
+                      <TableCell className="text-center">{row.a ?? 0}</TableCell>
+                      <TableCell className="text-center font-semibold">{row.pts ?? 0}</TableCell>
+                      <TableCell className="text-center">{row.pim ?? 0}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       )}
@@ -154,6 +195,43 @@ export default async function PlayerProfilePage({
                 </div>
               ))}
             </div>
+            {goalieByTeam.length > 1 && (
+              <Table className="mt-6">
+                <TableHeader>
+                  <TableRow className="bg-muted/40">
+                    <TableHead>Team</TableHead>
+                    <TableHead className="text-center">GP</TableHead>
+                    <TableHead className="text-center">W</TableHead>
+                    <TableHead className="text-center">L</TableHead>
+                    <TableHead className="text-center">T</TableHead>
+                    <TableHead className="text-center">GA</TableHead>
+                    <TableHead className="text-center">SO</TableHead>
+                    <TableHead className="text-center font-semibold">GAA</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {goalieByTeam.map((row) => (
+                    <TableRow key={row.team_id}>
+                      <TableCell>
+                        <Link
+                          href={`/${league}/teams/${row.team_slug}`}
+                          className="hover:underline"
+                        >
+                          {row.team_name}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-center">{row.gp ?? 0}</TableCell>
+                      <TableCell className="text-center">{row.wins ?? 0}</TableCell>
+                      <TableCell className="text-center">{row.losses ?? 0}</TableCell>
+                      <TableCell className="text-center">{row.ties ?? 0}</TableCell>
+                      <TableCell className="text-center">{row.ga ?? 0}</TableCell>
+                      <TableCell className="text-center">{row.so ?? 0}</TableCell>
+                      <TableCell className="text-center font-semibold">{row.gaa ?? "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       )}

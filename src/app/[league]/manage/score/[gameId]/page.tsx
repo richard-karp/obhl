@@ -74,6 +74,8 @@ export default async function ScoreGamePage({
       .select("player_id, team_id, jersey_number, position, is_default_goalie")
       .eq("season_id", game.season_id)
       .in("team_id", [homeT.id, awayT.id])
+      // Only players still on these teams can be dressed for this game.
+      .is("left_on", null)
       .order("jersey_number", { ascending: true }),
     supabase
       .from("game_rosters")
@@ -106,6 +108,11 @@ export default async function ScoreGamePage({
       .eq("player_id", prof.player_id)
       .eq("is_captain", true)
       .eq("season_id", game.season_id)
+      // A transfer clears is_captain on the old row, and 0038 makes RLS agree,
+      // but this read has its own reason to filter: without it a captain who
+      // moved teams matches two rows and `maybeSingle()` returns an error and
+      // no team, silently taking the scoresheet away from a real captain.
+      .is("left_on", null)
       .maybeSingle();
     captainTeamId = tp?.team_id ?? null;
   }

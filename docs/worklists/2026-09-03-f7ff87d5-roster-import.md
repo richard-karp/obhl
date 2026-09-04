@@ -10,13 +10,17 @@
 3. Claims are marked. "Watched" means the command was run and its output read. "A reading" means it follows from the code and has not been executed. Verified-by-measurement in this session: the `0024` goalie regression (§2 of the spec), `profiles` having no unique index on `player_id`, the public team route segment being `[slug]`, and every `file:line` cited below.
 4. **Baseline was NOT measured this session.** Establish it before changing anything: `npm test && npm run typecheck`. `LAUNCH_READINESS_HANDOFF.md` records 250 unit / 127 e2e on a *different* branch on 2026-09-02 — ⚠️ regenerate, do not quote.
 
-**Status: A1–A5 are done. A3's e2e run and A6's migration apply are both DEFERRED behind Task 0 (see there); A6 Steps 3–4 and all of A7 are BLOCKED until the apply happens.** Work happens on `feat/roster-import` in the worktree `/Users/richardkarp/dev/obhl-worktrees/roster-import`, branched off `main` with `284e25e` cherry-picked; the worktree needs its own `npm ci`. Task 0 remains the operator's, and it is now the critical path: **two Phase A tasks are waiting on it, not just the e2e run.**
+**Status: EVERY TASK BELOW IS IMPLEMENTED. Only the commits are outstanding.** A1–A7 and B1–B6 all land on `feat/roster-departures`, branched off `main` at `0952b50`. Measured on 2026-09-03 after the last change: **269 unit tests / 24 files**, `npm run typecheck` clean, `npm run lint` clean, **`npx playwright test` at 133 passed / 1 skipped on two consecutive runs**, and `npm run verify:transfers` at 14/14 — the last of those run against the database the e2e suite leaves behind, not a fresh one.
+
+Five things were done differently from what is written below, each noted at its step: `planMerge` had to learn about `left_on`; B3's typecheck found nothing because the two view shapes are identical; B4 gained a third deliberate exception and one read got a better fix than a filter; and `e2e/14-one-off-game.spec.ts` had two defects that only a spec running after it could see.
+
+**Earlier status: the cutover is DONE and Phase A is unblocked.** Task 0 was executed on 2026-09-03: production wiped, `0033`/`0035`/`0036` pushed, both test doors closed, PR #20 merged to `main` (`0952b50`). **`runRosterOnlyImport` ran twice against production and produced clean rosters — teams and players, no games or stats — which was its first execution anywhere, and A3's two e2e specs now pass.** `npm run gen-types` has run, so `player_distinct_pairs` AND `left_on` are both in `src/lib/db/types.ts` — **A6 steps 3-4, A7, and everything in Phase B that needs `left_on` to typecheck are no longer blocked.** Nothing below is waiting on the operator any more.
 
 **Baseline measured 2026-09-03 on this branch, before any code change: 21 test files / 250 unit tests passing, `npm run typecheck` clean.** After A1: 22 files / 253 tests — the three new `slug` tests and nothing else moved. A2 adds no tests of its own (it registers in `league-guards.test.ts`), so the counts are unchanged; its error paths are unproven until a real database exists. Re-measure after each task; do not quote these once further tasks land.
 
 One correction A1 turned up, for anyone writing tests against `slugify`: it collapses each run of non-alphanumerics to a *single hyphen*, so punctuation separates rather than disappears — `slugify("St. John's Ducks!")` is `st-john-s-ducks`. Step 1's example expectation below said `st-johns-ducks` and was wrong; the implementation is unchanged and remains the source of truth.
 
-**Next action — create the worktree on a clean branch, then start Task A1:**
+**Next action — nothing is left to build. Commit `feat/roster-departures` and open the PR. The block below is kept only as the record of how the first branch was created:**
 
 ```bash
 git worktree add -b feat/roster-import \
@@ -103,11 +107,11 @@ Existing code to reuse, not reinvent — **paths verified**: `fetchEsportsdeskLe
 
 Not an agent task. Recorded here so the sequence is complete.
 
-- [ ] Empty the database.
-- [ ] While it is empty, close `LAUNCH_READINESS_HANDOFF.md` item 2 — the seeded accounts whose password is committed to this repo are a way in regardless of what is deployed.
-- [ ] Items 1 (`ENABLE_DEV_LOGIN`) and 3 (`0033` not pushed) are unrelated to this work but block going live at all.
-- [ ] **Then apply `0035` and regenerate types** — `npm run db:reset && npm run gen-types` (A6 Step 2). This unblocks A6 Steps 3–4 (`src/lib/actions/players.ts`, which cannot typecheck until `player_distinct_pairs` is in `src/lib/db/types.ts`) and all of A7.
-- [ ] **Then run Task A3's deferred e2e steps** — `npx playwright test e2e/17-roster-import.spec.ts`. Deferred on 2026-09-03 by decision, not oversight: `e2e/global-setup.ts` runs `npm run db:reset`, and a reset from this worktree applies `0032`, `0033`, `0035`+ **without `0034`**, which is not on this branch. Local Supabase is one shared instance, so doing that while the League Office session was live would have dropped `league_office` out from under it. Note `.env.local` is gitignored and absent from this worktree — copy it from `/Users/richardkarp/dev/obhl` before running.
+- [x] Empty the database. Done 2026-09-03. Note the wipe kept `profiles` and `auth.users`, so the manager account survived.
+- [x] Done. While it is empty, close `LAUNCH_READINESS_HANDOFF.md` item 2 — the seeded accounts whose password is committed to this repo are a way in regardless of what is deployed.
+- [x] Items 1 (`ENABLE_DEV_LOGIN`) and 3 (`0033` not pushed) are both closed — `vercel env ls production` shows `ENABLE_DEV_LOGIN` gone, and `0033` is applied remotely.
+- [x] **Applied `0035` and regenerated types.** — `npm run db:reset && npm run gen-types` (A6 Step 2). This unblocks A6 Steps 3–4 (`src/lib/actions/players.ts`, which cannot typecheck until `player_distinct_pairs` is in `src/lib/db/types.ts`) and all of A7.
+- [x] **Ran Task A3's deferred e2e steps — both pass.** — `npx playwright test e2e/17-roster-import.spec.ts`. Deferred on 2026-09-03 by decision, not oversight: `e2e/global-setup.ts` runs `npm run db:reset`, and a reset from this worktree applies `0032`, `0033`, `0035`+ **without `0034`**, which is not on this branch. Local Supabase is one shared instance, so doing that while the League Office session was live would have dropped `league_office` out from under it. Note `.env.local` is gitignored and absent from this worktree — copy it from `/Users/richardkarp/dev/obhl` before running.
 
 ---
 
@@ -273,9 +277,9 @@ test("rosters-only mode hides the game count in the preview", async ({ page }) =
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails** — `npx playwright test e2e/17-roster-import.spec.ts` → no "rosters only" control.
+- [x] **Step 2** — superseded, and recorded rather than faked: the toggle already existed when the specs were first executed, so the red phase was never observed.
 - [x] **Step 3: Add the toggle.** A radio group, defaulting to **Rosters only** (the common case now): *Rosters only (new season setup)* → `runRosterOnlyImport`; *Full migration (teams, schedule, results, stats)* → `runEsportsdeskImport`. In rosters-only mode suppress the game-count line and reword the button to "Import rosters". `previewEsportsdeskImport` is unchanged — it fetches and writes nothing, which is why it is exempt in the guard test.
-- [ ] **Step 4: Run the test** → PASS. ⚠️ **A pass here proves less than it looks.** The Step 1 test cannot fail: with no preview fetched there is no review card, and the card renders `N games (final results)` or `no schedule found` — neither matches `/games? found/`. It does verify the toggle exists and is checkable (which is what makes Step 2 fail for the right reason), but nothing about game-count suppression; that would need an outbound esportsdesk fetch from a test. A second test was added beside it covering what is reachable without the network: rosters-only is the default, and switching modes changes the blurb. **Neither test has ever been executed** — both only typecheck and lint.
+- [x] **Step 4: Run the test** — **both specs pass, executed 2026-09-03** (`2 passed`), the first time either had ever run. ⚠️ The Step 1 spec still cannot fail: with no preview fetched there is no review card, and the card renders `N games (final results)` or `no schedule found` — neither matches `/games? found/`. The real evidence is the second spec beside it (rosters-only is the default; switching modes changes the blurb) plus the two production imports.
 - [x] **Step 5: Commit** — `git commit -m "feat: rosters-only mode on the import page"`
 
 ## Task A4: Duplicate detection (pure)
@@ -373,7 +377,7 @@ describe("findDuplicateClusters", () => {
 - [x] **Step 2: Run it to verify it fails** — `npm test -- duplicates`.
 - [x] **Step 3: Implement.** Normalize with the same rule the importer uses (lowercase, strip non-alphanumerics). Cluster on `normName(first + last)`; a cluster requires **two or more distinct `playerId`s**. Drop a cluster only when every pair within it is dismissed.
 - [x] **Step 4: Run the tests** → PASS — **7 tests, not 6**; the block above has seven `it` cases.
-- [ ] **Step 5: Commit** — `git commit -m "feat: detect same-name player clusters"`
+- [x] **Step 5: Commit** — `git commit -m "feat: detect same-name player clusters"` — done; merged to `main` in PR #20 as `c85c2ed`.
 
 ## Task A5: Merge planning (pure)
 
@@ -505,7 +509,7 @@ describe("planMerge", () => {
 5. Per `(seasonId, teamId)`: keep the richest roster row — a jersey beats none, then captaincy, then lowest `id` for determinism — and delete the others.
 
 - [x] **Step 4: Run the tests** → PASS (7 tests).
-- [ ] **Step 5: Commit** — `git commit -m "feat: merge planning with per-game resolution and refusals"`
+- [x] **Step 5: Commit** — `git commit -m "feat: merge planning with per-game resolution and refusals"` — done; merged to `main` in PR #20 as `231370d`.
 
 ## Task A6: `mergePlayers` action + dismissal table
 
@@ -537,11 +541,13 @@ alter table player_distinct_pairs enable row level security;
 -- can. Same reasoning as 0034's league_office table.
 ```
 
-- [ ] **Step 2: Apply and regenerate types** — `npm run db:reset && npm run gen-types`.
+- [x] **Step 2: Apply and regenerate types** — done 2026-09-03. `0035` is applied both locally and in production, and `player_distinct_pairs` is in `src/lib/db/types.ts`. The blocked notice that stood here is gone: the local reset that unblocked it also dropped `league_office` from the shared local database, which was the cost the League Office session was warned about.
 
-  ⛔ **BLOCKED, and not by choice.** `npm run db:reset` rebuilds the shared local database from *this worktree's* files, which lack `0034` — confirmed applied in the local DB by the other session (`supabase migration list` shows 0034 present in the database and absent locally). Resetting drops `league_office` out from under them. The additive alternative, `npx supabase migration up --local`, was refused by the sandbox's permission classifier. **Everything downstream of this stops here:** Step 3's action queries `player_distinct_pairs`, which is absent from the generated `src/lib/db/types.ts`, so it cannot typecheck. Do NOT hand-edit that generated file to get past this — a green typecheck against a table the database does not have is a false green.
+- [x] **Step 3: Write the action** — `src/lib/actions/players.ts`, three actions: `mergePlayers`, `dismissDuplicatePair` and `restoreDuplicatePair` (the undo A7 needs). All three reach `requireLeagueManager`, so none needs guard-test registration — proved non-vacuous by removing the guard from `restoreDuplicatePair` and watching `league-guards.test.ts` name it.
 
-- [ ] **Step 3: Write the action**
+  **`planMerge` had to change, and this is the one place the plan was overtaken by its own Phase B.** `0036` is applied in production, so `left_on` is a live column: the `different-active-teams` refusal, written when it did not exist, would fire on any player who has ever been transferred — one season, two teams is exactly the shape of a transfer — making them permanently unmergeable. `RosterRow` now carries a required `leftOn`, the refusal considers only active rows, and `richer` prefers an active row over a departed one so a merge cannot file someone as gone from a team they are on. Two tests added for those (9 in the file now, not 7).
+
+  Also added: `"player"` as an explicit `null` case in `leagueOfEntity` (`src/lib/audit.ts`). A player has no league to resolve — `mergePlayers` passes `league_id` itself — but the switch's own comment asks for the type to be listed in the change that starts logging it, so the null is a decision rather than a `default`.
 
 ```ts
 // Scope is one league, structurally. Candidates come only from players
@@ -562,17 +568,17 @@ const manager = await requireLeagueManager(league_id);
 
 `dismissDuplicatePair(formData)` inserts into `player_distinct_pairs` with the ids sorted so `player_a < player_b`. It reaches `requireLeagueManager`, so neither action needs guard-test registration.
 
-- [ ] **Step 4: Run the tests** — `npm test -- merge-plan && npm test -- league-guards` → PASS.
+- [x] **Step 4: Run the tests** — PASS. 269 tests across 24 files, typecheck and lint clean.
 
 - [x] **Step 5: Correct the stale identity comment.** `supabase/migrations/0002_core.sql:43` asserts "Identity is GLOBAL (not league-scoped)". Identity stays global *in the schema* — `players` still has no `league_id` — but every operation that could join two identities is now league-scoped. Amend it to say both. A comment asserting the opposite of what the code guarantees is load-bearing for the next reader's model. — done; `0002_core.sql` now states both halves.
 
-- [ ] **Step 6: Commit** — `git commit -m "feat: league-scoped player merge"`
+- [ ] **Step 6: Commit** — `git commit -m "feat: league-scoped player merge"` — written, awaiting the go-ahead.
 
 ## Task A7: Merge review UI
 
 **Files:** Create `src/app/[league]/manage/people/duplicates/page.tsx`, `e2e/18-merge-duplicates.spec.ts`.
 
-- [ ] **Step 1: Write the failing e2e test**
+- [x] **Step 1: Write the failing e2e test** — `e2e/18-merge-duplicates.spec.ts`, the spec below plus a second one. The first cannot fail on an empty page, so the second asserts what is true whatever the seed's names work out to: the review component renders, and the only route to it works.
 
 ```ts
 /** Duplicate merge review. */
@@ -596,12 +602,12 @@ test("duplicates page loads and is scoped to this league", async ({ page }) => {
 
 > **Do not** test the cross-league denial here. `supabase/seed.sql` seeds two leagues (`obhl`, `harbor`), but the e2e manager belongs to **both**, so a browser cannot reach the refusal — the exact gap `league-guards.test.ts` exists to cover. `harbor`'s teams are Anchors, Gulls, Mariners, Tide (`seed.sql:217`); `obhl`'s are Sharks, Bears, Wolves, Ducks, Hawks, Bisons (`seed.sql:109`).
 
-- [ ] **Step 2: Run it to verify it fails** — expect a 404.
-- [ ] **Step 3: Build the page.** It **must** call `await requireLeagueManager(...)` — `league-guards.test.ts` fails any manage page that does not, and any that uses a role-only guard. Per cluster: each member's team, jersey, position and season; a radio to choose the record to keep; a "these are different people" button per pair calling `dismissDuplicatePair`; and the **not revertible** warning beside the merge button. Render a refusal from `planMerge` as an explanatory message, not a generic error — "these two played each other on 12 Jan, so they are two people" is the whole value of the check; `both-linked` should name the two accounts and say to unlink one.
+- [x] **Step 2: Run it to verify it fails** — 404, as expected.
+- [x] **Step 3: Build the page.** `src/app/[league]/manage/people/duplicates/page.tsx` plus `src/components/manage/duplicate-clusters.tsx`. Reached from a button in the People & Roles header rather than the top nav — the nav is at its five-link inline limit and a sixth pushes the whole set onto its own row. The refusals are rendered as sentences the action builds (it has the ids; `planMerge` stays pure), naming the game and date, the two teams, or the two accounts. Each cluster carries its own `useActionState`, so one cluster's refusal cannot appear under every other one. It **must** call `await requireLeagueManager(...)` — `league-guards.test.ts` fails any manage page that does not, and any that uses a role-only guard. Per cluster: each member's team, jersey, position and season; a radio to choose the record to keep; a "these are different people" button per pair calling `dismissDuplicatePair`; and the **not revertible** warning beside the merge button. Render a refusal from `planMerge` as an explanatory message, not a generic error — "these two played each other on 12 Jan, so they are two people" is the whole value of the check; `both-linked` should name the two accounts and say to unlink one.
 
 Add a **"Show dismissed"** toggle listing dismissed pairs with an undo that deletes the `player_distinct_pairs` row. Without it a misclick permanently hides a real duplicate, recoverable only in SQL — and the operator has no way to know it happened.
-- [ ] **Step 4: Run the test** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: duplicate player merge review page"`
+- [x] **Step 4: Run the test** → PASS, both specs.
+- [ ] **Step 5: Commit** — `git commit -m "feat: duplicate player merge review page"` — written, awaiting the go-ahead.
 
 **Phase A ships here.** It is safe without Phase B **only because no games exist yet**. Once a game is final, merging two players who both dressed for it starts summing stat rows and the Phase B traps become reachable. If the season starts before B lands, take the merge tool down.
 
@@ -611,9 +617,14 @@ Add a **"Show dismissed"** toggle listing dismissed pairs with an undo that dele
 
 ## Task B1: The `left_on` migration
 
+⛔ **`0036` IS ALREADY APPLIED TO PRODUCTION, AND ITS SOURCE FILE WAS UNTRACKED UNTIL NOW.** It went out with `0035` during the 2026-09-03 `db push`. Two consequences that are not obvious:
+
+1. **The schema is ahead of the code.** No deployed code reads or writes `left_on` — B4, B5 and B6 do not exist — so it is inert while every row is NULL. But `team_players_one_active_team`, a unique index on `(season_id, player_id) where left_on is null`, **now enforces one active team per player per season in production**, which was previously allowed. A manager adding someone to a second team gets a bare `23505` with no explanation. That is a live behaviour change with no UI to match it.
+2. **Commit the file.** Production's migration history names `0036`; until it is in `main`, any `supabase db push` from a clean checkout fails with "Remote migration versions not found in local migrations directory", and a local `db reset` produces a schema that silently differs from production.
+
 **Files:** Create `supabase/migrations/0036_roster_departures.sql`; modify `src/lib/db/types.ts` (generated).
 
-- [ ] **Step 1: Run the pre-flight check — this gates the whole task**
+- [x] **Step 1: pre-flight — NOT ACTUALLY RUN.** ⚠️ `0036` was applied on 2026-09-03 against a database the wipe had just emptied, so `team_players` held no rows and the unique index built trivially. The gate was satisfied by timing, not by the check. Nothing is wrong now, but if `0036` is ever re-applied to a populated database, run the query below first — it is still the thing that decides whether the index can be created.
 
 ```sql
 -- MUST return zero rows before 0036 is applied. The new partial unique index
@@ -628,7 +639,7 @@ having count(*) > 1;
 
 If it returns rows, resolve each by removing the roster row the player is not actually on. **Do not proceed until it is empty.**
 
-- [ ] **Step 2: Write the migration**
+- [x] **Step 2: Write the migration** — written 2026-09-03, **not applied**. The ⚠️ below is discharged from source, not from `psql`: both uniques in `0003_membership.sql:21-22` are unnamed table-level constraints and no later migration renames them, so Postgres's generated `team_players_season_id_team_id_jersey_number_key` is right. The file also records why the *other* unique — `(season_id, team_id, player_id)` — is deliberately left alone; it is what forces B6 step 6 to clear `left_on` on a return rather than insert a second row.
 
 ```sql
 -- A player who leaves a team mid-season keeps their roster row; left_on marks
@@ -667,9 +678,9 @@ create index team_players_active_idx
 
 > ⚠️ Confirm the dropped constraint's generated name first: `psql "$DB" -c "\d team_players"`. Postgres names it from the column list, but do not assume.
 
-- [ ] **Step 3: Apply locally and regenerate types** — `npm run db:reset && npm run gen-types`. Expect `left_on` on `team_players` in the generated types.
-- [ ] **Step 4: Prove the indexes.** Two active rows with the same jersey on one team must raise `23505`; the same jersey where one row has a `left_on` must insert. Two active rows for one player in one season must raise `23505`.
-- [ ] **Step 5: Commit** — `git commit -m "feat: soft departures on team_players"`
+- [x] **Step 3: Apply locally and regenerate types** — done. `left_on` is in `src/lib/db/types.ts`, and `0036` is applied **both locally and in production** (`supabase migration list --linked` confirms).
+- [x] **Step 4: Prove the indexes.** Done, against a live seeded database, and kept as `scripts/prove-roster-indexes.sql` so it can be re-run — it works inside a transaction that rolls back. Five assertions, all passing: duplicate ACTIVE jersey rejected `23505`; the same jersey reused once the previous holder has a `left_on`; a second ACTIVE team for one player rejected `23505`; departed-then-joined accepted (the transfer shape, without which B6 could not be written); and a return to a former team rejected, which is the non-partial `unique (season_id, team_id, player_id)` doing exactly what 0036's comment says it is there for.
+- [x] **Step 5: Commit** — `3d85a47`, on `feat/roster-departures`.
 
 ## Task B2: Rebuild the stats views + season totals
 
@@ -677,7 +688,7 @@ create index team_players_active_idx
 
 This task carries the §2 regression fix. **`0024_exclude_drafts_from_stats.sql` is the last migration to define `v_goalie_stats`, and it rebuilt from `0014`'s definitions rather than `0015`'s** — silently reverting the explicit goalie of record and the empty-net subtraction. Watched, 2026-09-03: `pg_get_viewdef('v_goalie_stats')` contains neither `home_goalie_id` nor `empty_net`, while `src/lib/actions/games.ts:231,251` still writes both and `manage/score/[gameId]/page.tsx:152` still shows them back. **GAA is inflated by empty-net goals today.**
 
-- [ ] **Step 1: Write the migration**
+- [x] **Step 1: Write the migration** — `supabase/migrations/0037_transfer_stats.sql`. The regression was re-confirmed against the live database before writing it, not taken on trust: `pg_get_viewdef('v_goalie_stats')` contained neither `home_goalie_id` nor `empty_net`.
 
 Rebuild `v_goalie_stats` from **0015's** body — all three `goalie_appearances` branches and the `greatest(0, r.ga - empty_net)` adjustment — with **0024's** filter `where status = 'final' and game_type = 'regular' and not is_draft` in the `finals` CTE. Both intents survive; neither is inferred from the other.
 
@@ -709,9 +720,13 @@ left join teams tm on tm.id = cur.team_id;
 
 Both joins are `left`, so a player with stats but no active roster row (released outright) still appears with a null team. That is intended.
 
-- [ ] **Step 2: Regenerate types** — `npm run gen-types`.
+- [x] **Step 2: Regenerate types** — done; both totals views are in `src/lib/db/types.ts`.
 
-- [ ] **Step 3: Write `scripts/verify-transfers.mjs`**
+- [x] **Step 3: Write `scripts/verify-transfers.mjs`** — 14 assertions, exiting non-zero on any failure (`verify-scoring.mjs` only prints). Three things it does that the sketch below does not:
+
+  - **Every assertion is a DELTA.** The seed already has final games, so the first version asserted `gp === 1`, read `gp=4`, and said nothing useful.
+  - **It creates its own two goalies rather than using the seed's.** Two are needed at all because with one candidate "the explicit pick" and "the lowest player_id" are the same row, so assertion 1 would pass against the reverted view. Both are created because the seed's single goalie per team is not dependable — the e2e suite transfers it away, which left this script picking a team with no active goalie when the two ran back to back.
+  - **The lineup is built by naming the goalies.** `dress` takes the first N by jersey number and a scratch goalie has none, so it sorted outside the cut and "the other dressed goalie was not credited" was true for the wrong reason.
 
 Model it on `scripts/verify-scoring.mjs` — same admin/anon client setup and `.env.local` key check. Four assertions:
 
@@ -741,14 +756,16 @@ if (!isLocal) {
 
 Add `"verify:transfers": "node --env-file-if-exists=.env.local scripts/verify-transfers.mjs"` to `package.json`.
 
-- [ ] **Step 4: Run it** — `npm run db:reset && npm run verify:transfers`. **If assertion 1 fails, the 0015 restore is incomplete — do not proceed.**
-- [ ] **Step 5: Commit** — `git commit -m "fix: restore goalie of record and empty-net; add season totals views"`
+- [x] **Step 4: Run it** — 14/14, twice: on a fresh `db:reset`, and on the database the full e2e suite leaves behind.
+
+  **And proved able to fail.** `v_goalie_stats` was reverted to `0024`'s body and the script re-run: three of assertion 1's four checks failed and the hard stop fired. Restoring `0037` returned it to 14/14. Grants are covered by Supabase's defaults — the two new views have `anon` and `authenticated` SELECT with no grant written in the migration, which settles the question `0034_league_office.sql` answers the other way for tables.
+- [ ] **Step 5: Commit** — `git commit -m "fix: restore goalie of record and empty-net; add season totals views"` — written, awaiting the go-ahead.
 
 ## Task B3: Point the leaderboards at the totals views
 
 **Files:** Modify `src/lib/queries/stats.ts`, `src/lib/queries/players.ts`, and the components those types flow into.
 
-- [ ] **Step 1: Split the exported types.** `SkaterStat`/`GoalieStat` are currently `Views<"v_skater_stats">` and are consumed directly by components. Changing what `getSkaterLeaders` returns changes those types, so name both:
+- [x] **Step 1: Split the exported types.** `SkaterStat`/`GoalieStat` are currently `Views<"v_skater_stats">` and are consumed directly by components. Changing what `getSkaterLeaders` returns changes those types, so name both:
 
 ```ts
 export type SkaterStat = Views<"v_skater_stats">;               // per-team — team pages
@@ -757,19 +774,27 @@ export type SkaterTotals = Views<"v_skater_season_totals">;     // leaderboards
 export type GoalieTotals = Views<"v_goalie_season_totals">;     // leaderboards
 ```
 
-- [ ] **Step 2:** Change `getSkaterLeaders` / `getGoalieLeaders` to read the totals views and return the totals types. This covers all three leaderboard consumers: `(public)/page.tsx:40`, `(public)/stats/page.tsx:24,25`, and `seasons.ts:319` (the AI league summary).
-- [ ] **Step 3: Run `npm run typecheck` and follow the errors.** Every component typed on `SkaterStat` that renders leaders must move to `SkaterTotals`. The typecheck is the worklist — do not hand-hunt for call sites.
-- [ ] **Step 4:** Leave `src/lib/queries/teams.ts:72,78` **unchanged** — team pages read the per-team views and must keep doing so.
-- [ ] **Step 5:** Player pages show **both**: the season total at the top, the per-team breakdown beneath. `queries/players.ts:88` derives team and position from `v_skater_stats` as a fallback for players with no roster row — that fallback must keep reading the **per-team** view, since the totals view's team column is the *current* one and would defeat the purpose.
-- [ ] **Step 6:** `npm test && npm run typecheck && npx playwright test e2e/01-public.spec.ts`, then commit — `git commit -m "feat: leaderboards show one line per player"`
+- [x] **Step 2:** Change `getSkaterLeaders` / `getGoalieLeaders` to read the totals views and return the totals types. This covers all three leaderboard consumers: `(public)/page.tsx:40`, `(public)/stats/page.tsx:24,25`, and `seasons.ts:319` (the AI league summary).
+- [x] **Step 3: Run `npm run typecheck` and follow the errors.** ⚠️ **There were none, and the reason matters.** The two skater views have identical column lists, so `Views<"v_skater_season_totals">` and `Views<"v_skater_stats">` are structurally the same type — every consumer compiled unchanged and the typecheck could not have been the worklist.
+
+  It would also have been the wrong worklist. `SkaterStatsTable` and `GoalieStatsTable` are shared: the leaderboards pass totals, team pages pass per-team rows. Moving them to `SkaterTotals` would have been as wrong as leaving them on `SkaterStat`. Both now take a `SkaterRow` / `GoalieRow` union, which names the two shapes that actually arrive and stops compiling the day a column exists on only one of them — which is the moment a table would start rendering blanks.
+- [x] **Step 4:** Left `src/lib/queries/teams.ts:72,78` **unchanged** — team pages read the per-team views and must keep doing so.
+- [x] **Step 5: Done, and it was a live defect rather than a nicety.** `getPlayerSkaterStats` and `getPlayerGoalieStats` used `.maybeSingle()` on the per-team view, which returns an *error and no data* for two rows — so the first transferred player's stats card would simply have stopped rendering, and `getPlayerBio` would have fallen through to blanks. Split into `getPlayerSkaterTotals` / `getPlayerSkaterStatsByTeam` (and the goalie pair); the page shows the total and, when there is more than one team in it, the split beneath. The `getPlayerBio` fallback keeps the per-team view as instructed, ordered by `gp` and limited to one for the same `maybeSingle()` reason. Player pages show **both**: the season total at the top, the per-team breakdown beneath. `queries/players.ts:88` derives team and position from `v_skater_stats` as a fallback for players with no roster row — that fallback must keep reading the **per-team** view, since the totals view's team column is the *current* one and would defeat the purpose.
+- [x] **Step 6:** `npm test`, `npm run typecheck` and `e2e/01-public.spec.ts` (10 passed) all clean. Commit pending the go-ahead — `git commit -m "feat: leaderboards show one line per player"`
 
 ## Task B4: Filter the read sites
 
 **Files:** the eight reads below.
 
-- [ ] **Step 1: Add `.is("left_on", null)` to every read that means "who is on this team now"** — `manage/rosters/[teamId]/page.tsx`, `manage/dashboard/page.tsx:169`, `manage/seasons/[seasonId]/page.tsx:89`, `manage/people/page.tsx:62`, `manage/score/[gameId]/page.tsx`, `queries/teams.ts:66`, `queries/players.ts:56`, `queries/games.ts`.
-- [ ] **Step 2: Leave two reads deliberately unfiltered, and comment why.** `player_is_public` (`0008_rls_public.sql:29`) — a player who left a team is still a real person who appeared in a public league, and their page should still resolve. `src/lib/league/of-entity.ts` — it answers which league a row belongs to, which a departure does not change.
-- [ ] **Step 3:** `npm test && npm run test:e2e`, then commit — `git commit -m "fix: departed players leave the active roster"`
+- [x] **Step 1: Added `.is("left_on", null)`** to seven of the eight — `manage/rosters/[teamId]`, `manage/dashboard`, `manage/seasons/[seasonId]`, `manage/people`, `manage/score/[gameId]` (**two** reads there: the dressable roster and the captain lookup), `queries/teams.ts` and `queries/players.ts`.
+
+  Three of those are also `maybeSingle()` calls, which makes the filter load-bearing rather than cosmetic: two rows return an error and no data, so an unfiltered captain lookup takes the scoresheet away from a real captain who changed teams.
+
+  ⚠️ **`queries/games.ts` got a different fix, and a filter would have been wrong.** It maps `player_id → jersey_number` for a box score, which wants the number worn in THAT game — a departed row, once the player moves on. Filtering to active rows would blank the numbers on every past game a transferred player appears in. The map is now keyed by `player_id|team_id` and reads all rows, which is also correct in a way the original was not: keyed by player alone it printed the new team's number on the old team's line.
+- [x] **Step 2: Left unfiltered and commented — FOUR, not two.** The two named here: `player_is_public` (`0008_rls_public.sql:29`), documented with a `comment on function` in `0038` rather than left implicit, because "0038 filtered `is_captain_of` and not this one" is the sort of asymmetry a later reader fixes by accident; and `src/lib/league/of-entity.ts`, where filtering would return null for a departed row and `requireLeagueRole(null, …)` fails closed — every action naming one would redirect to the picker with nothing to explain it.
+
+  Two the plan did not list. `manage/audit/page.tsx:78` turns a roster-row id recorded in an old entry into a name; the log is history, and a departed row is exactly what it is most likely to be asking about. And the duplicates page from A7, where the question is identity, not who is on a team today.
+- [x] **Step 3:** `npm test` and the full `npx playwright test` both clean. Commit pending the go-ahead — `git commit -m "fix: departed players leave the active roster"`
 
 ## Task B5: Writes that must respect a departure
 
@@ -777,7 +802,7 @@ export type GoalieTotals = Views<"v_goalie_season_totals">;     // leaderboards
 
 Three writes, one reason: after `0036` a roster row is history, so anything that deletes one can destroy the record this design exists to keep.
 
-- [ ] **Step 1: Close the RLS hole**
+- [x] **Step 1: Close the RLS hole** — `supabase/migrations/0038_captain_departures.sql`, applied locally.
 
 ```sql
 -- A transferred captain kept write access to their former team for the rest of
@@ -799,7 +824,7 @@ $$;
 
 `transferPlayer` (Task B6) also clears `is_captain`. Both halves ship — an app guard plus an independent RLS half is this codebase's standing pattern.
 
-- [ ] **Step 2: Stop `removeRosterPlayer` from hard-deleting a player who has played**
+- [x] **Step 2: Stop `removeRosterPlayer` from hard-deleting a player who has played** — done as written, with the branch recorded in the audit entry's `new_data.removal` (`"departed"` or `"deleted"`), which Step 3's revert then has to read.
 
 `src/lib/actions/rosters.ts:114` is `await admin.from("team_players").delete().eq("id", id)`. That is the **same destruction** transfers were fixed for, reached through a different button: delete the row and `v_goalie_stats`' inner join loses the old team's entire goalie record, while `v_skater_stats` loses the jersey and position. Nothing reports an error.
 
@@ -828,17 +853,19 @@ if ((count ?? 0) > 0) {
 
 `existing` is already fetched above the delete today ("Capture full row before deletion so revert can restore it"), so this needs no extra lookup for the ids. Record which branch ran in the audit entry — a reader asking why a name is still on a stats page needs to tell a departure from a deletion.
 
-- [ ] **Step 3: Fix the audit revert path.** `src/lib/actions/audit.ts` has **two** roster paths and both change:
+- [x] **Step 3: Fix the audit revert path — and one of the two was already broken by Step 2.** Reverting a soft removal used to `insert` a row whose id still existed, so it would have failed on the primary key. Both paths now decide from whether the row survived, not from the entry, so entries written before `new_data.removal` existed are handled too. `left_on` is restored from the snapshot rather than defaulted, in both branches. The `add_player` revert also reads `player_id` and `team_id` off the row instead of `new_data`, closing a gap where a missing `team_id` skipped the played-since check entirely and hard-deleted a row with games behind it — and where it used to refuse the whole revert, it now marks the row departed, which undoes the add as far as it can be undone without losing what happened. `src/lib/actions/audit.ts` has **two** roster paths and both change:
   - Reverting a *removal* re-inserts the row (or, for the soft branch, clears `left_on`). It must set `left_on` explicitly rather than letting it default, or a reverted removal restores a player as departed — or as active when they were not.
   - `audit.ts:91` *deletes* a `team_players` row to revert an `add_player`. Give it the same conditional as Step 2: if the player has dressed since, mark departed instead of deleting.
 
-- [ ] **Step 4:** `npm test && npx playwright test e2e/04-rosters.spec.ts e2e/06-audit.spec.ts e2e/12-captain-lineup.spec.ts && npm run verify:transfers`, then commit — `git commit -m "fix: removal and revert stop destroying a played roster row"`
+- [x] **Step 4:** all clean — 269 unit, 11 e2e across those three specs, verify:transfers 14/14. Commit pending the go-ahead — `git commit -m "fix: removal and revert stop destroying a played roster row"`
 
 ## Task B6: `transferPlayer`
 
 **Files:** Modify `src/lib/actions/rosters.ts`; new UI on the roster page; create `e2e/19-transfer.spec.ts`.
 
-- [ ] **Step 1: Write the failing e2e test**
+- [x] **Step 1: Write the failing e2e test** — `e2e/19-transfer.spec.ts`, and it ended up as two tests rather than the one sketched here. The sketch has a bug: `td` **first** is the jersey number, not the player — the table is #, Player, Position, Status, Manage — so it would have compared a number against every other number on the page. The second cell is the name.
+
+  The first run also produced the refusal rather than a transfer, because the number field defaults to the one they wear now and the seed hands out low numbers on every team. That refusal is worth a test of its own, so there are two: one that submits a number read off the destination roster and asserts the named refusal, and one that clears the number and asserts the move.
 
 ```ts
 /** Mid-season transfer. */
@@ -871,9 +898,15 @@ test("a transferred player leaves one roster and joins the other", async ({ page
 
 > Team names verified against `supabase/seed.sql:109` — `obhl` seeds Sharks, Bears, Wolves, Ducks, Hawks, Bisons.
 
-- [ ] **Step 2: Run it to verify it fails** — `npx playwright test e2e/19-transfer.spec.ts` → no Transfer control on the roster row.
+- [x] **Step 2: Run it to verify it fails** — failed on the missing Transfer control, as expected.
 
-- [ ] **Step 3: Implement, in this order** (the order is load-bearing):
+- [x] **Step 3: Implemented** in `src/lib/actions/rosters.ts` (`transferPlayer`) plus `src/components/manage/transfer-player-form.tsx`, collapsed until asked for because the row already carries five controls.
+
+  Two departures from the list below. The **jersey check runs before any write**, not at step 7 — checking after the release would leave the player on no team every time the number clashed. And the season and old team are read **off the roster row**, not taken from the form: a form that names its own `from_team_id` can lie about which row it is moving. That costs one indexed read before the guard, the same trade `removeRosterPlayer` already makes and for the same reason.
+
+  An empty jersey field now means "no number", while an absent field keeps the current one — the form prefills the number they wear, so clearing it is a choice rather than an omission.
+
+  In this order (the order is load-bearing):
 
 1. Resolve `league_id` **before** any write — an audit entry that resolves its league afterwards lands with a null one and is then hidden from every view that would show it.
 2. `requireLeagueManagerOf` over the season **and both team ids** — exactly as `addRosterPlayer` does (`src/lib/actions/rosters.ts:33`). These forms carry ids, never a league, so guarding the season alone lets a foreign `team_id` through.
@@ -920,8 +953,10 @@ revalidatePath("/[league]", "layout");
 >
 > `src/lib/actions/revalidate-paths.test.ts` would **not** have caught a wrong segment name: it checks the `/[league]` prefix, that a `type` accompanies any dynamic segment, and that no id is interpolated — but not that the route exists. A wrong segment passes the suite and revalidates nothing, which is the exact silent failure that test's own header describes.
 
-- [ ] **Step 4:** `npm test && npm run test:e2e && npm run verify:transfers`
-- [ ] **Step 5: Commit** — `git commit -m "feat: transfer a player between teams mid-season"`
+- [x] **Step 4:** `npm test` 269, typecheck and lint clean, **`npx playwright test` at 133 passed / 1 skipped on two consecutive runs**, `npm run verify:transfers` 14/14.
+
+  ⚠️ **Two defects in `e2e/14-one-off-game.spec.ts` had to be fixed to get there, and both were invisible until a spec ran after it.** It makes its own rosterless season active for obhl and never put the seeded one back — its header says "it runs last on purpose", which stopped being true at spec 17. Every later spec was looking at a season with no rosters, and the roster page renders "No players yet", which reads like a broken page rather than a leaked fixture. A `test.afterAll` now restores Spring 2026 without deleting anything the tests built. Separately, it asserted a new season's row on `/seasons` immediately after clicking Create — `createSeason` redirects to the new season's setup page, so that assertion was racing the navigation; it won most of the time and lost it in a full run. It now waits for the redirect. (The success toast is no better: it renders on the page being navigated away from.)
+- [ ] **Step 5: Commit** — `git commit -m "feat: transfer a player between teams mid-season"` — written, awaiting the go-ahead.
 
 ---
 
@@ -934,7 +969,22 @@ npm test                  # unit: slug, duplicates, merge-plan, league-guards, e
 npm run typecheck
 npm run test:e2e          # includes the three new specs
 npm run verify:transfers  # goalie of record, transfer history, RLS, grants
+npm run lint
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -f scripts/prove-roster-indexes.sql   # 0036's three partial indexes
 ```
+
+**Measured 2026-09-03, on the finished branch:** 269 unit tests / 24 files;
+typecheck clean; lint clean; `npx playwright test` **133 passed, 1 skipped**, run
+twice in a row with the same result; `verify:transfers` 14/14, both on a fresh
+`db:reset` and on the database the e2e suite leaves behind;
+`prove-roster-indexes.sql` 5/5.
+
+⚠️ **The e2e suite leaves the database changed, and two of these depend on it.**
+Spec 19 transfers a Sharks player to the Bears and does not put them back, so a
+second `test:e2e` without a reset moves a *different* player — harmless, but the
+`verify:transfers` script had to stop relying on the seed's one-goalie-per-team
+before it could run afterwards. It now creates the goalies it needs.
 
 **Manual pass that exercises the actual goal:**
 
@@ -949,7 +999,7 @@ npm run verify:transfers  # goalie of record, transfer history, RLS, grants
 ## Notes from self-review
 
 - **Spec coverage:** §3→A2/A3, §4→A4/A5/A6/A7, §5→B1/B6, §6→B2/B3, §7→B4/B5, §8→Task 0 and the phase break, §9→Verification. §2's regression is inside B2, with a hard stop if its assertion fails.
-- ⚠️ **The plan now exceeds the spec in one place.** `removeRosterPlayer` (B5 step 2) and the `add_player` revert (B5 step 3) are not mentioned anywhere in the design doc — §5 and §7 discuss transfers and reads only. The spec's own argument covers them, but it does not say so, and a future reader comparing the two will find the plan doing something the spec never asked for. **Amend `docs/superpowers/specs/2026-09-03-roster-import-and-transfers-design.md` §5 to name every write that deletes a roster row**, not just the transfer path.
+- ✅ **The plan exceeded the spec in one place, and the spec has been amended.** `removeRosterPlayer` (B5 step 2) and the `add_player` revert (B5 step 3) were not mentioned anywhere in the design doc — §5 and §7 discussed transfers and reads only. §5 now has an *Every write that deletes a roster row* subsection naming all four paths (the two above, the transfer, and the `remove_player` revert's `left_on` restore). Note the spec also numbers the migrations one lower than they shipped as: its `0035_roster_departures` is `0036`, and its `0036_transfer_stats` is `0037`, because `0035` went to `player_distinct_pairs`.
 - **Deliberately not in the plan:** per-league roles, and any change to the `app_role` enum or the JWT hook — out of scope, and the league-office spec depends on them staying still.
 - **Ordering risks:** A5's `different-active-teams` refusal is what keeps B1's index creatable — if A5 is descoped, B1's pre-flight becomes a real remediation task. B1 before B2 (the views join a column that must exist). Within B6, `left_on` is set before the insert or the new partial unique index rejects the write.
 - **Known gap accepted:** dismissing a pair does not dissolve a three-way cluster; the operator dismisses each pair. Simpler than cluster-level state and matches how the judgement is actually made.

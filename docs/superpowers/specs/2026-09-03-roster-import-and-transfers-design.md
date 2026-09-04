@@ -245,6 +245,29 @@ date:
 
 Step 3's `is_captain` clear is a **security fix, not tidiness** — see section 7.
 
+### Every write that deletes a roster row
+
+Amended 2026-09-03, during implementation. This section originally described the
+transfer path only, which reads as though the transfer were the one way a roster
+row could be destroyed. It is not — it is only the one that prompted the design.
+Three writes reach the same delete, and all three are the same failure:
+
+- **`transferPlayer`** — the path above.
+- **`removeRosterPlayer`** (`src/lib/actions/rosters.ts`). The Remove button on
+  the roster page, which hard-deletes. Same destruction, different button: a
+  player who has dressed keeps the row, marked departed; one who never dressed
+  was an add to undo, and is deleted.
+- **The `add_player` revert** in `src/lib/actions/audit.ts`. Reverting an add
+  deletes the row, and the player may have dressed since. Same conditional.
+
+A fourth is the mirror of the second: **the `remove_player` revert** must restore
+`left_on` from the snapshot rather than let it default, and must recognise that a
+soft removal left the row in place — re-inserting it would collide on the primary
+key.
+
+The rule underneath all four: after `left_on` exists, a roster row is a record of
+what happened, and only a row with nothing behind it is safe to delete.
+
 ## 6 — Piece B: the views
 
 `0036_transfer_stats.sql` rebuilds `v_skater_stats` and `v_goalie_stats` from

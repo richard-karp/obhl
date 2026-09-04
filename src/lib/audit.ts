@@ -60,6 +60,13 @@ async function leagueOfEntity(
       return leagueOfTeamPlayer(entityId, admin);
     case "announcement":
       return leagueOfAnnouncement(entityId, admin);
+    // A player is global — `players` has no `league_id`, and the same human in
+    // two leagues is two records — so there is no league to resolve from the id.
+    // Listed anyway rather than left to `default`, so the null is a decision
+    // someone made and not a type nobody added. Callers logging a player pass
+    // `league_id` themselves; `mergePlayers` does.
+    case "player":
+      return null;
     case "league_rules":
     case "league_staff":
     // An import creates the league it is filed under, so the league's own id is

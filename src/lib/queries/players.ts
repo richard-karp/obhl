@@ -1,5 +1,10 @@
 import { createClient } from "@/utils/supabase/server";
-import type { SkaterStat, GoalieStat } from "@/lib/queries/stats";
+import type {
+  SkaterStat,
+  GoalieStat,
+  SkaterTotals,
+  GoalieTotals,
+} from "@/lib/queries/stats";
 
 export type PlayerBio = {
   player_id: string;
@@ -58,6 +63,10 @@ export async function getPlayerBio(
     )
     .eq("player_id", playerId)
     .eq("season_id", seasonId)
+    // The team they are on now. Not optional after 0036: a transferred player
+    // has a row per team, and `maybeSingle()` over two rows returns an error
+    // and no data, dropping the whole bio into the fallback below.
+    .is("left_on", null)
     .maybeSingle();
 
   if (error) console.error("getPlayerBio failed:", error.message);
@@ -92,11 +101,22 @@ export async function getPlayerBio(
       .select("first_name, last_name")
       .eq("id", playerId)
       .maybeSingle(),
+    // Still the PER-TEAM view, deliberately. This fallback runs for a player
+    // with no `team_players` row at all, and the totals view gets its team from
+    // exactly that row — so it would hand back nulls for every player who
+    // reaches here, which is all of them.
+    //
+    // Ordered and limited rather than `maybeSingle()`: a player who moved teams
+    // has a row per team, and `maybeSingle()` treats two rows as an error and
+    // returns nothing — the whole bio would fall back to blanks. The team they
+    // played most for is the best single answer this shape can give.
     supabase
       .from("v_skater_stats")
       .select("team_id, team_name, team_slug, team_color, position, jersey_number")
       .eq("player_id", playerId)
       .eq("season_id", seasonId)
+      .order("gp", { ascending: false })
+      .limit(1)
       .maybeSingle(),
   ]);
 
@@ -120,13 +140,21 @@ export async function getPlayerBio(
   };
 }
 
-export async function getPlayerSkaterStats(
+/**
+ * The player's season, as one line.
+ *
+ * Reads the totals view, which has at most one row per (player, season) — the
+ * per-team view has one per team, and `maybeSingle()` over two rows returns an
+ * error and no data, so a transferred player's stats card would simply have
+ * stopped rendering.
+ */
+export async function getPlayerSkaterTotals(
   playerId: string,
   seasonId: string,
-): Promise<SkaterStat | null> {
+): Promise<SkaterTotals | null> {
   const supabase = await createClient();
   const { data } = await supabase
-    .from("v_skater_stats")
+    .from("v_skater_season_totals")
     .select("*")
     .eq("player_id", playerId)
     .eq("season_id", seasonId)
@@ -134,18 +162,53 @@ export async function getPlayerSkaterStats(
   return data ?? null;
 }
 
-export async function getPlayerGoalieStats(
+/**
+ * The same season split by team — one row per team they played for.
+ *
+ * Shown beneath the total when there is more than one, because "12 goals for
+ * the Sharks, 4 for the Bears" is the part a transfer makes interesting and the
+ * total alone hides.
+ */
+export async function getPlayerSkaterStatsByTeam(
   playerId: string,
   seasonId: string,
-): Promise<GoalieStat | null> {
+): Promise<SkaterStat[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("v_skater_stats")
+    .select("*")
+    .eq("player_id", playerId)
+    .eq("season_id", seasonId)
+    .order("gp", { ascending: false });
+  return data ?? [];
+}
+
+export async function getPlayerGoalieTotals(
+  playerId: string,
+  seasonId: string,
+): Promise<GoalieTotals | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("v_goalie_season_totals")
+    .select("*")
+    .eq("player_id", playerId)
+    .eq("season_id", seasonId)
+    .maybeSingle();
+  return data ?? null;
+}
+
+export async function getPlayerGoalieStatsByTeam(
+  playerId: string,
+  seasonId: string,
+): Promise<GoalieStat[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("v_goalie_stats")
     .select("*")
     .eq("player_id", playerId)
     .eq("season_id", seasonId)
-    .maybeSingle();
-  return data ?? null;
+    .order("gp", { ascending: false });
+  return data ?? [];
 }
 
 export async function getPlayerGameLog(

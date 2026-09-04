@@ -58,6 +58,13 @@ export async function leagueOfGame(
   return data?.season?.league_id ?? null;
 }
 
+/**
+ * Deliberately NOT filtered on `left_on`. This answers which league a row
+ * belongs to so a guard can check it, and a departure does not move the row to
+ * another league — it makes it history. Filtering here would return null for a
+ * departed roster row, and `requireLeagueRole(null, …)` fails closed, so every
+ * action naming one would redirect to the picker with nothing to explain it.
+ */
 export async function leagueOfTeamPlayer(
   teamPlayerId: string,
   admin: Admin,

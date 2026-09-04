@@ -13,6 +13,17 @@ export type RosterRow = {
   teamId: string;
   jerseyNumber: number | null;
   isCaptain: boolean;
+  /**
+   * `team_players.left_on` — the date the record left this team, or null while
+   * still on it (`0036`).
+   *
+   * Required rather than optional on purpose. An optional field defaulting to
+   * null would read every departed row as active, which turns the refusal below
+   * back into the over-broad one it replaced and lets `richer` keep a departed
+   * row over the active one beside it. A caller that has not thought about
+   * departures should not compile.
+   */
+  leftOn: string | null;
 };
 
 export type GameRow = {
@@ -55,10 +66,19 @@ function groupBy<T>(rows: T[], key: (r: T) => string): Map<string, T[]> {
 }
 
 /**
- * Which of two roster rows on one team and season to keep: a jersey beats none,
- * then captaincy, then the lowest id so the choice is stable across runs.
+ * Which of two roster rows on one team and season to keep: still on the team
+ * beats departed, then a jersey beats none, then captaincy, then the lowest id
+ * so the choice is stable across runs.
+ *
+ * Active comes first and outranks everything. The two rows describe the same
+ * team in the same season, so keeping the departed one would file the merged
+ * player as gone from a team they are currently on — and every read that asks
+ * "who is on this team now" would then be right to leave them out.
  */
 function richer(a: RosterRow, b: RosterRow): RosterRow {
+  const aActive = a.leftOn == null;
+  const bActive = b.leftOn == null;
+  if (aActive !== bActive) return aActive ? a : b;
   const aJersey = a.jerseyNumber != null;
   const bJersey = b.jerseyNumber != null;
   if (aJersey !== bJersey) return aJersey ? a : b;
@@ -66,6 +86,24 @@ function richer(a: RosterRow, b: RosterRow): RosterRow {
   return a.id < b.id ? a : b;
 }
 
+/**
+ * ⚠️ **Every row passed in must belong to the merge set** — that is, its
+ * `playerId` must be `keepId` or one of the records being absorbed. This
+ * function cannot check that for itself: it is told which record to keep, never
+ * which ones are being merged, so it treats whatever it is handed as the whole
+ * set.
+ *
+ * The natural way to load `games` gets this wrong. Fetching `game_rosters` by
+ * `game_id` returns EVERY player dressed for that game, and passing that in
+ * sums strangers' goals into the survivor and lists their roster rows in
+ * `deleteIds`. Nothing here would report an error; the merge would simply
+ * corrupt the other players' stat lines and delete their rows. Filter by
+ * `player_id in (merge set)` at the call site, not by game.
+ *
+ * `rosters` carries the same requirement. `linkedPlayerIds` does too, but it
+ * fails safe — an id from outside the set can only cause a spurious
+ * `both-linked` refusal, never a bad write.
+ */
 export function planMerge(
   keepId: string,
   rosters: RosterRow[],
@@ -79,11 +117,19 @@ export function planMerge(
     if (teamIds.size > 1) return { ok: false, reason: "opposing-teams", gameId };
   }
 
-  // 2. `left_on` does not exist until Phase B, so a record active on two teams
-  // in one season cannot be expressed as a departure — the operator removes one
-  // roster row first. This refusal is also what keeps B1's unique index
-  // creatable.
-  for (const [, rows] of groupBy(rosters, (r) => r.seasonId)) {
+  // 2. Two records CURRENTLY on different teams in one season cannot become one
+  // player: `team_players_one_active_team` (0036) is a unique index on
+  // (season_id, player_id) where left_on is null, so repointing both at keepId
+  // raises 23505 partway through a merge that has already deleted rows. The
+  // operator removes or transfers one first.
+  //
+  // Departed rows are excluded, and that exclusion is the whole reason this
+  // filter exists. A player who moved from one team to another mid-season has
+  // exactly this shape — one season, two teams — and refusing it would make
+  // every transferred player permanently unmergeable, which is the opposite of
+  // what the check is for. Only the active rows can collide.
+  const active = rosters.filter((r) => r.leftOn == null);
+  for (const [, rows] of groupBy(active, (r) => r.seasonId)) {
     const teamIds = [...new Set(rows.map((r) => r.teamId))];
     if (teamIds.length > 1) {
       return { ok: false, reason: "different-active-teams", teamIds: teamIds.sort() };

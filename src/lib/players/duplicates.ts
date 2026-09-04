@@ -16,6 +16,14 @@ export type DuplicateCandidate = {
   teamName: string;
   jerseyNumber: number | null;
   position: "F" | "D" | "G";
+  /**
+   * `team_players.left_on`, when the caller has it. Display only — nothing here
+   * reads it, and a departed appearance still counts toward a cluster, because
+   * a person who left a team is exactly as likely to be someone's duplicate as
+   * one who stayed. Optional so the pure tests need not carry it; the review
+   * page passes it so the operator can tell a transfer from two people.
+   */
+  leftOn?: string | null;
 };
 
 export type DuplicateCluster = { key: string; members: DuplicateCandidate[] };
@@ -37,6 +45,12 @@ const pairKey = (x: string, y: string) => (x < y ? `${x}|${y}` : `${y}|${x}`);
  * teams is one player, not a duplicate. A cluster disappears only when every
  * pair inside it has been dismissed — dismissing a–b out of {a,b,c} leaves a–c
  * and b–c unjudged, so the cluster stays.
+ *
+ * `members` holds every matching ROW, not one per player, so a record rostered
+ * on two teams appears twice in its cluster. That is deliberate: the review UI
+ * shows each appearance with its team, jersey and position, which is most of
+ * what the operator judges "same person or not" on. Anything counting players
+ * rather than appearances has to de-duplicate on `playerId` first.
  */
 export function findDuplicateClusters(
   rows: DuplicateCandidate[],

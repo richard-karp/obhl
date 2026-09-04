@@ -17,6 +17,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PageHeader } from "@/components/shared/page-header";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 const ROLE_LABEL: Record<string, string> = {
   league_manager: "Manager",
@@ -62,7 +64,11 @@ export default async function PeoplePage({
         "player_id, players!team_players_player_id_fkey(first_name, last_name), teams!team_players_team_id_fkey(name)",
       )
       .eq("season_id", ctx.season.id)
-      .eq("is_captain", true);
+      .eq("is_captain", true)
+      // Current captains only — a departed row keeps its captaincy in the
+      // history it preserves, and offering it here would link an account to a
+      // team the person has left.
+      .is("left_on", null);
     captains = (caps ?? []).map((c) => ({
       id: c.player_id,
       label: `${c.players?.first_name} ${c.players?.last_name} (${c.teams?.name})`,
@@ -130,7 +136,19 @@ export default async function PeoplePage({
       <PageHeader
         title="People & Roles"
         description="Create staff accounts and assign manager, captain, or scorekeeper roles."
-      />
+      >
+        {/*
+          Here rather than in the top nav: the nav already carries its five
+          inline links and a sixth pushes the whole set onto its own row, and
+          duplicate review is a job you go looking for after an import, not a
+          section of the site.
+        */}
+        <Button asChild variant="outline" size="sm">
+          <Link href={`/${leagueSlug}/manage/people/duplicates`}>
+            Possible duplicates
+          </Link>
+        </Button>
+      </PageHeader>
 
       <Card>
         <CardHeader>

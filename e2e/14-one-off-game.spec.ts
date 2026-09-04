@@ -3,11 +3,27 @@
  *
  * The seeded season's games are all in the past, so every night is locked and
  * there's nothing to take over. This spec therefore builds its own season with
- * future dates first. It runs last on purpose: publishing games would otherwise
+ * future dates first. It runs late on purpose: publishing games would otherwise
  * disturb specs 12–13, which read the seeded schedule.
+ *
+ * It is no longer LAST, though, and that used to matter. Making its own season
+ * active left every later spec looking at a season with no rosters and no
+ * games — the roster pages simply render "No players yet", which reads like a
+ * broken page rather than a leaked fixture. `afterAll` below puts the seeded
+ * season back.
  */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+
+/** Service-role client, for putting the seeded season back afterwards. */
+function admin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SECRET_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+}
 
 const SEASON = "One-Off Test 2027";
 
@@ -30,6 +46,15 @@ async function seedFutureSeason(page: Page) {
     await page.getByLabel("Season starts").fill("2027-01-05");
     await page.getByLabel("Season ends (incl. playoffs)").fill("2027-06-30");
     await page.getByRole("button", { name: /Create season/i }).click();
+    // Wait for the redirect, then re-navigate before looking for the row.
+    //
+    // `createSeason` sends the browser to the new season's setup page, so
+    // asserting anything on /seasons straight after the click is a race between
+    // that navigation and the revalidation — the row assertion that used to be
+    // here won it most of the time and lost it in a full run. The success toast
+    // is no better: it renders on the page being navigated away from.
+    await expect(page).toHaveURL(/\/manage\/seasons\/[0-9a-f-]{36}/);
+    await page.goto("/obhl/manage/seasons");
     await expect(row).toBeVisible();
   }
 
@@ -79,6 +104,35 @@ async function seedFutureSeason(page: Page) {
 }
 
 test.describe("Path 22 — one-off games", () => {
+  /**
+   * Hand obhl back to the seeded season.
+   *
+   * Not a delete: the one-off season and its published schedule are what these
+   * tests built and are worth keeping for a post-mortem. Only which season is
+   * ACTIVE is restored, because that is the single piece of state every later
+   * spec reads. A partial unique index allows one active season per league, and
+   * `is_active = true` on the seeded row clears the other by itself.
+   */
+  test.afterAll(async () => {
+    const db = admin();
+    const { data: league } = await db
+      .from("leagues")
+      .select("id")
+      .eq("slug", "obhl")
+      .single();
+    if (!league) return;
+    await db
+      .from("seasons")
+      .update({ is_active: false })
+      .eq("league_id", league.id)
+      .eq("name", SEASON);
+    await db
+      .from("seasons")
+      .update({ is_active: true })
+      .eq("league_id", league.id)
+      .eq("name", "Spring 2026");
+  });
+
   test("manager can schedule a one-off and pick how the season absorbs it", async ({
     page,
   }) => {
