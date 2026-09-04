@@ -67,6 +67,10 @@ export async function getTeamBySlug(
         )
         .eq("season_id", seasonId)
         .eq("team_id", team.id)
+        // The roster is who is here now. What a departed player earned for this
+        // team stays visible just below, in v_skater_stats / v_goalie_stats —
+        // which is exactly why their roster row is kept rather than deleted.
+        .is("left_on", null)
         .order("jersey_number", { ascending: true }),
       supabase
         .from("v_skater_stats")

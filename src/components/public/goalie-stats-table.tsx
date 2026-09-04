@@ -11,12 +11,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TeamLogo } from "@/components/shared/team-logo";
-import type { GoalieStat } from "@/lib/queries/stats";
+import type { GoalieRow } from "@/lib/queries/stats";
 
 type SortCol = "gp" | "wins" | "losses" | "ties" | "ga" | "so" | "gaa";
 type SortDir = "asc" | "desc";
 
-function sortRows(rows: GoalieStat[], col: SortCol, dir: SortDir): GoalieStat[] {
+function sortRows(rows: GoalieRow[], col: SortCol, dir: SortDir): GoalieRow[] {
   return [...rows].sort((a, b) => {
     const nullFallback = dir === "desc" ? -Infinity : Infinity;
     const av = a[col] !== null && a[col] !== undefined ? (a[col] as number) : nullFallback;
@@ -60,7 +60,7 @@ export function GoalieStatsTable({
   rows,
   league,
 }: {
-  rows: GoalieStat[];
+  rows: GoalieRow[];
   league: string;
 }) {
   const [sortCol, setSortCol] = useState<SortCol>("gaa");

@@ -74,6 +74,9 @@ export default async function AuditLogPage({
 
   const tpToPlayerMap = new Map<string, string>(); // team_player_id → player_id
   if (lookupByTeamPlayer.length) {
+    // No `left_on` filter: the log is history, and this only turns a row id
+    // recorded in an old entry into a name. A departed row is precisely the
+    // kind the log is most likely to be asking about.
     const { data: tps } = await admin
       .from("team_players")
       .select("id, player_id")
