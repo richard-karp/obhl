@@ -11,6 +11,17 @@ export type SeasonOption = { id: string; name: string; isActive: boolean };
  * The select itself, split out so `useFormStatus` has a form above it — the
  * hook reads the enclosing form's pending state and returns nothing at all
  * from the component that renders the form.
+ *
+ * ⛔ NO SUBMIT BUTTON, and do not add one. `requestSubmit()` needs no submitter,
+ * so a button here would be invisible and inert — but it would still carry an
+ * ACCESSIBLE NAME on all seven pages this control appears on, and page-scoped
+ * `getByRole("button", { name: /…/i })` queries are common in the e2e suite:
+ * an `sr-only` "Change season" collided with `04-rosters`' `/upload|change/i`
+ * and made a passing test a strict-mode violation. It bought nothing to pay
+ * for that. It does not fix the keyboard hazard either — `onChange` still
+ * fires per arrow key with or without it — and the no-JS path it would cover
+ * is one `LeagueSwitcher` (the identical control one row up) has already
+ * declined: "Requires JS: a bare select wouldn't navigate on its own."
  */
 function Select({
   seasons,
@@ -43,15 +54,6 @@ function Select({
           </option>
         ))}
       </select>
-      {/*
-        The no-JS path, and a keyboard user's explicit commit. `onChange` above
-        submits for everyone else, so this is never the visible control — but a
-        select that only works with JS would leave the season unswitchable in
-        exactly the conditions where someone is most likely to be debugging one.
-      */}
-      <button type="submit" className="sr-only">
-        Change season
-      </button>
     </>
   );
 }
