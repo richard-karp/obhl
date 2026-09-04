@@ -183,12 +183,18 @@ test.describe("Path 6b — a session with no role claim", () => {
 
     // Sign in while the role is still null — the token is minted without it.
     await page.goto("/login");
-    await tamper(
-      page,
-      page.locator('input[name="email"][value="manager@obhl.test"]'),
-      email,
-    );
-    await page.getByRole("button", { name: "Manager", exact: true }).click();
+    // ⛔ LOCATE THE FORM, NEVER THE VALUE. `input[name="email"][value="…"]` is a
+    // locator that deletes its own match: on a HIDDEN input `value` is a
+    // reflected attribute, so `el.value = x` rewrites the very attribute the
+    // selector keyed on and the following assertion finds no element at all.
+    // Watched, in a browser: one match before the write, zero after. It is not a
+    // hydration race and not a slow-runner flake — it can never pass anywhere.
+    // Every other tamper in this suite locates its form by structure, which is
+    // why none of them hit this.
+    const manager = page.getByRole("button", { name: "Manager", exact: true });
+    const devForm = page.locator("form").filter({ has: manager });
+    await tamper(page, devForm.locator('input[name="email"]'), email);
+    await manager.click();
     await page.waitForURL("/");
 
     // The probe is only worth anything if the claim really is absent.
