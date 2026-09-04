@@ -78,6 +78,38 @@ export async function leagueOfTeamPlayer(
   return data?.season?.league_id ?? null;
 }
 
+/**
+ * Every league a PLAYER plays in — plural, and that is not an oversight.
+ *
+ * ⛔ The singular resolvers above exist because every other entity belongs to
+ * exactly one league. A player does not. `players` has no `league_id` at all
+ * (0002_core.sql:43, and 0032's header restates it), deliberately, so that one
+ * human is one row across every league they play in. There is therefore no
+ * `leagueOfPlayer` to write, and reaching for one is the mistake this function
+ * is named to prevent.
+ *
+ * Derived through the only path the schema offers: `team_players` → `seasons`
+ * → `league_id`. NOT filtered on `left_on`: a player who left a team in March
+ * still played in that league, and a rename still changes the name on that
+ * league's stats pages — which is exactly what the containment test in
+ * `mayWritePlayer` is asking about.
+ *
+ * An empty array means a player nobody has rostered anywhere. Callers must
+ * decide what that means for them rather than reading it as "no restriction";
+ * in `mayWritePlayer` it passes containment vacuously, and is meant to.
+ */
+export async function leaguesOfPlayer(
+  playerId: string,
+  admin: Admin,
+): Promise<string[]> {
+  if (!playerId) return [];
+  const { data } = await admin
+    .from("team_players")
+    .select("season:seasons!inner(league_id)")
+    .eq("player_id", playerId);
+  return [...new Set((data ?? []).map((r) => r.season.league_id))];
+}
+
 /** Announcements carry their league directly; the id is all an action gets. */
 export async function leagueOfAnnouncement(
   announcementId: string,

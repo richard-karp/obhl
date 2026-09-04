@@ -18,6 +18,7 @@
     "verify:auth": "node --env-file-if-exists=.env.local scripts/verify-auth.mjs",
     "verify:scoring": "node --env-file-if-exists=.env.local scripts/verify-scoring.mjs",
   "verify:transfers": "node --env-file-if-exists=.env.local scripts/verify-transfers.mjs",
+    "verify:roster-editing": "node --env-file-if-exists=.env.local scripts/verify-roster-editing.mjs",
     "gen-types": "supabase gen types typescript --local > src/lib/db/types.ts"
   },
   "dependencies": {
