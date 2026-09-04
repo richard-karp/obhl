@@ -1,5 +1,7 @@
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireLeagueRole } from "@/lib/auth/guards";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import { getManageContext } from "@/lib/queries/season";
 import { getSchedule } from "@/lib/queries/schedule";
 import { GameStatusBadge } from "@/components/shared/game-status-badge";
@@ -27,8 +29,13 @@ export default async function ScoreGamesPage({
 }) {
   const { league: leagueParam } = await params;
   const { season: seasonParam } = await searchParams;
+  // League, then GUARD, then context — `getManageContext` reads every season on
+  // the ADMIN client, so it must not run for a request about to be refused.
+  // `resolveLeagueBySlug` is cache()-wrapped, so the context reuses it free.
+  const league = await resolveLeagueBySlug(leagueParam);
+  if (!league) notFound();
+  await requireLeagueRole(league.id, "scorekeeper", "league_manager");
   const ctx = await getManageContext(leagueParam, seasonParam);
-  await requireLeagueRole(ctx.league.id, "scorekeeper", "league_manager");
   // The resolved slug, not the URL's — links stay canonical from /OBHL.
   const leagueSlug = ctx.league.slug;
   if (!ctx.season) {

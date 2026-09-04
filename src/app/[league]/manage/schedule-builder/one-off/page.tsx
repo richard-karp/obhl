@@ -1,6 +1,8 @@
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import { getManageContext } from "@/lib/queries/season";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { getSeasonNights } from "@/lib/queries/schedule";
@@ -25,8 +27,13 @@ export default async function OneOffGamePage({
 }) {
   const { league: leagueParam } = await params;
   const { season: seasonParam } = await searchParams;
+  // League, then GUARD, then context — `getManageContext` reads every season on
+  // the ADMIN client, so it must not run for a request about to be refused.
+  // `resolveLeagueBySlug` is cache()-wrapped, so the context reuses it free.
+  const league = await resolveLeagueBySlug(leagueParam);
+  if (!league) notFound();
+  await requireLeagueManager(league.id);
   const ctx = await getManageContext(leagueParam, seasonParam);
-  await requireLeagueManager(ctx.league.id);
   // The resolved slug, not the URL's — links stay canonical from /OBHL.
   const leagueSlug = ctx.league.slug;
   if (!ctx.season) {

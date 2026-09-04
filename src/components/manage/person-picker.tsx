@@ -82,8 +82,23 @@ export function PersonPicker({
 
   function run(action: () => Promise<{ ok: boolean; message: string } | null>) {
     startTransition(async () => {
-      const result = await action();
-      setNotice(result ?? null);
+      try {
+        const result = await action();
+        setNotice(result ?? null);
+      } catch (err) {
+        // ⛔ Same shape as the constraints card: `redirect()` and `notFound()`
+        // work BY THROWING, and both archive actions reach `redirect("/")`
+        // through `requireLeagueManager`, so swallowing a "NEXT_" digest would
+        // turn a refusal into a notice and strand the manager on the page they
+        // were being sent away from. Everything else is reported, because a
+        // bare await left a failed archive looking exactly like a dead button.
+        const digest = (err as { digest?: unknown } | null)?.digest;
+        if (typeof digest === "string" && digest.startsWith("NEXT_")) throw err;
+        setNotice({
+          ok: false,
+          message: "That didn't go through — check your connection and try again.",
+        });
+      }
     });
   }
 

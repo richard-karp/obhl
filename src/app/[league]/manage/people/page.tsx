@@ -1,5 +1,7 @@
+import { notFound } from "next/navigation";
 import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import { getManageContext } from "@/lib/queries/season";
 import {
   CreateStaffForm,
@@ -49,8 +51,13 @@ export default async function PeoplePage({
   const { season: seasonParam } = await searchParams;
   // Season-scoped for one reason: the captain candidates below come from one
   // season's rosters. Everything else on the page is league-wide.
+  // League, then GUARD, then context — `getManageContext` reads every season on
+  // the ADMIN client, so it must not run for a request about to be refused.
+  // `resolveLeagueBySlug` is cache()-wrapped, so the context reuses it free.
+  const league = await resolveLeagueBySlug(leagueSlug);
+  if (!league) notFound();
+  const viewer = await requireLeagueManager(league.id);
   const ctx = await getManageContext(leagueSlug, seasonParam);
-  const viewer = await requireLeagueManager(ctx.league.id);
   const admin = createAdminClient();
 
   // This league's staff, not the instance's. The page listed every profile in

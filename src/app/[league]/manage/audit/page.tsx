@@ -238,7 +238,13 @@ export default async function AuditLogPage({
         return `Restored ${who} to this league`;
       }
       case "transfer_player": {
-        const who = typeof nd?.name === "string" ? nd.name : null;
+        // `new_data.name` is only written on the add-form path; `transferPlayer`
+        // passes no label. The entity is a `team_players` id either way, which
+        // `tpNameMap` resolves — the same fallback the other roster cases use.
+        const who =
+          (typeof nd?.name === "string" ? nd.name : null) ??
+          tpNameMap.get(r.entity_id) ??
+          null;
         const via = nd?.via === "add" ? " (via the add form)" : "";
         return `Transferred ${who ?? "a player"} to another team${via}`;
       }
