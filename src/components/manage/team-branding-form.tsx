@@ -32,21 +32,34 @@ export function TeamBrandingForm({
     updateTeamColor,
     null,
   );
+  // ⚠️ The picker has to show SOMETHING, and `<input type="color">` has no empty
+  // state — so a team with no colour shows the same slate the chip falls back
+  // to. `touched` is what keeps that from becoming a real colour: without it,
+  // opening a colourless team's row and pressing Save wrote slate-grey as a
+  // deliberate choice nobody made.
   const [draftColor, setDraftColor] = useState(color ?? "#64748b");
+  const [touched, setTouched] = useState(color !== null);
   const [draftInk, setDraftInk] = useState(logoTextColor ?? "light");
 
   return (
     <form action={action} className="flex flex-wrap items-center gap-2">
       <input type="hidden" name="team_id" value={teamId} />
+      {/* An empty `color` is written as null, which for a team that never had
+          one is exactly what it already had. The visible picker drops its
+          `name` until it is touched, so only a deliberate pick submits a hex. */}
+      {touched ? null : <input type="hidden" name="color" value="" />}
       {/* `logoPath` deliberately not passed: a team with an uploaded logo still
           gets a monogram preview here, because the colour and ink are what this
           control edits and the image would hide both. */}
       <TeamLogo name={name} color={draftColor} textColor={draftInk} />
       <Input
         type="color"
-        name="color"
+        name={touched ? "color" : undefined}
         value={draftColor}
-        onChange={(e) => setDraftColor(e.target.value)}
+        onChange={(e) => {
+          setDraftColor(e.target.value);
+          setTouched(true);
+        }}
         aria-label={`${name} color`}
         title={`${name} color`}
         className="h-8 w-12 shrink-0 p-1"

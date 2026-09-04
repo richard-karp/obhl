@@ -1,6 +1,8 @@
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import { getManageContext } from "@/lib/queries/season";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { TeamLogo } from "@/components/shared/team-logo";
@@ -18,8 +20,15 @@ export default async function RostersPage({
 }) {
   const { league: leagueParam } = await params;
   const { season: seasonParam } = await searchParams;
+  // ⚠️ League, then GUARD, then context — the order `dashboard/page.tsx` uses.
+  // `getManageContext` reads every season of the league on the ADMIN client, so
+  // running it first means a request that is about to be refused still pays for
+  // (and reaches past RLS for) data it will never render. `resolveLeagueBySlug`
+  // is cache()-wrapped, so the context below reuses this answer for free.
+  const league = await resolveLeagueBySlug(leagueParam);
+  if (!league) notFound();
+  await requireLeagueManager(league.id);
   const ctx = await getManageContext(leagueParam, seasonParam);
-  await requireLeagueManager(ctx.league.id);
   // The resolved slug, not the URL's — links stay canonical from /OBHL.
   const leagueSlug = ctx.league.slug;
   // Not "no ACTIVE season" any more — a season nobody has activated is exactly

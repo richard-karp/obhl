@@ -1,6 +1,7 @@
+import { notFound } from "next/navigation";
 import { requireLeagueManager } from "@/lib/auth/guards";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getManageContext } from "@/lib/queries/season";
 import {
   findDuplicateClusters,
   type DuplicateCandidate,
@@ -31,10 +32,12 @@ export default async function DuplicatesPage({
   params: Promise<{ league: string }>;
 }) {
   const { league: leagueSlug } = await params;
-  // Deliberately season-less. Duplicate detection reads EVERY season of the
-  // league (see the note above), so there is nothing here for a switcher to
-  // scope — only `ctx.league` is used.
-  const ctx = await getManageContext(leagueSlug);
+  // Deliberately season-less, and therefore NOT `getManageContext`: duplicate
+  // detection reads EVERY season of the league (see the note above), so there
+  // is nothing for a switcher to scope and nothing to pay a seasons query for.
+  const league = await resolveLeagueBySlug(leagueSlug);
+  if (!league) notFound();
+  const ctx = { league };
   await requireLeagueManager(ctx.league.id);
   const admin = createAdminClient();
 

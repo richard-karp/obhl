@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import { getManageContext } from "@/lib/queries/season";
 import { AddPlayerForm } from "@/components/manage/add-player-form";
 import { TransferPlayerForm } from "@/components/manage/transfer-player-form";
@@ -36,8 +37,14 @@ export default async function RosterEditorPage({
 }) {
   const { league: leagueSlug, teamId } = await params;
   const { season: seasonParam } = await searchParams;
+  // ⚠️ League, then GUARD, then context. `getManageContext` reads every season
+  // of the league on the ADMIN client; running it ahead of the guard makes a
+  // request that is about to be refused pay for data it never renders. See the
+  // same note on the rosters index.
+  const league = await resolveLeagueBySlug(leagueSlug);
+  if (!league) notFound();
+  await requireLeagueManager(league.id);
   const ctx = await getManageContext(leagueSlug, seasonParam);
-  await requireLeagueManager(ctx.league.id);
   // A league with no seasons at all — the one case left. An imported season
   // that nobody activated resolves like any other now, which is the point.
   if (!ctx.season) {
