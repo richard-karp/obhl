@@ -160,7 +160,10 @@ test.describe("Path 22 — Roster editing", () => {
     const { data: enrolled } = await db
       .from("season_teams")
       .select("team_id")
-      .eq("season_id", seasonId);
+      .eq("season_id", seasonId)
+      // Ordered so `teams[0]`/`teams[1]` are the same pair every run — an
+      // unordered query makes a failure here reproduce only by luck.
+      .order("team_id", { ascending: true });
     const toTeam = await teamName(
       (enrolled ?? []).find((e) => e.team_id !== before!.team_id)!.team_id,
     );

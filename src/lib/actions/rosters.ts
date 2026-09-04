@@ -134,12 +134,18 @@ export async function addRosterPlayer(
   // a departed row on THIS team while they are active elsewhere would violate
   // the same index. `movePlayerToTeam` handles both, and it is the only
   // implementation of the move there is.
-  // ⚠️ `limit(1)`, NOT `maybeSingle()`. `maybeSingle` treats two rows as an
-  // error and hands back null data — so a player who somehow held two active
-  // roster rows in one season would look like a player with none, and this
-  // would add a THIRD. `0003`'s unique key makes that state hard to reach and
-  // not impossible; taking the first row moves them off one team rather than
-  // quietly compounding the anomaly.
+  // `limit(1)` rather than `maybeSingle()`, which treats two rows as an error
+  // and hands back null data — a player who held two active rows would then
+  // look like a player with none, and this would add a THIRD.
+  //
+  // ⚠️ THAT STATE IS UNREACHABLE, and the index says so:
+  // `team_players_one_active_team` is UNIQUE on `(season_id, player_id) WHERE
+  // left_on IS NULL`, so one season cannot hold two active rows for one person.
+  // This is belt-and-braces over a database guarantee, which is also why there
+  // is NO `.order()` here: there is never more than one row to order, and an
+  // earlier attempt to add one ordered by a `created_at` this table does not
+  // have — PostgREST rejected the query, `data` came back null, and the whole
+  // move-on-add path silently stopped moving anyone.
   const { data: activeRows } = await admin
     .from("team_players")
     .select("*")

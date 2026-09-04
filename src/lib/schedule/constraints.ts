@@ -355,11 +355,6 @@ export function constraintConflicts(
     // pairing could satisfy, and let `evaluateConstraints` report the rest off
     // the placed games. Three teams cannot share one sheet under any pairing.
     if (group.length < 3) continue;
-    // Two teams in the same game share a slot legitimately; two pins on
-    // different teams are only a conflict if they cannot be the same game, and
-    // whether they are is Phase M's decision — so this refuses either way and
-    // says why. Pinning both halves of an intended matchup is expressed by
-    // pinning one of them.
     out.push(
       `“${label(group[0])}”, “${label(group[1])}” and ${group.length - 2} other request${group.length === 3 ? "" : "s"} all claim the same ice time that night — one sheet of ice seats two teams.`,
     );
