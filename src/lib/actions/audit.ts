@@ -77,22 +77,24 @@ export async function revertAuditEntries(
           // it — the exact destruction 0036 exists to prevent.
           const { data: row } = await admin
             .from("team_players")
-            .select("player_id, team_id")
+            .select("player_id, team_id, season_id")
             .eq("id", entry.entity_id)
             .maybeSingle();
-          const playerId =
-            row?.player_id ?? (typeof nd?.player_id === "string" ? nd.player_id : null);
-          const teamId = row?.team_id ?? (typeof nd?.team_id === "string" ? nd.team_id : null);
-          if (!playerId) {
-            throw new Error("Cannot revert add_player: entry missing player_id (predates revert support).");
-          }
-          if (!row) break; // already gone; nothing to undo
+          // Already gone: the add has nothing left to undo. Checked before the
+          // columns are read, so there is no absent-id fallback to get wrong —
+          // all three are NOT NULL on a row that exists.
+          if (!row) break;
+          const { player_id: playerId, team_id: teamId, season_id: seasonId } = row;
 
+          // Scoped to this season through `games`, which is where `season_id`
+          // lives — player and team alone count every season this team has
+          // played.
           const { count } = await admin
             .from("game_rosters")
-            .select("*", { count: "exact", head: true })
+            .select("*, games!inner(season_id)", { count: "exact", head: true })
             .eq("player_id", playerId)
-            .eq("team_id", teamId ?? "");
+            .eq("team_id", teamId)
+            .eq("games.season_id", seasonId);
 
           if ((count ?? 0) > 0) {
             // They have dressed since the add, so the row is now the record of

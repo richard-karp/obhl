@@ -62,18 +62,50 @@ export async function addRosterPlayer(
     label = `${first} ${last}`;
   }
 
-  const { data: inserted, error } = await admin
+  // A row for this person may already be here, departed. `unique (season_id,
+  // team_id, player_id)` from 0003 is deliberately non-partial (see 0036), so
+  // the insert below would be rejected with a bare 23505 — and coming back is
+  // not an edge case: the picker offers departed players, because the roster it
+  // subtracts is filtered to active rows. Clear the departure on the row that is
+  // already there, exactly as `transferPlayer` does for a return to a former
+  // team, and for the same reason: a second row for one player and team is what
+  // that constraint exists to prevent.
+  const { data: prior } = await admin
     .from("team_players")
-    .insert({
-      season_id,
-      team_id,
-      player_id,
-      jersey_number: jersey,
-      position: position as "F" | "D" | "G",
-      is_captain,
-    })
-    .select("id")
-    .single();
+    .select("id, left_on")
+    .eq("season_id", season_id)
+    .eq("team_id", team_id)
+    .eq("player_id", player_id)
+    .maybeSingle();
+
+  if (prior && !prior.left_on) {
+    return { ok: false, message: "They are already on this roster." };
+  }
+
+  const { data: inserted, error } = prior
+    ? await admin
+        .from("team_players")
+        .update({
+          left_on: null,
+          jersey_number: jersey,
+          position: position as "F" | "D" | "G",
+          is_captain,
+        })
+        .eq("id", prior.id)
+        .select("id")
+        .single()
+    : await admin
+        .from("team_players")
+        .insert({
+          season_id,
+          team_id,
+          player_id,
+          jersey_number: jersey,
+          position: position as "F" | "D" | "G",
+          is_captain,
+        })
+        .select("id")
+        .single();
   if (error) return { ok: false, message: error.message };
 
   void logAudit({
@@ -81,11 +113,19 @@ export async function addRosterPlayer(
     action: "add_player",
     entity_type: "team_player",
     entity_id: inserted.id,
-    new_data: { player_id, team_id, season_id, position },
+    // Whether this was a fresh row or a return. The revert path reads the row
+    // rather than this field, but a reader asking why an "added" player already
+    // has games behind them needs the answer to be written down.
+    new_data: { player_id, team_id, season_id, position, returned: !!prior },
   });
 
   revalidatePath("/[league]/manage/rosters/[teamId]", "page");
-  return { ok: true, message: `${label} added to the roster.` };
+  return {
+    ok: true,
+    message: prior
+      ? `${label} is back on the roster.`
+      : `${label} added to the roster.`,
+  };
 }
 
 export async function removeRosterPlayer(formData: FormData) {
@@ -121,13 +161,19 @@ export async function removeRosterPlayer(formData: FormData) {
   //
   // So: a player who never dressed was an add to undo — delete it. A player who
   // has dressed is marked departed, exactly as a transfer would mark them.
+  // Scoped to THIS season through `games`. `game_rosters` has no `season_id` of
+  // its own, so player+team alone counts games from every season this team has
+  // ever played — and a player who dressed for them in 2025 but not this year
+  // would be marked departed rather than deleted, leaving a row that then blocks
+  // re-adding them.
   const played = existing
     ? ((
         await admin
           .from("game_rosters")
-          .select("*", { count: "exact", head: true })
+          .select("*, games!inner(season_id)", { count: "exact", head: true })
           .eq("player_id", existing.player_id)
           .eq("team_id", existing.team_id)
+          .eq("games.season_id", existing.season_id)
       ).count ?? 0) > 0
     : false;
 
@@ -227,6 +273,21 @@ export async function transferPlayer(
       : String(jerseyRaw).trim() === ""
         ? null
         : Number(jerseyRaw);
+
+  // The destination has to be playing this season. `requireLeagueManagerOf`
+  // proves all three ids agree on one league, which is not the same question —
+  // a team can belong to the league and not be enrolled — and the page only
+  // offers enrolled teams, so nothing else would stop a hand-made POST creating
+  // a roster row for a team that is not in the season.
+  const { data: enrolled } = await admin
+    .from("season_teams")
+    .select("team_id")
+    .eq("season_id", season_id)
+    .eq("team_id", to_team_id)
+    .maybeSingle();
+  if (!enrolled) {
+    return { ok: false, message: "That team is not enrolled in this season." };
+  }
 
   // Checked before anything is written, and reported rather than worked around.
   // The bulk importer silently writes null on a clash, which is right for a
@@ -336,11 +397,27 @@ export async function transferPlayer(
       ).error;
 
   if (joinErr) {
-    // The release above already happened, so say so rather than let the operator
-    // believe nothing did. Recoverable by hand: the player is on no team.
+    // Steps 1–3 have already landed: the player is released, their goalie days
+    // are gone and their upcoming lineups are deleted. There is no transaction
+    // here — supabase-js has none — so a half-finished transfer is a real
+    // outcome, and the only way anyone finds out what reached the database is
+    // this entry. `logAudit` swallows its own errors, so it cannot turn a failed
+    // transfer into a thrown one.
+    await logAudit({
+      user_id: manager.id,
+      action: "transfer_player_partial",
+      entity_type: "team_player",
+      entity_id: id,
+      league_id,
+      old_data: { ...existing, undressed_games: undressed },
+      new_data: { to_team_id, failed_at: "join", error: joinErr.message },
+    });
     return {
       ok: false,
-      message: `Released from the old team, but joining the new one failed: ${joinErr.message}`,
+      message:
+        `Released from the old team, but joining the new one failed: ${joinErr.message}. ` +
+        `The player is on no team and their upcoming lineups for the old team were ` +
+        `removed — the audit log has the details.`,
     };
   }
 

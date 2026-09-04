@@ -88,7 +88,9 @@ async function describeRefusal(admin: Admin, plan: Refusal): Promise<string> {
         .map((p) => p.display_name ?? "an unnamed account")
         .join(" and ");
       return (
-        `Two user accounts are linked to these records` +
+        // Counted, not assumed. The refusal fires on more than one, and a
+        // three-way cluster can carry three linked records.
+        `${plan.playerIds.length} of these records are linked to user accounts` +
         (names ? ` (${names})` : "") +
         `. Merging would leave both accounts controlling one player — and a ` +
         `captain's write access is resolved through that link, so both would ` +
@@ -270,12 +272,51 @@ export async function mergePlayers(
   if (!plan.ok) return { ok: false, message: await describeRefusal(admin, plan) };
 
   const names = await playerNames(admin, mergeSet);
+
   const before = {
     keep_id: keepId,
     absorbed: absorbIds,
     absorbed_names: absorbIds.map((id) => names.get(id) ?? id),
     roster_rows: loaded.rosters.map((r) => r.id),
     game_rows: loaded.gameRowIds,
+  };
+
+  /**
+   * A merge that stopped partway, written down.
+   *
+   * Every failure from here on happens after at least one write has landed, and
+   * there is no transaction to unwind them — supabase-js has none. So a partial
+   * merge is a real outcome rather than a theoretical one, and the log is the
+   * only place anyone can find out how far it got: `before` holds every roster
+   * and game row id the plan was built from, which is what reconstructing the
+   * split by hand needs.
+   *
+   * Awaited rather than voided, like `logStaffChange` in people.ts and for the
+   * same reason — the runtime can freeze the function after the response and
+   * leave a voided promise unfinished, and this is the entry least worth
+   * losing. `logAudit` swallows its own errors, so it cannot turn a failed merge
+   * into a thrown one.
+   */
+  const partial = async (
+    step: string,
+    detail: string,
+  ): Promise<PlayersActionState> => {
+    await logAudit({
+      user_id: manager.id,
+      action: "merge_players_partial",
+      entity_type: "player",
+      entity_id: keepId,
+      league_id: leagueId,
+      old_data: before,
+      new_data: { failed_at: step, error: detail },
+    });
+    return {
+      ok: false,
+      message:
+        `${detail} The merge stopped partway and the records are now in a ` +
+        `half-merged state — the audit log records what it was working from. ` +
+        `Do not retry until someone has looked.`,
+    };
   };
 
   // Roster rows: the losers go before the survivors are repointed, or
@@ -285,14 +326,14 @@ export async function mergePlayers(
       .from("team_players")
       .delete()
       .in("id", plan.rosterDelete);
-    if (error) return { ok: false, message: `Could not remove the absorbed roster rows: ${error.message}` };
+    if (error) return partial("roster-delete", `Could not remove the absorbed roster rows: ${error.message}`);
   }
   if (plan.rosterKeep.length) {
     const { error } = await admin
       .from("team_players")
       .update({ player_id: keepId })
       .in("id", plan.rosterKeep);
-    if (error) return { ok: false, message: `Could not move the roster rows: ${error.message}` };
+    if (error) return partial("roster-repoint", `Could not move the roster rows: ${error.message}`);
   }
 
   // Same ordering for the same reason, per game: `unique (game_id, player_id)`
@@ -301,7 +342,7 @@ export async function mergePlayers(
   for (const g of plan.games) {
     if (g.deleteIds.length) {
       const { error } = await admin.from("game_rosters").delete().in("id", g.deleteIds);
-      if (error) return { ok: false, message: `Could not merge game ${g.gameId}: ${error.message}` };
+      if (error) return partial("game-rows", `Could not merge game ${g.gameId}: ${error.message}`);
     }
     const { error } = await admin
       .from("game_rosters")
@@ -312,7 +353,7 @@ export async function mergePlayers(
         pim: g.pim,
       })
       .eq("id", g.survivorId);
-    if (error) return { ok: false, message: `Could not merge game ${g.gameId}: ${error.message}` };
+    if (error) return partial("game-rows", `Could not merge game ${g.gameId}: ${error.message}`);
   }
 
   // Everything else that names a player by id. Each is a plain repoint: none of
@@ -327,7 +368,7 @@ export async function mergePlayers(
   ]);
   const repointErr = repointed.find((r) => r.error)?.error;
   if (repointErr) {
-    return { ok: false, message: `Could not repoint the absorbed records: ${repointErr.message}` };
+    return partial("repoint", `Could not repoint the absorbed records: ${repointErr.message}`);
   }
 
   // ⛔ LAST, and moving it up is not the harmless tidying it looks like.
@@ -339,7 +380,7 @@ export async function mergePlayers(
   // cascades the same way; the goalie-of-record columns are `set null`, which is
   // quieter still.
   const { error: pErr } = await admin.from("players").delete().in("id", absorbIds);
-  if (pErr) return { ok: false, message: `Could not delete the absorbed records: ${pErr.message}` };
+  if (pErr) return partial("players-delete", `Could not delete the absorbed records: ${pErr.message}`);
 
   // Dismissals that named an absorbed record are gone with it (both player
   // columns cascade), which is right: the judgement was about two records, and
