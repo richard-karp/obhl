@@ -18,6 +18,11 @@ const DEV_ACCOUNTS = [
   { label: "Captain", email: "captain@obhl.test" },
   { label: "One-league mgr", email: "single-league-lead@obhl.test" },
   { label: "One-league scorer", email: "single-league-scorer@obhl.test" },
+  // Six and seven: the League Office. Neither belongs to any league — the tier
+  // reaches every league without a membership row — so they are the only way to
+  // drive implicit membership from a browser.
+  { label: "Commissioner", email: "commissioner@obhl.test" },
+  { label: "Deputy", email: "deputy@obhl.test" },
 ];
 
 export default async function LoginPage({

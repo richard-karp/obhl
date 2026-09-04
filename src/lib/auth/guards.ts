@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSessionUser, type AppRole, type SessionUser } from "./session";
 import { isLeagueMember } from "./membership";
+import { officeTierOf } from "./office";
 
 /** Redirects to /login if not signed in. */
 export async function requireUser(): Promise<SessionUser> {
@@ -89,5 +90,40 @@ export async function requireLeagueManagerOf(
   const [first, ...rest] = await Promise.all(refs.map((ref) => ref()));
   if (!first || rest.some((id) => id !== first)) redirect("/");
   if (!(await isLeagueMember(user.id, first))) redirect("/");
+  return user;
+}
+
+/**
+ * The League Office pages, and the tier within them.
+ *
+ * ⛔ These are SERVER guards, and they are the ones that matter. The office page
+ * renders appoint and remove controls only for a commissioner, but rendering is
+ * not a restriction — a form action is reachable by anyone who can construct the
+ * request, which is the failure mode `ACCESS_CONTROL_HANDOFF.md`'s *Traps*
+ * section is about. Every office action calls `requireCommissioner` itself
+ * rather than trusting the page that drew the button.
+ *
+ * Note what does NOT gate these: `may_write_profile` and `mayWriteProfileOf`
+ * answer who may write a PROFILE, and appointing writes `league_office`. The
+ * precedence rule has nothing to say about it, so the tier is checked directly.
+ *
+ * Refusal is the same redirect as a wrong role — to the picker, the one page
+ * that needs no league and works for anybody signed in.
+ */
+export async function requireOfficeMember(): Promise<SessionUser> {
+  const user = await requireUser();
+  if (!(await officeTierOf(user.id))) redirect("/");
+  return user;
+}
+
+/**
+ * A commissioner specifically. A deputy sees the roster and changes nothing:
+ * "everything a commissioner can do, except the tier" is exactly what the
+ * strictly-above rule yields, and the tier is the one thing a deputy is not
+ * above.
+ */
+export async function requireCommissioner(): Promise<SessionUser> {
+  const user = await requireUser();
+  if ((await officeTierOf(user.id)) !== "commissioner") redirect("/");
   return user;
 }

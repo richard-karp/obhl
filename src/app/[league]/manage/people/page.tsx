@@ -7,6 +7,9 @@ import {
 } from "@/components/manage/create-staff-form";
 import { StaffRowActions } from "@/components/manage/staff-row-actions";
 import { memberLeagueIds } from "@/lib/auth/membership";
+import { listOfficeTiers } from "@/lib/auth/office";
+import { emailsByProfileId } from "@/lib/auth/users";
+import { decideProfileWrite } from "@/lib/auth/precedence";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -26,6 +29,13 @@ const ROLE_LABEL: Record<string, string> = {
   captain: "Captain",
 };
 
+// Fixed here and in League Office so the two surfaces cannot drift. Audit prose
+// says "a commissioner" and "a deputy commissioner"; these are the column form.
+const OFFICE_LABEL: Record<string, string> = {
+  commissioner: "Commissioner",
+  deputy: "Deputy",
+};
+
 export default async function PeoplePage({
   params,
 }: {
@@ -43,7 +53,15 @@ export default async function PeoplePage({
     .from("profile_leagues")
     .select("profile_id")
     .eq("league_id", ctx.league.id);
-  const memberIds = (members ?? []).map((m) => m.profile_id);
+  const leagueMemberIds = (members ?? []).map((m) => m.profile_id);
+
+  // The office is unioned in EXPLICITLY. Its members reach every league without
+  // holding a `profile_leagues` row for any of them, so the query above cannot
+  // see them and no amount of widening it would — the row does not exist. They
+  // are listed because a manager looking at their own league's staff should see
+  // everyone who can act in it, and their rows are read-only here.
+  const officeTiers = await listOfficeTiers();
+  const memberIds = [...new Set([...leagueMemberIds, ...officeTiers.keys()])];
 
   const [{ data: profiles }, { data: allMemberships }] = await Promise.all([
     memberIds.length
@@ -75,40 +93,10 @@ export default async function PeoplePage({
     }));
   }
 
-  // Addresses for THIS league's staff, asked for by id, a bounded number at a
-  // time.
-  //
-  // This was `listUsers({ perPage: 1000 })` — one page of the instance's auth
-  // users, joined against. A page says nothing about the rest, so past the
-  // thousandth auth user staff would start vanishing from this table with no
-  // error anywhere.
-  //
-  // Paging that call would answer the truncation too, and is the worse trade:
-  // there is no batch-lookup-by-id in the admin API, so paging means reading the
-  // whole auth table, and each page has to come back before the next can be
-  // asked for. That is 50 serial round trips at ten thousand users, where asking
-  // per member is one wave of however many staff this league has. The cost
-  // tracks the league, which is what this page is about, rather than the
-  // instance, which only grows.
-  //
-  // Capped anyway. `Promise.all` over the whole list would fire one request per
-  // member with nothing bounding it, and a league with hundreds of staff would
-  // open hundreds of admin connections at once to render a table.
-  const LOOKUP_AT_A_TIME = 10;
-  const emailById = new Map<string, string>();
-  for (let i = 0; i < memberIds.length; i += LOOKUP_AT_A_TIME) {
-    const looked = await Promise.all(
-      memberIds.slice(i, i + LOOKUP_AT_A_TIME).map(async (id) => {
-        const { data, error } = await admin.auth.admin.getUserById(id);
-        // A lookup that failed is not an account without an address, and the
-        // two used to render identically — so a rate-limited page read as staff
-        // who simply have no email.
-        if (error) return [id, "(address unavailable)"] as const;
-        return [id, data.user?.email ?? "—"] as const;
-      }),
-    );
-    for (const [id, email] of looked) emailById.set(id, email);
-  }
+  // Addresses for everyone the table will show. The strategy, and why it is not
+  // `listUsers`, is on `emailsByProfileId`.
+  const emailById = await emailsByProfileId(admin, memberIds);
+
   const staff = (profiles ?? [])
     .map((p) => ({ ...p, email: emailById.get(p.id) ?? "—" }))
     .sort((a, b) => (a.role ?? "").localeCompare(b.role ?? ""));
@@ -128,8 +116,21 @@ export default async function PeoplePage({
   for (const m of allMemberships ?? []) {
     leaguesOf.set(m.profile_id, [...(leaguesOf.get(m.profile_id) ?? []), m.league_id]);
   }
-  const canChangeRole = (id: string) =>
-    (leaguesOf.get(id) ?? []).every((l) => viewerLeagues.has(l));
+  // The SAME rule the server applies, not a second statement of it. What renders
+  // and what `updateStaffRole` permits have to agree, and they now agree by
+  // construction rather than by two pieces of logic being kept in step by hand.
+  // Containment stays the tier-0 test; `decideProfileWrite` ignores it above that.
+  const viewerTier = officeTiers.get(viewer.id) ?? null;
+  // BOTH of `updateStaffRole`'s gates, in the same order, or the row offers what
+  // the server refuses. `decideProfileWrite` is the precedence half; the second
+  // clause is the demotion half — a manager may not unmake a peer, and the
+  // office is the tier that can.
+  const canChangeRole = (id: string, role: string | null) =>
+    decideProfileWrite(
+      viewerTier,
+      officeTiers.get(id) ?? null,
+      (leaguesOf.get(id) ?? []).every((l) => viewerLeagues.has(l)),
+    ) && (role !== "league_manager" || viewerTier !== null);
 
   return (
     <div className="space-y-6">
@@ -176,14 +177,19 @@ export default async function PeoplePage({
                 <TableCell className="text-muted-foreground">
                   {s.display_name ?? "—"}
                 </TableCell>
-                <TableCell>{ROLE_LABEL[s.role ?? ""] ?? "—"}</TableCell>
+                <TableCell>
+                  {OFFICE_LABEL[officeTiers.get(s.id) ?? ""] ??
+                    ROLE_LABEL[s.role ?? ""] ??
+                    "—"}
+                </TableCell>
                 <TableCell>
                   <StaffRowActions
                     id={s.id}
                     role={s.role ?? "scorekeeper"}
                     leagueId={ctx.league.id}
                     canRemove={s.id !== viewer.id}
-                    canChangeRole={canChangeRole(s.id)}
+                    canChangeRole={canChangeRole(s.id, s.role)}
+                    officeTier={officeTiers.get(s.id) ?? null}
                   />
                 </TableCell>
               </TableRow>

@@ -8,101 +8,100 @@
    (383 lines); nothing outstanding depends on it.
 2. ⛔ **Hazards, before any instruction:**
    - `supabase db reset --linked` **wipes production**. Use `db push`.
-   - **Items 1 and 2 are live exposure, not backlog.** Anyone with the URL may
-     currently hold a manager session. Do them before any code work.
+   - ⚠️ **The lockout risk is now REAL, not hypothetical.** Items 1 and 2 are
+     closed, so dev-login and the seeded accounts are both gone — and with them
+     every verified way into production's manage tools. If the JWT hook, SMTP or
+     the redirect allow-list is broken, recovery is SQL against production. See
+     *Getting locked out*.
    - **Mutating** `gh` (`pr create`, `pr merge`) and `vercel env` are denied to
      an agent under the auto-mode classifier — ask a human, do not work around
      it. **Read-only `gh` works**: `run list`, `run view`, `run download`. On a
      red CI run, pull the artifact and read `error-context.md` yourself; its
      page snapshot has twice settled in seconds what guessing got wrong.
-3. Every number here was **watched appear** on 2026-09-02. Where a claim is a
-   reading of the code rather than a measurement, it says so in those words.
-   ⚠️ Of production, **only the schema has been read** — `0029`-`0032` are on
-   Remote (2026-09-02). `0033` is **not**, and pushing it is item 3: that is the
-   one `db push` this file asks for, and it is a human's to run. Env vars and
-   the auth user list are unread: items 0-2 are expectations to confirm, never
-   findings.
+3. Every number here was **watched appear**. Where a claim is a reading of the
+   code rather than a measurement, it says so in those words.
+   ⚠️ Production was read on **2026-09-04**: `migration list --linked` shows
+   `0001`-`0038` on both Local and Remote — no gaps, no drift — and
+   `vercel env ls` shows `ENABLE_DEV_LOGIN` absent from every environment. The
+   auth user list is still **unread from here**; item 2 was closed by a human and
+   is taken on report, not measured.
 4. Verify code changes with `npm test && npm run test:e2e`. Measured on
-   `fix/staff-list-paging-and-guard`, one full local run, 2026-09-02: **250
-   unit; 127 e2e passed / 1 skipped / 0 failed.** The skip is the AI-summary
-   test, gated on an API key — not a regression. ⚠️ The e2e count moves with
-   every merge; re-measure rather than quoting it.
+   `feat/league-office` after merging `main`, 2026-09-04: **290 unit; 144 e2e
+   passed / 1 skipped / 0 failed.** The skip is the AI-summary test, gated on an
+   API key — not a regression. ⚠️ The counts move with every merge; re-measure
+   rather than quoting them.
+   ⛔ **Run e2e against a dev server belonging to YOUR worktree.** Every worktree
+   runs `npm run dev` on port 3000 and Playwright's `reuseExistingServer` takes
+   whichever is already up — so a suite can silently drive another branch's code
+   and report it as yours. That produced nine phantom failures on 2026-09-04.
+   `lsof -ti:3000` before believing a red run; a spare port sidesteps it.
 
-**Status: the code is closed; the doors are not.** #13, #14, #17 and #18 are in
-`main`, and `fix/staff-list-paging-and-guard` closes what reviewing #18 turned
-up: the cross-league escalation in the app AND in RLS, the audit gaps, and the
-staff-list truncation. What is left needs a human with production access —
-**two open doors, one migration to push, and five unverified `LAUNCH.md`
-phases.** Nothing below can be done from a checkout.
+**Status: both doors are shut and every migration is pushed.** As of 2026-09-04
+`ENABLE_DEV_LOGIN` is gone from every Vercel environment, the seeded accounts are
+deleted, and production carries `0001`-`0038` — including `0037`, which fixed
+GAA being inflated by empty-net goals on live pages.
+
+**What remains is item 4: the five `LAUNCH.md` phases, never verified.** That is
+the whole of the launch gap now, and it needs a human on production. Item 5 is
+deferred odds and ends.
 
 ## Next action
 
-⛔ **Item 0 gates item 1.** The dev-login panel is the only *verified* way into
-production's manage tools, and removing it without a working real sign-in locks
-everyone out **silently** — recovery is SQL against production. Why it fails
-quietly is under *Getting locked out* below.
+**Walk `LAUNCH.md` Phases 2-6 on production.** Nothing else is outstanding that a
+checkout can see, and nothing below can be done from one.
 
-So first, on `obhl.vercel.app`, as a **real** (non-`@obhl.test`) manager:
-request a magic link, sign in, confirm `/manage/dashboard` shows the Manager
-badge. If it fails, `LAUNCH.md` Phase 2; if no such account exists, Phase 4.
+⛔ **Read *Getting locked out* first.** `getSessionUser` reads the role from the
+JWT claim with no database fallback, so a real manager whose claim is missing
+gets a signed-in session with no role and no way in — and with dev-login now
+removed, recovery is SQL against production. That risk went UP when item 1
+closed, not down.
 
-**Then item 1, then item 2. Both need a human.** Item 1 is one command:
+## The five items, and where they stand
 
-    vercel env rm ENABLE_DEV_LOGIN production && vercel --prod
-
-Confirm at https://obhl.vercel.app/login that the "Quick sign-in (test mode)"
-panel is gone. **That does not finish the job** — go straight to item 2, which
-is a separate door the same person is best placed to close.
-
-## Open, in priority order
-
-| # | Item | Where | Cost |
+| # | Item | Where | Status |
 |---|---|---|---|
-| 1 | `ENABLE_DEV_LOGIN` still set on production | Vercel env | one command |
-| 2 | Seeded test accounts live on production, password in git | Supabase dashboard | ~10 min |
-| 3 | **`0033` not pushed** — the RLS half of the escalation | `supabase db push` | one command |
-| 4 | `LAUNCH.md` Phases 2-6 never verified | production | below |
-| 5 | Smaller deferred items | below | — |
+| 1 | `ENABLE_DEV_LOGIN` set on production | Vercel env | ✅ **closed 2026-09-04** — absent from every environment (`vercel env ls`) |
+| 2 | Seeded test accounts live, password in git | Supabase dashboard | ✅ **closed 2026-09-04** — done by a human; not verifiable from a checkout |
+| 3 | `0033` not pushed — the RLS half of the escalation | `supabase db push` | ✅ **closed** — and `0034`-`0038` with it |
+| 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | **OPEN** — below |
+| 5 | Smaller deferred items | below | open |
 
-Item 3 is new and it is a real gap, not a tidy-up. 0032 gated
-`manager write profiles` on *sharing* a league, which a manager can arrange:
-grant someone a league you manage (permitted, and the flow the model exists
-for), then rewrite the role that grant now lets you reach. Both steps were
-watched succeeding through an ordinary session on the anon key — no admin
-client, no app page. `0033_profile_write_containment.sql` swaps that policy for
-containment; until it is pushed, the app guard is the only one holding on
-production. It holds for every path through the site, so this is a second layer
-missing, not an open door.
+⛔ **Do not re-file 1-3.** They are kept as rows, rather than deleted, because a
+reader who knows this file by its old shape will otherwise assume they were
+forgotten. The reasoning behind each is under *Closed doors* below.
 
 ---
 
-## 1 & 2 — Two doors, and closing one leaves the other open
+## Closed doors — 1, 2 and 3, and why they mattered
 
-`ENABLE_DEV_LOGIN=true` on a production build turns on the one-click role
-buttons (`devLoginEnabled()`, `src/lib/auth/dev-login.ts`). Removing it hides
-that panel.
+**1. `ENABLE_DEV_LOGIN`** turned on the one-click role buttons
+(`devLoginEnabled()`, `src/lib/auth/dev-login.ts`) on a production build.
+Removed 2026-09-04; measured absent from Production, Preview and Development.
 
-**It does not lock out the seeded accounts.** `scripts/seed-users.mjs` sets a
-password constant that is committed to this repo, and Supabase's password grant
-is reachable with the anon key — so those accounts are a way in regardless of
-any application setting, and regardless of what is deployed. `LAUNCH.md` Phase 1
-has said so since it was written; the box is still unticked.
+**2. The seeded accounts** were a separate door, and removing item 1 did not
+close it: `scripts/seed-users.mjs` sets a password constant committed to this
+repo, and Supabase's password grant is reachable with the anon key — so those
+accounts were a way in regardless of any application setting. Seven exist now
+(`commissioner@` and `deputy@` joined with the League Office). Deleted on
+production 2026-09-04.
 
-Five accounts are seeded (measured — `grep` over `scripts/seed-users.mjs`):
+⚠️ **The mechanism is still live for anyone who re-seeds.** The password is still
+in git and always will be; a fresh `npm run seed:users` against a production
+database re-opens this door in one command. It is safe only because nobody runs
+it there.
 
-    manager@obhl.test          scorekeeper@obhl.test      captain@obhl.test
-    single-league-lead@obhl.test    single-league-scorer@obhl.test
+**3. `0033`** swapped `manager write profiles` from *sharing* a league — which a
+manager can arrange — to containment. Both steps of that escalation were once
+watched succeeding on the anon key. Pushed, along with `0034`-`0038`.
 
-⚠️ **`LAUNCH.md:33` names only the first three.** The last two arrived with
-#13's membership tests. Following that checklist literally leaves a **manager**
-account (`single-league-lead@`) live with a known password.
+## The League Office (`0034`) — live but dormant
 
-*Reading, not a measurement:* which of the five exist on production is unknown
-from here. The previous handoff observed `/manage/people` listing "all three
-staff profiles", which suggests only the original three — but that was written
-before the other two were seeded. **Check the Supabase auth user list directly.**
-Deleting them is dashboard work: Authentication → Users. A `db reset --linked`
-does *not* remove `auth.users`, so there is no shortcut.
+`0034` is applied to production (2026-09-04, `--include-all`, because it sorts
+below `0035`-`0038` which shipped first). **It changes no behaviour until someone
+is appointed:** `league_office` starts empty, so `my_office_tier()` is null for
+every account and `may_write_profile` reduces to exactly `0033`'s containment
+test. Appointing the first commissioner is *The first commissioner* below, and
+until that is done nobody holds the tier.
 
 ## Reference — the audit log is closed; the trap under it is not
 
@@ -114,8 +113,11 @@ Every exported action now writes an entry. The one exception is
 a null league is filtered out of every league-scoped view *and* hidden by RLS —
 so a `logAudit` call added alone writes an entry that is **correct and never
 appears**. Add the type to that switch in the same change, and prove it by
-knocking the case out and watching a test go red. Both new cases —
-`announcement` and `league` — were watched failing that way.
+knocking the case out and watching a test go red. `announcement` and `league`
+were watched failing that way; `office` and `player` were added later and are
+listed explicitly for the same reason — ⚠️ note that deleting either changes
+NOTHING, since `default` also returns null, so the regression to simulate is a
+case that starts *resolving* a league. That was watched too.
 
 An action that DESTROYS what it logs cannot use the switch at all: pass
 `league_id` on the entry instead, resolved before the delete.
@@ -142,7 +144,13 @@ the Custom Access Token hook is disabled, sign-in still appears to succeed and
 every user has `role: null`, reaching no manage tools at all. A missing SMTP
 config or redirect-allow-list entry breaks it one step earlier, at the magic
 link. Any of the three, with the dev-login panel already removed and the seeded
-accounts deleted, leaves no way in but SQL. That is why item 0 exists.
+accounts deleted, leaves no way in but SQL.
+
+⛔ **That is now the standing state, not a warning about a future one.** Both
+doors closed on 2026-09-04, and whether a real magic-link sign-in works has still
+never been confirmed. Doing that — on `obhl.vercel.app`, as a real
+(non-`@obhl.test`) manager, checking `/manage/dashboard` shows the Manager badge
+— is the single highest-value action left in this file.
 
 **`LAUNCH.md` Phases 2-6 are unverified from here.** This file speaks only to
 Phase 1 (the test doors). The site is live with two leagues, so most of the rest
@@ -202,6 +210,47 @@ All six sites in `e2e/16-league-membership.spec.ts` now go through one
 is submitted. **Keep new attack tests on that helper** — a raw `.value` write in
 this file is a bug, and there should be exactly one, inside the helper itself.
 
+## The first commissioner (League Office, `0034`)
+
+Read this whole section before running anything; the block at the bottom is
+copy-paste and has no commentary after it.
+
+The League Office tier is **peer-flat** — no commissioner outranks another — so
+the first one cannot be created from the app, by anyone. That is deliberate: it
+is the same shape as manager demotion, and it means no single compromised office
+account can empty the tier. Locally `scripts/seed-users.mjs` appoints one; on
+production it is this.
+
+Three things the snippet depends on, all enforced by `0034`:
+
+- **The account must already exist and hold `role = 'league_manager'`.** A
+  trigger refuses a tier for any other role, and it is not a formality: the
+  office multiplies REACH, not ROLE, so a captain in the office would gain
+  cross-league visibility and no manager powers at all.
+- **Nothing touches `profile_leagues`.** The tier is purely additive, so removing
+  it later restores exactly the reach the person had before, with no repair step.
+- **`league_office` is granted to nobody** — not even `select`. Run this as the
+  service role / SQL editor, not through PostgREST.
+
+⚠️ Changing that person's role afterwards is refused while the tier is held; a
+second trigger enforces the documented order — remove the tier first, then the
+role is changeable.
+
+Replace the address, run it in the Supabase SQL editor, and expect exactly one
+row back. If it returns none, the account does not exist or is not a manager.
+
+COPY FROM HERE
+```sql
+insert into league_office (profile_id, tier)
+select p.id, 'commissioner'
+from profiles p
+join auth.users u on u.id = p.id
+where u.email = 'REPLACE@example.com'
+  and p.role = 'league_manager'
+returning profile_id, tier;
+```
+END COPY
+
 ## 5 — Smaller, deliberately deferred
 
 - **`saveRules` read-then-upsert is not atomic** — two concurrent saves both
@@ -232,6 +281,17 @@ this file is a bug, and there should be exactly one, inside the helper itself.
   **e2e job's** env, which flows through `npm run dev` to the generator — no
   code change, `envInt` already reads it. **Raise the budget; never loosen the
   assertion.**
+- **Every worktree runs `npm run dev` on port 3000.** Playwright's
+  `reuseExistingServer` takes whichever server is already up, so a suite can
+  drive another branch's code and report the result as yours. Nine phantom
+  failures on 2026-09-04 before `ps` named the culprit. Check `lsof -ti:3000`.
+- **A migration can reach production without reaching the repo.** `0036` was
+  `db push`ed from a worktree while its file was uncommitted, so for a day
+  production carried a column no checkout described and `db push` refused from
+  every branch. Closed by #21. If `migration list --linked` ever shows a Remote
+  version with no Local one, look for an uncommitted file before running the
+  `migration repair --status reverted` the CLI suggests — that command would have
+  deleted production's record of a change it had really applied.
 - Supabase CLI 2.104 → 2.116, Vercel CLI 55 → 59.11.
 
 ## Provenance
@@ -239,6 +299,13 @@ this file is a bug, and there should be exactly one, inside the helper itself.
 Items 1, 2 and 4 come from `LAUNCH.md`, which remains the operational runbook —
 this file records only what is still outstanding in it. Item 3 came out of the
 PR #13 review on 2026-09-02.
+
+Items 1, 2 and 3 were closed on 2026-09-04 alongside the League Office work
+(`docs/worklists/2026-09-03-678b2916-league-office.md`, PR #22) and the roster
+import and transfers work (PRs #20 and #21). The League Office worklist holds the
+probe evidence behind `0034` — two silent traps and a trigger race, each watched
+failing before being trusted. **Do not open it to resume**; everything still
+outstanding is in this file.
 
 The work that closed the cross-league escalation and the audit gaps was tracked
 in `docs/worklists/2026-09-02-085d26f3-cross-league-and-audit.md`, now marked

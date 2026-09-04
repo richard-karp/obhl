@@ -1061,7 +1061,7 @@ test.describe("Path 17 — Per-league membership", () => {
       const row = page
         .locator("table tbody tr")
         .filter({ hasText: "single-league-lead@obhl.test" });
-      await expect(row.getByText("Role changed by hand")).toBeVisible();
+      await expect(row.getByText("Role changed by a commissioner")).toBeVisible();
       await expect(row.getByLabel("Change role")).toHaveCount(0);
       await submitAndSettle(
         page,

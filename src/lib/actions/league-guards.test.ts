@@ -64,7 +64,22 @@ const NO_LEAGUE_ACTIONS: Record<string, string> = {
   "import.ts:runEsportsdeskImport": "creates the league it would be guarded against",
   "import-rosters.ts:runRosterOnlyImport":
     "creates the league it would be guarded against",
+  // The office is instance-wide and belongs to no league, so there is no league
+  // to be a member of. These are NOT unguarded: both call `requireCommissioner`,
+  // and the test below insists on it, so this allowlist cannot become a way in.
+  "office.ts:appointDeputy": "no league; guarded by requireCommissioner",
+  "office.ts:removeDeputy": "no league; guarded by requireCommissioner",
 };
+
+/**
+ * The office's own guard, since the league one does not apply to it.
+ *
+ * Without this, listing an action in `NO_LEAGUE_ACTIONS` would exempt it from
+ * every check in this file — and the next office action added would only have to
+ * be named there to pass with no guard at all. "Has no league" must not be
+ * allowed to mean "needs no guard".
+ */
+const OFFICE_ACTIONS_FILE = "office.ts";
 
 /**
  * Any of these means the file asked the league question. Anchored on `await`
@@ -133,6 +148,16 @@ describe("league-scoped guards", () => {
         if (id in NO_LEAGUE_ACTIONS) return false;
         return !GUARD_CALLS.some((call) => body.includes(`await ${call}`));
       })
+      .map(({ id }) => id);
+    expect(unguarded).toEqual([]);
+  });
+
+  it("guards every League Office action with requireCommissioner", () => {
+    const actions = exportedActions(OFFICE_ACTIONS_FILE);
+    // The file exists and has actions in it, so a green here means something.
+    expect(actions.length).toBeGreaterThan(0);
+    const unguarded = actions
+      .filter(({ body }) => !body.includes("await requireCommissioner("))
       .map(({ id }) => id);
     expect(unguarded).toEqual([]);
   });

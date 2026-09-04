@@ -68,6 +68,36 @@ const staff = [
     display_name: "Single League Scorer",
     leagues: ["obhl"],
   },
+  // ⛔ SIX AND SEVEN ARE NEW ACCOUNTS, NEVER AN ELEVATED FIXTURE. Giving
+  // `manager@obhl.test` a tier would hand office powers to every test that signs
+  // in as Manager, and the cross-league guards would stop being exercised while
+  // still reporting green — the same failure the note above describes for the
+  // one-league accounts. All five above stay exactly as they are.
+  //
+  // `leagues: []` is the whole point of them. The office reaches every league
+  // WITHOUT a `profile_leagues` row, so an account with memberships would prove
+  // nothing about implicit membership — it would pass whether the office branch
+  // worked or not.
+  //
+  // Both are `league_manager`, and must be: 0034's trigger refuses a tier for
+  // any other role, and the tier multiplies reach rather than granting a role,
+  // so a captain in the office would have no manager powers at all.
+  {
+    email: "commissioner@obhl.test",
+    role: "league_manager",
+    display_name: "League Commissioner",
+    leagues: [],
+    office: "commissioner",
+    // A commissioner who also plays — see `findNonCaptainPlayer`.
+    playsAsNonCaptain: true,
+  },
+  {
+    email: "deputy@obhl.test",
+    role: "league_manager",
+    display_name: "Deputy Commissioner",
+    leagues: [],
+    office: "deputy",
+  },
 ];
 
 /** slug -> league id, for the membership rows below. */
@@ -75,6 +105,29 @@ async function leagueIdsBySlug() {
   const { data, error } = await admin.from("leagues").select("id, slug");
   if (error) throw new Error(`could not read leagues: ${error.message}`);
   return new Map((data || []).map((l) => [l.slug, l.id]));
+}
+
+/**
+ * A player who captains nothing, for the commissioner.
+ *
+ * A commissioner may also PLAY, and this is where that stops being an assumption:
+ * `profiles.player_id` is what the captain surfaces key on, not `role`, so the
+ * office account carries a real player link.
+ *
+ * It must not be a CAPTAIN's player. Both consumers of `player_id`
+ * (`manage/score/[gameId]` and `games.ts`) join `team_players` on
+ * `is_captain = true`, so pointing two profiles at one captain's player would
+ * hand the commissioner that team's captain surface and change what the captain
+ * fixtures mean. A non-captain link is inert to both.
+ */
+async function findNonCaptainPlayer() {
+  const { data: caps } = await admin
+    .from("team_players")
+    .select("player_id")
+    .eq("is_captain", true);
+  const captains = new Set((caps || []).map((r) => r.player_id));
+  const { data: players } = await admin.from("players").select("id").order("id");
+  return (players || []).find((p) => !captains.has(p.id))?.id ?? null;
 }
 
 async function findCaptainPlayer(slug) {
@@ -134,11 +187,39 @@ for (const s of staff) {
   }
   const player_id = s.captainTeamSlug
     ? await findCaptainPlayer(s.captainTeamSlug)
-    : null;
+    : s.playsAsNonCaptain
+      ? await findNonCaptainPlayer()
+      : null;
+
+  // ⛔ A commissioner with no player link is a seed FAILURE, not a quieter
+  // success. The link is the whole of "a commissioner may also play", and
+  // without it that case stops being exercised while every test still reports
+  // green — the same shape as the truncation this script's header exists to
+  // prevent. Loud, like an unknown league slug.
+  let playerError = null;
+  if (s.playsAsNonCaptain && !player_id) {
+    playerError = "no non-captain player to link (seed.sql has none spare?)";
+    failures++;
+  }
   const { error } = await admin
     .from("profiles")
     .upsert({ id: userId, role: s.role, display_name: s.display_name, player_id });
   if (error) failures++;
+
+  // The tier, after the profile exists and holds `league_manager` — 0034's
+  // trigger reads the role and refuses otherwise, so the order here is not
+  // cosmetic. Idempotent, so re-seeding an existing office account is a no-op
+  // rather than a primary-key error.
+  let officeError = null;
+  if (s.office) {
+    const { error: oErr } = await admin
+      .from("league_office")
+      .upsert({ profile_id: userId, tier: s.office }, { onConflict: "profile_id" });
+    if (oErr) {
+      officeError = oErr.message;
+      failures++;
+    }
+  }
 
   // Membership. 0032's backfill cannot do this: `db reset` runs the migrations
   // and seed.sql (which creates the leagues) before this script creates the
@@ -166,9 +247,12 @@ for (const s of staff) {
   const where = wanted.join(", ") || "no leagues";
   console.log(
     `${s.email} -> ${s.role} [${where}]` +
+      `${s.office ? ` {${s.office}}` : ""}` +
       `${error ? ` ERROR: ${error.message}` : ""}` +
       `${memberError ? ` MEMBERSHIP ERROR: ${memberError}` : ""}` +
-      `${!error && !memberError ? " ok" : ""}`,
+      `${officeError ? ` OFFICE ERROR: ${officeError}` : ""}` +
+      `${playerError ? ` PLAYER ERROR: ${playerError}` : ""}` +
+      `${!error && !memberError && !officeError && !playerError ? " ok" : ""}`,
   );
 }
 

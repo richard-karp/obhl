@@ -7,6 +7,8 @@ import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { AuditSessionList, type AuditSession } from "@/components/manage/audit-session-list";
 import { revertAuditEntries } from "@/lib/actions/audit";
+import { OfficeAuditNotice } from "@/components/manage/office-audit-notice";
+import { recentOfficeAudit } from "@/lib/audit";
 
 export default async function AuditLogPage({
   params,
@@ -21,6 +23,12 @@ export default async function AuditLogPage({
   const cookieStore = await cookies();
   const currentSessionId = cookieStore.get("audit_session")?.value ?? null;
 
+  // League Office changes, as a band rather than rows in this log. They carry no
+  // league — one act reaches all of them — so the query below cannot see them
+  // and should not: a manager would get N rows about people who never worked
+  // here, none of which they can act on.
+  const officeLog = await recentOfficeAudit(5);
+
   const { data: rows } = await admin
     .from("audit_log")
     .select("id, created_at, user_id, action, entity_type, entity_id, new_data, old_data, session_id")
@@ -29,10 +37,15 @@ export default async function AuditLogPage({
     .order("created_at", { ascending: false })
     .limit(500);
 
+  const officeBand = (
+    <OfficeAuditNotice entries={officeLog} heading="League Office changes" />
+  );
+
   if (!rows || rows.length === 0) {
     return (
       <div className="space-y-6">
         <PageHeader title="Audit Log" description="Recent staff actions" />
+        {officeBand}
         <EmptyState title="No actions logged yet" />
       </div>
     );
@@ -266,6 +279,7 @@ export default async function AuditLogPage({
   return (
     <div className="space-y-6">
       <PageHeader title="Audit Log" description="Recent staff actions" />
+      {officeBand}
       <AuditSessionList
         sessions={sessions}
         leagueId={league.id}

@@ -1,6 +1,8 @@
 import "server-only";
 import { cache } from "react";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { officeTierOf } from "./office";
+import { decideProfileWrite } from "./precedence";
 import type { LeagueOption } from "@/lib/league/current";
 
 /**
@@ -16,11 +18,29 @@ import type { LeagueOption } from "@/lib/league/current";
  *
  * Memoized per request: a page, its layout and the action it submits to all ask
  * the same question, and the answer cannot change mid-render.
+ *
+ * THE OFFICE BRANCH IS THE ONE EDIT THAT DELIVERS CROSS-LEAGUE REACH APP-SIDE.
+ * Everything downstream is fed from here — `isLeagueMember` (so every guard),
+ * `getMemberLeagues` (the switcher), `mayWriteProfileOf`, and the People page's
+ * viewer set — so widening it here widens all of them at once, and there is no
+ * second place to keep in step. It mirrors the `my_office_tier() is not null`
+ * branch inside 0034's `is_league_member`.
+ *
+ * "Every league, present and future" is resolved at call time rather than
+ * stored, which is the whole reason 0034 rejected giving the office real
+ * `profile_leagues` rows: a league created later is included by construction
+ * instead of by remembering to backfill it.
  */
 export const memberLeagueIds = cache(async function memberLeagueIds(
   profileId: string,
 ): Promise<string[]> {
   const admin = createAdminClient();
+
+  if (await officeTierOf(profileId)) {
+    const { data } = await admin.from("leagues").select("id");
+    return (data ?? []).map((r) => r.id);
+  }
+
   const { data } = await admin
     .from("profile_leagues")
     .select("league_id")
@@ -37,57 +57,108 @@ export async function isLeagueMember(
   return (await memberLeagueIds(profileId)).includes(leagueId);
 }
 
-/** The leagues this profile belongs to, for the manage switcher. */
+/**
+ * The leagues this profile belongs to, for the manage switcher.
+ *
+ * The office is answered directly rather than through `memberLeagueIds`, which
+ * for an office member selects every league id only for this function to ask the
+ * same table again for the rows behind them.
+ */
 export async function getMemberLeagues(
   profileId: string,
 ): Promise<LeagueOption[]> {
+  const admin = createAdminClient();
+  const select = () =>
+    admin.from("leagues").select("id, name, slug").order("created_at", { ascending: true });
+
+  if (await officeTierOf(profileId)) {
+    const { data } = await select();
+    return data ?? [];
+  }
+
   const ids = await memberLeagueIds(profileId);
   if (ids.length === 0) return [];
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("leagues")
-    .select("id, name, slug")
-    .in("id", ids)
-    .order("created_at", { ascending: true });
+  const { data } = await select().in("id", ids);
   return data ?? [];
 }
 
 /**
  * May this actor rewrite the profile of an account that already exists?
  *
- * The app-side twin of 0032's `manager write profiles` policy, and needed
- * because `people.ts` writes on the ADMIN client — the policy's
- * `shares_league_with` test never runs on that path. `profiles.role` is one
- * instance-wide column (0009 reads it as the role source, 0010's hook copies it
- * into the JWT), so a write here lands in EVERY league the account belongs to,
- * not only the league the form was submitted from.
+ * The app-side twin of 0034's `may_write_profile`, and needed because
+ * `people.ts` writes on the ADMIN client — no policy runs on that path.
+ * `profiles.role` is one instance-wide column (0009 reads it as the role source,
+ * 0010's hook copies it into the JWT), so a write here lands in EVERY league the
+ * account belongs to, not only the league the form was submitted from.
  *
- * The test is therefore CONTAINMENT, not overlap: every league the target works
- * must be one the actor works too. Sharing *a* league is not enough, and 0032's
- * `shares_league_with(id)` is not a second chance for the same reason — adding
- * an existing account at the role it already holds is permitted on purpose and
- * grants membership, so that first step manufactures the very shared league an
- * overlap test looks for, and the write behind it then passes.
+ * ⚠️ THIS AND `may_write_profile` (0034) ARE ONE RULE WRITTEN TWICE, and must be
+ * reviewed as a pair: the same branches, in the same order. They are the app half
+ * and the RLS half of the same question.
  *
- * An account in no league at all passes vacuously, which is what keeps "removed
- * by mistake, add them back" working: `removeStaff` revokes the membership and
- * leaves exactly that shape, and a stricter reading would strand the account
- * with nobody able to re-add it.
+ * That question is WHO MAY WRITE THIS PROFILE, and the pair is exhaustive of it.
+ * It is not exhaustive of every constraint on a profile write: 0034's triggers
+ * separately pin one COLUMN's value while a tier is held, so a commissioner who
+ * passes this test may still write a deputy's `display_name` or `player_id` and
+ * still be refused their `role` until the tier is removed. Two different
+ * questions, not a contradiction — but do not read agreement here as permission
+ * for any particular column.
  *
- * Both callers have already established that the actor is a manager — and a
- * manager of every league they belong to, since 0009 reads one instance-wide
- * role — so a write that passes this hands out no authority the actor does not
- * already hold.
+ * The rule: YOU MAY WRITE A PROFILE ONLY IF YOUR TIER IS STRICTLY ABOVE THEIRS.
+ * Commissioner over everyone but a commissioner; deputy over everyone outside
+ * the office; a league manager over tier-0 accounts whose leagues theirs
+ * contain. Peers fail at every tier, which is "peers" stated once instead of
+ * three times.
+ *
+ * ⛔ The office is refused EXPLICITLY at tier 0 rather than left to containment.
+ * The two halves fail in OPPOSITE directions here, which is exactly why they are
+ * written twice and read together:
+ *
+ *   - In SQL, `contains_leagues_of` reads `profile_leagues` directly. An office
+ *     member has no rows, so "is there a league of theirs that is not mine" is
+ *     vacuously true and containment PASSES for any caller — the escalation
+ *     0034 was probed for.
+ *   - Here, `memberLeagueIds` answers for the office with EVERY league, so
+ *     containment happens to FAIL instead.
+ *
+ * Relying on either accident would leave the halves agreeing by luck. The tier
+ * comparison below is the actual rule; containment is only the tier-0 test.
+ *
+ * ⚠️ THE OFFICE BRANCHES HERE ARE UNREACHABLE FROM TODAY'S CALL SITES, and that
+ * is worth knowing before trusting them. `updateStaffRole` checks `isMemberOf`
+ * first, and an office member has no membership row; if one did — a promoted
+ * manager keeps theirs — the demotion guard would fire next, because every
+ * office member is a `league_manager`. `createStaffAccount` returns earlier
+ * still for any account that already holds a role. Watched: stubbing this
+ * function to `true` leaves the e2e forgery still refused.
+ *
+ * Keep them anyway. This is one half of a mirrored pair, and the mirror is the
+ * invariant — the RLS half IS reachable, by any session addressing PostgREST
+ * directly, and that is the half trap (b) was about. The rule itself is covered
+ * by `precedence.test.ts`.
+ *
+ * An account in no league and no tier passes containment vacuously, which is
+ * what keeps "removed by mistake, add them back" working: `removeStaff` revokes
+ * the membership and leaves exactly that shape.
  */
 export async function mayWriteProfileOf(
   actorId: string,
   profileId: string,
 ): Promise<boolean> {
+  const [mineTier, theirTier] = await Promise.all([
+    officeTierOf(actorId),
+    officeTierOf(profileId),
+  ]);
+
+  // Containment is the tier-0 test only, so it is not worth two more queries at
+  // an office tier — `decideProfileWrite` ignores the argument there.
+  if (mineTier !== null) return decideProfileWrite(mineTier, theirTier, false);
+  if (theirTier !== null) return decideProfileWrite(null, theirTier, false);
+
   const [mine, theirs] = await Promise.all([
     memberLeagueIds(actorId),
     memberLeagueIds(profileId),
   ]);
-  return theirs.every((id) => mine.includes(id));
+  return decideProfileWrite(null, null, theirs.every((id) => mine.includes(id)));
 }
 
 /** Grant membership. Idempotent — re-adding an existing member is a no-op. */

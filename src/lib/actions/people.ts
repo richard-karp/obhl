@@ -10,6 +10,7 @@ import {
   mayWriteProfileOf,
   removeLeagueMembership,
 } from "@/lib/auth/membership";
+import { officeTierOf } from "@/lib/auth/office";
 import type { AppRole } from "@/lib/auth/session";
 
 export type PeopleActionState = { ok: boolean; message: string } | null;
@@ -157,7 +158,7 @@ export async function createStaffAccount(
         ok: false,
         message:
           existing.role === "league_manager"
-            ? `${email} is a manager account. Managers are changed by hand.`
+            ? `${email} is a manager account. Managers are changed by a commissioner.`
             : `${email} already has an account as ${held}. A role is account-wide, so this form will not change it — add them as ${held}, then change it from their row.`,
       };
     }
@@ -231,17 +232,26 @@ export async function updateStaffRole(formData: FormData) {
   // the same value as `old_data`.
   const before = await staffSnapshot(admin, id);
 
-  // A manager cannot be DEMOTED here. Every manager can reach this page, so
-  // without this any one of them could unmake any other — including whoever set
-  // the league up, and including themselves. Removing a manager from a league
-  // is a different question and is allowed (`removeStaff`), and promoting
-  // someone TO manager still works; it is unmaking one that is refused, and
-  // that is done by hand in SQL.
+  // A manager cannot be demoted by a PEER. Every manager can reach this page,
+  // so without this any one of them could unmake any other — including whoever
+  // set the league up, and including themselves. Removing a manager from a
+  // league is a different question and is allowed (`removeStaff`), and
+  // promoting someone TO manager still works; it is unmaking one that is
+  // refused.
   //
-  // The UI renders no role control on a manager's row, so reaching this means a
-  // hand-made request. It returns quietly rather than throwing: there is
-  // nowhere to put a message on a form action that returns void.
-  if (before?.role === "league_manager") return;
+  // The League Office is the tier that CAN: `officeTierOf` makes this refusal
+  // conditional on the actor holding no tier, so a commissioner or deputy
+  // demotes a manager where another manager cannot.
+  //
+  // ...unless the actor is in the League Office, which is the tier that outranks
+  // a manager. One condition is the whole of "the office can revoke a manager,
+  // peers cannot" — `mayWriteProfileOf` below still decides whether THIS office
+  // member outranks THIS target, so a deputy is not being waved through here.
+  //
+  // The UI renders no role control on a manager's row for a peer, so reaching
+  // this means a hand-made request. It returns quietly rather than throwing:
+  // there is nowhere to put a message on a form action that returns void.
+  if (before?.role === "league_manager" && !(await officeTierOf(actor.id))) return;
 
   // ...and no role write here may reach a league the actor cannot see.
   //
@@ -289,11 +299,24 @@ export async function updateStaffRole(formData: FormData) {
  * way back.
  *
  * Removing YOURSELF is refused — it would drop you out of a league you may be
- * the only way back into. That one rule is also what keeps a league from ever
- * reaching zero managers, so there is no separate "last manager" check: the
- * caller here is always a manager AND a member of this league, so if the target
- * is a different manager of it the league has at least two, and if the target
- * is its only manager then the target is the caller.
+ * the only way back into.
+ *
+ * ⚠️ That rule USED to double as the reason a league can never reach zero
+ * managers, which is why there is no separate "last manager" check: the caller
+ * was always a manager AND a member of this league, so either the league had
+ * two managers or the target was the caller.
+ *
+ * The League Office breaks that argument. A commissioner is neither a member of
+ * the league nor the target, so a commissioner CAN take a league to zero
+ * managers. That is DELIBERATE, not an oversight: the office reaches every
+ * league present and future, so whoever emptied it can also appoint the
+ * replacement. It is not a one-way door, and refusing here would rebuild exactly
+ * the dead end the office exists to remove — the one where a league ends up in a
+ * state only SQL can fix.
+ *
+ * Note the asymmetry that keeps this safe: a commissioner may empty a league,
+ * and a MANAGER still cannot, because the self-removal rule above is untouched
+ * for them. The tier that can undo it is the only tier that can do it.
  */
 export async function removeStaff(formData: FormData) {
   const leagueId = String(formData.get("league_id") ?? "");
@@ -304,6 +327,17 @@ export async function removeStaff(formData: FormData) {
   const admin = createAdminClient();
   if (!(await isMemberOf(admin, id, leagueId))) return;
   if (id === actor.id) return;
+
+  // ⛔ Never an office member. Their membership is a RULE, not a row, so there is
+  // nothing here to delete: `removeLeagueMembership` would succeed having done
+  // nothing, and the audit entry below would record a removal that did not
+  // happen. Refusing is not a tightening — it is the difference between a no-op
+  // and a LIE in the log.
+  //
+  // Removing someone from the office is done in League Office, which is the one
+  // page that owns the tier. People & Roles says so on the row rather than
+  // offering a Remove that silently achieves nothing.
+  if (await officeTierOf(id)) return;
 
   // Snapshot before the revoke: afterwards the membership row is gone, and the
   // entry is the only thing saying who held this league and in what role.
