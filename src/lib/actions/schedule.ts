@@ -16,9 +16,23 @@ import {
   type OneOffPlan,
   type OneOffRound,
 } from "@/lib/schedule/oneOff";
-import { getSeasonNights, type SeasonNight } from "@/lib/queries/schedule";
+import {
+  getScheduleConstraints,
+  getSeasonNights,
+  type SeasonNight,
+} from "@/lib/queries/schedule";
+import {
+  constraintConflicts,
+  describeConstraint,
+  isConstraintKind,
+  refuteConstraints,
+  resolveConstraints,
+  type ConstraintParams,
+} from "@/lib/schedule/constraints";
+import { buildNightMeta } from "@/lib/schedule/spacing";
+import { distributeGames } from "@/lib/schedule/assignNights";
 import { getEnrolledTeams } from "@/lib/queries/teams";
-import { leagueOffset, formatGameTime } from "@/lib/format";
+import { leagueOffset, formatGameTime, leagueTimeKey } from "@/lib/format";
 import type { TablesInsert } from "@/lib/db/helpers";
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -67,6 +81,180 @@ async function targetSeasonForManager(admin: Admin, explicit = "") {
   if (!seasonId) return null;
   const manager = await requireLeagueManager(() => leagueOfSeason(seasonId, admin));
   return { seasonId, manager };
+}
+
+export type ConstraintState = { ok: boolean; message: string } | null;
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{1,2}:\d{2}$/;
+
+/** "9:00" and "09:00" are the same ice time; the generator compares strings. */
+function normalizeTime(raw: string): string | null {
+  if (!TIME_RE.test(raw)) return null;
+  const [h, m] = raw.split(":");
+  return `${h.padStart(2, "0")}:${m}`;
+}
+
+/**
+ * Read the params for one constraint kind off the form, or say what is missing.
+ *
+ * Stores what the manager MEANT — a date, a week-of date, a wall-clock ice time
+ * — and never a week number or a slot position. See `0039`'s header for why.
+ */
+function readConstraintParams(
+  kind: string,
+  formData: FormData,
+): { params: ConstraintParams } | { error: string } {
+  const field = (n: string) => String(formData.get(n) ?? "").trim();
+  switch (kind) {
+    case "bye_on":
+    case "play_on": {
+      const date = field("constraint_date");
+      if (!DATE_RE.test(date)) return { error: "Pick a date for that request." };
+      return { params: { date } };
+    }
+    case "bye_week":
+    case "bye_in_week": {
+      const week_of = field("constraint_week_of");
+      if (!DATE_RE.test(week_of)) {
+        return { error: "Pick a date in the week for that request." };
+      }
+      return { params: { week_of } };
+    }
+    case "slot_on": {
+      const date = field("constraint_date");
+      const time = normalizeTime(field("constraint_time"));
+      if (!DATE_RE.test(date)) return { error: "Pick a date for that request." };
+      if (!time) return { error: "Enter the ice time as HH:MM." };
+      return { params: { date, time } };
+    }
+    case "slot_bias": {
+      const from = field("constraint_from");
+      const to = field("constraint_to");
+      const prefer = field("constraint_prefer") === "late" ? "late" : "early";
+      if (!DATE_RE.test(from) || !DATE_RE.test(to)) {
+        return { error: "Pick both ends of the date range." };
+      }
+      if (from > to) return { error: "That date range ends before it starts." };
+      return { params: { from, to, prefer } };
+    }
+    default:
+      return { error: "Unknown constraint type." };
+  }
+}
+
+/**
+ * Add one manager constraint to a season.
+ *
+ * Deliberately NOT validated against a calendar here. The season's game nights
+ * do not exist until the generate form is filled in — they are derived by
+ * `enumerateNights` from the weekdays, skip dates and start/end on screen, and
+ * nothing is stored. So a date is accepted as written and checked at generation,
+ * where a calendar exists; a request naming a date that turns out not to be a
+ * game night is reported unmet with that reason rather than refused here on a
+ * calendar this action cannot see.
+ */
+export async function saveScheduleConstraint(
+  _prev: ConstraintState,
+  formData: FormData,
+): Promise<ConstraintState> {
+  const admin = createAdminClient();
+  const target = await targetSeasonForManager(
+    admin,
+    String(formData.get("season_id") ?? ""),
+  );
+  if (!target) return { ok: false, message: "No season selected." };
+  const { seasonId, manager } = target;
+
+  const kind = String(formData.get("constraint_kind") ?? "");
+  if (!isConstraintKind(kind)) {
+    return { ok: false, message: "Pick what the request should do." };
+  }
+  const teamId = String(formData.get("constraint_team_id") ?? "");
+  // Enrolment, not merely existence: a constraint naming a team from another
+  // season is meaningless to the generator, which only ever sees this season's
+  // team list.
+  const enrolled = await getEnrolledTeams(seasonId, { client: admin });
+  const team = enrolled.find((t) => t.id === teamId);
+  if (!team) {
+    return { ok: false, message: "Pick a team enrolled in this season." };
+  }
+
+  const read = readConstraintParams(kind, formData);
+  if ("error" in read) return { ok: false, message: read.error };
+
+  const { data, error } = await admin
+    .from("season_schedule_constraints")
+    .insert({ season_id: seasonId, team_id: teamId, kind, params: read.params })
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    return { ok: false, message: `Couldn't save that request. ${error.message}` };
+  }
+
+  if (data?.id) {
+    void logAudit({
+      user_id: manager.id,
+      action: "add_schedule_constraint",
+      entity_type: "schedule_constraint",
+      entity_id: data.id,
+      new_data: { season_id: seasonId, team_id: teamId, kind, params: read.params },
+    });
+  }
+  revalidatePath("/[league]/manage/schedule-builder", "page");
+  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+  return {
+    ok: true,
+    message: `Added: ${describeConstraint({ kind, params: read.params }, team.name)}.`,
+  };
+}
+
+/** Remove one manager constraint. */
+export async function deleteScheduleConstraint(
+  _prev: ConstraintState,
+  formData: FormData,
+): Promise<ConstraintState> {
+  const admin = createAdminClient();
+  const constraintId = String(formData.get("constraint_id") ?? "");
+  if (!constraintId) return { ok: false, message: "No request selected." };
+
+  // Read the row BEFORE deleting it: the guard needs its season, and once the
+  // row is gone `leagueOfEntity` has nothing to resolve from, so the audit entry
+  // would file under a null league and be invisible to every league-scoped view.
+  const { data: row } = await admin
+    .from("season_schedule_constraints")
+    .select("id, season_id, team_id, kind, params")
+    .eq("id", constraintId)
+    .maybeSingle();
+  if (!row) return { ok: false, message: "That request no longer exists." };
+
+  const leagueId = await leagueOfSeason(row.season_id, admin);
+  const manager = await requireLeagueManager(() => Promise.resolve(leagueId));
+
+  const { error } = await admin
+    .from("season_schedule_constraints")
+    .delete()
+    .eq("id", constraintId);
+  if (error) {
+    return { ok: false, message: `Couldn't remove that request. ${error.message}` };
+  }
+
+  void logAudit({
+    user_id: manager.id,
+    action: "remove_schedule_constraint",
+    entity_type: "schedule_constraint",
+    entity_id: constraintId,
+    league_id: leagueId,
+    old_data: {
+      season_id: row.season_id,
+      team_id: row.team_id,
+      kind: row.kind,
+      params: row.params,
+    },
+  });
+  revalidatePath("/[league]/manage/schedule-builder", "page");
+  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+  return { ok: true, message: "Removed that request." };
 }
 
 export type GenerateState = { ok: boolean; message: string } | null;
@@ -158,16 +346,65 @@ export async function generateSchedule(
 
   // Alphabetical, so the same enrolment always feeds the generator in the same
   // order and a re-run is reproducible.
-  const teamIds = (await getEnrolledTeams(seasonId, { client: admin })).map((t) => t.id);
+  const enrolledTeams = await getEnrolledTeams(seasonId, { client: admin });
+  const teamIds = enrolledTeams.map((t) => t.id);
   if (teamIds.length < 2) {
     return {
       ok: false,
       message: "Enrol at least two teams in the season before generating a schedule.",
     };
   }
+  const nameById = new Map(enrolledTeams.map((t) => [t.id, t.name]));
+  // A constraint can name a team that has since been un-enrolled — that deletes
+  // no team row — so this must not assume the id is in the list.
+  const nameOf = (id: string) => nameById.get(id) ?? "A removed team";
+
+  const storedConstraints = await getScheduleConstraints(seasonId, { client: admin });
+
+  /**
+   * Resolve the season's constraints against one concrete calendar, and refuse
+   * an impossible set on arithmetic before any search runs.
+   *
+   * Direct contradictions first — `bye_on` and `play_on` for one team and date,
+   * or two teams pinned to one ice time — because they are the likeliest thing a
+   * manager actually does wrong and they deserve a message naming both offending
+   * requests rather than a generic "infeasible". Only then the counting checks,
+   * which are the same class as `solveParticipation`'s own pre-checks and cost
+   * microseconds against a search that would otherwise run its budget out and
+   * report nothing useful.
+   */
+  const checkConstraints = (
+    calendar: { date: string; slots: string[] }[],
+    pairingCount: number,
+    perTeamGames: number,
+  ) => {
+    const resolved = resolveConstraints(storedConstraints, {
+      nights: calendar,
+      teamIds,
+    });
+    if (resolved.items.length === 0) return { resolved, refusal: null };
+    const conflicts = constraintConflicts(resolved, nameOf);
+    if (conflicts.length > 0) return { resolved, refusal: conflicts.join(" ") };
+    const caps = calendar.map((n) =>
+      Math.min(n.slots.length, Math.floor(teamIds.length / 2)),
+    );
+    const perNight = distributeGames(caps, pairingCount);
+    // No distribution means the calendar cannot hold the games at all, which is
+    // a different failure with its own message further down. Nothing to refute.
+    if (!perNight) return { resolved, refusal: null };
+    const problems = refuteConstraints(resolved, {
+      teamIds,
+      nameOf,
+      gamesPerTeam: new Array(teamIds.length).fill(perTeamGames),
+      gamesPerNight: perNight,
+      weekOfNight: buildNightMeta(calendar).week,
+    });
+    return { resolved, refusal: problems.length > 0 ? problems.join(" ") : null };
+  };
 
   const perNightCap = Math.min(slotTimes.length, Math.floor(teamIds.length / 2));
   let games;
+  let outcomes: ReturnType<typeof assignNights>["report"]["constraints"] = [];
 
   if (lengthMode === "date") {
     // Fill the window up to the last regular-season night. Derive games-per-team
@@ -190,15 +427,35 @@ export async function generateSchedule(
       };
     }
     let g = Math.max(1, Math.floor((2 * nights.length * perNightCap) / teamIds.length));
-    let result = assignNights(buildBalancedPairings(teamIds, g), nights, teamIds);
     // The estimate is an upper bound; step down until everything fits. Capped so
     // a bad estimate can't trigger many expensive placement runs — a remaining
     // shortfall just surfaces the "incomplete" banner.
-    for (let tries = 0; tries < 8 && g > 1 && result.report.unscheduled > 0; tries++) {
+    let result: ReturnType<typeof assignNights> | undefined;
+    for (let tries = 0; tries <= 8; tries++) {
+      const pairings = buildBalancedPairings(teamIds, g);
+      const check = checkConstraints(nights, pairings.length, g);
+      if (check.refusal) {
+        // Fewer games per team is more bye budget, so stepping down can clear an
+        // arithmetic refusal outright — the same step this loop already takes
+        // for a placement shortfall. Only report it once there is nowhere left
+        // to step to.
+        if (g > 1 && tries < 8) {
+          g -= 1;
+          continue;
+        }
+        return { ok: false, message: check.refusal };
+      }
+      result = assignNights(pairings, nights, teamIds, {
+        constraints: check.resolved,
+      });
+      if (result.report.unscheduled === 0 || g <= 1 || tries >= 8) break;
       g -= 1;
-      result = assignNights(buildBalancedPairings(teamIds, g), nights, teamIds);
+    }
+    if (!result) {
+      return { ok: false, message: "Couldn't place any games — nothing was changed." };
     }
     games = result.games;
+    outcomes = result.report.constraints;
   } else {
     // Size by target games-per-team; the last game date falls out of placement.
     if (gamesPerTeam < 1) {
@@ -230,7 +487,14 @@ export async function generateSchedule(
       }
       if (nights.length === prevCount) break; // capped by season end; more won't help
       prevCount = nights.length;
-      result = assignNights(pairings, nights, teamIds);
+      const check = checkConstraints(nights, pairings.length, gamesPerTeam);
+      // Returned rather than retried with more nights: the manager asked for
+      // this many games over this calendar, and the refusal says exactly which
+      // request will not fit it.
+      if (check.refusal) return { ok: false, message: check.refusal };
+      result = assignNights(pairings, nights, teamIds, {
+        constraints: check.resolved,
+      });
       if (result.report.unscheduled === 0) break;
     }
     // Unreachable while the loop runs at least once, which it does — kept so a
@@ -239,6 +503,7 @@ export async function generateSchedule(
       return { ok: false, message: "Couldn't place any games — nothing was changed." };
     }
     games = result.games;
+    outcomes = result.report.constraints;
   }
 
   // Replace existing drafts.
@@ -299,6 +564,16 @@ export async function generateSchedule(
     return {
       ok: false,
       message: "No games could be scheduled — try more game nights or fewer games per team.",
+    };
+  }
+  // Unmet constraints are stated on the way out, not left to be noticed. The
+  // preview below the form lists them individually with their reasons; this is
+  // the sentence that sends the manager to look.
+  const unmet = outcomes.filter((c) => !c.satisfied);
+  if (unmet.length > 0) {
+    return {
+      ok: true,
+      message: `Generated a ${games.length}-game draft schedule. ${unmet.length} of ${outcomes.length} manager request${outcomes.length === 1 ? "" : "s"} couldn't be met — see the preview below.`,
     };
   }
   return { ok: true, message: `Generated a ${games.length}-game draft schedule.` };
@@ -590,6 +865,20 @@ export async function previewOneOffGame(
     return { ok: false, message: "That date isn't a game night this season." };
   }
 
+  // The manager's `slot_on` pins, resolved against the season AS PUBLISHED —
+  // see `PlanOneOffOptions.slotPins` for what the repair does with them and why
+  // it ignores the bye and play kinds. A postponed game has no time of its own,
+  // so it gets a placeholder that no stored ice time can equal; dropping it
+  // instead would shift every later slot index on that night.
+  const constraintCalendar = nights.map((n) => ({
+    date: n.date,
+    slots: n.games.map((g) => (g.scheduledAt ? leagueTimeKey(g.scheduledAt) : "--:--")),
+  }));
+  const resolvedPins = resolveConstraints(
+    await getScheduleConstraints(seasonId, { client: admin }),
+    { nights: constraintCalendar, teamIds: teams.map((t) => t.id) },
+  );
+
   const result = planOneOff({
     teamCount: teams.length,
     nights: plannerNights,
@@ -598,6 +887,7 @@ export async function previewOneOffGame(
       ([h, a]) => [indexOf.get(h)!, indexOf.get(a)!] as [number, number],
     ),
     featureSlot: input.featureSlot,
+    slotPins: resolvedPins.slotPins.length > 0 ? resolvedPins.slotPins : undefined,
   });
   if (!result.ok) return { ok: false, message: result.reason };
 

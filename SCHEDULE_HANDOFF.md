@@ -300,6 +300,55 @@ are fixed; see §3. What follows are choices, not oversights.
   give 1 or 2, and each is already at its arithmetic floor — 49 nights provably
   cannot beat 2. The schedule builder now says so on screen rather than leaving
   it to look like a search failure.
+- **Manager constraints are best effort, and only three things are untouchable.**
+  `src/lib/schedule/constraints.ts` resolves six kinds of manager request — `bye_on`,
+  `bye_in_week`, `bye_week`, `play_on`, `slot_on`, `slot_bias` — into Phase P
+  pre-assignments, a Phase P disjunction, Phase S pins and a Phase S cost term.
+  A team's bye budget is fixed at `nights − gamesPerTeam`, so a forced bye MOVES a
+  bye and never adds one: **total games per team, games per night and how many
+  times each pair meets are untouched**, and the constrained test in
+  `constraints.test.ts` asserts exactly those three and nothing else.
+  - ⛔ **`byeRuleCost` and `buildMinAdjTable` are deliberately untouched.** That
+    cost is both the search objective and the basis of the admissible lower
+    bound; subtracting forced breaches from it without re-deriving the DP risks
+    an inadmissible bound, which prunes optimal solutions and silently costs
+    Phase P its exactness. Forced cells are *fixed*, so the breach they cause is
+    constant across every feasible solution — the search cannot avoid it and does
+    not waste effort trying, and the untouched bound merely gets looser, which is
+    still admissible. The exclusion happens **in reporting only**, via
+    `forcedByeCredits` and `presentSpacing`, and only for breaches where EVERY bye
+    involved is forced. A week holding one forced bye and one the search chose is
+    not credited: the search could have put its own bye elsewhere, so that is
+    collateral, and collateral is the thing this feature exists to make visible.
+  - ⛔ **`slot_bias` must reach `iceOutcome`/`compareIceOutcome`, not only
+    `assignSlots`' internal cost.** Generation runs Phase S five times and keeps
+    the winner by that comparator; a term invisible to it makes the feature a coin
+    toss. It is ranked last, below ordinary repeats.
+  - ⛔ **`planByWeeks` cannot honour constraints** — it searches over placed games
+    and has no participation matrix to force. When it wins the rank-off, every
+    constraint is reported unmet naming that as the reason. Satisfaction is
+    otherwise decided by **reading the final placed games**, never by trusting
+    what a phase was asked to do.
+  - **Measured on the reference season (2026-09-04), one of each of the six kinds
+    on six different teams:** all three invariants exact; every bye and rematch
+    metric still 0; weekday split still 18/18; season ice spread still 0;
+    `slotStreak3` still 0. The whole cost landed on ice time —
+    `slotWeekdaySpread` 0 → 16 and `slotConsecutive` 48 → 47. Isolated: `slot_on`
+    alone accounts for 16, `slot_bias` alone for 8. Five of six requests were met;
+    the `slot_bias` was declined at 0.94 of a 1.0 midpoint because the share terms
+    outrank it — which is what "best effort, ranked below the real goals" means,
+    and it *is* met (1.06) when it is the only thing asked for.
+  - **Not a gate, deliberately: unconstrained teams are not asserted to read
+    zero.** Each night's team count is fixed, so taking one team off a night puts
+    another on it; the reference solution is nearly unique with about one slot of
+    slack in the whole season, and a constraint spends some of it. The reference
+    run above happened to cost nothing on the bye rules; do not read that as a
+    promise. Measure and report collateral, never assert it at zero.
+- **The mid-season repair honours `slot_on` and ignores the bye/play kinds.**
+  Written up in full on `PlanOneOffOptions.slotPins` in `oneOff.ts`. It preserves
+  a pin rather than repairing one: a pinned game is held only when the published
+  schedule still has it on the requested ice time. The bye and play kinds are
+  participation decisions and the repair does not re-run Phase P.
 - **Some ties are genuine floors, not failures.** `byeConsecWeek = 104` on
   8 teams / 2 sheets and `rematchConsecWeek = 22` on a 4-team league are forced
   by the calendar; no search will improve them. Adding a sheet of ice, or teams,
@@ -320,6 +369,12 @@ are fixed; see §3. What follows are choices, not oversights.
   building a season for it.
 - `src/lib/schedule/oneOff.ts` — the mid-season repair. See `EXPORTS_HANDOFF.md` §4
   before touching it.
+- `src/lib/schedule/constraints.ts` — manager constraints: resolution to solver
+  indices, contradiction and arithmetic refutation, satisfaction read off the
+  placed games, and the forced-bye credits presentation subtracts. Storage is
+  `season_schedule_constraints` (`0039`), which stores what the manager MEANT — a
+  date, a week-of date, an `"HH:MM"` ice time — never a week number or a slot
+  position, both of which shift when the calendar changes.
 - Tests: `assignNights.test.ts` (includes a full reference-season regression
   suite asserting every goal), `participation.test.ts`, `matchups.test.ts`.
   Cadence coverage for the *slot* metrics lives in `matchups.test.ts` too, under
@@ -336,7 +391,15 @@ fixture seasons production never sees. Do not lower it to speed the suite up.
 
 ## 7. Open work
 
-**Nothing outstanding.** All four goals are at their floor.
+**Nothing outstanding on the four goals.** All are at their floor.
+
+Manager constraints (2026-09-04) shipped complete — all six kinds, no scope cut.
+The one thing left open by choice is that `slot_bias` is a weak term by design
+(`SLOT_BIAS_W = 4` against 60 for a step of ice share), so on a busy constraint
+set it is the request most likely to be declined. Raising it would start buying
+the preference with an uneven ice share, which is the trade the league has
+already rejected twice; if it ever needs to be stronger, the lever is a second
+Phase S candidate weighted for it, not a bigger number here.
 
 G2 — `pairingWeekdayExcess` 8 → 0 via a compound move in Phase M — is **done**
 (2026-08-12, branch `feat/schedule-goals`); its brief,

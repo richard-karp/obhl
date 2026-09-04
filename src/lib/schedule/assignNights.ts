@@ -18,6 +18,18 @@ import {
 } from "./participation";
 import { assignMatchups, type MatchupResult } from "./matchups";
 import { assignSlots } from "./slots";
+import {
+  constrainedTeams,
+  evaluateConstraints,
+  forcedByeCredits,
+  noConstraints,
+  perTeamByeMetrics,
+  ZERO_CREDITS,
+  type ByeCredits,
+  type ConstraintOutcome,
+  type ResolvedConstraints,
+  type TeamByeMetrics,
+} from "./constraints";
 
 /**
  * Assigns pairings onto concrete game nights + ice-time slots.
@@ -67,7 +79,37 @@ export type BalanceReport = {
   nightShareByTeam: { team: string; counts: number[] }[];
   pairingCounts: { matchup: string; count: number }[];
   minRematchGapNights: number | null;
+  /**
+   * The metrics as the search sees them — **raw**, including breaches a
+   * manager's own forced byes made unavoidable.
+   *
+   * Presentation subtracts `constraintCredits` from the four bye rows; use
+   * `presentSpacing` in `constraints.ts` rather than doing it by hand, so the
+   * report a manager reads and the report a test asserts on cannot drift.
+   */
   spacing: SpacingReport;
+  /**
+   * Whether each manager constraint actually landed, decided by reading the
+   * placed games. Empty when none were set.
+   */
+  constraints: ConstraintOutcome[];
+  /**
+   * Bye-rule breaches attributable to forced byes — what presentation subtracts
+   * from `spacing`. All zero when nothing is constrained.
+   */
+  constraintCredits: ByeCredits;
+  /**
+   * Per-team bye rows, flagged with whether that team is one the manager
+   * constrained. This is what makes collateral legible: a reader can see which
+   * breaches trace to a request and which landed on somebody else.
+   */
+  teamMetrics: TeamByeMetrics[];
+};
+
+/** Everything `assignNights` takes beyond the pairings and the calendar. */
+export type AssignOptions = {
+  /** Manager constraints, already resolved against these exact nights. */
+  constraints?: ResolvedConstraints;
 };
 
 const matchupKey = (a: string, b: string) => [a, b].sort().join("|");
@@ -1272,7 +1314,12 @@ function planByWeeks(
  * Spread `total` games over nights as evenly as the per-night caps allow, so no
  * night is crammed while another sits half-empty. Null when they don't all fit.
  */
-function distributeGames(caps: number[], total: number): number[] | null {
+/**
+ * Games per night, so a caller can refute an impossible constraint set on
+ * arithmetic before paying for a generate. Exported for that reason only —
+ * `planByParticipation` is still the one caller that plans with it.
+ */
+export function distributeGames(caps: number[], total: number): number[] | null {
   const n = caps.length;
   if (n === 0) return total === 0 ? [] : null;
   // Bresenham-style even split: night i gets the games between two exact cuts.
@@ -1305,6 +1352,7 @@ function planByParticipation(
   teamIds: string[],
   meta: Meta,
   smeta: NightMeta,
+  resolved: ResolvedConstraints,
 ): Plan | null {
   const T = teamIds.length;
   const N = nights.length;
@@ -1372,6 +1420,10 @@ function planByParticipation(
         exactWeekdayTargets: exact,
         timeBudgetMs: remaining,
         seed,
+        // Undefined when nothing is constrained, so every reference inside the
+        // solver short-circuits and the search runs untouched.
+        forced: resolved.empty ? undefined : resolved.forced,
+        byeInWeek: resolved.empty ? undefined : resolved.byeInWeek,
       });
       if (p) return p;
     }
@@ -1459,6 +1511,49 @@ function planByParticipation(
     }
   }
 
+  // Phase S pins for `slot_on`. `assignSlots` already carries `initial` and
+  // `pinned` for the mid-season repair, so this reuses them rather than adding a
+  // second mechanism: seed the night with a permutation putting the pinned game
+  // on its ice time, then forbid the search from moving it while the night's
+  // other games permute around it.
+  //
+  // A pin that no longer names a real game — Phase P declined to honour the
+  // implied play night, or the night runs fewer games than the pinned slot
+  // index — is dropped here rather than forced. The constraint is then reported
+  // unmet off the placed games, which is the honest answer; pinning to a slot
+  // that does not exist would corrupt the night's permutation.
+  const pinsByNight = new Map<number, { gi: number; slot: number }[]>();
+  if (!resolved.empty) {
+    for (const pin of resolved.slotPins) {
+      const pairs = matched.pairsByNight[pin.night];
+      if (!pairs || pin.slot >= pairs.length) continue;
+      const gi = pairs.findIndex(([a, b]) => a === pin.team || b === pin.team);
+      if (gi < 0) continue;
+      const list = pinsByNight.get(pin.night) ?? [];
+      if (list.some((x) => x.gi === gi || x.slot === pin.slot)) continue;
+      list.push({ gi, slot: pin.slot });
+      pinsByNight.set(pin.night, list);
+    }
+  }
+  const initial: (number[] | undefined)[] = matched.pairsByNight.map((pairs, n) => {
+    const list = pinsByNight.get(n);
+    if (!list) return undefined;
+    const perm = new Array<number>(pairs.length).fill(-1);
+    const taken = new Array<boolean>(pairs.length).fill(false);
+    for (const { gi, slot } of list) {
+      perm[gi] = slot;
+      taken[slot] = true;
+    }
+    let next = 0;
+    for (let gi = 0; gi < pairs.length; gi++) {
+      if (perm[gi] >= 0) continue;
+      while (taken[next]) next++;
+      perm[gi] = next;
+      taken[next] = true;
+    }
+    return perm;
+  });
+
   const slotArgs = {
     teamCount: T,
     pairsByNight: matched.pairsByNight,
@@ -1466,6 +1561,17 @@ function planByParticipation(
     weekdayOfNight: meta.nightW,
     restarts: SLOT_RESTARTS,
     timeBudgetMs: SLOT_BUDGET_MS,
+    // ⚠️ Every candidate shares `slotArgs`, so all five carry the same pins and
+    // the same bias — the selection below compares like with like.
+    ...(pinsByNight.size > 0
+      ? {
+          initial,
+          pinned: matched.pairsByNight.map((_, n) =>
+            pinsByNight.get(n)?.map((x) => x.gi),
+          ),
+        }
+      : {}),
+    ...(resolved.biases.length > 0 ? { biases: resolved.biases } : {}),
   };
 
   const outcomeFor = (s: number[][]) =>
@@ -1474,6 +1580,12 @@ function planByParticipation(
       pairsByNight: matched.pairsByNight,
       slotOf: s,
       weekdayOfNight: meta.nightW,
+      // ⛔ The bias MUST reach the comparator, not just `assignSlots`' internal
+      // cost. Generation runs Phase S five times and keeps the winner by
+      // `compareIceOutcome`; a term invisible to that ranking makes the feature
+      // a coin toss, because the candidate that honours the request best can
+      // lose to one that ignores it.
+      biases: resolved.biases.length > 0 ? resolved.biases : undefined,
     });
 
   let slotOf = assignSlots({ ...slotArgs, ...SLOT_CANDIDATES[0] });
@@ -1560,6 +1672,7 @@ export function assignNights(
   pairings: Pairing[],
   nights: Night[],
   teamIds: string[],
+  options?: AssignOptions,
 ): {
   games: ScheduledGame[];
   report: BalanceReport;
@@ -1572,9 +1685,10 @@ export function assignNights(
 } {
   const meta = buildMeta(nights);
   const smeta = buildNightMeta(nights);
+  const resolved = options?.constraints ?? noConstraints();
 
   let plan = planByWeeks(pairings, nights, teamIds, meta, smeta);
-  const exact = planByParticipation(pairings, nights, teamIds, meta, smeta);
+  const exact = planByParticipation(pairings, nights, teamIds, meta, smeta, resolved);
   if (
     exact &&
     rankLess(
@@ -1584,6 +1698,11 @@ export function assignNights(
   ) {
     plan = exact;
   }
+  // ⛔ `planByWeeks` CANNOT honour constraints. It searches over placed games
+  // and has no participation matrix to force, so when it wins the rank-off
+  // nothing the manager asked for was ever applied. The rank-off is unchanged —
+  // it stays the league's own priority order — but the report has to say so.
+  const plannerHonours = plan === exact;
   const { games, unscheduled } = plan;
 
   // Derive the report from the final placement.
@@ -1621,6 +1740,33 @@ export function assignNights(
     slotOf[g.nightIndex].push(g.slotIndex);
   }
 
+  // Constraint outcomes, read off the placed games — never off what a phase was
+  // asked to do. The slot map above is rebuilt from `games` for exactly this
+  // reason: later steps can move things, and verifying a request against itself
+  // would report a pin as honoured whether or not it survived.
+  const playsMatrix = teamIds.map(() => new Array<boolean>(nights.length).fill(false));
+  const slotAt = new Map<string, number>();
+  for (const g of games) {
+    for (const t of [g.home, g.away]) {
+      const ti = teamIndex.get(t);
+      if (ti === undefined) continue;
+      playsMatrix[ti][g.nightIndex] = true;
+      slotAt.set(`${ti}:${g.nightIndex}`, g.slotIndex);
+    }
+  }
+  const byed = (t: number, n: number) => !playsMatrix[t][n];
+  const constraints = resolved.empty
+    ? []
+    : evaluateConstraints(resolved, {
+        plays: playsMatrix,
+        slotOf: (t, n) => slotAt.get(`${t}:${n}`) ?? null,
+        plannerHonours,
+      });
+  const constraintCredits =
+    resolved.empty || !plannerHonours
+      ? ZERO_CREDITS
+      : forcedByeCredits(resolved, { nights, teamIds, byed });
+
   return {
     games,
     pairsByNight,
@@ -1639,6 +1785,14 @@ export function assignNights(
       })),
       minRematchGapNights: minGap,
       spacing: spacingReport(games, nights, teamIds),
+      constraints,
+      constraintCredits,
+      teamMetrics: perTeamByeMetrics({
+        nights,
+        teamIds,
+        byed,
+        constrained: constrainedTeams(resolved),
+      }),
     },
   };
 }

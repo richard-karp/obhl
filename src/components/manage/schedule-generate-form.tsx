@@ -4,7 +4,18 @@ import { useActionState, useEffect, useMemo, useState } from "react";
 import type { DateRange, Matcher } from "react-day-picker";
 import { CalendarIcon, Loader2Icon, X } from "lucide-react";
 import { toast } from "sonner";
-import { generateSchedule, type GenerateState } from "@/lib/actions/schedule";
+import {
+  generateSchedule,
+  saveScheduleConstraint,
+  deleteScheduleConstraint,
+  type ConstraintState,
+  type GenerateState,
+} from "@/lib/actions/schedule";
+import {
+  describeConstraint,
+  type ConstraintKind,
+  type ScheduleConstraint,
+} from "@/lib/schedule/constraints";
 import { generateProgress } from "@/components/manage/generate-progress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +71,224 @@ function expandRange(from: Date, to: Date): string[] {
 }
 
 type SkipRange = { from: string; to: string };
+
+/**
+ * The six things a manager can tell the generator, in the order they are worth
+ * reaching for: the two that pin a bye, the two that pin a game, then the
+ * softer week-level and preference kinds.
+ */
+const CONSTRAINT_OPTIONS: { value: ConstraintKind; label: string }[] = [
+  { value: "bye_on", label: "Bye on a night" },
+  { value: "bye_week", label: "Bye the whole week" },
+  { value: "bye_in_week", label: "Bye once in a week" },
+  { value: "play_on", label: "Play on a night" },
+  { value: "slot_on", label: "Play at an ice time" },
+  { value: "slot_bias", label: "Prefer early/late ice" },
+];
+
+/**
+ * The constraints card.
+ *
+ * ⚠️ It lives INSIDE the generate form, and that is not a layout preference.
+ * The season's game nights do not exist until this form is filled in — they are
+ * derived by `enumerateNights` from the weekdays, skip dates and start/end above,
+ * and nothing about them is stored. A card rendered elsewhere on the page would
+ * have no calendar to offer.
+ *
+ * Adding and removing are separate server actions on the same form, reached
+ * through `formAction` on their buttons. HTML forbids nested forms, so this is
+ * the only way a control inside the generate form can post somewhere else — and
+ * `useActionState`'s dispatcher is a valid `formAction`, which is what keeps the
+ * refusal messages.
+ *
+ * The date fields are plain dates, deliberately unvalidated here: this component
+ * cannot know which dates become game nights until the generator runs, so a
+ * request naming a date that turns out not to be one is reported unmet with that
+ * reason on the preview rather than refused at entry.
+ */
+function ConstraintsCard({
+  teams,
+  constraints,
+}: {
+  teams: { id: string; name: string }[];
+  constraints: ScheduleConstraint[];
+}) {
+  const [kind, setKind] = useState<ConstraintKind>("bye_on");
+  const [addState, addAction] = useActionState<ConstraintState, FormData>(
+    saveScheduleConstraint,
+    null,
+  );
+  const [removeState, removeAction] = useActionState<ConstraintState, FormData>(
+    deleteScheduleConstraint,
+    null,
+  );
+  useEffect(() => {
+    if (!addState) return;
+    if (addState.ok) toast.success(addState.message);
+    else toast.error(addState.message);
+  }, [addState]);
+  useEffect(() => {
+    if (!removeState) return;
+    if (removeState.ok) toast.success(removeState.message);
+    else toast.error(removeState.message);
+  }, [removeState]);
+
+  const nameOf = (id: string) =>
+    teams.find((t) => t.id === id)?.name ?? "A removed team";
+  const needsDate = kind === "bye_on" || kind === "play_on" || kind === "slot_on";
+  const needsWeek = kind === "bye_week" || kind === "bye_in_week";
+
+  return (
+    <div className="space-y-2 rounded-lg border p-3">
+      <div className="space-y-0.5">
+        <Label>Manager requests (optional)</Label>
+        <p className="text-muted-foreground text-xs">
+          Best effort, and never at the cost of an even schedule: every team still
+          plays the same number of games, every night runs the same number, and
+          each pair still meets the same number of times. A forced bye moves one
+          of that team&apos;s byes — it never adds one.
+        </p>
+      </div>
+
+      {constraints.length > 0 ? (
+        <ul className="space-y-1">
+          {constraints.map((c) => (
+            <li
+              key={c.id}
+              className="bg-secondary/50 flex items-center justify-between gap-2 rounded-md px-2 py-1 text-xs"
+            >
+              <span>{describeConstraint(c, nameOf(c.teamId))}</span>
+              <button
+                type="submit"
+                formAction={removeAction}
+                formNoValidate
+                name="constraint_id"
+                value={c.id}
+                className="text-muted-foreground hover:text-foreground shrink-0"
+                aria-label={`Remove request: ${describeConstraint(c, nameOf(c.teamId))}`}
+              >
+                <X className="size-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1">
+          <Label htmlFor="constraint_team_id" className="text-xs">
+            Team
+          </Label>
+          <select
+            id="constraint_team_id"
+            name="constraint_team_id"
+            className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+            defaultValue=""
+          >
+            <option value="">Pick a team…</option>
+            {teams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="constraint_kind" className="text-xs">
+            Request
+          </Label>
+          <select
+            id="constraint_kind"
+            name="constraint_kind"
+            value={kind}
+            onChange={(e) => setKind(e.target.value as ConstraintKind)}
+            className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+          >
+            {CONSTRAINT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {needsDate ? (
+          <div className="space-y-1">
+            <Label htmlFor="constraint_date" className="text-xs">
+              Date
+            </Label>
+            <Input id="constraint_date" name="constraint_date" type="date" />
+          </div>
+        ) : null}
+
+        {needsWeek ? (
+          <div className="space-y-1">
+            <Label htmlFor="constraint_week_of" className="text-xs">
+              Any date that week
+            </Label>
+            <Input id="constraint_week_of" name="constraint_week_of" type="date" />
+          </div>
+        ) : null}
+
+        {kind === "slot_on" ? (
+          <div className="space-y-1">
+            <Label htmlFor="constraint_time" className="text-xs">
+              Ice time
+            </Label>
+            <Input
+              id="constraint_time"
+              name="constraint_time"
+              type="time"
+              className="w-32"
+            />
+          </div>
+        ) : null}
+
+        {kind === "slot_bias" ? (
+          <>
+            <div className="space-y-1">
+              <Label htmlFor="constraint_from" className="text-xs">
+                From
+              </Label>
+              <Input id="constraint_from" name="constraint_from" type="date" />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="constraint_to" className="text-xs">
+                To
+              </Label>
+              <Input id="constraint_to" name="constraint_to" type="date" />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="constraint_prefer" className="text-xs">
+                Prefer
+              </Label>
+              <select
+                id="constraint_prefer"
+                name="constraint_prefer"
+                className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+                defaultValue="early"
+              >
+                <option value="early">Earlier ice</option>
+                <option value="late">Later ice</option>
+              </select>
+            </div>
+          </>
+        ) : null}
+
+        <Button
+          type="submit"
+          formAction={addAction}
+          formNoValidate
+          variant="outline"
+          size="sm"
+        >
+          Add request
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 function SubmitButton({ pending }: { pending: boolean }) {
   return (
@@ -141,13 +370,17 @@ export function ScheduleGenerateForm({
   seasonId,
   seasonStart,
   seasonEnd,
-  teamCount,
+  teams,
+  constraints,
   expectedMs,
 }: {
   seasonId: string;
   seasonStart: string | null;
   seasonEnd: string | null;
-  teamCount: number;
+  /** Enrolled teams, for the constraints card's picker. */
+  teams: { id: string; name: string }[];
+  /** This season's stored manager requests. */
+  constraints: ScheduleConstraint[];
   /**
    * How long a generate is expected to take, computed server-side from the
    * generator's own Phase S budget.
@@ -179,7 +412,7 @@ export function ScheduleGenerateForm({
     else toast.error(state.message);
   }, [state]);
 
-  const defaultGames = teamCount > 1 ? (teamCount - 1) * 2 : 14;
+  const defaultGames = teams.length > 1 ? (teams.length - 1) * 2 : 14;
   const excludedValue = useMemo(
     () =>
       [...new Set(skips.flatMap((r) => expandRange(parseKey(r.from), parseKey(r.to))))]
@@ -354,6 +587,8 @@ export function ScheduleGenerateForm({
           Optional. Skip holidays or breaks — pick a single day or a range.
         </p>
       </div>
+
+      <ConstraintsCard teams={teams} constraints={constraints} />
 
       <div className="flex items-center gap-3 pt-1">
         <SubmitButton pending={pending} />
