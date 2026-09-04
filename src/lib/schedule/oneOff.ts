@@ -44,6 +44,11 @@ const outcomeOf = (p: {
   weekdaySpread: p.spacingAfter.slotWeekdaySpread,
   streak3: p.spacingAfter.slotStreak3,
   consecutive: p.spacingAfter.slotConsecutive,
+  // The repair does not re-run Phase P, so it takes no view on a manager's
+  // `slot_bias`; every plan it compares carries the same 0 here and the term
+  // cannot decide anything. What the repair DOES honour is `slot_on` — see the
+  // pin note in `planOneOff` below.
+  biasCost: 0,
 });
 
 /**
@@ -140,6 +145,40 @@ export type PlanOneOffOptions = {
   /** Hold the labelled game(s) on the night's last ice time(s). */
   featureSlot?: boolean;
   seed?: number;
+  /**
+   * ⛔ **WHAT THE MID-SEASON REPAIR DOES WITH MANAGER CONSTRAINTS — the decision,
+   * written down where it will be read.**
+   *
+   * **The repair honours `slot_on` pins on the nights it touches, and ignores
+   * the bye and play kinds entirely.**
+   *
+   * *Why the bye/play kinds are ignored:* they are participation decisions —
+   * who plays which night — and the repair does not re-run Phase P. It is
+   * handed a published season's participation as fixed and only re-pairs and
+   * re-slots around a one-off. There is no matrix here to force, so honouring
+   * them is not something this planner can decline to do well; it cannot do it
+   * at all. A future repair that did move participation would have to revisit
+   * this line.
+   *
+   * *Why `slot_on` IS honoured:* the repair re-slots every unfrozen night, and
+   * `SCHEDULE_HANDOFF.md` §3 already records the shape of this hazard — a repair
+   * that omits `weekdayOfNight` silently undoes what generation achieved. A
+   * repair that silently re-slots a pinned game is the same failure with a
+   * manager's explicit instruction as the casualty, and it would show up in week
+   * nine as a pin that quietly stopped meaning anything.
+   *
+   * *What "honours" means here, exactly:* **preserve, do not repair.** A pin is
+   * applied only when the published schedule still has that team's game on the
+   * pinned ice time, in which case the game is held there while the night's
+   * others permute around it. When the published schedule has already drifted
+   * off the pin, the repair leaves it alone rather than dragging the game back —
+   * moving a game the manager did not ask about, to satisfy a constraint the
+   * published schedule already breaks, is a bigger surprise than the drift.
+   *
+   * Night indexes are into `nights`; `slot` is an index into that night's
+   * ice-time order, which is the order `OneOffNight.games` is already in.
+   */
+  slotPins?: { night: number; team: number; slot: number }[];
 };
 
 const pairKey = (a: number, b: number) => (a < b ? `${a}-${b}` : `${b}-${a}`);
@@ -524,6 +563,7 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
     forcedPairs,
     featureSlot = true,
     seed = 1,
+    slotPins,
   } = opts;
 
   const reason = precheck(opts);
@@ -654,13 +694,33 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
       timeBudgetMs: 600,
       initial: pairsByNight.map((ps) => ps.map((_, gi) => gi)),
       frozen,
-      pinned: nights.map((_, n) =>
-        featureSlot && n === oneOffNight
-          ? pairsByNight[n]
-              .map((_, gi) => gi)
-              .slice(pairsByNight[n].length - forcedPairs.length)
-          : undefined,
-      ),
+      pinned: nights.map((_, n) => {
+        if (featureSlot && n === oneOffNight) {
+          return pairsByNight[n]
+            .map((_, gi) => gi)
+            .slice(pairsByNight[n].length - forcedPairs.length);
+        }
+        // Manager `slot_on` pins — see `PlanOneOffOptions.slotPins` for the
+        // decision this implements. `initial` above is the identity packing over
+        // `pairsByNight`, which `alignToIncumbent` has just put in the published
+        // night's ice-time order, so a game's index here IS its current slot.
+        // The pin therefore applies exactly when the team's game is already sitting
+        // on the requested one: preserve, never drag back.
+        //
+        // The one-off's own night is excluded. Its participation is what the
+        // whole repair is changing, and the feature slot above is the manager's
+        // more recent instruction about that night's ice.
+        if (!slotPins || n === oneOffNight) return undefined;
+        const held: number[] = [];
+        for (const pin of slotPins) {
+          if (pin.night !== n) continue;
+          const gi = pairsByNight[n].findIndex(
+            ([a, b]) => a === pin.team || b === pin.team,
+          );
+          if (gi >= 0 && gi === pin.slot) held.push(gi);
+        }
+        return held.length > 0 ? held : undefined;
+      }),
     });
 
     // Settle each night into ice-time order before orienting, so home/away is

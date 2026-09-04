@@ -84,14 +84,38 @@ export type NightMeta = {
   sortedWeeks: number[];
 };
 
+/**
+ * The Monday week numbering is anchored to — the Monday of the first night's
+ * week. Extracted so a caller holding a date that is *not* a game night (a
+ * manager's "the week of the 12th") can be numbered on exactly the same scale
+ * as the nights, rather than re-deriving the anchor and drifting from it.
+ */
+function weekAnchor(nights: Night[]): number {
+  const first = toUTC(nights[0].date);
+  const firstWd = new Date(first).getUTCDay();
+  return first - (((firstWd + 6) % 7) * DAY); // back to Monday
+}
+
+/**
+ * The week index an arbitrary calendar date falls in, on `buildNightMeta`'s
+ * numbering — so a stored "any date in the intended week" resolves to the same
+ * integer the nights carry. Null when there are no nights to anchor against.
+ *
+ * This is why schedule constraints store a *date* rather than a week number: a
+ * week number shifts the moment a skip date is added, and this function does
+ * not.
+ */
+export function weekIndexOf(date: string, nights: Night[]): number | null {
+  if (nights.length === 0) return null;
+  return Math.floor((toUTC(date) - weekAnchor(nights)) / (7 * DAY));
+}
+
 /** Precompute per-night week/weekday, weeks anchored to the first night's Monday. */
 export function buildNightMeta(nights: Night[]): NightMeta {
   if (nights.length === 0) {
     return { week: [], weekday: [], weekNights: new Map(), sortedWeeks: [] };
   }
-  const first = toUTC(nights[0].date);
-  const firstWd = new Date(first).getUTCDay();
-  const anchor = first - (((firstWd + 6) % 7) * DAY); // back to Monday
+  const anchor = weekAnchor(nights);
   const week = nights.map((n) => Math.floor((toUTC(n.date) - anchor) / (7 * DAY)));
   const weekday = nights.map((n) => new Date(toUTC(n.date)).getUTCDay());
   const weekNights = new Map<number, number[]>();
@@ -231,10 +255,51 @@ export function weekdayExcessScaled(counts: number[], nightsPerWd: number[]): nu
 }
 
 /**
- * An ice-time result, in the four numbers `spacingReport` publishes. Selection
- * ranks these lexicographically rather than blending them, because a blended
- * scalar can and does prefer a candidate that breaks the even season share to
- * buy a flatter weekday split — the trade the league has rejected twice.
+ * A manager's request that one team's games over a stretch of the season lean
+ * toward the earlier or the later ice times (`slot_bias`).
+ *
+ * Lives here rather than in `slots.ts` because two places have to price it
+ * identically: Phase S's own descent, and `iceOutcome`, which is what actually
+ * decides which of the five Phase S candidates ships. A term visible only to
+ * the former makes the feature a coin toss.
+ */
+export type SlotBias = {
+  team: number;
+  /** `nights[i]` is true when night `i` falls inside the requested window. */
+  nights: boolean[];
+  prefer: "early" | "late";
+};
+
+/**
+ * Weight per slot-step toward the requested end of the evening.
+ *
+ * Ranked deliberately low. A step of ice-share deviation is worth
+ * `2 × WEEKDAY_SHARE_W` = 60 and a three-game run 140–200, so at 4 this can
+ * only ever decide between arrangements the share and streak terms are
+ * indifferent about — which is the whole of what "best effort, below the real
+ * goals" means. It is a *preference*, not a pin; `slot_on` is the pin.
+ */
+export const SLOT_BIAS_W = 4;
+
+/**
+ * Signed pull: +1 charges the slot index (so slot 0 is cheapest — "early"),
+ * −1 credits it (so the last slot is cheapest — "late").
+ *
+ * Signed rather than "distance from the preferred end" on purpose: distance
+ * needs a slot count, and the two callers derive theirs differently (Phase S
+ * from `slotsPerNight`, `iceOutcome` from the assignment it was handed). A
+ * signed index differs from a distance by a per-game constant, which cancels in
+ * every comparison either of them makes, and cannot drift.
+ */
+export const biasSign = (prefer: SlotBias["prefer"]): number =>
+  prefer === "early" ? 1 : -1;
+
+/**
+ * An ice-time result, in the four numbers `spacingReport` publishes plus the
+ * manager's ice-time preference. Selection ranks these lexicographically rather
+ * than blending them, because a blended scalar can and does prefer a candidate
+ * that breaks the even season share to buy a flatter weekday split — the trade
+ * the league has rejected twice.
  */
 export type IceOutcome = {
   /** Σ over teams of (max − min) of that team's season slot counts. */
@@ -245,6 +310,12 @@ export type IceOutcome = {
   streak3: number;
   /** `slotConsecutive`. */
   consecutive: number;
+  /**
+   * Σ over every `slot_bias` of `biasSign × slot` for that team's games inside
+   * the window. Zero whenever no bias is asked for, which is what keeps this
+   * field invisible to an unconstrained generation.
+   */
+  biasCost: number;
 };
 
 /**
@@ -266,7 +337,13 @@ export function compareIceOutcome(a: IceOutcome, b: IceOutcome): number {
     a.seasonSpread - b.seasonSpread ||
     a.streak3 - b.streak3 ||
     a.weekdaySpread - b.weekdaySpread ||
-    a.consecutive - b.consecutive
+    a.consecutive - b.consecutive ||
+    // Last, and it must be here at all: generation runs Phase S five times and
+    // keeps the winner by this comparator, so a bias term living only inside
+    // `assignSlots`' own cost would be invisible to the choice that ships — the
+    // candidate honouring the manager's request could lose to one ignoring it,
+    // at random. Ranked below every real goal, so it only ever breaks a tie.
+    a.biasCost - b.biasCost
   );
 }
 
@@ -281,8 +358,10 @@ export function iceOutcome(opts: {
   pairsByNight: [number, number][][];
   slotOf: number[][];
   weekdayOfNight?: number[];
+  /** Manager ice-time preferences, if any. Absent = `biasCost` is 0. */
+  biases?: SlotBias[];
 }): IceOutcome {
-  const { teamCount, pairsByNight, slotOf, weekdayOfNight } = opts;
+  const { teamCount, pairsByNight, slotOf, weekdayOfNight, biases } = opts;
   const numSlots = Math.max(1, ...slotOf.flat().map((s) => s + 1));
   const wds = weekdayOfNight ?? pairsByNight.map(() => 0);
   const usedW = [...new Set(wds)].sort((a, b) => a - b);
@@ -292,15 +371,27 @@ export function iceOutcome(opts: {
   // chronological, which is the same assumption `spacingReport` makes.
   const seq: number[][] = Array.from({ length: teamCount }, () => []);
   const seqW: number[][] = Array.from({ length: teamCount }, () => []);
+  const seqN: number[][] = Array.from({ length: teamCount }, () => []);
   pairsByNight.forEach((pairs, n) => {
     pairs.forEach(([a, b], gi) => {
       const s = slotOf[n][gi];
       for (const t of [a, b]) {
         seq[t].push(s);
         seqW[t].push(wIndex.get(wds[n])!);
+        seqN[t].push(n);
       }
     });
   });
+
+  let biasCost = 0;
+  for (const bias of biases ?? []) {
+    const sign = biasSign(bias.prefer);
+    const mine = seq[bias.team];
+    if (!mine) continue;
+    for (let i = 0; i < mine.length; i++) {
+      if (bias.nights[seqN[bias.team][i]]) biasCost += SLOT_BIAS_W * sign * mine[i];
+    }
+  }
 
   let seasonSpread = 0;
   let weekdaySpread = 0;
@@ -322,7 +413,7 @@ export function iceOutcome(opts: {
       weekdaySpread += Math.max(...c) - Math.min(...c);
     }
   }
-  return { seasonSpread, weekdaySpread, streak3, consecutive };
+  return { seasonSpread, weekdaySpread, streak3, consecutive, biasCost };
 }
 
 export function spacingReport(

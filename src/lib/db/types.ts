@@ -602,6 +602,48 @@ export type Database = {
           },
         ]
       }
+      season_schedule_constraints: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          params: Json
+          season_id: string
+          team_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind: string
+          params?: Json
+          season_id: string
+          team_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          params?: Json
+          season_id?: string
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "season_schedule_constraints_season_id_fkey"
+            columns: ["season_id"]
+            isOneToOne: false
+            referencedRelation: "seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "season_schedule_constraints_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       season_teams: {
         Row: {
           division_id: string | null

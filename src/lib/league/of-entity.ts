@@ -125,6 +125,28 @@ export async function leagueOfAnnouncement(
 }
 
 /**
+ * A schedule constraint belongs to the league of the season it constrains.
+ *
+ * Same shape as `leagueOfTeamPlayer`: the action holds a constraint id and no
+ * league, and the season is the only hop to one. Not resolved through `team_id`
+ * — a team carries a `league_id` directly, but a constraint's authority comes
+ * from the season it is attached to, and those are the same league by
+ * construction (a season only enrols its own league's teams).
+ */
+export async function leagueOfScheduleConstraint(
+  constraintId: string,
+  admin: Admin,
+): Promise<string | null> {
+  if (!constraintId) return null;
+  const { data } = await admin
+    .from("season_schedule_constraints")
+    .select("season:seasons!inner(league_id)")
+    .eq("id", constraintId)
+    .maybeSingle();
+  return data?.season?.league_id ?? null;
+}
+
+/**
  * Validates a league id, for entities audited under their league's own id.
  *
  * Shaped differently from the resolvers above on purpose: those derive a league
