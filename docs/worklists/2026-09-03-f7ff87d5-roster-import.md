@@ -10,13 +10,13 @@
 3. Claims are marked. "Watched" means the command was run and its output read. "A reading" means it follows from the code and has not been executed. Verified-by-measurement in this session: the `0024` goalie regression (§2 of the spec), `profiles` having no unique index on `player_id`, the public team route segment being `[slug]`, and every `file:line` cited below.
 4. **Baseline was NOT measured this session.** Establish it before changing anything: `npm test && npm run typecheck`. `LAUNCH_READINESS_HANDOFF.md` records 250 unit / 127 e2e on a *different* branch on 2026-09-02 — ⚠️ regenerate, do not quote.
 
-**Status: A1–A5 are done. A3's e2e run and A6's migration apply are both DEFERRED behind Task 0 (see there); A6 Steps 3–4 and all of A7 are BLOCKED until the apply happens.** Work happens on `feat/roster-import` in the worktree `/Users/richardkarp/dev/obhl-worktrees/roster-import`, branched off `main` with `284e25e` cherry-picked; the worktree needs its own `npm ci`. Task 0 remains the operator's, and it is now the critical path: **two Phase A tasks are waiting on it, not just the e2e run.**
+**Status: the cutover is DONE and Phase A is unblocked.** Task 0 was executed on 2026-09-03: production wiped, `0033`/`0035`/`0036` pushed, both test doors closed, PR #20 merged to `main` (`0952b50`). **`runRosterOnlyImport` ran twice against production and produced clean rosters — teams and players, no games or stats — which was its first execution anywhere, and A3's two e2e specs now pass.** `npm run gen-types` has run, so `player_distinct_pairs` AND `left_on` are both in `src/lib/db/types.ts` — **A6 steps 3-4, A7, and everything in Phase B that needs `left_on` to typecheck are no longer blocked.** Nothing below is waiting on the operator any more.
 
 **Baseline measured 2026-09-03 on this branch, before any code change: 21 test files / 250 unit tests passing, `npm run typecheck` clean.** After A1: 22 files / 253 tests — the three new `slug` tests and nothing else moved. A2 adds no tests of its own (it registers in `league-guards.test.ts`), so the counts are unchanged; its error paths are unproven until a real database exists. Re-measure after each task; do not quote these once further tasks land.
 
 One correction A1 turned up, for anyone writing tests against `slugify`: it collapses each run of non-alphanumerics to a *single hyphen*, so punctuation separates rather than disappears — `slugify("St. John's Ducks!")` is `st-john-s-ducks`. Step 1's example expectation below said `st-johns-ducks` and was wrong; the implementation is unchanged and remains the source of truth.
 
-**Next action — create the worktree on a clean branch, then start Task A1:**
+**Next action — A1 through A5 are done and merged; the worktree already exists. Start Task A6 step 3 (`src/lib/actions/players.ts`). The block below is kept only as the record of how this branch was created:**
 
 ```bash
 git worktree add -b feat/roster-import \
@@ -103,11 +103,11 @@ Existing code to reuse, not reinvent — **paths verified**: `fetchEsportsdeskLe
 
 Not an agent task. Recorded here so the sequence is complete.
 
-- [ ] Empty the database.
-- [ ] While it is empty, close `LAUNCH_READINESS_HANDOFF.md` item 2 — the seeded accounts whose password is committed to this repo are a way in regardless of what is deployed.
-- [ ] Items 1 (`ENABLE_DEV_LOGIN`) and 3 (`0033` not pushed) are unrelated to this work but block going live at all.
-- [ ] **Then apply `0035` and regenerate types** — `npm run db:reset && npm run gen-types` (A6 Step 2). This unblocks A6 Steps 3–4 (`src/lib/actions/players.ts`, which cannot typecheck until `player_distinct_pairs` is in `src/lib/db/types.ts`) and all of A7.
-- [ ] **Then run Task A3's deferred e2e steps** — `npx playwright test e2e/17-roster-import.spec.ts`. Deferred on 2026-09-03 by decision, not oversight: `e2e/global-setup.ts` runs `npm run db:reset`, and a reset from this worktree applies `0032`, `0033`, `0035`+ **without `0034`**, which is not on this branch. Local Supabase is one shared instance, so doing that while the League Office session was live would have dropped `league_office` out from under it. Note `.env.local` is gitignored and absent from this worktree — copy it from `/Users/richardkarp/dev/obhl` before running.
+- [x] Empty the database. Done 2026-09-03. Note the wipe kept `profiles` and `auth.users`, so the manager account survived.
+- [x] Done. While it is empty, close `LAUNCH_READINESS_HANDOFF.md` item 2 — the seeded accounts whose password is committed to this repo are a way in regardless of what is deployed.
+- [x] Items 1 (`ENABLE_DEV_LOGIN`) and 3 (`0033` not pushed) are both closed — `vercel env ls production` shows `ENABLE_DEV_LOGIN` gone, and `0033` is applied remotely.
+- [x] **Applied `0035` and regenerated types.** — `npm run db:reset && npm run gen-types` (A6 Step 2). This unblocks A6 Steps 3–4 (`src/lib/actions/players.ts`, which cannot typecheck until `player_distinct_pairs` is in `src/lib/db/types.ts`) and all of A7.
+- [x] **Ran Task A3's deferred e2e steps — both pass.** — `npx playwright test e2e/17-roster-import.spec.ts`. Deferred on 2026-09-03 by decision, not oversight: `e2e/global-setup.ts` runs `npm run db:reset`, and a reset from this worktree applies `0032`, `0033`, `0035`+ **without `0034`**, which is not on this branch. Local Supabase is one shared instance, so doing that while the League Office session was live would have dropped `league_office` out from under it. Note `.env.local` is gitignored and absent from this worktree — copy it from `/Users/richardkarp/dev/obhl` before running.
 
 ---
 
@@ -273,9 +273,9 @@ test("rosters-only mode hides the game count in the preview", async ({ page }) =
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails** — `npx playwright test e2e/17-roster-import.spec.ts` → no "rosters only" control.
+- [x] **Step 2** — superseded, and recorded rather than faked: the toggle already existed when the specs were first executed, so the red phase was never observed.
 - [x] **Step 3: Add the toggle.** A radio group, defaulting to **Rosters only** (the common case now): *Rosters only (new season setup)* → `runRosterOnlyImport`; *Full migration (teams, schedule, results, stats)* → `runEsportsdeskImport`. In rosters-only mode suppress the game-count line and reword the button to "Import rosters". `previewEsportsdeskImport` is unchanged — it fetches and writes nothing, which is why it is exempt in the guard test.
-- [ ] **Step 4: Run the test** → PASS. ⚠️ **A pass here proves less than it looks.** The Step 1 test cannot fail: with no preview fetched there is no review card, and the card renders `N games (final results)` or `no schedule found` — neither matches `/games? found/`. It does verify the toggle exists and is checkable (which is what makes Step 2 fail for the right reason), but nothing about game-count suppression; that would need an outbound esportsdesk fetch from a test. A second test was added beside it covering what is reachable without the network: rosters-only is the default, and switching modes changes the blurb. **Neither test has ever been executed** — both only typecheck and lint.
+- [x] **Step 4: Run the test** — **both specs pass, executed 2026-09-03** (`2 passed`), the first time either had ever run. ⚠️ The Step 1 spec still cannot fail: with no preview fetched there is no review card, and the card renders `N games (final results)` or `no schedule found` — neither matches `/games? found/`. The real evidence is the second spec beside it (rosters-only is the default; switching modes changes the blurb) plus the two production imports.
 - [x] **Step 5: Commit** — `git commit -m "feat: rosters-only mode on the import page"`
 
 ## Task A4: Duplicate detection (pure)
@@ -373,7 +373,7 @@ describe("findDuplicateClusters", () => {
 - [x] **Step 2: Run it to verify it fails** — `npm test -- duplicates`.
 - [x] **Step 3: Implement.** Normalize with the same rule the importer uses (lowercase, strip non-alphanumerics). Cluster on `normName(first + last)`; a cluster requires **two or more distinct `playerId`s**. Drop a cluster only when every pair within it is dismissed.
 - [x] **Step 4: Run the tests** → PASS — **7 tests, not 6**; the block above has seven `it` cases.
-- [ ] **Step 5: Commit** — `git commit -m "feat: detect same-name player clusters"`
+- [x] **Step 5: Commit** — `git commit -m "feat: detect same-name player clusters"` — done; merged to `main` in PR #20 as `c85c2ed`.
 
 ## Task A5: Merge planning (pure)
 
@@ -505,7 +505,7 @@ describe("planMerge", () => {
 5. Per `(seasonId, teamId)`: keep the richest roster row — a jersey beats none, then captaincy, then lowest `id` for determinism — and delete the others.
 
 - [x] **Step 4: Run the tests** → PASS (7 tests).
-- [ ] **Step 5: Commit** — `git commit -m "feat: merge planning with per-game resolution and refusals"`
+- [x] **Step 5: Commit** — `git commit -m "feat: merge planning with per-game resolution and refusals"` — done; merged to `main` in PR #20 as `231370d`.
 
 ## Task A6: `mergePlayers` action + dismissal table
 
@@ -537,9 +537,7 @@ alter table player_distinct_pairs enable row level security;
 -- can. Same reasoning as 0034's league_office table.
 ```
 
-- [ ] **Step 2: Apply and regenerate types** — `npm run db:reset && npm run gen-types`.
-
-  ⛔ **BLOCKED, and not by choice.** `npm run db:reset` rebuilds the shared local database from *this worktree's* files, which lack `0034` — confirmed applied in the local DB by the other session (`supabase migration list` shows 0034 present in the database and absent locally). Resetting drops `league_office` out from under them. The additive alternative, `npx supabase migration up --local`, was refused by the sandbox's permission classifier. **Everything downstream of this stops here:** Step 3's action queries `player_distinct_pairs`, which is absent from the generated `src/lib/db/types.ts`, so it cannot typecheck. Do NOT hand-edit that generated file to get past this — a green typecheck against a table the database does not have is a false green.
+- [x] **Step 2: Apply and regenerate types** — done 2026-09-03. `0035` is applied both locally and in production, and `player_distinct_pairs` is in `src/lib/db/types.ts`. The blocked notice that stood here is gone: the local reset that unblocked it also dropped `league_office` from the shared local database, which was the cost the League Office session was warned about.
 
 - [ ] **Step 3: Write the action**
 
@@ -611,9 +609,14 @@ Add a **"Show dismissed"** toggle listing dismissed pairs with an undo that dele
 
 ## Task B1: The `left_on` migration
 
+⛔ **`0036` IS ALREADY APPLIED TO PRODUCTION, AND ITS SOURCE FILE WAS UNTRACKED UNTIL NOW.** It went out with `0035` during the 2026-09-03 `db push`. Two consequences that are not obvious:
+
+1. **The schema is ahead of the code.** No deployed code reads or writes `left_on` — B4, B5 and B6 do not exist — so it is inert while every row is NULL. But `team_players_one_active_team`, a unique index on `(season_id, player_id) where left_on is null`, **now enforces one active team per player per season in production**, which was previously allowed. A manager adding someone to a second team gets a bare `23505` with no explanation. That is a live behaviour change with no UI to match it.
+2. **Commit the file.** Production's migration history names `0036`; until it is in `main`, any `supabase db push` from a clean checkout fails with "Remote migration versions not found in local migrations directory", and a local `db reset` produces a schema that silently differs from production.
+
 **Files:** Create `supabase/migrations/0036_roster_departures.sql`; modify `src/lib/db/types.ts` (generated).
 
-- [ ] **Step 1: Run the pre-flight check — this gates the whole task**
+- [x] **Step 1: pre-flight — NOT ACTUALLY RUN.** ⚠️ `0036` was applied on 2026-09-03 against a database the wipe had just emptied, so `team_players` held no rows and the unique index built trivially. The gate was satisfied by timing, not by the check. Nothing is wrong now, but if `0036` is ever re-applied to a populated database, run the query below first — it is still the thing that decides whether the index can be created.
 
 ```sql
 -- MUST return zero rows before 0036 is applied. The new partial unique index
@@ -628,7 +631,7 @@ having count(*) > 1;
 
 If it returns rows, resolve each by removing the roster row the player is not actually on. **Do not proceed until it is empty.**
 
-- [ ] **Step 2: Write the migration**
+- [x] **Step 2: Write the migration** — written 2026-09-03, **not applied**. The ⚠️ below is discharged from source, not from `psql`: both uniques in `0003_membership.sql:21-22` are unnamed table-level constraints and no later migration renames them, so Postgres's generated `team_players_season_id_team_id_jersey_number_key` is right. The file also records why the *other* unique — `(season_id, team_id, player_id)` — is deliberately left alone; it is what forces B6 step 6 to clear `left_on` on a return rather than insert a second row.
 
 ```sql
 -- A player who leaves a team mid-season keeps their roster row; left_on marks
@@ -667,7 +670,7 @@ create index team_players_active_idx
 
 > ⚠️ Confirm the dropped constraint's generated name first: `psql "$DB" -c "\d team_players"`. Postgres names it from the column list, but do not assume.
 
-- [ ] **Step 3: Apply locally and regenerate types** — `npm run db:reset && npm run gen-types`. Expect `left_on` on `team_players` in the generated types.
+- [x] **Step 3: Apply locally and regenerate types** — done. `left_on` is in `src/lib/db/types.ts`, and `0036` is applied **both locally and in production** (`supabase migration list --linked` confirms).
 - [ ] **Step 4: Prove the indexes.** Two active rows with the same jersey on one team must raise `23505`; the same jersey where one row has a `left_on` must insert. Two active rows for one player in one season must raise `23505`.
 - [ ] **Step 5: Commit** — `git commit -m "feat: soft departures on team_players"`
 
