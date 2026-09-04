@@ -66,6 +66,24 @@ function richer(a: RosterRow, b: RosterRow): RosterRow {
   return a.id < b.id ? a : b;
 }
 
+/**
+ * ⚠️ **Every row passed in must belong to the merge set** — that is, its
+ * `playerId` must be `keepId` or one of the records being absorbed. This
+ * function cannot check that for itself: it is told which record to keep, never
+ * which ones are being merged, so it treats whatever it is handed as the whole
+ * set.
+ *
+ * The natural way to load `games` gets this wrong. Fetching `game_rosters` by
+ * `game_id` returns EVERY player dressed for that game, and passing that in
+ * sums strangers' goals into the survivor and lists their roster rows in
+ * `deleteIds`. Nothing here would report an error; the merge would simply
+ * corrupt the other players' stat lines and delete their rows. Filter by
+ * `player_id in (merge set)` at the call site, not by game.
+ *
+ * `rosters` carries the same requirement. `linkedPlayerIds` does too, but it
+ * fails safe — an id from outside the set can only cause a spurious
+ * `both-linked` refusal, never a bad write.
+ */
 export function planMerge(
   keepId: string,
   rosters: RosterRow[],
