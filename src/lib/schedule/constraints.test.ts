@@ -138,11 +138,31 @@ describe("constraintConflicts", () => {
     expect(out).toHaveLength(1);
   });
 
-  it("refuses two teams pinned to one sheet of ice at one time", () => {
+  /**
+   * ⛔ TWO IS NOT A CONFLICT, and asserting that it was is what this test used
+   * to do. One sheet of ice holds one game, and one game holds TWO teams — so
+   * two teams asking for the same ice time may simply be asking to play each
+   * other on it. Phase M has not paired anyone when `constraintConflicts` runs,
+   * so that is unknowable here, and refusing it turned a satisfiable request
+   * into a refusal by name.
+   */
+  it("allows two teams on one sheet — they may be playing each other", () => {
     const out = constraintConflicts(
       resolve([
         c("1", "a", "slot_on", { date: "2026-09-14", time: "19:00" }),
         c("2", "c", "slot_on", { date: "2026-09-14", time: "19:00" }),
+      ]),
+      nameOf,
+    );
+    expect(out).toEqual([]);
+  });
+
+  it("refuses three teams pinned to one sheet — no pairing seats them", () => {
+    const out = constraintConflicts(
+      resolve([
+        c("1", "a", "slot_on", { date: "2026-09-14", time: "19:00" }),
+        c("2", "c", "slot_on", { date: "2026-09-14", time: "19:00" }),
+        c("3", "d", "slot_on", { date: "2026-09-14", time: "19:00" }),
       ]),
       nameOf,
     );
@@ -286,6 +306,44 @@ describe("evaluateConstraints", () => {
     ).toBe(true);
   });
 
+  /**
+   * ⛔ THE REGRESSION THIS SUITE MISSED. The verdict used to take its midpoint
+   * from the slots the team was actually given, so a team handed the earliest
+   * ice on every night had an observed max of 0, a midpoint of 0, and failed
+   * `mean < mid` — the best possible outcome reported as unmet. `late` passed
+   * the same probe, which is why reading the code did not show it. Four teams
+   * on two sheets: slot indexes are 0 and 1, so the middle is 0.5.
+   */
+  describe("slot_bias reads against the ice available, not the ice taken", () => {
+    const window = { from: NIGHTS[0].date, to: NIGHTS.at(-1)!.date };
+    const evaluate = (prefer: "early" | "late", slot: (n: number) => number) =>
+      evaluateConstraints(resolve([c("1", "a", "slot_bias", { ...window, prefer })]), {
+        plays: plays([]),
+        slotOf: (t, n) => (t === 0 ? slot(n) : 1 - slot(n)),
+        plannerHonours: true,
+      })[0];
+
+    it("counts the earliest sheet every night as MET for early", () => {
+      expect(evaluate("early", () => 0).satisfied).toBe(true);
+    });
+
+    it("counts the latest sheet every night as MET for late", () => {
+      expect(evaluate("late", () => 1).satisfied).toBe(true);
+    });
+
+    it("counts the wrong end as unmet, and says what the average was", () => {
+      const out = evaluate("early", () => 1);
+      expect(out.satisfied).toBe(false);
+      expect(out.reason).toMatch(/average slot 2\.0.*middle of 1\.5/);
+    });
+
+    it("counts dead centre as unmet either way — it leans nowhere", () => {
+      const halfAndHalf = (n: number) => n % 2;
+      expect(evaluate("early", halfAndHalf).satisfied).toBe(false);
+      expect(evaluate("late", halfAndHalf).satisfied).toBe(false);
+    });
+  });
+
   it("reports everything unmet when the fallback planner won", () => {
     // ⛔ planByWeeks has no participation matrix to force, so nothing was ever
     // applied. A request that holds in its output holds by accident and would
@@ -382,6 +440,93 @@ describe("forcedByeCredits", () => {
  * weakening the real baseline gate to get green. Collateral is measured and
  * reported, not gated.
  */
+/**
+ * ⛔ THE RANK-OFF DOES NOT DECIDE A CONSTRAINED GENERATION.
+ *
+ * `planByWeeks` cannot honour a request, so letting it win the rank-off tells
+ * the manager "could not be met" while a plan that met it was discarded for
+ * ranking slightly worse. Eight teams on three sheets is the shape where Phase P
+ * both produces a plan AND used to lose it.
+ */
+describe("a constrained generation prefers Phase P", () => {
+  const teams = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"];
+  const slots = ["19:00", "20:15", "21:30"];
+  const dates = [
+    "2026-09-15", "2026-09-17", "2026-09-22", "2026-09-24", "2026-09-29",
+    "2026-10-01", "2026-10-06", "2026-10-08", "2026-10-13", "2026-10-15",
+    "2026-10-20",
+  ];
+  const nights: Night[] = dates.map((date) => ({ date, slots }));
+  const pairings = buildBalancedPairings(teams, 8);
+
+  it("honours a bye the fallback planner would have thrown away", () => {
+    const resolved = resolveConstraints(
+      [c("1", "t1", "bye_on", { date: nights[2].date })],
+      { nights, teamIds: teams },
+    );
+    const { report } = assignNights(pairings, nights, teams, { constraints: resolved });
+    expect(report.constraints[0].satisfied).toBe(true);
+    expect(report.unscheduled).toBe(0);
+    // The invariant the whole feature rests on is untouched by the swap.
+    for (const t of report.gamesPerTeam) expect(t.count).toBe(8);
+  });
+
+  it("still runs the rank-off when nothing was asked for", () => {
+    // The headline bar: an unconstrained generation must not notice this branch
+    // exists. Same season, no requests — every invariant holds and no constraint
+    // is reported at all.
+    const { report } = assignNights(pairings, nights, teams);
+    expect(report.constraints).toEqual([]);
+    expect(report.unscheduled).toBe(0);
+    for (const t of report.gamesPerTeam) expect(t.count).toBe(8);
+  });
+});
+
+describe("presentSpacing", () => {
+  const raw = {
+    byesMultiWeek: 3,
+    byesConsecWeek: 2,
+    byesConsecWeekSameDay: 1,
+    byesAdjNight: 4,
+    other: "carried through",
+  };
+
+  it("subtracts the credits a forced bye earned", () => {
+    const out = presentSpacing(raw, {
+      byesMultiWeek: 1,
+      byesConsecWeek: 1,
+      byesConsecWeekSameDay: 0,
+      byesAdjNight: 2,
+    });
+    expect(out).toEqual({
+      byesMultiWeek: 2,
+      byesConsecWeek: 1,
+      byesConsecWeekSameDay: 1,
+      byesAdjNight: 2,
+      other: "carried through",
+    });
+  });
+
+  /**
+   * The two sides are not always counted over the same teams — `spacingReport`
+   * counts teams that have games, the credits count every enrolled team — so a
+   * constrained team the generator placed no games for can be credited byes
+   * that were never charged. A negative bye count means nothing to a reader.
+   */
+  it("never presents a negative count, however the credits were derived", () => {
+    const out = presentSpacing(raw, {
+      byesMultiWeek: 9,
+      byesConsecWeek: 9,
+      byesConsecWeekSameDay: 9,
+      byesAdjNight: 9,
+    });
+    expect(out.byesMultiWeek).toBe(0);
+    expect(out.byesConsecWeek).toBe(0);
+    expect(out.byesConsecWeekSameDay).toBe(0);
+    expect(out.byesAdjNight).toBe(0);
+  });
+});
+
 describe("assignNights with manager constraints", () => {
   const ts = Array.from({ length: 8 }, (_, i) => `t${i + 1}`);
   const ns = enumerateNights("2026-09-10", {

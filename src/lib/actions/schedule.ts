@@ -332,9 +332,21 @@ export async function generateSchedule(
       .map((s) => s.trim())
       .filter(Boolean),
   );
+  // ⛔ NORMALISED, and it has to be, because a `slot_on` constraint is matched
+  // against these by STRING EQUALITY (`nights[n].slots.indexOf(time)`).
+  // `saveScheduleConstraint` zero-pads what the manager picked, so a season
+  // whose ice times were typed "9:00, 20:15" — this is a free-text field —
+  // could never match a stored "09:00", and every pin at that time was reported
+  // as "09:00 is not an ice time on <date>": a time the manager never typed,
+  // about a slot that is plainly there. Normalising both sides is the fix; only
+  // this side was doing it.
   const slotTimes = String(formData.get("slot_times") ?? "19:00,20:15,21:30")
     .split(",")
     .map((s) => s.trim())
+    // Unparseable entries pass through untouched rather than being dropped:
+    // this field is the season's ice times, and silently losing one would
+    // change how many games a night can hold.
+    .map((s) => normalizeTime(s) ?? s)
     .filter(Boolean);
   if (!startDate) return { ok: false, message: "Pick a first game night." };
   if (weekdays.size === 0) {

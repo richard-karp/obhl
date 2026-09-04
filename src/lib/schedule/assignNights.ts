@@ -1313,11 +1313,10 @@ function planByWeeks(
 /**
  * Spread `total` games over nights as evenly as the per-night caps allow, so no
  * night is crammed while another sits half-empty. Null when they don't all fit.
- */
-/**
- * Games per night, so a caller can refute an impossible constraint set on
- * arithmetic before paying for a generate. Exported for that reason only —
- * `planByParticipation` is still the one caller that plans with it.
+ *
+ * Exported so a caller can refute an impossible constraint set on arithmetic
+ * before paying for a generate; `planByParticipation` is still the one caller
+ * that plans with it.
  */
 export function distributeGames(caps: number[], total: number): number[] | null {
   const n = caps.length;
@@ -1689,7 +1688,42 @@ export function assignNights(
 
   let plan = planByWeeks(pairings, nights, teamIds, meta, smeta);
   const exact = planByParticipation(pairings, nights, teamIds, meta, smeta, resolved);
-  if (
+
+  // ⛔ `planByWeeks` CANNOT honour constraints. It searches over placed games
+  // and has no participation matrix to force, so a request never reaches it.
+  //
+  // WHICH IS WHY THE RANK-OFF DOES NOT DECIDE A CONSTRAINED GENERATION. When
+  // Phase P produces a plan that honours the request and then LOSES the
+  // rank-off, the manager is told their request could not be met — while a plan
+  // that met it sat right there, discarded for ranking slightly worse on metrics
+  // they were never shown. Measured 2026-09-04: eight teams, three sheets, eight
+  // games each went from unmet to met under this branch, costing two
+  // consecutive-week byes (1 → 3).
+  //
+  // So when something was asked for, Phase P wins by being the only planner that
+  // can answer at all, and `planByWeeks` ships only if Phase P found nothing.
+  // The trade is deliberate: Phase P's plan can rank below the fallback's on the
+  // league's own priority order, and the manager sees what it cost in the
+  // metrics beside the request. Asking for something is what buys that trade —
+  // an UNCONSTRAINED generation still runs the rank-off untouched, which is what
+  // keeps `SCHEDULE_HANDOFF.md` §1 true.
+  //
+  // ⚠️ THIS IS NOT A GENERAL CURE. Two neighbouring limits decide far more
+  // often than this branch does, and a "could not be met" is usually one of
+  // them rather than a rank-off loss:
+  //
+  //   • `planByParticipation` returns null on some shapes REGARDLESS of
+  //     constraints — measured null even unconstrained at six teams / two
+  //     sheets and at eight teams / two sheets. There is no plan to prefer
+  //     there, so every request is reported unmet and this branch cannot change
+  //     it. A pre-existing limit of Phase P, not of constraints.
+  //   • A shape with no bye budget at all cannot honour any BYE request: six
+  //     teams on three sheets is three games a night, so all six play every
+  //     night and nobody ever byes. `refuteConstraints` says so by arithmetic
+  //     before a search runs. `play_on`, `slot_on` and `slot_bias` still work.
+  if (!resolved.empty) {
+    if (exact) plan = exact;
+  } else if (
     exact &&
     rankLess(
       rankSchedule(exact, nights, teamIds, meta),
@@ -1698,10 +1732,9 @@ export function assignNights(
   ) {
     plan = exact;
   }
-  // ⛔ `planByWeeks` CANNOT honour constraints. It searches over placed games
-  // and has no participation matrix to force, so when it wins the rank-off
-  // nothing the manager asked for was ever applied. The rank-off is unchanged —
-  // it stays the league's own priority order — but the report has to say so.
+  // Read off which plan SHIPPED, never off which one was preferred: with
+  // constraints set and Phase P returning null, the fallback ships anyway and
+  // every request is then correctly reported unmet.
   const plannerHonours = plan === exact;
   const { games, unscheduled } = plan;
 

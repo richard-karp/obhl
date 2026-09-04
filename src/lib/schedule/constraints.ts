@@ -347,14 +347,21 @@ export function constraintConflicts(
     (byTeamNight.get(tk) ?? byTeamNight.set(tk, []).get(tk)!).push(item);
   }
   for (const group of bySlot.values()) {
-    if (group.length < 2) continue;
+    // ⛔ TWO IS NOT A CONFLICT. A slot holds one game, and a game holds two
+    // teams — so two teams pinned to the same ice time may simply be asking to
+    // play each other there, which is satisfiable and used to be refused.
+    // Phase M has not paired anyone when this runs, so whether they are
+    // opponents is unknowable here; the honest line is to refuse only what no
+    // pairing could satisfy, and let `evaluateConstraints` report the rest off
+    // the placed games. Three teams cannot share one sheet under any pairing.
+    if (group.length < 3) continue;
     // Two teams in the same game share a slot legitimately; two pins on
     // different teams are only a conflict if they cannot be the same game, and
     // whether they are is Phase M's decision — so this refuses either way and
     // says why. Pinning both halves of an intended matchup is expressed by
     // pinning one of them.
     out.push(
-      `“${label(group[0])}” and “${label(group[1])}” both claim the same ice time that night — only one team can be pinned to a slot.`,
+      `“${label(group[0])}”, “${label(group[1])}” and ${group.length - 2} other request${group.length === 3 ? "" : "s"} all claim the same ice time that night — one sheet of ice seats two teams.`,
     );
   }
   for (const group of byTeamNight.values()) {
@@ -490,6 +497,20 @@ export function evaluateConstraints(
   },
 ): ConstraintOutcome[] {
   const { plays, slotOf, plannerHonours } = opts;
+  /**
+   * How many ice times night `n` actually handed out, from the placed games.
+   *
+   * ⛔ NOT the night's ice-time list. Phase S assigns a PERMUTATION over that
+   * night's games, so a slot index runs 0…games−1 — a night with three sheets
+   * but two games only ever uses slots 0 and 1. Counting sheets would put the
+   * midpoint below any slot the night can reach and call every early request
+   * unmet.
+   */
+  const gamesOn = (n: number) => {
+    let seats = 0;
+    for (const row of plays) if (row[n]) seats++;
+    return seats / 2;
+  };
   return resolved.items.map((item) => {
     const base = {
       id: item.source.id,
@@ -548,18 +569,38 @@ export function evaluateConstraints(
         // every real ice-time goal, so "satisfied" means the team's average ice
         // time over the window really does sit on the requested side of the
         // evening, not that every single game did.
-        const maxSlot = Math.max(
-          0,
-          ...item.nights.map((n) => slotOf(t, n) ?? 0),
-          ...slots,
-        );
+        //
+        // ⛔ THE MIDPOINT COMES FROM THE ICE AVAILABLE, NOT FROM THE SLOTS THIS
+        // TEAM HAPPENED TO TAKE. Deriving it from the team's own observed max is
+        // the obvious shortcut and it inverts the verdict at the best possible
+        // outcome: a team given slot 0 every single night has an observed max of
+        // 0, so the midpoint is 0 too, and `mean < mid` is `0 < 0` — the perfect
+        // result reported as unmet. Measured 2026-09-04; `late` passed the same
+        // probe, because its observed max is the real one. Per-night, because a
+        // night running two games and a night running three do not have the same
+        // middle.
         const mean = slots.reduce((a, b) => a + b, 0) / slots.length;
-        const mid = maxSlot / 2;
-        const ok = item.bias!.prefer === "early" ? mean < mid : mean > mid;
+        const nightsPlayed = played1.filter((n) => slotOf(t, n) !== null);
+        const midOf = (n: number) => (gamesOn(n) - 1) / 2;
+        const expected =
+          nightsPlayed.reduce((a, n) => a + midOf(n), 0) / nightsPlayed.length;
+        // The best this team could have done, for the degenerate nights where
+        // leaning is not on offer — one game on a night is slot 0 and also the
+        // last slot, and a request over such a window is met by definition.
+        const best =
+          item.bias!.prefer === "early"
+            ? 0
+            : nightsPlayed.reduce((a, n) => a + (gamesOn(n) - 1), 0) /
+              nightsPlayed.length;
+        const ok =
+          item.bias!.prefer === "early"
+            ? mean < expected || mean <= best
+            : mean > expected || mean >= best;
         return verdict(
           base,
           ok,
-          `the team's ice times over that range average slot ${(mean + 1).toFixed(1)}`,
+          `the team's ice times over that range average slot ${(mean + 1).toFixed(1)}, ` +
+            `against a middle of ${(expected + 1).toFixed(1)}`,
         );
       }
     }
@@ -721,11 +762,20 @@ export function constrainedTeams(resolved: ResolvedConstraints): Set<number> {
  * `forcedByeCredits`.
  */
 export function presentSpacing<T extends ByeCredits>(raw: T, credits: ByeCredits): T {
+  // ⚠️ FLOORED AT ZERO, because the two sides are not always counted over the
+  // same teams. `spacingReport` counts teams that have games; the credits are
+  // counted over every enrolled team. A constrained team the generator could
+  // place no games for is therefore credited byes that were never charged, and
+  // the subtraction would print a negative bye count — a number that cannot
+  // mean anything to the person reading it.
+  const floor = (n: number) => Math.max(0, n);
   return {
     ...raw,
-    byesMultiWeek: raw.byesMultiWeek - credits.byesMultiWeek,
-    byesConsecWeek: raw.byesConsecWeek - credits.byesConsecWeek,
-    byesConsecWeekSameDay: raw.byesConsecWeekSameDay - credits.byesConsecWeekSameDay,
-    byesAdjNight: raw.byesAdjNight - credits.byesAdjNight,
+    byesMultiWeek: floor(raw.byesMultiWeek - credits.byesMultiWeek),
+    byesConsecWeek: floor(raw.byesConsecWeek - credits.byesConsecWeek),
+    byesConsecWeekSameDay: floor(
+      raw.byesConsecWeekSameDay - credits.byesConsecWeekSameDay,
+    ),
+    byesAdjNight: floor(raw.byesAdjNight - credits.byesAdjNight),
   };
 }
