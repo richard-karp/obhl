@@ -44,7 +44,12 @@ export default async function RostersPage({
             <Link key={t.id} href={`/${leagueSlug}/manage/rosters/${t.id}`}>
               <Card className="hover:border-primary transition-colors">
                 <CardContent className="flex items-center gap-3 p-4">
-                  <TeamLogo name={t.name} color={t.color} className="size-10 text-sm" />
+                  <TeamLogo
+                    name={t.name}
+                    color={t.color}
+                    textColor={t.logo_text_color}
+                    className="size-10 text-sm"
+                  />
                   <span className="font-semibold">{t.name}</span>
                 </CardContent>
               </Card>

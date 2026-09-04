@@ -86,6 +86,7 @@ export default async function TeamPage({
           name={detail.team.name}
           color={detail.team.color}
           logoPath={detail.team.logo_path}
+          textColor={detail.team.logo_text_color}
           className="size-12 text-base"
         />
         <div>

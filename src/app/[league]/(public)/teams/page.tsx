@@ -36,6 +36,7 @@ export default async function TeamsPage({
                     name={t.name}
                     color={t.color}
                     logoPath={t.logo_path}
+                    textColor={t.logo_text_color}
                     className="size-10 text-sm"
                   />
                   <span className="font-semibold">{t.name}</span>
