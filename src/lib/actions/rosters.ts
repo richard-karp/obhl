@@ -134,16 +134,31 @@ export async function addRosterPlayer(
   // a departed row on THIS team while they are active elsewhere would violate
   // the same index. `movePlayerToTeam` handles both, and it is the only
   // implementation of the move there is.
-  const { data: activeElsewhere } = await admin
+  // ⚠️ `limit(1)`, NOT `maybeSingle()`. `maybeSingle` treats two rows as an
+  // error and hands back null data — so a player who somehow held two active
+  // roster rows in one season would look like a player with none, and this
+  // would add a THIRD. `0003`'s unique key makes that state hard to reach and
+  // not impossible; taking the first row moves them off one team rather than
+  // quietly compounding the anomaly.
+  const { data: activeRows } = await admin
     .from("team_players")
     .select("*")
     .eq("season_id", season_id)
     .eq("player_id", player_id)
     .neq("team_id", team_id)
     .is("left_on", null)
-    .maybeSingle();
+    .limit(1);
+  const activeElsewhere = activeRows?.[0] ?? null;
 
   if (activeElsewhere) {
+    // ⛔ The guard at the top of this action covers the season and the
+    // DESTINATION team. This move also writes the SOURCE team's row, which
+    // `transferPlayer` names in its own three-way guard. The season constrains
+    // it — a season only enrols its own league's teams — so this should never
+    // fire, which is exactly what makes it cheap to assert instead of assume.
+    if ((await leagueOfTeam(activeElsewhere.team_id, admin)) !== league_id) {
+      return { ok: false, message: "That player's current team is in another league." };
+    }
     return movePlayerToTeam({
       admin,
       manager_id: manager.id,
