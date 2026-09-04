@@ -11,16 +11,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TeamLogo } from "@/components/shared/team-logo";
-import type { SkaterStat } from "@/lib/queries/stats";
+import type { SkaterRow } from "@/lib/queries/stats";
 
 type SortCol = "gp" | "g" | "a" | "pts" | "pim" | "ppg";
 type SortDir = "asc" | "desc";
 
-function ppg(r: SkaterStat) {
+function ppg(r: SkaterRow) {
   return r.gp ? (r.pts ?? 0) / r.gp : 0;
 }
 
-function sortRows(rows: SkaterStat[], col: SortCol, dir: SortDir): SkaterStat[] {
+function sortRows(rows: SkaterRow[], col: SortCol, dir: SortDir): SkaterRow[] {
   return [...rows].sort((a, b) => {
     const av = col === "ppg" ? ppg(a) : ((a[col] ?? 0) as number);
     const bv = col === "ppg" ? ppg(b) : ((b[col] ?? 0) as number);
@@ -64,7 +64,7 @@ export function SkaterStatsTable({
   league,
   showRank = true,
 }: {
-  rows: SkaterStat[];
+  rows: SkaterRow[];
   league: string;
   showRank?: boolean;
 }) {

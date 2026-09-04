@@ -83,6 +83,42 @@ test.describe("Path 9 — Roster editor", () => {
     ).toBeVisible();
   });
 
+  /**
+   * The regression that soft departures introduced.
+   *
+   * Removing a player who has dressed keeps their roster row and marks it
+   * departed (0036), and `unique (season_id, team_id, player_id)` from 0003 is
+   * deliberately non-partial — so a plain insert on the way back is rejected
+   * with a bare 23505. The picker offers them, too, because the roster it
+   * subtracts is filtered to active rows. Coming back is therefore the normal
+   * way an operator undoes a removal, not an edge case.
+   */
+  test("a removed player can be added back to the same team", async ({ page }) => {
+    const row = page.locator("table tbody tr").first();
+    // The second cell: the table is #, Player, Position, Status, Manage.
+    const name = (await row.locator("td").nth(1).innerText()).split("\n")[0].trim();
+
+    // Their position, so it can be put back. The add form is the same form
+    // whether the person is new or returning, so it decides both position and
+    // number — and its position default is F. Re-adding the Sharks' goalie
+    // without setting it turns them into a forward and leaves the team with no
+    // goalie at all, which is what broke e2e/13 the first time this ran.
+    const POS_CODE: Record<string, string> = { Forward: "F", Defense: "D", Goalie: "G" };
+    const position = POS_CODE[(await row.locator("td").nth(2).innerText()).trim()] ?? "F";
+
+    await row.getByRole("button", { name: "Remove" }).click();
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByRole("cell", { name })).toHaveCount(0);
+
+    await page.getByLabel("Existing person (optional)").selectOption({ label: name });
+    await page.getByLabel("Pos").selectOption(position);
+    await page.getByRole("button", { name: /add/i }).click();
+    await page.waitForLoadState("networkidle");
+
+    await expect(page.getByRole("cell", { name })).toBeVisible();
+    await expect(page.locator("table tbody tr").filter({ hasText: name })).toHaveCount(1);
+  });
+
   test("toggle captain sets and removes C badge", async ({ page }) => {
     const row = page.locator("table tbody tr").nth(1);
     await row.getByRole("button", { name: "Make C" }).click();

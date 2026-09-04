@@ -421,6 +421,55 @@ export type Database = {
         }
         Relationships: []
       }
+      player_distinct_pairs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          league_id: string
+          player_a: string
+          player_b: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          league_id: string
+          player_a: string
+          player_b: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          league_id?: string
+          player_a?: string
+          player_b?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_distinct_pairs_league_id_fkey"
+            columns: ["league_id"]
+            isOneToOne: false
+            referencedRelation: "leagues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_distinct_pairs_player_a_fkey"
+            columns: ["player_a"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_distinct_pairs_player_b_fkey"
+            columns: ["player_b"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       players: {
         Row: {
           birthdate: string | null
@@ -652,6 +701,7 @@ export type Database = {
           is_rookie: boolean
           is_suspended: boolean
           jersey_number: number | null
+          left_on: string | null
           player_id: string
           position: Database["public"]["Enums"]["player_position"]
           season_id: string
@@ -665,6 +715,7 @@ export type Database = {
           is_rookie?: boolean
           is_suspended?: boolean
           jersey_number?: number | null
+          left_on?: string | null
           player_id: string
           position?: Database["public"]["Enums"]["player_position"]
           season_id: string
@@ -678,6 +729,7 @@ export type Database = {
           is_rookie?: boolean
           is_suspended?: boolean
           jersey_number?: number | null
+          left_on?: string | null
           player_id?: string
           position?: Database["public"]["Enums"]["player_position"]
           season_id?: string
@@ -747,7 +799,7 @@ export type Database = {
       }
     }
     Views: {
-      v_goalie_stats: {
+      v_goalie_season_totals: {
         Row: {
           first_name: string | null
           ga: number | null
@@ -768,6 +820,55 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "team_players_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_goalie_stats: {
+        Row: {
+          first_name: string | null
+          ga: number | null
+          gaa: number | null
+          gp: number | null
+          jersey_number: number | null
+          last_name: string | null
+          losses: number | null
+          player_id: string | null
+          season_id: string | null
+          so: number | null
+          team_color: string | null
+          team_id: string | null
+          team_name: string | null
+          team_slug: string | null
+          ties: number | null
+          wins: number | null
+        }
+        Relationships: []
+      }
+      v_skater_season_totals: {
+        Row: {
+          a: number | null
+          first_name: string | null
+          g: number | null
+          gp: number | null
+          jersey_number: number | null
+          last_name: string | null
+          pim: number | null
+          player_id: string | null
+          position: Database["public"]["Enums"]["player_position"] | null
+          pts: number | null
+          season_id: string | null
+          team_color: string | null
+          team_id: string | null
+          team_name: string | null
+          team_slug: string | null
+        }
+        Relationships: [
+          {
             foreignKeyName: "game_rosters_player_id_fkey"
             columns: ["player_id"]
             isOneToOne: false
@@ -775,17 +876,17 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "game_rosters_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "teams"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "games_season_id_fkey"
             columns: ["season_id"]
             isOneToOne: false
             referencedRelation: "seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_players_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
             referencedColumns: ["id"]
           },
         ]

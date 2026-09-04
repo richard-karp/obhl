@@ -170,6 +170,9 @@ async function CaptainPanel({
       .eq("player_id", profile.player_id)
       .eq("is_captain", true)
       .eq("season_id", seasonId)
+      // The team they captain NOW. Also what keeps `maybeSingle()` honest: a
+      // captain who changed teams mid-season matches their old row too.
+      .is("left_on", null)
       .maybeSingle();
     team =
       (data?.teams as unknown as {

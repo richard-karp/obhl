@@ -39,19 +39,26 @@ export async function getGameBoxScore(gameId: string) {
         "team_id, player_id, goals, assists, pim, is_substitute, player:players!game_rosters_player_id_fkey(first_name, last_name)",
       )
       .eq("game_id", gameId),
+    // NOT filtered on `left_on`, and keyed by team as well as player.
+    //
+    // A box score shows the number a player wore in THAT game, which is the
+    // number on their roster row for the team they played it for — a departed
+    // row, once they move on. Filtering to active rows would blank the numbers
+    // on every past game a transferred player appears in; keying by player
+    // alone would print their new team's number on their old team's line.
     supabase
       .from("team_players")
-      .select("player_id, jersey_number")
+      .select("player_id, team_id, jersey_number")
       .eq("season_id", game.season_id),
   ]);
 
   const jersey = new Map<string, number | null>();
-  for (const r of tp ?? []) jersey.set(r.player_id, r.jersey_number);
+  for (const r of tp ?? []) jersey.set(`${r.player_id}|${r.team_id}`, r.jersey_number);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const lines: BoxLine[] = (rosters ?? []).map((r: any) => ({
     team_id: r.team_id,
-    number: jersey.get(r.player_id) ?? null,
+    number: jersey.get(`${r.player_id}|${r.team_id}`) ?? null,
     name: r.is_substitute
       ? "Substitutes"
       : r.player

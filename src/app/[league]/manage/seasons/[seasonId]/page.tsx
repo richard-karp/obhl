@@ -89,7 +89,8 @@ export default async function SeasonSetupPage({
           "team_id, players!team_players_player_id_fkey(first_name, last_name)",
         )
         .eq("season_id", seasonId)
-        .eq("is_captain", true),
+        .eq("is_captain", true)
+        .is("left_on", null),
       admin
         .from("games")
         .select("*", { count: "exact", head: true })
