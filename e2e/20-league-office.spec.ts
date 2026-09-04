@@ -1,5 +1,5 @@
 /**
- * Path 18: the League Office — a tier above the league manager.
+ * Path 20: the League Office — a tier above the league manager.
  *
  * What this file exists to catch is the half the other suites structurally
  * cannot. Every other spec signs in as an account that BELONGS to the leagues it
@@ -55,7 +55,7 @@ async function profileIdFor(email: string) {
   return id;
 }
 
-test.describe("Path 18 — League Office", () => {
+test.describe("Path 20 — League Office", () => {
   test("the office fixtures hold no membership rows, so the rest means something", async () => {
     const db = admin();
     for (const email of [COMMISSIONER, DEPUTY]) {
