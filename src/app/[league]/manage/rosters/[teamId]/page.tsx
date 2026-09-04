@@ -4,6 +4,8 @@ import { createAdminClient } from "@/utils/supabase/admin";
 import { getManageContext } from "@/lib/queries/season";
 import { AddPlayerForm } from "@/components/manage/add-player-form";
 import { TransferPlayerForm } from "@/components/manage/transfer-player-form";
+import { EditPlayerForm } from "@/components/manage/edit-player-form";
+import { archivedPlayerIdsIn } from "@/lib/players/archive";
 import { removeRosterPlayer, toggleCaptain, updatePlayerStatus, setDefaultGoalie, setGoalieDay } from "@/lib/actions/rosters";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -86,14 +88,39 @@ export default async function RosterEditorPage({
 
   // Global people not already on this team's roster — for the shared-identity
   // "existing person" picker (reuse someone who plays in another league).
-  const { data: allPeople } = await admin
-    .from("players")
-    .select("id, first_name, last_name")
-    .order("last_name", { ascending: true });
+  //
+  // ⛔ STILL READ UNFILTERED FROM `players`, AND THAT IS THE POINT. The archive
+  // is applied below, per league. Pushing it into this query as a global flag —
+  // the shape a `players.archived_at` column would have forced — would hide the
+  // person from every OTHER league's picker too, silently, for leagues that
+  // never archived them.
+  const [{ data: allPeople }, archived, { data: leagueRostered }] = await Promise.all([
+    admin
+      .from("players")
+      .select("id, first_name, last_name")
+      .order("last_name", { ascending: true }),
+    archivedPlayerIdsIn(ctx.league.id, admin),
+    // Who is on some team in THIS league right now. Used only so the picker can
+    // say so: `archivePlayer` refuses these, and a button that always fails is
+    // worse than no button.
+    admin
+      .from("team_players")
+      .select("player_id, seasons!inner(league_id)")
+      .is("left_on", null)
+      .eq("seasons.league_id", ctx.league.id),
+  ]);
   const onRoster = new Set((roster ?? []).map((r) => r.player_id));
+  const rosteredInLeague = new Set((leagueRostered ?? []).map((r) => r.player_id));
   const people = (allPeople ?? [])
     .filter((p) => !onRoster.has(p.id))
-    .map((p) => ({ id: p.id, name: `${p.first_name} ${p.last_name}` }));
+    .map((p) => ({
+      id: p.id,
+      name: `${p.first_name} ${p.last_name}`,
+      // Archived OUT OF THIS LEAGUE. The picker hides these until "Show
+      // archived" is ticked; every other league still lists them normally.
+      archived: archived.has(p.id),
+      rostered: rosteredInLeague.has(p.id),
+    }));
 
   return (
     <div className="space-y-6">
@@ -124,6 +151,7 @@ export default async function RosterEditorPage({
           <AddPlayerForm
             seasonId={season.id}
             teamId={team.id}
+            leagueId={ctx.league.id}
             people={people}
           />
         </CardContent>
@@ -232,6 +260,13 @@ export default async function RosterEditorPage({
                           {r.is_captain ? "Unset C" : "Make C"}
                         </Button>
                       </form>
+                      <EditPlayerForm
+                        rosterId={r.id}
+                        firstName={r.players?.first_name ?? ""}
+                        lastName={r.players?.last_name ?? ""}
+                        jerseyNumber={r.jersey_number ?? null}
+                        position={r.position}
+                      />
                       <TransferPlayerForm
                         rosterId={r.id}
                         jerseyNumber={r.jersey_number ?? null}

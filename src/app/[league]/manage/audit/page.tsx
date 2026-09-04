@@ -214,6 +214,34 @@ export default async function AuditLogPage({
           ? `Made ${name ?? "player"} captain`
           : `Removed captain from ${name ?? "player"}`;
       }
+      // The four roster/player entries added with the editing tools. Each names
+      // its subject from its OWN payload, like the staff entries above and for
+      // the same reason: `update_player_name` and the archive pair carry a
+      // PLAYER id, which the two lookups above (team_player ids, and player ids
+      // read out of add/remove payloads) do not resolve.
+      case "update_roster_player": {
+        const who = typeof nd?.name === "string" ? nd.name : "a player";
+        const num = nd?.jersey_number == null ? "no number" : `#${nd.jersey_number}`;
+        return `Set ${who} to ${num}, ${nd?.position ?? "?"}`;
+      }
+      case "update_player_name": {
+        const from = od ? `${od.first_name} ${od.last_name}` : "a player";
+        const to = nd ? `${nd.first_name} ${nd.last_name}` : "a new name";
+        return `Renamed ${from} to ${to} (in every league)`;
+      }
+      case "archive_player": {
+        const who = typeof nd?.name === "string" ? nd.name : "a player";
+        return `Archived ${who} from this league`;
+      }
+      case "restore_player": {
+        const who = typeof nd?.name === "string" ? nd.name : "a player";
+        return `Restored ${who} to this league`;
+      }
+      case "transfer_player": {
+        const who = typeof nd?.name === "string" ? nd.name : null;
+        const via = nd?.via === "add" ? " (via the add form)" : "";
+        return `Transferred ${who ?? "a player"} to another team${via}`;
+      }
       case "update_player_status": {
         const name = tpNameMap.get(r.entity_id);
         const field = typeof nd?.field === "string" ? nd.field.replace(/_/g, " ") : "status";

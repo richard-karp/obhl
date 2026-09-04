@@ -7,6 +7,7 @@ import {
 } from "@/components/manage/create-staff-form";
 import { StaffRowActions } from "@/components/manage/staff-row-actions";
 import { memberLeagueIds } from "@/lib/auth/membership";
+import { archivedPlayerIdsIn } from "@/lib/players/archive";
 import { listOfficeTiers } from "@/lib/auth/office";
 import { emailsByProfileId } from "@/lib/auth/users";
 import { decideProfileWrite } from "@/lib/auth/precedence";
@@ -93,10 +94,21 @@ export default async function PeoplePage({
       // history it preserves, and offering it here would link an account to a
       // team the person has left.
       .is("left_on", null);
-    captains = (caps ?? []).map((c) => ({
-      id: c.player_id,
-      label: `${c.players?.first_name} ${c.players?.last_name} (${c.teams?.name})`,
-    }));
+    // Archived out of THIS league (0040) — filtered in memory rather than in the
+    // query above, because `player_league_archive` has no join to `team_players`
+    // and the candidate list is a handful of rows either way.
+    //
+    // ⚠️ This is the only player-derived list on this page. Everything else here
+    // is staff PROFILES, which the archive has nothing to say about — a person
+    // archived out of a league is not an account, and nothing here should go
+    // looking for a general player list to filter, because there isn't one.
+    const archived = await archivedPlayerIdsIn(ctx.league.id, admin);
+    captains = (caps ?? [])
+      .filter((c) => !archived.has(c.player_id))
+      .map((c) => ({
+        id: c.player_id,
+        label: `${c.players?.first_name} ${c.players?.last_name} (${c.teams?.name})`,
+      }));
   }
 
   // Addresses for everyone the table will show. The strategy, and why it is not
