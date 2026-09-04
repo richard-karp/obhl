@@ -1,5 +1,5 @@
 /**
- * Path 23: Manager schedule constraints — telling the generator what to do,
+ * Path 24: Manager schedule constraints — telling the generator what to do,
  * and being told what it could not do.
  *
  * Driven through Fall 2026's setup page for the same reason `11-schedule-builder`
@@ -41,17 +41,64 @@ async function firstTeamName(page: Page): Promise<string> {
   return name;
 }
 
-/** Remove every request currently listed, so the suite can re-run from clean. */
+/**
+ * The listed requests, and ONLY those.
+ *
+ * ⛔ Never assert a request's description against the whole page. The card
+ * lists it AND sonner toasts it ("Added: <description>."), so a bare
+ * `getByText(description)` is a strict-mode violation the moment an add
+ * succeeds — the assertion fails precisely when the thing it checks worked.
+ */
+function requestList(page: Page) {
+  return page
+    .locator("li")
+    .filter({ has: page.getByRole("button", { name: /^Remove request:/ }) });
+}
+
+/**
+ * The preview's "Manager requests" card — the one that reports whether each
+ * request landed.
+ *
+ * ⛔ NOT `[data-slot="card"]` filtered on the text "Manager requests". The
+ * constraints card inside the generate form is headed "Manager requests
+ * (optional)", and it lives inside a Card of its own, so that filter always
+ * matches TWO elements: the outcome card can never be asserted absent, and
+ * asserting it present is a strict-mode violation. Match the card TITLE
+ * exactly, which only the outcome card has.
+ */
+function outcomeCard(page: Page) {
+  // `:scope >` pins the card whose OWN header carries the title. Without it the
+  // filter also matches every enclosing Card — the builder panel nests them —
+  // and a 2-element match makes `toBeVisible` a strict-mode violation.
+  return page.locator('[data-slot="card"]').filter({
+    has: page.locator(':scope > [data-slot="card-header"]', {
+      hasText: /^Manager requests$/,
+    }),
+  });
+}
+
+/**
+ * Remove every request currently listed, so the suite can re-run from clean.
+ *
+ * ⛔ THE LIST SHRINKING IS THE SIGNAL, NOT THE TOAST. Waiting on
+ * "Removed that request." looks right and is a trap: sonner stacks and lingers,
+ * so on the second pass the toast from the FIRST removal is still on screen and
+ * the assertion returns instantly. The loop then clicks the next ✕ while the
+ * previous transition still has every remove button disabled and the re-render
+ * is detaching them — "element is not enabled", "element was detached", and a
+ * 150 s timeout inside afterEach that reads as if the page had hung.
+ */
 async function clearRequests(page: Page) {
   for (;;) {
-    const remove = page.getByRole("button", { name: /^Remove request:/ }).first();
-    if ((await remove.count()) === 0) break;
-    await remove.click();
-    await expect(page.getByText(/^Removed that request\./)).toBeVisible();
+    const rows = requestList(page);
+    const before = await rows.count();
+    if (before === 0) break;
+    await rows.first().getByRole("button", { name: /^Remove request:/ }).click();
+    await expect(rows).toHaveCount(before - 1);
   }
 }
 
-test.describe("Path 23 — schedule constraints", () => {
+test.describe("Path 24 — schedule constraints", () => {
   // A generate can be ~25 s of search, and two of these run one.
   test.describe.configure({ timeout: 150_000 });
 
@@ -70,12 +117,12 @@ test.describe("Path 23 — schedule constraints", () => {
     // no calendar to talk about.
     const form = page.locator("form").filter({ hasText: "Manager requests" });
     await expect(form.getByRole("button", { name: "Generate schedule" })).toBeVisible();
-    await expect(form.getByLabel("Request")).toBeVisible();
+    await expect(form.getByLabel("Request", { exact: true })).toBeVisible();
     await expect(form.getByRole("button", { name: "Add request" })).toBeVisible();
   });
 
   test("the request picker offers all six kinds", async ({ page }) => {
-    const kinds = page.getByLabel("Request");
+    const kinds = page.getByLabel("Request", { exact: true });
     for (const label of [
       "Bye on a night",
       "Bye the whole week",
@@ -90,21 +137,21 @@ test.describe("Path 23 — schedule constraints", () => {
 
   test("adding a request lists it, and removing it takes it away", async ({ page }) => {
     const name = await firstTeamName(page);
-    await page.getByLabel("Request").selectOption("bye_on");
+    await page.getByLabel("Request", { exact: true }).selectOption("bye_on");
     await page.getByLabel("Date", { exact: true }).fill(FIRST_NIGHT);
     await page.getByRole("button", { name: "Add request" }).click();
 
-    await expect(page.getByText(`${name} byes on ${FIRST_NIGHT}`)).toBeVisible();
+    await expect(requestList(page).filter({ hasText: `${name} byes on ${FIRST_NIGHT}` })).toBeVisible();
 
     await page.getByRole("button", { name: /^Remove request:/ }).first().click();
-    await expect(page.getByText(`${name} byes on ${FIRST_NIGHT}`)).toHaveCount(0);
+    await expect(requestList(page).filter({ hasText: `${name} byes on ${FIRST_NIGHT}` })).toHaveCount(0);
   });
 
   test("a request with nothing filled in is refused, not silently dropped", async ({
     page,
   }) => {
     await firstTeamName(page);
-    await page.getByLabel("Request").selectOption("slot_on");
+    await page.getByLabel("Request", { exact: true }).selectOption("slot_on");
     await page.getByLabel("Date", { exact: true }).fill(FIRST_NIGHT);
     // No ice time.
     await page.getByRole("button", { name: "Add request" }).click();
@@ -118,16 +165,16 @@ test.describe("Path 23 — schedule constraints", () => {
     // contradictions are checked before the arithmetic: the message names both
     // offending requests rather than saying "infeasible".
     const name = await firstTeamName(page);
-    await page.getByLabel("Request").selectOption("bye_on");
+    await page.getByLabel("Request", { exact: true }).selectOption("bye_on");
     await page.getByLabel("Date", { exact: true }).fill(FIRST_NIGHT);
     await page.getByRole("button", { name: "Add request" }).click();
-    await expect(page.getByText(`${name} byes on ${FIRST_NIGHT}`)).toBeVisible();
+    await expect(requestList(page).filter({ hasText: `${name} byes on ${FIRST_NIGHT}` })).toBeVisible();
 
     await firstTeamName(page);
-    await page.getByLabel("Request").selectOption("play_on");
+    await page.getByLabel("Request", { exact: true }).selectOption("play_on");
     await page.getByLabel("Date", { exact: true }).fill(FIRST_NIGHT);
     await page.getByRole("button", { name: "Add request" }).click();
-    await expect(page.getByText(`${name} plays on ${FIRST_NIGHT}`)).toBeVisible();
+    await expect(requestList(page).filter({ hasText: `${name} plays on ${FIRST_NIGHT}` })).toBeVisible();
 
     await page.getByLabel("First game night").fill(FIRST_NIGHT);
     await page.getByLabel("Games per team").fill("4");
@@ -141,14 +188,31 @@ test.describe("Path 23 — schedule constraints", () => {
     await expect(page.getByText("No draft schedule")).toBeVisible();
   });
 
+  /**
+   * ⛔ `slot_on`, NOT `bye_on`, AND THE SEEDED LEAGUE IS WHY.
+   *
+   * Six teams over the default three sheets is three games a night, so all six
+   * play every night and the season has NO BYE BUDGET AT ALL — every bye
+   * request is correctly refused by `refuteConstraints` on arithmetic, and no
+   * assertion here can make one land. Dropping to two sheets creates byes but
+   * walks into the other wall: `planByParticipation` returns null at six teams
+   * on two sheets even with nothing constrained, so the fallback planner ships
+   * and every request is reported unmet. Both limits are measured on the
+   * rank-off note in `assignNights.ts`.
+   *
+   * `play_on`, `slot_on` and `slot_bias` all work on this shape. `slot_on` is
+   * the one worth driving: it is the kind that has to survive BOTH phases —
+   * Phase P forcing the play night, Phase S pinning the ice time — and it is
+   * read back off the placed games rather than off what either was asked to do.
+   */
   test("a honoured request shows as met on the preview", async ({ page }) => {
     const name = await firstTeamName(page);
-    await page.getByLabel("Request").selectOption("bye_on");
-    // The second Tuesday of the window — a night the schedule has room to move
-    // a bye onto without the request being the only thing it could do.
+    await page.getByLabel("Request", { exact: true }).selectOption("slot_on");
     await page.getByLabel("Date", { exact: true }).fill("2026-09-22");
+    await page.getByLabel("Ice time").fill("21:30");
     await page.getByRole("button", { name: "Add request" }).click();
-    await expect(page.getByText(`${name} byes on 2026-09-22`)).toBeVisible();
+    const description = `${name} plays at 21:30 on 2026-09-22`;
+    await expect(requestList(page).filter({ hasText: description })).toBeVisible();
 
     await page.getByLabel("First game night").fill(FIRST_NIGHT);
     await page.getByLabel("Games per team").fill("4");
@@ -158,20 +222,19 @@ test.describe("Path 23 — schedule constraints", () => {
 
     await expect(page.getByText("Balance report")).toBeVisible(AFTER_GENERATE);
 
+    // ⛔ ASSERT THE TICK, not merely that the request is listed. Listing it
+    // proves nothing — an unmet request is listed too, with a ✗ — and this test
+    // spent its whole life passing over one.
+    const row = outcomeCard(page).locator("li").filter({ hasText: description });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText("✓");
+
     // The card is derived from the placed draft, not from what the generator
     // was asked to do — so it is still right after a reload.
-    const requests = page
-      .locator('[data-slot="card"]')
-      .filter({ hasText: "Manager requests" });
-    await expect(requests).toBeVisible();
-    await expect(requests.getByText(`${name} byes on 2026-09-22`)).toBeVisible();
     await page.reload();
     await expect(
-      page
-        .locator('[data-slot="card"]')
-        .filter({ hasText: "Manager requests" })
-        .getByText(`${name} byes on 2026-09-22`),
-    ).toBeVisible();
+      outcomeCard(page).locator("li").filter({ hasText: description }),
+    ).toContainText("✓");
 
     await page.getByRole("button", { name: "Discard draft" }).click();
     await expect(page.getByText("No draft schedule")).toBeVisible();
@@ -187,9 +250,7 @@ test.describe("Path 23 — schedule constraints", () => {
     await page.getByRole("button", { name: "Generate schedule" }).click();
 
     await expect(page.getByText("Balance report")).toBeVisible(AFTER_GENERATE);
-    await expect(
-      page.locator('[data-slot="card"]').filter({ hasText: "Manager requests" }),
-    ).toHaveCount(0);
+    await expect(outcomeCard(page)).toHaveCount(0);
 
     await page.getByRole("button", { name: "Discard draft" }).click();
     await expect(page.getByText("No draft schedule")).toBeVisible();

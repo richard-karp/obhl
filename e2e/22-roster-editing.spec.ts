@@ -75,6 +75,45 @@ async function search(page: Page, name: string) {
   await field.fill(name);
 }
 
+/**
+ * A person who exists only for the test that asked for them, rostered onto one
+ * named team.
+ *
+ * ⛔ DERIVED-AT-RUN-TIME WAS NOT ENOUGH. The header above is right that a
+ * hard-coded name cannot survive 04 and 19 — but "pick whatever the database
+ * happens to hold" does not survive them either, and fails more confusingly:
+ * these two tests passed 6/6 alone and 4/6 in the suite, because `.limit(1)`
+ * picked a different person once earlier specs had moved people around, and one
+ * of them looked for a Harbor-only player after another spec had put every
+ * Harbor player into Oceanview too.
+ *
+ * Owning the fixture is the fix. The subject is created here, so no earlier
+ * spec can change who it is or what has already happened to them.
+ */
+async function scratchSkater(opts: {
+  seasonId: string;
+  teamId: string;
+  tag: string;
+}): Promise<{ playerId: string; name: string }> {
+  const db = admin();
+  const first = "Probe";
+  const last = `${opts.tag}-${Date.now().toString(36)}`;
+  const { data: player, error } = await db
+    .from("players")
+    .insert({ first_name: first, last_name: last })
+    .select("id")
+    .single();
+  if (error) throw new Error(`scratchSkater: ${error.message}`);
+  const { error: rosterErr } = await db.from("team_players").insert({
+    season_id: opts.seasonId,
+    team_id: opts.teamId,
+    player_id: player!.id,
+    position: "F",
+  });
+  if (rosterErr) throw new Error(`scratchSkater roster: ${rosterErr.message}`);
+  return { playerId: player!.id as string, name: `${first} ${last}` };
+}
+
 test.describe("Path 22 — Roster editing", () => {
   /**
    * The regression 0036 exists to prevent, reached through the new door.
@@ -188,18 +227,16 @@ test.describe("Path 22 — Roster editing", () => {
       (enrolled ?? []).map(async (e) => ({ id: e.team_id, name: await teamName(e.team_id) })),
     );
 
-    // A skater with an active row, and a different enrolled team to add them to.
-    const { data: candidate } = await db
-      .from("team_players")
-      .select("player_id, team_id")
-      .eq("season_id", seasonId)
-      .neq("position", "G")
-      .is("left_on", null)
-      .limit(1)
-      .single();
-    const who = await playerName(candidate!.player_id);
-    const from = teams.find((t) => t.id === candidate!.team_id)!;
-    const to = teams.find((t) => t.id !== candidate!.team_id)!;
+    // Our own skater on our own chosen team — see `scratchSkater`. Picking
+    // "the first active row" made this test order-dependent: 04 and 19 move
+    // people, so the row it landed on changed once the whole suite ran.
+    const from = teams[0];
+    const to = teams[1];
+    const { playerId, name: who } = await scratchSkater({
+      seasonId,
+      teamId: from.id,
+      tag: "move",
+    });
 
     await signInAs(page, "Manager");
     await openRoster(page, "obhl", to.name);
@@ -220,7 +257,7 @@ test.describe("Path 22 — Roster editing", () => {
       .from("team_players")
       .select("team_id")
       .eq("season_id", seasonId)
-      .eq("player_id", candidate!.player_id)
+      .eq("player_id", playerId)
       .is("left_on", null);
     expect(stillActive).toHaveLength(1);
     expect(stillActive![0].team_id).toBe(to.id);
@@ -245,26 +282,25 @@ test.describe("Path 22 — Roster editing", () => {
     // Somebody who plays ONLY in Harbor. Archiving them out of Oceanview is
     // therefore a statement about a league they have never appeared in, which
     // is the sharpest version of the question.
-    const { data: harborRows } = await db
-      .from("team_players")
-      .select("player_id, team_id")
-      .eq("season_id", harbor.seasonId)
-      .is("left_on", null);
-    const { data: obhlRows } = await db
-      .from("team_players")
-      .select("player_id")
-      .eq("season_id", obhl.seasonId);
-    const inOceanview = new Set((obhlRows ?? []).map((r) => r.player_id));
-    const harborOnly = (harborRows ?? []).find((r) => !inOceanview.has(r.player_id))!;
-    const who = await playerName(harborOnly.player_id);
-
-    // A Harbor team that is NOT theirs, so the picker there offers them.
+    //
+    // ⛔ CREATED, NOT FOUND. This used to search for a Harbor player absent from
+    // Oceanview, and that search comes back empty once an earlier spec has put
+    // the seeded Harbor people into Oceanview too — a non-null assertion on
+    // `undefined`, and a test that passed alone and failed in the suite.
     const { data: harborTeams } = await db
       .from("season_teams")
       .select("team_id")
       .eq("season_id", harbor.seasonId);
+    const harborHome = harborTeams![0].team_id as string;
+    const { name: who } = await scratchSkater({
+      seasonId: harbor.seasonId,
+      teamId: harborHome,
+      tag: "harbor-only",
+    });
+
+    // A Harbor team that is NOT theirs, so the picker there offers them.
     const otherHarborTeam = await teamName(
-      (harborTeams ?? []).find((t) => t.team_id !== harborOnly.team_id)!.team_id,
+      (harborTeams ?? []).find((t) => t.team_id !== harborHome)!.team_id,
     );
 
     const { data: obhlTeams } = await db
