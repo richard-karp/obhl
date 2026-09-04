@@ -7,7 +7,7 @@ import { requireLeagueManager } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit";
 import { findUserIdByEmail } from "@/lib/auth/users";
 import { addLeagueMembership } from "@/lib/auth/membership";
-import { leagueOfSeason } from "@/lib/league/of-entity";
+import { leagueOfSeason, leagueOfTeam } from "@/lib/league/of-entity";
 import { getStandings } from "@/lib/queries/standings";
 import { getSkaterLeaders } from "@/lib/queries/stats";
 import { getRecentResults } from "@/lib/queries/schedule";
@@ -212,6 +212,82 @@ export async function createTeamForSeason(
     ok: true,
     message: `Added ${name}${captainName ? ` (captain ${captainName})` : ""}.`,
   };
+}
+
+/** The two legible inks the monogram chip can draw its letters in. */
+const LOGO_TEXT_COLORS = ["light", "dark"] as const;
+
+/**
+ * Step 2, after the fact: change an enrolled team's colour and the ink its
+ * monogram is drawn in. Colour used to be settable once, at creation, and never
+ * again.
+ *
+ * Both fields move together because they are one decision — "dark letters" means
+ * nothing except against the colour chosen beside it, and a manager who picks a
+ * pale colour needs to fix the letters in the same breath or the chip is
+ * unreadable in between.
+ *
+ * Guarded on the TEAM's league rather than the season's. The season page is
+ * where the control lives, but the team row is what gets written, and
+ * `leagueOfTeam` is the only claim about that row the id itself supports — a
+ * season id in the form would authorise a write to a team the season does not
+ * contain.
+ */
+export async function updateTeamColor(
+  _prev: TeamActionState,
+  formData: FormData,
+): Promise<TeamActionState> {
+  const admin = createAdminClient();
+  const team_id = String(formData.get("team_id") ?? "");
+  if (!team_id) return { ok: false, message: "No team selected." };
+  const manager = await requireLeagueManager(() => leagueOfTeam(team_id, admin));
+
+  const color = String(formData.get("color") ?? "").trim() || null;
+  const rawTextColor = String(formData.get("logo_text_color") ?? "light");
+  // Checked here as well as by 0041's check constraint: the constraint would
+  // reject a bad value with a Postgres error string, and this is a form field a
+  // manager can see.
+  if (!(LOGO_TEXT_COLORS as readonly string[]).includes(rawTextColor)) {
+    return { ok: false, message: "Letter color must be light or dark." };
+  }
+  // `<input type="color">` cannot produce anything else, but the action is a
+  // POST endpoint and this string is written straight into an inline `style`.
+  if (color !== null && !/^#[0-9a-f]{6}$/i.test(color)) {
+    return { ok: false, message: "Color must be a hex value like #0ea5e9." };
+  }
+
+  // Read before the update: the replaced colour is the only thing this entry can
+  // record that the team row does not already hold afterwards. Same reason
+  // `upload_logo` keeps `old_data`.
+  const { data: was } = await admin
+    .from("teams")
+    .select("name, color, logo_text_color")
+    .eq("id", team_id)
+    .maybeSingle();
+  if (!was) return { ok: false, message: "Team not found." };
+
+  const { error } = await admin
+    .from("teams")
+    .update({ color, logo_text_color: rawTextColor })
+    .eq("id", team_id);
+  if (error) return { ok: false, message: error.message };
+
+  await logAudit({
+    user_id: manager.id,
+    action: "update_team_color",
+    entity_type: "team",
+    entity_id: team_id,
+    old_data: { color: was.color, logo_text_color: was.logo_text_color },
+    new_data: { color, logo_text_color: rawTextColor },
+  });
+
+  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+  revalidatePath("/[league]/manage/rosters", "page");
+  // The chip is on the public pages too — standings, the team pages, every game
+  // row — so revalidating only the setup page would leave the whole public site
+  // showing the old colour until something unrelated rebuilt it.
+  revalidatePath("/[league]", "layout");
+  return { ok: true, message: `Updated ${was.name}.` };
 }
 
 export async function setActiveSeason(formData: FormData) {

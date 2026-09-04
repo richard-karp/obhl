@@ -766,6 +766,7 @@ export type Database = {
           id: string
           league_id: string
           logo_path: string | null
+          logo_text_color: string
           name: string
           slug: string
         }
@@ -775,6 +776,7 @@ export type Database = {
           id?: string
           league_id: string
           logo_path?: string | null
+          logo_text_color?: string
           name: string
           slug: string
         }
@@ -784,6 +786,7 @@ export type Database = {
           id?: string
           league_id?: string
           logo_path?: string | null
+          logo_text_color?: string
           name?: string
           slug?: string
         }
