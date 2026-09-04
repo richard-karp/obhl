@@ -3,6 +3,18 @@ import { config } from "dotenv";
 
 config({ path: ".env.local" });
 
+// Parallel worktrees, each on its own port. `reuseExistingServer` below takes
+// whatever dev server is already listening, so two branches sharing 3000 means
+// one branch's suite silently drives the other branch's code — nine phantom
+// failures on 2026-09-04, all of them real code that was never running.
+// Export a distinct PORT per worktree and this is the only place that needs to
+// know. `next dev -p` is passed explicitly rather than relying on Next reading
+// PORT itself, so the URL below and the server can never disagree.
+//
+// dotenv does not override an already-exported variable, so an exported PORT
+// wins over anything in .env.local.
+const PORT = process.env.PORT ?? "3000";
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
@@ -29,7 +41,7 @@ export default defineConfig({
   timeout: 60_000,
 
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: `http://localhost:${PORT}`,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -40,8 +52,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
+    command: `npm run dev -- -p ${PORT}`,
+    url: `http://localhost:${PORT}`,
     reuseExistingServer: true,
     // Generous because CI starts cold. Locally this is ~9s with no `.next`
     // cache, and every local run either reuses a server or has a warm one; a
