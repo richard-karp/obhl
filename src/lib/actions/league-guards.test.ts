@@ -69,6 +69,7 @@ const NO_LEAGUE_ACTIONS: Record<string, string> = {
   // and the test below insists on it, so this allowlist cannot become a way in.
   "office.ts:appointDeputy": "no league; guarded by requireCommissioner",
   "office.ts:removeDeputy": "no league; guarded by requireCommissioner",
+  "office.ts:setStaffPassword": "no league; guarded by requireCommissioner",
 };
 
 /**
