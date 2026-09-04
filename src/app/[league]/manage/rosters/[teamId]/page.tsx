@@ -3,6 +3,7 @@ import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { getActiveContext } from "@/lib/queries/season";
 import { AddPlayerForm } from "@/components/manage/add-player-form";
+import { TransferPlayerForm } from "@/components/manage/transfer-player-form";
 import { removeRosterPlayer, toggleCaptain, updatePlayerStatus, setDefaultGoalie, setGoalieDay } from "@/lib/actions/rosters";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -54,6 +55,10 @@ export default async function RosterEditorPage({
       )
       .eq("season_id", season.id)
       .eq("team_id", teamId)
+      // The active roster. A departed row is kept as history (0036) so the
+      // stats views can still credit what was earned here; it is not somebody
+      // to set a lineup with.
+      .is("left_on", null)
       .order("jersey_number", { ascending: true }),
     admin
       .from("team_goalie_days")
@@ -61,6 +66,17 @@ export default async function RosterEditorPage({
       .eq("season_id", season.id)
       .eq("team_id", teamId),
   ]);
+
+  // The season's other teams, for the per-row transfer control. Read from
+  // `season_teams` rather than `teams`: a team that exists in the league but is
+  // not enrolled this season is not somewhere anyone can be transferred to.
+  const { data: enrolled } = await admin
+    .from("season_teams")
+    .select("team_id, teams!season_teams_team_id_fkey(id, name)")
+    .eq("season_id", season.id);
+  const transferTargets = (enrolled ?? [])
+    .flatMap((e) => (e.teams && e.teams.id !== teamId ? [{ id: e.teams.id, name: e.teams.name }] : []))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   // Global people not already on this team's roster — for the shared-identity
   // "existing person" picker (reuse someone who plays in another league).
@@ -208,6 +224,11 @@ export default async function RosterEditorPage({
                           {r.is_captain ? "Unset C" : "Make C"}
                         </Button>
                       </form>
+                      <TransferPlayerForm
+                        rosterId={r.id}
+                        jerseyNumber={r.jersey_number ?? null}
+                        teams={transferTargets}
+                      />
                       <form action={removeRosterPlayer}>
                         <input type="hidden" name="id" value={r.id} />
                         <input type="hidden" name="team_id" value={team.id} />
