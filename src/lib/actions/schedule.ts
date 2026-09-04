@@ -92,6 +92,10 @@ const TIME_RE = /^\d{1,2}:\d{2}$/;
 function normalizeTime(raw: string): string | null {
   if (!TIME_RE.test(raw)) return null;
   const [h, m] = raw.split(":");
+  // The shape check above admits "99:99". This is the one place an ice time is
+  // validated, and a time that cannot exist is stored happily and then simply
+  // never matches a slot — a request that fails for a reason nobody can see.
+  if (Number(h) > 23 || Number(m) > 59) return null;
   return `${h.padStart(2, "0")}:${m}`;
 }
 
@@ -387,9 +391,18 @@ export async function generateSchedule(
    */
   const checkConstraints = (
     calendar: { date: string; slots: string[] }[],
-    pairingCount: number,
-    perTeamGames: number,
+    pairings: { home: string; away: string }[],
   ) => {
+    const pairingCount = pairings.length;
+    // ⛔ COUNTED, NOT ASSUMED. `buildBalancedPairings(teams, g)` is not uniform
+    // for an odd team count — measured `T=7, g=8` → [8,9,9,8,9,8,9] — so
+    // filling this vector with the requested `g` overstates the bye budget for
+    // the teams that draw the extra game (a refutation that should fire and
+    // does not, falling through to a misleading planner message) and
+    // understates it in the `play_on` count check (a refusal that should not).
+    const gamesPerTeam = teamIds.map(
+      (id) => pairings.filter((p) => p.home === id || p.away === id).length,
+    );
     const resolved = resolveConstraints(storedConstraints, {
       nights: calendar,
       teamIds,
@@ -407,7 +420,7 @@ export async function generateSchedule(
     const problems = refuteConstraints(resolved, {
       teamIds,
       nameOf,
-      gamesPerTeam: new Array(teamIds.length).fill(perTeamGames),
+      gamesPerTeam,
       gamesPerNight: perNight,
       weekOfNight: buildNightMeta(calendar).week,
     });
@@ -445,7 +458,7 @@ export async function generateSchedule(
     let result: ReturnType<typeof assignNights> | undefined;
     for (let tries = 0; tries <= 8; tries++) {
       const pairings = buildBalancedPairings(teamIds, g);
-      const check = checkConstraints(nights, pairings.length, g);
+      const check = checkConstraints(nights, pairings);
       if (check.refusal) {
         // Fewer games per team is more bye budget, so stepping down can clear an
         // arithmetic refusal outright — the same step this loop already takes
@@ -499,7 +512,7 @@ export async function generateSchedule(
       }
       if (nights.length === prevCount) break; // capped by season end; more won't help
       prevCount = nights.length;
-      const check = checkConstraints(nights, pairings.length, gamesPerTeam);
+      const check = checkConstraints(nights, pairings);
       // Returned rather than retried with more nights: the manager asked for
       // this many games over this calendar, and the refusal says exactly which
       // request will not fit it.

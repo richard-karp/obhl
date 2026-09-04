@@ -41,10 +41,14 @@ export async function selectSeason(formData: FormData): Promise<void> {
   const raw = String(formData.get("next") ?? "");
   // Same rule as the magic-link handler: same-origin relative paths only, so a
   // hand-made form cannot turn the switcher into an open redirect.
-  const next =
-    raw.startsWith("/") && !raw.startsWith("//")
-      ? raw
-      : `/${slug}/manage/dashboard`;
+  // ⛔ `//` IS NOT THE ONLY ESCAPE. Browsers normalise a backslash to a forward
+  // slash in a Location header, so "/\\evil.com" leaves here looking like a
+  // relative path and arrives as "//evil.com" — an off-site redirect. Not
+  // reachable cross-site today (Next verifies Origin on Server Actions) and the
+  // real caller passes `usePathname()`, so this is depth rather than a hole.
+  const looksRelative =
+    raw.startsWith("/") && !raw.startsWith("//") && raw[1] !== "\\";
+  const next = looksRelative ? raw : `/${slug}/manage/dashboard`;
 
   const league = await resolveLeagueBySlug(slug);
   if (!league) redirect("/");

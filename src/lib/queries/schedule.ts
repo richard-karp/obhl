@@ -158,10 +158,16 @@ export async function getSeasonNights(
  */
 export async function getScheduleConstraints(
   seasonId: string,
-  opts: { client?: DbClient } = {},
+  // ⛔ REQUIRED, and it has to be the admin client. 0039 grants
+  // `season_schedule_constraints` to nobody — `revoke all from anon,
+  // authenticated` — so an RLS-client read returns `42501`, this function logs
+  // and returns `[]`, and the caller sees a season with no requests rather than
+  // an error. "No constraints" and "I was not allowed to look" must not be the
+  // same value, and the type is what stops them becoming it.
+  opts: { client: DbClient },
 ): Promise<ScheduleConstraint[]> {
   if (!isUuid(seasonId)) return [];
-  const supabase = opts.client ?? (await createClient());
+  const supabase = opts.client;
   const { data, error } = await supabase
     .from("season_schedule_constraints")
     .select("id, team_id, kind, params")
