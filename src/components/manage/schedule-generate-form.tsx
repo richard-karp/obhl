@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
 import type { DateRange, Matcher } from "react-day-picker";
 import { CalendarIcon, Loader2Icon, X } from "lucide-react";
 import { toast } from "sonner";
@@ -95,11 +95,29 @@ const CONSTRAINT_OPTIONS: { value: ConstraintKind; label: string }[] = [
  * and nothing about them is stored. A card rendered elsewhere on the page would
  * have no calendar to offer.
  *
- * Adding and removing are separate server actions on the same form, reached
- * through `formAction` on their buttons. HTML forbids nested forms, so this is
- * the only way a control inside the generate form can post somewhere else — and
- * `useActionState`'s dispatcher is a valid `formAction`, which is what keeps the
- * refusal messages.
+ * Adding posts through `formAction` on its button. HTML forbids nested forms, so
+ * that is the only way a control inside the generate form can post somewhere
+ * else, and `useActionState`'s dispatcher is a valid `formAction`.
+ *
+ * ⛔ REMOVING CANNOT USE `formAction`, AND THIS IS NOT A STYLE CHOICE. A remove
+ * has to say WHICH request, and the obvious way — `name="constraint_id"
+ * value={c.id}` on the submit button — is silently broken. React uses a submit
+ * button's `name` to encode which action to invoke when `formAction` is a
+ * function, so it OVERRIDES the one written there:
+ *
+ *     Cannot specify a "name" prop for a button that specifies a function as a
+ *     formAction. React needs it to encode which action should be invoked.
+ *     It will get overridden.
+ *
+ * That is a console warning, not an error, and what it describes has no symptom
+ * worth the name: the action runs, `constraint_id` arrives empty, and the
+ * manager is told "No request selected." about a request they plainly selected.
+ * Measured 2026-09-04 — every ✕ on this card was inert, and a request once added
+ * could not be removed at all.
+ *
+ * So removal is an ordinary `type="button"` that builds its own `FormData` and
+ * calls the action in a transition. `type="button"` also stops the ✕ submitting
+ * the generate form by accident, which a bare `<button>` in a form otherwise does.
  *
  * The date fields are plain dates, deliberately unvalidated here: this component
  * cannot know which dates become game nights until the generator runs, so a
@@ -118,20 +136,23 @@ function ConstraintsCard({
     saveScheduleConstraint,
     null,
   );
-  const [removeState, removeAction] = useActionState<ConstraintState, FormData>(
-    deleteScheduleConstraint,
-    null,
-  );
+  // Not `useActionState` — see the ⛔ above. The id has to travel in the
+  // FormData this builds, because a submit button's `name` cannot carry it.
+  const [removing, startRemove] = useTransition();
+  const removeRequest = (id: string) =>
+    startRemove(async () => {
+      const body = new FormData();
+      body.set("constraint_id", id);
+      const result = await deleteScheduleConstraint(null, body);
+      if (!result) return;
+      if (result.ok) toast.success(result.message);
+      else toast.error(result.message);
+    });
   useEffect(() => {
     if (!addState) return;
     if (addState.ok) toast.success(addState.message);
     else toast.error(addState.message);
   }, [addState]);
-  useEffect(() => {
-    if (!removeState) return;
-    if (removeState.ok) toast.success(removeState.message);
-    else toast.error(removeState.message);
-  }, [removeState]);
 
   const nameOf = (id: string) =>
     teams.find((t) => t.id === id)?.name ?? "A removed team";
@@ -159,12 +180,10 @@ function ConstraintsCard({
             >
               <span>{describeConstraint(c, nameOf(c.teamId))}</span>
               <button
-                type="submit"
-                formAction={removeAction}
-                formNoValidate
-                name="constraint_id"
-                value={c.id}
-                className="text-muted-foreground hover:text-foreground shrink-0"
+                type="button"
+                disabled={removing}
+                onClick={() => removeRequest(c.id)}
+                className="text-muted-foreground hover:text-foreground shrink-0 disabled:opacity-50"
                 aria-label={`Remove request: ${describeConstraint(c, nameOf(c.teamId))}`}
               >
                 <X className="size-3" />
