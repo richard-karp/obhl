@@ -773,7 +773,7 @@ export type Database = {
       }
     }
     Views: {
-      v_goalie_stats: {
+      v_goalie_season_totals: {
         Row: {
           first_name: string | null
           ga: number | null
@@ -794,6 +794,55 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "team_players_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_goalie_stats: {
+        Row: {
+          first_name: string | null
+          ga: number | null
+          gaa: number | null
+          gp: number | null
+          jersey_number: number | null
+          last_name: string | null
+          losses: number | null
+          player_id: string | null
+          season_id: string | null
+          so: number | null
+          team_color: string | null
+          team_id: string | null
+          team_name: string | null
+          team_slug: string | null
+          ties: number | null
+          wins: number | null
+        }
+        Relationships: []
+      }
+      v_skater_season_totals: {
+        Row: {
+          a: number | null
+          first_name: string | null
+          g: number | null
+          gp: number | null
+          jersey_number: number | null
+          last_name: string | null
+          pim: number | null
+          player_id: string | null
+          position: Database["public"]["Enums"]["player_position"] | null
+          pts: number | null
+          season_id: string | null
+          team_color: string | null
+          team_id: string | null
+          team_name: string | null
+          team_slug: string | null
+        }
+        Relationships: [
+          {
             foreignKeyName: "game_rosters_player_id_fkey"
             columns: ["player_id"]
             isOneToOne: false
@@ -801,17 +850,17 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "game_rosters_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "teams"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "games_season_id_fkey"
             columns: ["season_id"]
             isOneToOne: false
             referencedRelation: "seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_players_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
             referencedColumns: ["id"]
           },
         ]
