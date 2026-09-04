@@ -138,16 +138,41 @@ function ConstraintsCard({
   );
   // Not `useActionState` — see the ⛔ above. The id has to travel in the
   // FormData this builds, because a submit button's `name` cannot carry it.
-  const [removing, startRemove] = useTransition();
-  const removeRequest = (id: string) =>
+  //
+  // ⚠️ WHICH id is in flight, not a boolean. One shared pending flag disabled
+  // EVERY ✕ while any one of them was removing — wrong to look at, and what
+  // made the e2e teardown click a disabled button and time out.
+  const [, startRemove] = useTransition();
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const removeRequest = (id: string) => {
+    setRemovingId(id);
     startRemove(async () => {
-      const body = new FormData();
-      body.set("constraint_id", id);
-      const result = await deleteScheduleConstraint(null, body);
-      if (!result) return;
-      if (result.ok) toast.success(result.message);
-      else toast.error(result.message);
+      try {
+        const body = new FormData();
+        body.set("constraint_id", id);
+        const result = await deleteScheduleConstraint(null, body);
+        if (result?.ok) toast.success(result.message);
+        else if (result) toast.error(result.message);
+      } catch (err) {
+        // ⛔ NEVER SWALLOW NEXT'S CONTROL FLOW. `redirect()` and `notFound()`
+        // work BY THROWING, and this action reaches `redirect("/")` through
+        // `requireLeagueManager` — catching that would turn "you may not do
+        // this" into a toast and leave the manager sitting on the page they
+        // were being sent away from. Both carry a `digest` of "NEXT_REDIRECT;…"
+        // or "NEXT_NOT_FOUND", so they go straight back up.
+        //
+        // Everything else is a real failure and has to be said out loud:
+        // `useActionState` used to own this path, and replacing it with a bare
+        // await left a rejected action looking exactly like the inert ✕ this
+        // control was just fixed for.
+        const digest = (err as { digest?: unknown } | null)?.digest;
+        if (typeof digest === "string" && digest.startsWith("NEXT_")) throw err;
+        toast.error("Couldn't remove that request — check your connection and try again.");
+      } finally {
+        setRemovingId(null);
+      }
     });
+  };
   useEffect(() => {
     if (!addState) return;
     if (addState.ok) toast.success(addState.message);
@@ -181,7 +206,7 @@ function ConstraintsCard({
               <span>{describeConstraint(c, nameOf(c.teamId))}</span>
               <button
                 type="button"
-                disabled={removing}
+                disabled={removingId === c.id}
                 onClick={() => removeRequest(c.id)}
                 className="text-muted-foreground hover:text-foreground shrink-0 disabled:opacity-50"
                 aria-label={`Remove request: ${describeConstraint(c, nameOf(c.teamId))}`}
