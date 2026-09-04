@@ -16,6 +16,14 @@ export type DuplicateCandidate = {
   teamName: string;
   jerseyNumber: number | null;
   position: "F" | "D" | "G";
+  /**
+   * `team_players.left_on`, when the caller has it. Display only — nothing here
+   * reads it, and a departed appearance still counts toward a cluster, because
+   * a person who left a team is exactly as likely to be someone's duplicate as
+   * one who stayed. Optional so the pure tests need not carry it; the review
+   * page passes it so the operator can tell a transfer from two people.
+   */
+  leftOn?: string | null;
 };
 
 export type DuplicateCluster = { key: string; members: DuplicateCandidate[] };
