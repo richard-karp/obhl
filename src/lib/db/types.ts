@@ -395,6 +395,55 @@ export type Database = {
         }
         Relationships: []
       }
+      player_distinct_pairs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          league_id: string
+          player_a: string
+          player_b: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          league_id: string
+          player_a: string
+          player_b: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          league_id?: string
+          player_a?: string
+          player_b?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_distinct_pairs_league_id_fkey"
+            columns: ["league_id"]
+            isOneToOne: false
+            referencedRelation: "leagues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_distinct_pairs_player_a_fkey"
+            columns: ["player_a"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_distinct_pairs_player_b_fkey"
+            columns: ["player_b"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       players: {
         Row: {
           birthdate: string | null
@@ -626,6 +675,7 @@ export type Database = {
           is_rookie: boolean
           is_suspended: boolean
           jersey_number: number | null
+          left_on: string | null
           player_id: string
           position: Database["public"]["Enums"]["player_position"]
           season_id: string
@@ -639,6 +689,7 @@ export type Database = {
           is_rookie?: boolean
           is_suspended?: boolean
           jersey_number?: number | null
+          left_on?: string | null
           player_id: string
           position?: Database["public"]["Enums"]["player_position"]
           season_id: string
@@ -652,6 +703,7 @@ export type Database = {
           is_rookie?: boolean
           is_suspended?: boolean
           jersey_number?: number | null
+          left_on?: string | null
           player_id?: string
           position?: Database["public"]["Enums"]["player_position"]
           season_id?: string
@@ -867,6 +919,7 @@ export type Database = {
         Args: { p_col: string; p_delta: number; p_id: string }
         Returns: undefined
       }
+      contains_leagues_of: { Args: { p_profile: string }; Returns: boolean }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       game_is_public_final: { Args: { p_game: string }; Returns: boolean }
       game_league: { Args: { p_game: string }; Returns: string }
