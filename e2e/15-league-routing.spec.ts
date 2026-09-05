@@ -483,12 +483,16 @@ test.describe("Path 16 — Per-league routing", () => {
     page,
   }) => {
     await signInAsManager(page);
-    const id = await harborId(page, "/harbor/score", "/harbor/score/");
+    // The list is the public schedule now, and the scoresheet nests under the
+    // game it scores.
+    const id = await harborId(page, "/harbor/schedule", "/harbor/games/").then(
+      (rest) => rest.replace(/\/score$/, ""),
+    );
 
-    const own = await page.goto(`/harbor/score/${id}`);
+    const own = await page.goto(`/harbor/games/${id}/score`);
     expect(own?.status()).toBe(200);
 
-    const foreign = await page.goto(`/obhl/score/${id}`);
+    const foreign = await page.goto(`/obhl/games/${id}/score`);
     expect(foreign?.status()).toBe(404);
     await expect(page.getByText("That page couldn't be found.")).toBeVisible();
   });

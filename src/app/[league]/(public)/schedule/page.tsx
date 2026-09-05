@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getActiveContext } from "@/lib/queries/season";
 import { getSchedule, type GameWithTeams } from "@/lib/queries/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
+import { canScoreLeague } from "@/lib/auth/guards";
 import Link from "next/link";
 import { ScheduleFilter } from "@/components/public/schedule-filter";
 import { GameRow } from "@/components/public/game-row";
@@ -34,9 +35,12 @@ function groupByDate(games: GameWithTeams[]) {
 function GroupedGames({
   groups,
   league,
+  canScore,
 }: {
   groups: ReturnType<typeof groupByDate>;
   league: string;
+  /** Draw a Score button per game. See `canScoreLeague` — it is not a guard. */
+  canScore: boolean;
 }) {
   return (
     <div className="space-y-6">
@@ -47,7 +51,14 @@ function GroupedGames({
           </h3>
           <div className="space-y-2">
             {group.games.map((g) => (
-              <GameRow key={g.id} game={g} league={league} />
+              <GameRow
+                key={g.id}
+                game={g}
+                league={league}
+                scoreHref={
+                  canScore ? `/${league}/games/${g.id}/score` : undefined
+                }
+              />
             ))}
           </div>
         </section>
@@ -69,6 +80,10 @@ export default async function SchedulePage({
   const slug = ctx.league.slug;
   const { team } = await searchParams;
 
+  // This page absorbed `/manage/score`, which was the same games in a table
+  // with a button on each row. The games are the same games; the button is the
+  // only thing that was ever different.
+  const canScore = await canScoreLeague(ctx.league.id);
   const teams = await getEnrolledTeams(ctx.season.id);
   const selected = team ? teams.find((t) => t.slug === team) : undefined;
   const games = await getSchedule(ctx.season.id, { teamId: selected?.id });
@@ -86,6 +101,14 @@ export default async function SchedulePage({
     <div className="space-y-8">
       <PageHeader title="Schedule" description={ctx.season.name}>
         <ScheduleFilter teams={teams} value={selected?.slug} />
+        {/*
+          `/manage/score`'s header also held a "Schedule a one-off game" button,
+          and it is deliberately NOT carried here. `canScore` admits
+          scorekeepers, who cannot reach the builder at all, so drawing it on
+          this shared page would offer two of the three entitled roles a control
+          their own guard refuses. It stays where it belongs and is still
+          reachable: the Schedule Builder page links to it twice.
+        */}
         <Button asChild variant="outline" size="sm">
           <Link href={`/api/schedule/${ctx.season.id}`}>Download .ics</Link>
         </Button>
@@ -114,14 +137,24 @@ export default async function SchedulePage({
             {upcomingGroups.length === 0 ? (
               <EmptyState title="No upcoming games" />
             ) : (
-              <GroupedGames groups={upcomingGroups} league={slug} />
+              <GroupedGames
+                groups={upcomingGroups}
+                league={slug}
+                canScore={canScore}
+              />
             )}
           </section>
 
           {resultGroups.length > 0 ? (
             <section className="space-y-4">
-              <h2 className="text-lg font-bold tracking-tight">Recent Results</h2>
-              <GroupedGames groups={resultGroups} league={slug} />
+              <h2 className="text-lg font-bold tracking-tight">
+                Recent Results
+              </h2>
+              <GroupedGames
+                groups={resultGroups}
+                league={slug}
+                canScore={canScore}
+              />
             </section>
           ) : null}
         </div>

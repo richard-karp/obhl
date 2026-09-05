@@ -94,7 +94,7 @@ export default async function DashboardPage({
             description="Add players to teams and set numbers, positions, and captains."
           />
           <ActionCard
-            href={`/${leagueSlug}/score`}
+            href={`/${leagueSlug}/schedule`}
             title="Games"
             description="Browse the schedule and open the scoresheet for any game."
           />
@@ -104,7 +104,7 @@ export default async function DashboardPage({
       {user.role === "scorekeeper" ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <ActionCard
-            href={`/${leagueSlug}/score`}
+            href={`/${leagueSlug}/schedule`}
             title="Score Games"
             description="Open a game to set rosters, record goals and penalties, and finalize."
           />
@@ -237,7 +237,7 @@ async function CaptainPanel({
                     <span className="font-medium">{opp?.name ?? "TBD"}</span>
                   </span>
                   <Button asChild size="sm">
-                    <Link href={`/${leagueSlug}/score/${g.id}`}>
+                    <Link href={`/${leagueSlug}/games/${g.id}/score`}>
                       Set lineup
                     </Link>
                   </Button>

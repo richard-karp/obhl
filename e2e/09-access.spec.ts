@@ -35,10 +35,16 @@ test.describe("Path 15 — Role-based access control", () => {
     await expect(page).toHaveURL("/");
   });
 
-  test("scorekeeper CAN reach /score", async ({ page }) => {
+  test("scorekeeper CAN reach the games they score", async ({ page }) => {
+    // `/score` merged into the public schedule. The page is reachable by
+    // everyone now, so what says a scorekeeper is entitled is the Score button
+    // on it — the affordance, not the URL.
     await signedInAs(page, "Scorekeeper");
-    await page.goto("/obhl/score");
-    await expect(page.getByRole("heading", { name: "Games" })).toBeVisible();
+    await page.goto("/obhl/schedule");
+    await expect(page.getByRole("heading", { name: "Schedule" })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Score", exact: true }).first(),
+    ).toBeVisible();
   });
 
   test("captain sees only their team's lineup form on the scoresheet", async ({
@@ -51,7 +57,7 @@ test.describe("Path 15 — Role-based access control", () => {
     const gameLink = page.getByRole("link", { name: "Set lineup" }).first();
     await expect(gameLink).toBeVisible();
     await gameLink.click();
-    await expect(page).toHaveURL(/\/score\//);
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     // Captain sees only their own team's lineup form, not the opponent's
     const lineupForms = page.locator("form").filter({

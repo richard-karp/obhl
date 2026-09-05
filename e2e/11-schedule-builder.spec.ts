@@ -36,7 +36,12 @@ test("page loads with heading and active season description", async ({
 }) => {
   await signedInAs(page, "Manager");
   await page.goto("/obhl/schedule-builder");
-  await expect(page.getByText("Schedule Builder")).toBeVisible();
+  // The heading specifically: the manage nav's link is called "Schedule
+  // Builder" too, since `/schedule` is now the games list it used to share a
+  // label with.
+  await expect(
+    page.getByRole("heading", { name: "Schedule Builder" }),
+  ).toBeVisible();
   await expect(page.getByText(/active/)).toBeVisible();
 });
 

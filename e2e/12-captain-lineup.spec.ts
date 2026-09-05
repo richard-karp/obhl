@@ -28,7 +28,7 @@ test.describe("Path 18 — Captain lineup save", () => {
     const gameLink = page.getByRole("link", { name: "Set lineup" }).first();
     await expect(gameLink).toBeVisible();
     await gameLink.click();
-    await expect(page).toHaveURL(/\/score\//);
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     // Captain sees exactly one lineup form (their team only)
     const lineupForm = page
@@ -64,7 +64,7 @@ test.describe("Path 18 — Captain lineup save", () => {
 
     const gameLink = page.getByRole("link", { name: "Set lineup" }).first();
     await gameLink.click();
-    await expect(page).toHaveURL(/\/score\//);
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     const lineupForms = page
       .locator("form")

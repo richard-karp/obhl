@@ -178,7 +178,33 @@ export async function requireVisibleLeague(
  * controls that every action behind them refuses.
  */
 export async function canManageLeague(leagueId: string): Promise<boolean> {
+  return await hasLeagueRole(leagueId, "league_manager");
+}
+
+/**
+ * May this viewer open a scoresheet in this league? Also a QUESTION, not a guard
+ * — everything above applies, and `lib/actions/games.ts` guards itself.
+ *
+ * The same two roles the old `/manage/score` list admitted, which is what makes
+ * this a move rather than a widening: a scorekeeper is one of only two
+ * non-manager roles any guard has ever admitted, and it is admitted here for
+ * exactly the games it was admitted for before.
+ *
+ * ⚠️ NOT captains, even though the scoresheet itself admits them — they set a
+ * dressed lineup there. They reach it from their dashboard, as they did before,
+ * and drawing a Score button beside every game on the public schedule would
+ * suggest a scope they do not have. Widening captain scope needs new RLS
+ * policies and is explicitly out of scope for this change.
+ */
+export async function canScoreLeague(leagueId: string): Promise<boolean> {
+  return await hasLeagueRole(leagueId, "scorekeeper", "league_manager");
+}
+
+async function hasLeagueRole(
+  leagueId: string,
+  ...roles: AppRole[]
+): Promise<boolean> {
   const user = await getSessionUser();
-  if (user?.role !== "league_manager") return false;
+  if (!user?.role || !roles.includes(user.role)) return false;
   return await isLeagueMember(user.id, leagueId);
 }

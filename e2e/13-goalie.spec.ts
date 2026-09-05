@@ -24,15 +24,15 @@ test.describe("Path 19 — Scorekeeper goalie buttons", () => {
     page,
   }) => {
     await signedInAs(page, "Scorekeeper");
-    await page.goto("/obhl/score");
+    await page.goto("/obhl/schedule");
 
+    // The scorekeeper's game list is the public schedule now, with a
+    // button per row for whoever may open a scoresheet.
     await page
-      .locator("table tbody tr")
-      .filter({ has: page.getByRole("link", { name: "Score" }) })
+      .getByRole("link", { name: "Score", exact: true })
       .first()
-      .getByRole("link", { name: "Score" })
       .click();
-    await expect(page).toHaveURL(/\/score\//);
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     // Dress all players for both teams so goalie section appears
     const lineupForms = page.locator("form").filter({
@@ -171,7 +171,7 @@ test.describe("Path 21 — Captain sets goalie of record", () => {
     const gameLink = page.getByRole("link", { name: "Set lineup" }).first();
     await expect(gameLink).toBeVisible();
     await gameLink.click();
-    await expect(page).toHaveURL(/\/score\//);
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     // Goalie section is present (label visible)
     await expect(page.getByText("GOALIE").first()).toBeVisible();
@@ -191,7 +191,7 @@ test.describe("Path 21 — Captain sets goalie of record", () => {
 
     const gameLink = page.getByRole("link", { name: "Set lineup" }).first();
     await gameLink.click();
-    await expect(page).toHaveURL(/\/score\//);
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     // Click the first goalie button
     const firstGoalieForm = page
@@ -202,7 +202,7 @@ test.describe("Path 21 — Captain sets goalie of record", () => {
     await page.waitForLoadState("networkidle");
 
     // After save the page re-renders on the same URL with the goalie section still present
-    await expect(page).toHaveURL(/\/score\//);
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
     await expect(page.getByText("GOALIE").first()).toBeVisible();
   });
 
@@ -211,7 +211,7 @@ test.describe("Path 21 — Captain sets goalie of record", () => {
 
     const gameLink = page.getByRole("link", { name: "Set lineup" }).first();
     await gameLink.click();
-    await expect(page).toHaveURL(/\/score\//);
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     // Empty-net GA stepper is scorekeeper-only
     await expect(page.getByText("EMPTY-NET GA")).not.toBeVisible();

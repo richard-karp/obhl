@@ -53,6 +53,23 @@ const nextConfig: NextConfig = {
         destination: "/:league/teams",
         permanent: true,
       },
+      // `/score` merged into `/schedule` — the same games, with a button on each
+      // row for whoever may open a scoresheet — and the scoresheet itself nested
+      // under the game it scores. Both are pure path rewrites: unlike
+      // `/rosters/<uuid>`, the game is named by the same id at either URL.
+      //
+      // Order matters between these two: the more specific one must come first,
+      // or `/score/:gameId` would match `/score` -> `/schedule` and lose the id.
+      {
+        source: "/:league/score/:gameId",
+        destination: "/:league/games/:gameId/score",
+        permanent: true,
+      },
+      {
+        source: "/:league/score",
+        destination: "/:league/schedule",
+        permanent: true,
+      },
     ];
   },
 };

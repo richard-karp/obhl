@@ -15,8 +15,8 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
     { path: "/people", label: "People & Roles" },
     { path: "/seasons", label: "Seasons" },
     { path: "/teams", label: "Teams" },
-    { path: "/schedule-builder", label: "Schedule" },
-    { path: "/score", label: "Games" },
+    { path: "/schedule-builder", label: "Schedule Builder" },
+    { path: "/schedule", label: "Games" },
     { path: "/announcements", label: "Announcements" },
     { path: "/rules", label: "Rules" },
     { path: "/import", label: "Import" },
@@ -24,7 +24,7 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
   ],
   scorekeeper: [
     { path: "/dashboard", label: "Dashboard" },
-    { path: "/score", label: "Score Games" },
+    { path: "/schedule", label: "Score Games" },
   ],
   captain: [{ path: "/dashboard", label: "Dashboard" }],
 };

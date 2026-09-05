@@ -23,16 +23,16 @@ test.describe("Path 10 — Score a game end-to-end", () => {
     page,
   }) => {
     await signedInAs(page, "Scorekeeper");
-    await page.goto("/obhl/score");
+    await page.goto("/obhl/schedule");
 
     // Open first scheduled game
+    // The scorekeeper's game list is the public schedule now, with a
+    // button per row for whoever may open a scoresheet.
     await page
-      .locator("table tbody tr")
-      .filter({ has: page.getByRole("link", { name: "Score" }) })
+      .getByRole("link", { name: "Score", exact: true })
       .first()
-      .getByRole("link", { name: "Score" })
       .click();
-    await expect(page).toHaveURL(/\/score\//);
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     // Dress all players for away team
     const lineupForms = page.locator("form").filter({
@@ -79,15 +79,12 @@ test.describe("Path 10 — Score a game end-to-end", () => {
 test.describe("Path 11 — Game management", () => {
   test("cancel a scheduled game and restore it", async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/score");
+    await page.goto("/obhl/schedule");
 
-    await page
-      .locator("table tbody tr")
-      .filter({ has: page.getByRole("link", { name: "Score" }) })
-      .last()
-      .getByRole("link")
-      .click();
-    await expect(page).toHaveURL(/\/score\//);
+    // The scorekeeper's game list is the public schedule now, with a
+    // button per row for whoever may open a scoresheet.
+    await page.getByRole("link", { name: "Score", exact: true }).last().click();
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     await page.getByRole("button", { name: "Cancel game" }).click();
     await page.waitForLoadState("networkidle");
@@ -100,15 +97,12 @@ test.describe("Path 11 — Game management", () => {
 
   test("postpone a game and restore it", async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/score");
+    await page.goto("/obhl/schedule");
 
-    await page
-      .locator("table tbody tr")
-      .filter({ has: page.getByRole("link", { name: "Score" }) })
-      .last()
-      .getByRole("link")
-      .click();
-    await expect(page).toHaveURL(/\/score\//);
+    // The scorekeeper's game list is the public schedule now, with a
+    // button per row for whoever may open a scoresheet.
+    await page.getByRole("link", { name: "Score", exact: true }).last().click();
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     await page.getByRole("button", { name: "Postpone" }).click();
     await page.waitForLoadState("networkidle");
@@ -122,15 +116,12 @@ test.describe("Path 11 — Game management", () => {
     page,
   }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/score");
+    await page.goto("/obhl/schedule");
 
-    await page
-      .locator("table tbody tr")
-      .filter({ has: page.getByRole("link", { name: "Edit" }) })
-      .first()
-      .getByRole("link", { name: "Edit" })
-      .click();
-    await expect(page).toHaveURL(/\/score\//);
+    // The scorekeeper's game list is the public schedule now, with a
+    // button per row for whoever may open a scoresheet.
+    await page.getByRole("link", { name: "Edit", exact: true }).first().click();
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     await expect(page.getByText("AI Game Recap").first()).toBeVisible();
     await expect(page.getByRole("button", { name: /recap/i })).toBeVisible();

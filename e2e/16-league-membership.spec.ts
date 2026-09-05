@@ -154,7 +154,9 @@ test.describe("Path 17 — Per-league membership", () => {
     // is the Manage tab — asserted on its own below.
     "/schedule-builder",
     "/schedule-builder/one-off",
-    "/score",
+    // NOT "/schedule": `/score` merged into it, so it is public. A scorekeeper
+    // or manager of ANOTHER league sees the page like any visitor; what they
+    // must not get is a Score button, asserted below.
     "/announcements",
     // NOT "/rules": it merged into the public page, so a manager of another
     // league now SEES it like any visitor. What they must not get is the
@@ -301,19 +303,26 @@ test.describe("Path 17 — Per-league membership", () => {
     // score its games. `/score` is one of only two guards that ever admitted a
     // non-manager role, which is why it gets its own test.
     await signInAs(page, "One-league scorer");
-    await page.goto(`/${SCORER_IN}/score`);
-    await expect(page.getByRole("heading", { name: "Games" })).toBeVisible();
+    await page.goto(`/${SCORER_IN}/schedule`);
+    await expect(page.getByRole("heading", { name: "Schedule" })).toBeVisible();
     const href = await page
-      .locator(`a[href^="/${SCORER_IN}/score/"]`)
+      .locator(`a[href^="/${SCORER_IN}/games/"][href$="/score"]`)
       .first()
       .getAttribute("href");
     await page.goto(href!);
-    await expect(page).toHaveURL(new RegExp(`/${SCORER_IN}/score/`));
+    await expect(page).toHaveURL(new RegExp(`/${SCORER_IN}/games/.+/score`));
 
-    await page.goto(`/${SCORER_OUT}/score`);
-    await expect(page).toHaveURL("/");
-    // The same game id under a league they are not in — which is what proves
-    // the refusal is about the league and not about the page being broken.
+    // The other league's schedule is PUBLIC now, so they see it — but with no
+    // Score button anywhere on it. That is the affordance half.
+    await page.goto(`/${SCORER_OUT}/schedule`);
+    await expect(page).toHaveURL(`/${SCORER_OUT}/schedule`);
+    await expect(
+      page.getByRole("link", { name: "Score", exact: true }),
+    ).toHaveCount(0);
+
+    // And the half that matters: the same game id under a league they are not
+    // in, which is what proves the refusal is about the league rather than
+    // about the page being broken.
     await page.goto(href!.replace(`/${SCORER_IN}/`, `/${SCORER_OUT}/`));
     await expect(page).toHaveURL("/");
   });
@@ -322,9 +331,9 @@ test.describe("Path 17 — Per-league membership", () => {
     // Detail pages take an id, and the id says nothing about its league; the
     // slug in the URL is the claim, and the guard is what checks it.
     await signInAs(page, "Manager");
-    await page.goto(`/${LEAD_OUT}/score`);
+    await page.goto(`/${LEAD_OUT}/schedule`);
     const href = await page
-      .locator(`a[href^="/${LEAD_OUT}/score/"]`)
+      .locator(`a[href^="/${LEAD_OUT}/games/"][href$="/score"]`)
       .first()
       .getAttribute("href");
 
