@@ -28,9 +28,13 @@
    another branch's dev server. Worktrees share ONE Supabase database, so serialize
    e2e. CI runs the full suite, so run only the specs covering your step locally.
 
-**Status: steps 1–6 implemented and reviewed; step 7 outstanding.** The code ships
-as a stack of six PRs, each branched on the one below it and each reviewed by its
-own agent:
+**Status: all seven steps shipped, 2026-09-05.** Read *What the implementation
+changed about this plan* below before trusting anything in the pages above it:
+four things there are false, and the fourth is false in the direction that
+matters — the `?tab=manage` this plan called necessary was removed.
+
+The code was written as a stack of six PRs, each branched on the one below and
+each reviewed by its own agent:
 
 | Step | Branch | PR |
 |---|---|---|
@@ -41,9 +45,20 @@ own agent:
 | 5 | `feat/merge-team-pages` | #29 |
 | 6 | `feat/merge-schedule-score` | #31 |
 
-Merge bottom-up; GitHub retargets each child as its parent lands. **Only step 7 is
-left** — and read *What the implementation changed about this plan* below before
-starting it, because three things in the pages above are now false.
+⛔ **It did not merge that way, and the reason is worth keeping.** "Merge
+bottom-up; GitHub retargets each child as its parent lands" assumes `main` holds
+still. It did not: `origin/main` advanced 33 commits (#24) while the stack was
+being written, so every PR in it became unmergeable at once, and the collision
+included a migration-number clash — both sides had claimed `0039`/`0040` — plus
+three pages the stack had DELETED that #24 had since modified. A delete/modify
+conflict resolves silently either way, so taking "ours" would have dropped an
+archive-aware picker, an edit form and a not-enrolled-this-season guard with no
+test to fail.
+
+`main` was therefore merged into the top branch once, #31 became the single PR,
+and #25–#29 were closed as superseded. **The lesson is to integrate early rather
+than at the end**, not to avoid stacks. Step 7 — the prose — is the commit
+carrying this paragraph.
 
 ## The ask, in the user's words
 
@@ -251,7 +266,9 @@ wider than the prefix now:
 - `LAUNCH.md` (5), `EXPORTS_HANDOFF.md` (2), `ACCESS_CONTROL_HANDOFF.md` (2),
   `LAUNCH_READINESS_HANDOFF.md` (1) name `/manage/...` paths;
 - they also name `/rules/edit`, `/rosters/<uuid>` and `/score`, which steps 4–6
-  merged away, and the team editor now needs `?tab=manage`;
+  merged away; ⚠️ the team editor does **not** need `?tab=manage` — see item 3
+  below, which is the one prediction in this plan that the implementation
+  reversed;
 - `ACCESS_CONTROL_HANDOFF.md` needs more than a path rewrite. Steps 4 and 6 added
   `canManageLeague` and `canScoreLeague`, which are QUESTIONS AND NOT GUARDS — they
   decide whether to draw an editing surface and protect nothing. That distinction
@@ -262,8 +279,9 @@ historical records of what was true when written.
 
 ## What the implementation changed about this plan
 
-Three things above are now out of date. Each was found by the review pass over the
-six branches, and each is worth knowing before step 7.
+Four things above are now out of date. The first three were found by the review
+pass over the six branches; the fourth was found by measuring a claim this plan
+made and discovering it was backwards.
 
 ⛔ **1. Hazard 1's rule needed an RLS half, and now has one (migration `0039`).**
 The conditional `is_public` check landed as written — and it was unreachable for
@@ -273,10 +291,24 @@ role AND membership), so a scorekeeper or captain who genuinely belonged to a st
 league got `null` from `resolveLeagueBySlug` and a 404 one layer above the new rule —
 on the league they were staffing.
 
-`0039_member_read_leagues` adds `for select using is_league_member(id)`. SELECT only:
+`0042_member_read_leagues` adds `for select using is_league_member(id)`. SELECT only:
 membership is not permission to write a league row. The app half and the RLS half now
 say the same thing, and `src/lib/league/visibility.ts` documents them as a pair that
 must be widened or narrowed together.
+
+⚠️ **It was written as `0039` and shipped as `0042`** — #24 had claimed `0039`-`0041`
+while this stack was being written. Any reference to `0039_member_read_leagues`
+elsewhere means this file.
+
+⛔ **And on its own it fixed the 404 while leaving the page empty.** `leagues` was
+only the door; every child table — seasons, teams, players, games and six more —
+was still public-only, so a scorekeeper of a staged league reached a page that
+resolved and showed nothing. `0043_member_read_children` is the other half, adding
+a `member read` policy to each of the ten through `player_in_my_league`
+(`SECURITY DEFINER`, so it can see past the caller's own RLS). Treat the two as one
+decision. ⛔ The tempting one-line version — widening the `_is_public` helpers —
+is wrong: `player_is_public` and `game_is_public_final` read them to decide what
+ANONYMOUS visitors see, so the lie propagates out of the league.
 
 ⚠️ **The test that should have caught this could not.** Both staged-league tests used
 accounts that were not members of the staged league, so they pinned "non-member 404s"
@@ -294,11 +326,26 @@ public view becomes a no-op. A shared page is a public page with more on it. The
 implementation adds a `StaffLinks` row *beneath* `SiteHeader`, built from the same
 `staffLinks(role, officeTier)` the manage header uses so the two cannot drift.
 
-⚠️ **3. The merged team page carries its tab in the URL (`?tab=manage`), and had to.**
-Radix unmounts inactive tab content on the CLIENT; the server renders every branch it
-is given. A `<TabsContent>` holding the roster editor therefore ran four admin queries
-— one an unbounded read of the whole `players` table — on every manager's casual look
-at a team page. Any future "show the editing surface in a tab" follows this shape.
+⚠️ **3. The merged team page carried its tab in the URL (`?tab=manage`) — and then
+stopped having a tab at all.** The diagnosis was right and is worth keeping: Radix
+unmounts inactive tab content on the CLIENT, while the server renders every branch it
+is given, so a `<TabsContent>` holding the roster editor ran four admin queries — one
+an unbounded read of the whole `players` table — on every manager's casual look at a
+team page. `?tab=manage` was the fix that kept the tab.
+
+⛔ **4. The tab itself was the wrong answer.** Asked, the user's direction was *"the
+manager should just see the page and it should be editable to them"* — so the Manage
+tab and `?tab=manage` were both removed, and the editor became a section in a named
+landmark (`<section aria-labelledby="manage-roster">`) below the public content,
+rendered only when `canManageLeague` says so. The query cost is gated by that
+condition rather than by a tab, which is strictly better: a manager who never scrolls
+still pays it, but a visitor never does, and there is no URL state to get wrong.
+
+⚠️ **The e2e consequence is the part that bites.** One URL now renders the public
+table AND the editor's table, so `getByRole("cell")` and `table tbody tr` match twice
+and Playwright's strict mode fails the test. Seven specs had to scope their lookups to
+`getByRole("region", { name: "Manage roster" })`. Any future shared page inherits
+this: **scope to the landmark, do not reach for `.first()`.**
 
 **Also worth knowing, and not this plan's to fix:** `notFound()` thrown by a page
 inside `(public)` answers **HTTP 200**, not 404, because the layout above it has begun
@@ -310,13 +357,18 @@ not-found CONTENT rather than status because of it; both say so.
 
 - **Captain roster editing.** Needs RLS policies scoped to "the team you captain this
   season". A wrong policy here is invisible until exploited.
-- **Scorekeeper date scoping.** `/manage/score` lists a whole season; the ask was
+- **Scorekeeper date scoping.** `/<league>/schedule` lists a whole season; the ask was
   "that night's games". Needs a definition that survives a 21:30 game finalized at 00:10 —
   "unfinalized" is probably the better rule than a date.
 
 ## Acceptance for the whole change
 
 - No URL contains `/manage/`, and no URL contains a UUID where a slug exists.
+  ⚠️ **With one deliberate exception: `/manage/office`.** The League Office is not
+  scoped to a league — it is the tier that spans them — so it has no `/<league>/`
+  to move under. `manage` is a reserved league slug (`0030`), so nothing can
+  collide with it, and `next.config.ts`'s redirect requires the SECOND segment to
+  be the literal `manage`, which is what keeps `/:league` from eating this one.
 - Every old `/manage/...` URL redirects rather than 404ing.
 - A signed-in manager sees their badge and a route to their tools on every page.
 - An anonymous visitor sees exactly what they see today, everywhere.
