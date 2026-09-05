@@ -45,10 +45,18 @@ export async function SiteHeader({ league }: { league: Tables<"leagues"> }) {
           does not rescue it either (832 against 768).
 
           So the account items do not try to fit there. Signed in, the inline nav
-          starts at `lg` — 912 against 1024, 112px clear — and below that the
+          starts at `lg` — 913 against 1024, 111px clear — and below that the
           links take the full-width row they already use on a phone. That is the
           same answer `manage-nav.tsx` reaches for the manager's ten links, for
           the same reason.
+
+          ⚠️ THE SWITCH IS KEYED ON `user`, NOT ON `member`, AND THAT IS
+          DELIBERATE. Two review passes read the `member`-gated cluster above and
+          proposed keying it the same way. Measured instead: a signed-in visitor
+          to a league they do NOT belong to still gets a sign-out button, and
+          their cluster is 190px against the anonymous 110 — 777 against 768 at
+          `md`. They need the row too. Re-key this on `member` and that viewer
+          overflows.
 
           Anonymous, both class strings are exactly what they were before this
           component learned who was viewing, so nothing an anonymous visitor
@@ -69,8 +77,7 @@ export async function SiteHeader({ league }: { league: Tables<"leagues"> }) {
         */}
         <div className="ml-auto flex min-w-0 items-center gap-2">
           <AccountCluster
-            signedIn={!!user}
-            role={member ? user!.role : null}
+            user={user && { role: member ? user.role : null }}
             crossLink={
               member
                 ? { href: `/${league.slug}/manage/dashboard`, label: "Manage" }

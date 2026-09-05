@@ -33,9 +33,17 @@ const ROLE_LABEL: Record<AppRole, string> = {
  * visitor at once.
  */
 export function AccountCluster({
-  /** Null for an anonymous viewer: the whole account half then disappears. */
-  role,
-  signedIn,
+  /**
+   * The viewer, or null for an anonymous one — in which case the whole account
+   * half disappears.
+   *
+   * ONE prop rather than a `signedIn` boolean beside a `role`, because those two
+   * made illegal states representable: `signedIn={false}` with a non-null role
+   * rendered no badge and no error. `role` here is the role to SHOW, which is
+   * not always the viewer's own — the league header passes null for a signed-in
+   * visitor to a league they do not belong to.
+   */
+  user,
   /**
    * Where this viewer's *other* half of the app is: their tools from a public
    * page, the public site from the manage chrome. Null when there is nowhere
@@ -54,23 +62,22 @@ export function AccountCluster({
    */
   children,
 }: {
-  role: AppRole | null;
-  signedIn: boolean;
+  user: { role: AppRole | null } | null;
   crossLink?: { href: string; label: string } | null;
   children?: React.ReactNode;
 }) {
   return (
     <>
       {children}
-      {signedIn && role ? (
+      {user?.role ? (
         // Hidden on the narrowest screens for the same reason the manage header
         // hides it there: it is the one element that says nothing a signed-in
         // viewer cannot infer from the sign-out button beside it.
         <Badge variant="secondary" className="hidden sm:inline-flex">
-          {ROLE_LABEL[role]}
+          {ROLE_LABEL[user.role]}
         </Badge>
       ) : null}
-      {signedIn && crossLink ? (
+      {user && crossLink ? (
         <Link
           href={crossLink.href}
           className="text-muted-foreground hidden text-sm hover:underline sm:inline"
@@ -79,7 +86,7 @@ export function AccountCluster({
         </Link>
       ) : null}
       <ThemeToggle />
-      {signedIn ? (
+      {user ? (
         <form action={signOut}>
           <Button type="submit" variant="ghost" size="sm">
             Sign out

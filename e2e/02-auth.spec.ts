@@ -140,13 +140,29 @@ test.describe("Path 6b — Auth-aware chrome", () => {
     // either way.
     //
     // Controlled 2026-09-05: with the signed-in class strings reverted to `md:`,
-    // this test fails on the signed-in leg. It is not a check that cannot fail.
+    // this fails on the signed-in leg. It is not a check that cannot fail.
+    //
+    // ⚠️ The ANONYMOUS leg has no such demonstration, and cannot easily have one:
+    // anonymous is the state the layout was already sized for, so there is no
+    // edit that makes it overflow without changing what it is testing. Read it as
+    // a regression guard on a measured-good state, not as a proven-sensitive
+    // assertion.
+    // Three subjects, because each can absorb what the one above it would show.
+    // The document is the weakest: the bar can overflow while the page does not.
+    // The bar is stronger, but `NavLinks` is an `overflow-x-auto` scroller, and a
+    // scroll container contributes zero min-content — so its wrapper can shrink
+    // to nothing and CLIP THE LINKS while the bar still reports no overflow.
+    // Asserting on the nav's own scroller is what closes that, and it is the
+    // mechanism `manage-nav.tsx` documents.
     const fits = () =>
       page.evaluate(() => {
         const bar = document.querySelector("header > div");
         if (!bar) throw new Error("header bar not found");
+        const nav = document.querySelector("header nav");
+        if (!nav) throw new Error("header nav not found");
         return (
           bar.scrollWidth <= bar.clientWidth &&
+          nav.scrollWidth <= nav.clientWidth &&
           document.documentElement.scrollWidth <=
             document.documentElement.clientWidth
         );

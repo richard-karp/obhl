@@ -51,8 +51,7 @@ export default async function LandingPage() {
 
   const cluster = (
     <AccountCluster
-      signedIn={!!user}
-      role={user?.role ?? null}
+      user={user && { role: user.role }}
       crossLink={
         mine.length > 0
           ? { href: `/${mine[0].slug}/manage/dashboard`, label: "Manage" }

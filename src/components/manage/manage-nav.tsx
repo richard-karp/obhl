@@ -152,8 +152,7 @@ export function ManageNav({
             Everyone here is signed in — the layout redirects anyone who is not.
           */}
           <AccountCluster
-            signedIn
-            role={role}
+            user={{ role }}
             crossLink={{ href: `/${currentSlug}`, label: "View site" }}
           >
             <LeagueSwitcher

@@ -1,3 +1,8 @@
+// Client components import `AppRole` from here with `import type`, which erases.
+// Dropping that keyword would pull `next/headers` into the browser bundle with no
+// build error to say so; this makes it one. Matches `membership.ts` and
+// `office.ts`, whose siblings-in-purpose it otherwise was not.
+import "server-only";
 import { cache } from "react";
 import { createClient } from "@/utils/supabase/server";
 
