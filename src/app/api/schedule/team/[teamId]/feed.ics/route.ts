@@ -24,17 +24,15 @@ export async function GET(
   const ics = buildIcs(
     games
       .filter((g) => isExportableFixture(g.status))
-      .map(
-        (g): IcsGame => ({
-          id: g.id,
-          scheduled_at: g.scheduled_at,
-          status: g.status,
-          home: g.home_team?.name ?? "Home",
-          away: g.away_team?.name ?? "Away",
-          home_goals: g.home_goals,
-          away_goals: g.away_goals,
-        }),
-      ),
+      .map((g): IcsGame => ({
+        id: g.id,
+        scheduled_at: g.scheduled_at,
+        status: g.status,
+        home: g.home_team?.name ?? "Home",
+        away: g.away_team?.name ?? "Away",
+        home_goals: g.home_goals,
+        away_goals: g.away_goals,
+      })),
     league ? `${league.name} — Team Schedule` : "Team Schedule",
   );
 

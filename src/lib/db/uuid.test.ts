@@ -18,8 +18,8 @@ describe("isUuid", () => {
 
   it("rejects an id carrying extra PostgREST filter syntax", () => {
     // The reason this exists: these ids are interpolated into .or() filters.
-    expect(isUuid("d5a31a6a-5c70-4ae0-88e6-61a5bace779d,is_draft.eq.true")).toBe(
-      false,
-    );
+    expect(
+      isUuid("d5a31a6a-5c70-4ae0-88e6-61a5bace779d,is_draft.eq.true"),
+    ).toBe(false);
   });
 });

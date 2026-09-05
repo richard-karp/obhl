@@ -97,7 +97,9 @@ export function StaffRowActions({
               : "A role applies in every league, and this person also works one you are not in. Changing it needs a manager of every league they work — if nobody is in all of them, a commissioner changes it."
           }
         >
-          {managerPeer ? "Role changed by a commissioner" : "Also works another league"}
+          {managerPeer
+            ? "Role changed by a commissioner"
+            : "Also works another league"}
         </span>
         {remove}
       </div>

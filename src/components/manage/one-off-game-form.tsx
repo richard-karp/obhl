@@ -50,7 +50,9 @@ export function OneOffGameForm({
 
   const [preview, setPreview] = useState<OneOffPreview | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
   const [pending, startTransition] = useTransition();
 
   const fields = fieldsFor(round);
@@ -102,7 +104,9 @@ export function OneOffGameForm({
       }
       if (res.kind !== "preview") return;
       setPreview(res.preview);
-      setChosen(res.preview.plans[res.preview.plans.length > 1 ? 1 : 0]?.id ?? null);
+      setChosen(
+        res.preview.plans[res.preview.plans.length > 1 ? 1 : 0]?.id ?? null,
+      );
     });
   };
 
@@ -248,8 +252,8 @@ export function OneOffGameForm({
             </select>
             <p className="text-muted-foreground text-xs">
               Only nights where every chosen team is already scheduled. The game
-              takes over one of that night&apos;s games rather than adding one, so
-              nobody gains or loses a game.
+              takes over one of that night&apos;s games rather than adding one,
+              so nobody gains or loses a game.
             </p>
           </div>
 
@@ -272,7 +276,10 @@ export function OneOffGameForm({
           ) : null}
 
           <div className="flex items-center gap-3">
-            <Button onClick={onPreview} disabled={pending || !date || !distinct}>
+            <Button
+              onClick={onPreview}
+              disabled={pending || !date || !distinct}
+            >
               {pending ? "Working…" : "Preview"}
             </Button>
             {message ? (
@@ -441,7 +448,9 @@ function PlanCard({
               {plan.sameOpponentNights.length} keeping the same opponents
             </span>
             {plan.settledNight !== null ? (
-              <span>settled by {formatLongDate(nightDate(plan.settledNight))}</span>
+              <span>
+                settled by {formatLongDate(nightDate(plan.settledNight))}
+              </span>
             ) : null}
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">

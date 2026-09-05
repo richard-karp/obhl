@@ -20,7 +20,12 @@ export function AnnouncementForm({ leagueId }: { leagueId: string }) {
       <input type="hidden" name="league_id" value={leagueId} />
       <div className="space-y-1">
         <Label htmlFor="title">Title</Label>
-        <Input id="title" name="title" required placeholder="Playoffs start June 22" />
+        <Input
+          id="title"
+          name="title"
+          required
+          placeholder="Playoffs start June 22"
+        />
       </div>
       <div className="space-y-1">
         <Label htmlFor="body">Message</Label>

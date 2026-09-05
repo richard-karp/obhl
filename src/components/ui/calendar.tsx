@@ -32,7 +32,8 @@ function Calendar({
         button_next: cn(buttonVariants({ variant: "outline" }), "size-8 p-0"),
         month_grid: "w-full border-collapse space-y-1",
         weekdays: "flex",
-        weekday: "text-muted-foreground w-9 rounded-md text-[0.8rem] font-normal",
+        weekday:
+          "text-muted-foreground w-9 rounded-md text-[0.8rem] font-normal",
         week: "mt-2 flex w-full",
         day: "relative size-9 p-0 text-center text-sm focus-within:relative focus-within:z-20",
         day_button: cn(

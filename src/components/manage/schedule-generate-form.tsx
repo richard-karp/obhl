@@ -114,7 +114,10 @@ function GenerateProgressBar({ expectedMs }: { expectedMs: number }) {
         the one part of the indicator a screen reader can usefully query on
         demand — hence a real name rather than `aria-hidden` alongside the text.
       */}
-      <Progress value={fraction * 100} aria-label="Schedule generation progress" />
+      <Progress
+        value={fraction * 100}
+        aria-label="Schedule generation progress"
+      />
       {/*
         Visual only. The announced copy is the live region in the form below;
         this paragraph would otherwise duplicate it, and it carries the
@@ -182,7 +185,11 @@ export function ScheduleGenerateForm({
   const defaultGames = teamCount > 1 ? (teamCount - 1) * 2 : 14;
   const excludedValue = useMemo(
     () =>
-      [...new Set(skips.flatMap((r) => expandRange(parseKey(r.from), parseKey(r.to))))]
+      [
+        ...new Set(
+          skips.flatMap((r) => expandRange(parseKey(r.from), parseKey(r.to))),
+        ),
+      ]
         .sort()
         .join(", "),
     [skips],
@@ -341,7 +348,9 @@ export function ScheduleGenerateForm({
                 : `${shortLabel(r.from)} – ${shortLabel(r.to)}`}
               <button
                 type="button"
-                onClick={() => setSkips((prev) => prev.filter((_, j) => j !== i))}
+                onClick={() =>
+                  setSkips((prev) => prev.filter((_, j) => j !== i))
+                }
                 className="text-muted-foreground hover:text-foreground"
                 aria-label="Remove"
               >

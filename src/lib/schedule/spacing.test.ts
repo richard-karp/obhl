@@ -19,7 +19,11 @@ const day = (offsetFromTue: number) =>
  * (0=Tue, 1=Wed, 2=Thu, 3=Fri). The cadence is a parameter because the metrics
  * below have to hold for any number of weekdays, not just the league's two.
  */
-function cadence(weeks: number, offsets: number[], slots = ["19:00", "20:15"]): Night[] {
+function cadence(
+  weeks: number,
+  offsets: number[],
+  slots = ["19:00", "20:15"],
+): Night[] {
   const ns: Night[] = [];
   for (let w = 0; w < weeks; w++) {
     for (const off of offsets) ns.push({ date: day(w * 7 + off), slots });
@@ -104,7 +108,9 @@ describe("proportionalSplit", () => {
 
   it("breaks an unavoidable tie on weekday order, so it stays deterministic", () => {
     expect(proportionalSplit(5, [24, 24])).toEqual([3, 2]);
-    expect(proportionalSplit(5, [24, 24])).toEqual(proportionalSplit(5, [24, 24]));
+    expect(proportionalSplit(5, [24, 24])).toEqual(
+      proportionalSplit(5, [24, 24]),
+    );
   });
 
   it("follows the night counts when weekdays are unequal, rather than evening up", () => {
@@ -147,7 +153,12 @@ describe("spacingReport — byesAdjNight", () => {
       { date: day(21), slots: ["19:00"] }, // Tue, week 3
       { date: day(23), slots: ["19:00"] }, // Thu, week 3
     ];
-    const games = [g("A", "B", 0, 0), g("C", "D", 1, 0), g("C", "D", 2, 0), g("A", "B", 3, 0)];
+    const games = [
+      g("A", "B", 0, 0),
+      g("C", "D", 1, 0),
+      g("C", "D", 2, 0),
+      g("A", "B", 3, 0),
+    ];
     const r = spacingReport(games, ns, ["A", "B", "C", "D"]);
     expect(r.byesMultiWeek).toBe(0);
     expect(r.byesConsecWeek).toBe(0);
@@ -211,7 +222,9 @@ describe("spacingReport — pairingWeekdayExcess", () => {
     const even = [g("A", "B", 0, 0), g("A", "B", 4, 0), g("A", "B", 8, 0)]; // one each
     expect(spacingReport(even, ns, ["A", "B"]).pairingWeekdayExcess).toBe(0);
     const piled = [g("A", "B", 0, 0), g("A", "B", 3, 0), g("A", "B", 6, 0)]; // all Tue
-    expect(spacingReport(piled, ns, ["A", "B"]).pairingWeekdayExcess).toBeGreaterThan(0);
+    expect(
+      spacingReport(piled, ns, ["A", "B"]).pairingWeekdayExcess,
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -371,12 +384,22 @@ describe("spacingReport — longestLayoffDays", () => {
 });
 
 describe("compareIceOutcome", () => {
-  const base = { seasonSpread: 0, weekdaySpread: 8, streak3: 0, consecutive: 46 };
+  const base = {
+    seasonSpread: 0,
+    weekdaySpread: 8,
+    streak3: 0,
+    consecutive: 46,
+  };
 
   it("prefers a flat season share over every other gain", () => {
     // The failure mode this exists to prevent: a candidate that looks better on
     // weekday spread and repeats but breaks the even season share.
-    const tempting = { seasonSpread: 4, weekdaySpread: 0, streak3: 0, consecutive: 41 };
+    const tempting = {
+      seasonSpread: 4,
+      weekdaySpread: 0,
+      streak3: 0,
+      consecutive: 41,
+    };
     expect(compareIceOutcome(base, tempting)).toBeLessThan(0);
   });
 
@@ -404,7 +427,9 @@ describe("compareIceOutcome", () => {
   });
 
   it("falls through to ordinary repeats when all else ties", () => {
-    expect(compareIceOutcome({ ...base, consecutive: 40 }, base)).toBeLessThan(0);
+    expect(compareIceOutcome({ ...base, consecutive: 40 }, base)).toBeLessThan(
+      0,
+    );
   });
 
   it("is 0 for identical outcomes", () => {
@@ -420,12 +445,26 @@ describe("iceOutcome", () => {
     const ns = enumerateNights("2026-09-10", {
       weekdays: new Set([1, 4]),
       slotTimes: ["19:00", "20:15", "21:30"],
-      excluded: new Set(["2026-12-21", "2026-12-24", "2026-12-28", "2026-12-31", "2027-03-04"]),
+      excluded: new Set([
+        "2026-12-21",
+        "2026-12-24",
+        "2026-12-28",
+        "2026-12-31",
+        "2027-03-04",
+      ]),
       maxNights: 48,
     });
-    const { report, slotOf, pairsByNight, weekdayOfNight } =
-      assignNights(buildBalancedPairings(ts, 36), ns, ts);
-    const out = iceOutcome({ teamCount: 8, pairsByNight, slotOf, weekdayOfNight });
+    const { report, slotOf, pairsByNight, weekdayOfNight } = assignNights(
+      buildBalancedPairings(ts, 36),
+      ns,
+      ts,
+    );
+    const out = iceOutcome({
+      teamCount: 8,
+      pairsByNight,
+      slotOf,
+      weekdayOfNight,
+    });
 
     expect(out.weekdaySpread).toBe(report.spacing.slotWeekdaySpread);
     expect(out.streak3).toBe(report.spacing.slotStreak3);

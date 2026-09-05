@@ -80,8 +80,8 @@ export function RemoveControls({
                 </p>
                 {lineupsAtRisk > 0 ? (
                   <p>
-                    {lineupsAtRisk} lineup entries captains have already set will
-                    be deleted. The games can be regenerated; those cannot.
+                    {lineupsAtRisk} lineup entries captains have already set
+                    will be deleted. The games can be regenerated; those cannot.
                   </p>
                 ) : null}
               </div>

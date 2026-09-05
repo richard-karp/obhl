@@ -61,7 +61,13 @@ export function AddPlayerForm({
         </div>
         <div className="space-y-1">
           <Label htmlFor="jersey_number">#</Label>
-          <Input id="jersey_number" name="jersey_number" type="number" min="0" max="99" />
+          <Input
+            id="jersey_number"
+            name="jersey_number"
+            type="number"
+            min="0"
+            max="99"
+          />
         </div>
         <div className="space-y-1">
           <Label htmlFor="position">Pos</Label>

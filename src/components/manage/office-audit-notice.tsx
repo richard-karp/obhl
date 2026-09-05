@@ -68,7 +68,9 @@ export function OfficeAuditNotice({
             <li key={e.id} className="text-muted-foreground text-sm">
               {sentence(e)}
               {e.created_at ? (
-                <span className="ml-2 text-xs opacity-70">{fmt(e.created_at)}</span>
+                <span className="ml-2 text-xs opacity-70">
+                  {fmt(e.created_at)}
+                </span>
               ) : null}
             </li>
           ))}

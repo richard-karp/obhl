@@ -62,7 +62,10 @@ async function syncFinalScore(
 
   const { error } = await supabase
     .from("games")
-    .update({ home_goals: sum(game.home_team_id), away_goals: sum(game.away_team_id) })
+    .update({
+      home_goals: sum(game.home_team_id),
+      away_goals: sum(game.away_team_id),
+    })
     .eq("id", gameId);
   check(error, "Sync score");
   return true;
@@ -102,7 +105,10 @@ export async function setLineup(formData: FormData) {
     check(error, "Update lineup");
   }
   if (toRemove.length) {
-    const { error } = await supabase.from("game_rosters").delete().in("id", toRemove);
+    const { error } = await supabase
+      .from("game_rosters")
+      .delete()
+      .in("id", toRemove);
     check(error, "Update lineup");
   }
   const wasFinal = await syncFinalScore(supabase, game_id);
@@ -230,7 +236,10 @@ export async function setGoalie(formData: FormData) {
     side === "home"
       ? { home_goalie_id: goalie_id, home_goalie_is_sub: isSub }
       : { away_goalie_id: goalie_id, away_goalie_is_sub: isSub };
-  const { error } = await supabase.from("games").update(patch).eq("id", game_id);
+  const { error } = await supabase
+    .from("games")
+    .update(patch)
+    .eq("id", game_id);
   check(error, "Set goalie");
   revalidateAfterScore(game_id, true);
 }
@@ -264,7 +273,6 @@ export async function finalizeGame(formData: FormData) {
   await finalizeGameById(game_id, user.id);
 }
 
-
 /**
  * Reopen a completed game back to in-progress (scorekeeper / manager). The game
  * stays editable either way; this just clears the "final" status, e.g. to keep
@@ -275,7 +283,6 @@ export async function reopenGame(formData: FormData) {
   const user = await requireGameRole(game_id, "scorekeeper", "league_manager");
   await reopenGameById(game_id, user.id);
 }
-
 
 /**
  * Generate an AI game recap using Claude and store it in games.ai_recap.
@@ -298,8 +305,8 @@ export async function generateGameRecap(formData: FormData) {
     .from("games")
     .select(
       "id, scheduled_at, home_goals, away_goals, home_team_id, away_team_id, " +
-      "home_team:teams!games_home_team_id_fkey(name), " +
-      "away_team:teams!games_away_team_id_fkey(name)",
+        "home_team:teams!games_home_team_id_fkey(name), " +
+        "away_team:teams!games_away_team_id_fkey(name)",
     )
     .eq("id", game_id)
     .eq("status", "final")
@@ -318,10 +325,15 @@ export async function generateGameRecap(formData: FormData) {
     .map((r) => r.player_id!);
 
   const { data: players } = playerIds.length
-    ? await supabase.from("players").select("id, first_name, last_name").in("id", playerIds)
+    ? await supabase
+        .from("players")
+        .select("id, first_name, last_name")
+        .in("id", playerIds)
     : { data: [] };
 
-  const nameOf = new Map((players ?? []).map((p) => [p.id, `${p.first_name} ${p.last_name}`]));
+  const nameOf = new Map(
+    (players ?? []).map((p) => [p.id, `${p.first_name} ${p.last_name}`]),
+  );
 
   const lines = (rosters ?? [])
     .filter((r) => r.player_id && !r.is_substitute)
@@ -379,7 +391,10 @@ async function setStatus(
   status: "scheduled" | "cancelled" | "postponed",
 ) {
   const supabase = await createClient();
-  const { error } = await supabase.from("games").update({ status }).eq("id", game_id);
+  const { error } = await supabase
+    .from("games")
+    .update({ status })
+    .eq("id", game_id);
   check(error, "Update game status");
   revalidateAfterScore(game_id, true);
 }

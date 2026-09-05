@@ -50,7 +50,10 @@ export type SeasonNight = {
  * lock with it and let the planner re-pair a night it must not touch. A game
  * with neither date has no night to belong to and is dropped.
  */
-export function groupIntoNights(rows: NightRow[], today: string): SeasonNight[] {
+export function groupIntoNights(
+  rows: NightRow[],
+  today: string,
+): SeasonNight[] {
   // `at` is where the night is; `game.scheduledAt` is what the row actually
   // holds. They differ for a postponed game, and conflating them is how a
   // cleared date would find its way back into the column.
@@ -62,7 +65,8 @@ export function groupIntoNights(rows: NightRow[], today: string): SeasonNight[] 
     if (!at) continue;
     const date = leagueDateKey(at);
     const night =
-      byDate.get(date) ?? byDate.set(date, { slots: [], locked: date < today }).get(date)!;
+      byDate.get(date) ??
+      byDate.set(date, { slots: [], locked: date < today }).get(date)!;
     if (g.status !== "scheduled") night.locked = true;
     night.slots.push({
       at,

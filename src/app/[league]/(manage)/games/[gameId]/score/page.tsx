@@ -68,26 +68,29 @@ export default async function ScoreGamePage({
   const gameDay = leagueWeekday(game.scheduled_at);
 
   // Scorekeepers identify players by number only — no names are fetched.
-  const [{ data: roster }, { data: dressed }, { data: goalieDays }] = await Promise.all([
-    supabase
-      .from("team_players")
-      .select("player_id, team_id, jersey_number, position, is_default_goalie")
-      .eq("season_id", game.season_id)
-      .in("team_id", [homeT.id, awayT.id])
-      // Only players still on these teams can be dressed for this game.
-      .is("left_on", null)
-      .order("jersey_number", { ascending: true }),
-    supabase
-      .from("game_rosters")
-      .select("id, player_id, team_id, goals, assists, pim, is_substitute")
-      .eq("game_id", gameId),
-    supabase
-      .from("team_goalie_days")
-      .select("team_id, player_id")
-      .eq("season_id", game.season_id)
-      .in("team_id", [homeT.id, awayT.id])
-      .eq("day_of_week", gameDay),
-  ]);
+  const [{ data: roster }, { data: dressed }, { data: goalieDays }] =
+    await Promise.all([
+      supabase
+        .from("team_players")
+        .select(
+          "player_id, team_id, jersey_number, position, is_default_goalie",
+        )
+        .eq("season_id", game.season_id)
+        .in("team_id", [homeT.id, awayT.id])
+        // Only players still on these teams can be dressed for this game.
+        .is("left_on", null)
+        .order("jersey_number", { ascending: true }),
+      supabase
+        .from("game_rosters")
+        .select("id, player_id, team_id, goals, assists, pim, is_substitute")
+        .eq("game_id", gameId),
+      supabase
+        .from("team_goalie_days")
+        .select("team_id, player_id")
+        .eq("season_id", game.season_id)
+        .in("team_id", [homeT.id, awayT.id])
+        .eq("day_of_week", gameDay),
+    ]);
 
   const numberOf = new Map<string, number | null>();
   for (const r of roster ?? []) numberOf.set(r.player_id, r.jersey_number);
@@ -142,11 +145,16 @@ export default async function ScoreGamePage({
       .sort(byNumber);
     const goalies = (roster ?? [])
       .filter((r) => r.team_id === t.id && (r as any).position === "G")
-      .map((r) => ({ playerId: r.player_id, number: r.jersey_number, isDefault: !!(r as any).is_default_goalie }))
+      .map((r) => ({
+        playerId: r.player_id,
+        number: r.jersey_number,
+        isDefault: !!(r as any).is_default_goalie,
+      }))
       .sort(byNumber);
     const dayGoalie = (goalieDays ?? []).find((d: any) => d.team_id === t.id);
     const defaultGoalie = goalies.find((g) => g.isDefault);
-    const suggestedGoalieId = dayGoalie?.player_id ?? defaultGoalie?.playerId ?? null;
+    const suggestedGoalieId =
+      dayGoalie?.player_id ?? defaultGoalie?.playerId ?? null;
     return {
       id: t.id,
       side,
@@ -166,7 +174,8 @@ export default async function ScoreGamePage({
     };
   };
 
-  const canScore = user.role === "scorekeeper" || user.role === "league_manager";
+  const canScore =
+    user.role === "scorekeeper" || user.role === "league_manager";
   const canManage = user.role === "league_manager";
   const allBoards = [buildBoard(awayT), buildBoard(homeT)];
   const score = (b: TeamBoard) => b.dressed.reduce((s, l) => s + l.goals, 0);
@@ -216,7 +225,9 @@ export default async function ScoreGamePage({
                 &ldquo;{game.ai_recap}&rdquo;
               </p>
             ) : (
-              <p className="text-muted-foreground text-sm">No recap generated yet.</p>
+              <p className="text-muted-foreground text-sm">
+                No recap generated yet.
+              </p>
             )}
             <form action={generateGameRecap}>
               <input type="hidden" name="game_id" value={gameId} />
@@ -262,7 +273,10 @@ export default async function ScoreGamePage({
               ) : null}
             </div>
 
-            <form action={rescheduleGame} className="flex flex-wrap items-end gap-2">
+            <form
+              action={rescheduleGame}
+              className="flex flex-wrap items-end gap-2"
+            >
               <input type="hidden" name="game_id" value={gameId} />
               <div className="space-y-1">
                 <Label htmlFor="scheduled_at">Reschedule to</Label>

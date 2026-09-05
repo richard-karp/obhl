@@ -36,7 +36,9 @@ describe("the database constraint matches this list", () => {
 
   /** The quoted slugs inside `check (slug not in (...))`. */
   const inConstraint = (() => {
-    const m = sql.match(/leagues_slug_not_reserved\s*\n?\s*check \(slug not in \(([^)]*)\)\)/);
+    const m = sql.match(
+      /leagues_slug_not_reserved\s*\n?\s*check \(slug not in \(([^)]*)\)\)/,
+    );
     if (!m) throw new Error("could not find the reserved-slug constraint");
     return [...m[1].matchAll(/'([^']*)'/g)].map((x) => x[1]).sort();
   })();

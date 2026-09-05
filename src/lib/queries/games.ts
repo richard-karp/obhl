@@ -53,7 +53,8 @@ export async function getGameBoxScore(gameId: string) {
   ]);
 
   const jersey = new Map<string, number | null>();
-  for (const r of tp ?? []) jersey.set(`${r.player_id}|${r.team_id}`, r.jersey_number);
+  for (const r of tp ?? [])
+    jersey.set(`${r.player_id}|${r.team_id}`, r.jersey_number);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const lines: BoxLine[] = (rosters ?? []).map((r: any) => ({
@@ -93,8 +94,8 @@ export async function getLatestGameWithRecapData(
     .from("games")
     .select(
       "id, scheduled_at, home_goals, away_goals, three_stars, ai_recap, " +
-      "home_team:teams!games_home_team_id_fkey(name), " +
-      "away_team:teams!games_away_team_id_fkey(name)",
+        "home_team:teams!games_home_team_id_fkey(name), " +
+        "away_team:teams!games_away_team_id_fkey(name)",
     )
     .eq("season_id", seasonId)
     .eq("status", "final")

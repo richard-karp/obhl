@@ -57,7 +57,10 @@ export function TeamPlayerTable({ rows }: { rows: TeamPlayerRow[] }) {
               <TableCell className="font-medium">
                 {r.name}
                 {r.is_captain ? (
-                  <Badge variant="secondary" className="ml-2 px-1.5 py-0 text-[0.65rem]">
+                  <Badge
+                    variant="secondary"
+                    className="ml-2 px-1.5 py-0 text-[0.65rem]"
+                  >
                     C
                   </Badge>
                 ) : null}
@@ -68,11 +71,15 @@ export function TeamPlayerTable({ rows }: { rows: TeamPlayerRow[] }) {
               <TableCell className="text-center tabular-nums">{r.gp}</TableCell>
               <TableCell className="text-center tabular-nums">{r.g}</TableCell>
               <TableCell className="text-center tabular-nums">{r.a}</TableCell>
-              <TableCell className="text-center font-bold tabular-nums">{r.pts}</TableCell>
+              <TableCell className="text-center font-bold tabular-nums">
+                {r.pts}
+              </TableCell>
               <TableCell className="text-muted-foreground text-center tabular-nums">
                 {r.gp ? (r.pts / r.gp).toFixed(2) : "—"}
               </TableCell>
-              <TableCell className="text-center tabular-nums">{r.pim}</TableCell>
+              <TableCell className="text-center tabular-nums">
+                {r.pim}
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>

@@ -120,7 +120,11 @@ export async function runEsportsdeskImport(
   const admin = createAdminClient();
   let parsed: ParsedLeague;
   try {
-    parsed = await fetchEsportsdeskLeague(ids.clientId, ids.leagueId, sourceSeason);
+    parsed = await fetchEsportsdeskLeague(
+      ids.clientId,
+      ids.leagueId,
+      sourceSeason,
+    );
   } catch (e) {
     return { ok: false, message: `Fetch failed: ${(e as Error).message}` };
   }
@@ -172,12 +176,25 @@ export async function runEsportsdeskImport(
     .single();
   if (sErr || !season) {
     await admin.from("leagues").delete().eq("id", league.id);
-    return { ok: false, message: `Couldn't create the season: ${sErr?.message}` };
+    return {
+      ok: false,
+      message: `Couldn't create the season: ${sErr?.message}`,
+    };
   }
 
   const palette = [
-    "#0ea5e9", "#b45309", "#16a34a", "#64748b", "#7c3aed", "#dc2626",
-    "#0891b2", "#ca8a04", "#475569", "#059669", "#db2777", "#4f46e5",
+    "#0ea5e9",
+    "#b45309",
+    "#16a34a",
+    "#64748b",
+    "#7c3aed",
+    "#dc2626",
+    "#0891b2",
+    "#ca8a04",
+    "#475569",
+    "#059669",
+    "#db2777",
+    "#4f46e5",
   ];
   let teamCount = 0;
   let playerCount = 0;
@@ -201,7 +218,9 @@ export async function runEsportsdeskImport(
     if (!team) continue;
     teamCount++;
     teamIdByName.set(t.name.toLowerCase(), team.id);
-    await admin.from("season_teams").insert({ season_id: season.id, team_id: team.id });
+    await admin
+      .from("season_teams")
+      .insert({ season_id: season.id, team_id: team.id });
     if (t.players.length === 0) continue;
 
     // Bulk-insert this team's players, then their roster rows — two calls per
@@ -210,7 +229,10 @@ export async function runEsportsdeskImport(
     const { data: inserted, error: pErr } = await admin
       .from("players")
       .insert(
-        t.players.map((p) => ({ first_name: p.firstName, last_name: p.lastName })),
+        t.players.map((p) => ({
+          first_name: p.firstName,
+          last_name: p.lastName,
+        })),
       )
       .select("id");
     if (pErr || !inserted || inserted.length !== t.players.length) continue;
@@ -279,8 +301,7 @@ export async function runEsportsdeskImport(
           scheduled_at: `${g.date}T${hh}:${mm}:00${leagueOffset(g.date)}`,
           status: "final" as const,
           game_type: (g.isPlayoff ? "playoff" : "regular") as
-            | "playoff"
-            | "regular",
+            "playoff" | "regular",
           home_goals: g.homeGoals,
           away_goals: g.awayGoals,
           result_type: "regulation" as const,
@@ -359,7 +380,9 @@ export async function runEsportsdeskImport(
         })
         .filter((m): m is NonNullable<typeof m> => m !== null)
         // One roster line per player (guards the game_rosters unique constraint).
-        .filter((m) => (seenPid.has(m.pid) ? false : (seenPid.add(m.pid), true)));
+        .filter((m) =>
+          seenPid.has(m.pid) ? false : (seenPid.add(m.pid), true),
+        );
       if (!matched.length) continue;
 
       const dist = distributeStats(

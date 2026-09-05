@@ -25,7 +25,11 @@
 
 import { assignMatchups, type NightConstraint } from "./matchups";
 import { assignSlots } from "./slots";
-import { assignHomeAway, homeAwaySpread, type OrientableGame } from "./homeAway";
+import {
+  assignHomeAway,
+  homeAwaySpread,
+  type OrientableGame,
+} from "./homeAway";
 import {
   buildNightMeta,
   spacingReport,
@@ -109,7 +113,8 @@ export type OneOffPlan = {
 };
 
 /** The ice-time metrics a repair is judged on, in the order the UI reads them. */
-export type IceMetric = "seasonSpread" | "weekdaySpread" | "streak3" | "consecutive";
+export type IceMetric =
+  "seasonSpread" | "weekdaySpread" | "streak3" | "consecutive";
 
 const ICE_METRICS: IceMetric[] = [
   "seasonSpread",
@@ -147,8 +152,7 @@ const pairKey = (a: number, b: number) => (a < b ? `${a}-${b}` : `${b}-${a}`);
 const keyOf = (p: [number, number]) => pairKey(p[0], p[1]);
 
 /** Order-independent identity of a night's matchups. */
-const matchingKey = (ps: [number, number][]) =>
-  ps.map(keyOf).sort().join(",");
+const matchingKey = (ps: [number, number][]) => ps.map(keyOf).sort().join(",");
 
 /** Σ per team of (most-used ice time − least-used), over teams that play. */
 export function iceTimeSpread(
@@ -362,10 +366,11 @@ export function checkOneOffWrite(opts: CheckWriteOptions): string | null {
     }
   }
 
-  const onNight = (
-    changes.find((c) => c.date === date)?.to.map((p) => idKey(teamIds[p[0]], teamIds[p[1]])) ??
-    oneOff.games.map((g) => idKey(g[0], g[1]))
-  );
+  const onNight =
+    changes
+      .find((c) => c.date === date)
+      ?.to.map((p) => idKey(teamIds[p[0]], teamIds[p[1]])) ??
+    oneOff.games.map((g) => idKey(g[0], g[1]));
   if (!forcedPairs.every((p) => onNight.includes(idKey(p[0], p[1])))) {
     return "That plan doesn't include the game being scheduled.";
   }
@@ -536,7 +541,9 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
   // repair has to land back on. Locked nights contribute fixed meetings the free
   // nights have to work around.
   const targets = Array.from({ length: T }, () => new Array<number>(T).fill(0));
-  const plays = Array.from({ length: T }, () => new Array<boolean>(N).fill(false));
+  const plays = Array.from({ length: T }, () =>
+    new Array<boolean>(N).fill(false),
+  );
   nights.forEach((night, n) => {
     for (const [h, a] of night.games) {
       targets[h][a]++;
@@ -546,7 +553,10 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
     }
   });
 
-  const reportNights: Night[] = nights.map((n) => ({ date: n.date, slots: [] }));
+  const reportNights: Night[] = nights.map((n) => ({
+    date: n.date,
+    slots: [],
+  }));
   const meta = buildNightMeta(reportNights);
   const teamIds = Array.from({ length: T }, (_, i) => String(i));
   const spacingBefore = spacingReport(
@@ -712,7 +722,9 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
       (matchupChanged ? matchupNights : sameOpponentNights).push(n);
     }
 
-    const actual = Array.from({ length: T }, () => new Array<number>(T).fill(0));
+    const actual = Array.from({ length: T }, () =>
+      new Array<number>(T).fill(0),
+    );
     for (const night of final) {
       for (const [h, a] of night) {
         actual[h][a]++;
@@ -733,7 +745,9 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
       changes,
       matchupNights,
       sameOpponentNights,
-      settledNight: matchupNights.length ? matchupNights[matchupNights.length - 1] : null,
+      settledNight: matchupNights.length
+        ? matchupNights[matchupNights.length - 1]
+        : null,
       drift,
       spacingBefore,
       spacingAfter: spacingReport(placedGames(final), reportNights, teamIds),
@@ -764,7 +778,13 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
       900,
     ),
     build("fewest", "Disturb the fewest games", () => CHURN_W.FEWEST, 12, 900),
-    build("spacing", "Best resulting schedule", () => CHURN_W.SPACING, 16, 1_500),
+    build(
+      "spacing",
+      "Best resulting schedule",
+      () => CHURN_W.SPACING,
+      16,
+      1_500,
+    ),
   ].filter((p): p is OneOffPlan => p !== null);
 
   // Fails closed rather than falling back: the no-repair baseline is itself an

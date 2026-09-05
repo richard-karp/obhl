@@ -43,8 +43,8 @@ export function CreateSeasonForm({
       </div>
       <p className="text-muted-foreground -mt-1 text-xs sm:col-span-3">
         The start seeds the schedule builder; the end is the outer boundary
-        (regular season plus playoffs). The regular-season length is set later in
-        the schedule builder.
+        (regular season plus playoffs). The regular-season length is set later
+        in the schedule builder.
       </p>
       <div className="flex items-center gap-3 sm:col-span-3">
         <Button type="submit" disabled={pending}>

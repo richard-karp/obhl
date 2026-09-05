@@ -5,7 +5,10 @@ import { resolveLeagueBySlug } from "@/lib/league/current";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
-import { AuditSessionList, type AuditSession } from "@/components/manage/audit-session-list";
+import {
+  AuditSessionList,
+  type AuditSession,
+} from "@/components/manage/audit-session-list";
 import { revertAuditEntries } from "@/lib/actions/audit";
 import { OfficeAuditNotice } from "@/components/manage/office-audit-notice";
 import { recentOfficeAudit } from "@/lib/audit";
@@ -31,7 +34,9 @@ export default async function AuditLogPage({
 
   const { data: rows } = await admin
     .from("audit_log")
-    .select("id, created_at, user_id, action, entity_type, entity_id, new_data, old_data, session_id")
+    .select(
+      "id, created_at, user_id, action, entity_type, entity_id, new_data, old_data, session_id",
+    )
     // Entries written before audit_log had a league have none, and stay out.
     .eq("league_id", league.id)
     .order("created_at", { ascending: false })
@@ -53,7 +58,9 @@ export default async function AuditLogPage({
 
   // --- Resolve user display names ---
   const userIds = [
-    ...new Set(rows.map((r) => r.user_id).filter((id): id is string => id != null)),
+    ...new Set(
+      rows.map((r) => r.user_id).filter((id): id is string => id != null),
+    ),
   ];
   let nameMap = new Map<string, string>();
   if (userIds.length) {
@@ -152,7 +159,9 @@ export default async function AuditLogPage({
       case "set_active_season": {
         const to = typeof nd?.name === "string" ? nd.name : "a season";
         const from = typeof od?.name === "string" ? od.name : null;
-        return from ? `Made ${to} the active season (was ${from})` : `Made ${to} the active season`;
+        return from
+          ? `Made ${to} the active season (was ${from})`
+          : `Made ${to} the active season`;
       }
       case "create_team":
         return `Added team ${typeof nd?.name === "string" ? nd.name : ""}`.trim();
@@ -162,7 +171,8 @@ export default async function AuditLogPage({
         // `teams` counts what was actually added, so zero has two meanings and
         // `from_season_id` is what separates them.
         const n = typeof nd?.teams === "number" ? nd.teams : 0;
-        if (n) return `Carried ${n} team${n === 1 ? "" : "s"} forward from the previous season`;
+        if (n)
+          return `Carried ${n} team${n === 1 ? "" : "s"} forward from the previous season`;
         return nd?.from_season_id
           ? "Carried enrollment forward; every team was already enrolled"
           : "Carried enrollment forward, but no earlier season had teams";
@@ -180,8 +190,12 @@ export default async function AuditLogPage({
       // Staff entries name the person from their own payload: entity_id is the
       // league, not the profile, so there is no id here to look a name up from.
       case "add_staff": {
-        const who = typeof nd?.display_name === "string" ? nd.display_name : nd?.email;
-        const r = typeof nd?.role === "string" ? nd.role.replace("league_", "") : "staff";
+        const who =
+          typeof nd?.display_name === "string" ? nd.display_name : nd?.email;
+        const r =
+          typeof nd?.role === "string"
+            ? nd.role.replace("league_", "")
+            : "staff";
         return `Added ${typeof who === "string" ? who : "an account"} as ${r}`;
       }
       case "grant_league": {
@@ -189,13 +203,17 @@ export default async function AuditLogPage({
         return `Gave ${who} this league`;
       }
       case "update_staff_role": {
-        const who = typeof nd?.display_name === "string" ? nd.display_name : "someone";
-        const from = typeof od?.role === "string" ? od.role.replace("league_", "") : "?";
-        const to = typeof nd?.role === "string" ? nd.role.replace("league_", "") : "?";
+        const who =
+          typeof nd?.display_name === "string" ? nd.display_name : "someone";
+        const from =
+          typeof od?.role === "string" ? od.role.replace("league_", "") : "?";
+        const to =
+          typeof nd?.role === "string" ? nd.role.replace("league_", "") : "?";
         return `Changed ${who} from ${from} to ${to}`;
       }
       case "remove_staff": {
-        const who = typeof od?.display_name === "string" ? od.display_name : "someone";
+        const who =
+          typeof od?.display_name === "string" ? od.display_name : "someone";
         return `Removed ${who} from this league`;
       }
       case "add_player": {
@@ -216,7 +234,10 @@ export default async function AuditLogPage({
       }
       case "update_player_status": {
         const name = tpNameMap.get(r.entity_id);
-        const field = typeof nd?.field === "string" ? nd.field.replace(/_/g, " ") : "status";
+        const field =
+          typeof nd?.field === "string"
+            ? nd.field.replace(/_/g, " ")
+            : "status";
         return `Updated ${field} for ${name ?? "player"}`;
       }
       default:

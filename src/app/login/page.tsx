@@ -73,7 +73,9 @@ export default async function LoginPage({
               ))}
             </div>
             {dev_error ? (
-              <p className="text-destructive text-center text-xs">{dev_error}</p>
+              <p className="text-destructive text-center text-xs">
+                {dev_error}
+              </p>
             ) : null}
           </div>
         ) : null}

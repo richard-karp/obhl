@@ -235,7 +235,8 @@ function vectorsOf(games: ScheduledGame[], teamIds: string[], meta: Meta) {
 }
 
 const sq = (a: number[]) => a.reduce((s, x) => s + x * x, 0);
-const spread = (a: number[]) => (a.length ? Math.max(...a) - Math.min(...a) : 0);
+const spread = (a: number[]) =>
+  a.length ? Math.max(...a) - Math.min(...a) : 0;
 
 /** Would swapping the two games' (night, slot) positions be legal? */
 function swapLegal(
@@ -247,7 +248,8 @@ function swapLegal(
   const { nightIndex: n1, slotIndex: s1 } = g1;
   const { nightIndex: n2, slotIndex: s2 } = g2;
   if (n1 === n2) return s1 !== s2;
-  if (s1 >= nights[n2].slots.length || s2 >= nights[n1].slots.length) return false;
+  if (s1 >= nights[n2].slots.length || s2 >= nights[n1].slots.length)
+    return false;
   if (nightTeams[n2].has(g1.home) || nightTeams[n2].has(g1.away)) return false;
   if (nightTeams[n1].has(g2.home) || nightTeams[n1].has(g2.away)) return false;
   return true;
@@ -303,7 +305,8 @@ function perturb(
       if (i === j) continue;
       // When `week` is given, only swap games in the same week — that keeps the
       // week-level structure (byes, rematch spacing) fixed while polishing.
-      if (week && week[games[i].nightIndex] !== week[games[j].nightIndex]) continue;
+      if (week && week[games[i].nightIndex] !== week[games[j].nightIndex])
+        continue;
       if (swapLegal(games[i], games[j], nights, nightTeams)) {
         doSwap(games[i], games[j], nights, nightTeams);
         break;
@@ -323,7 +326,8 @@ function restore(
   for (let i = 0; i < games.length; i++) {
     games[i].nightIndex = snap[i].n;
     games[i].slotIndex = snap[i].s;
-    games[i].scheduledAt = `${nights[snap[i].n].date}T${nights[snap[i].n].slots[snap[i].s]}:00`;
+    games[i].scheduledAt =
+      `${nights[snap[i].n].date}T${nights[snap[i].n].slots[snap[i].s]}:00`;
   }
 }
 
@@ -392,7 +396,10 @@ function balanceWeekdays(
 
   // Enumerate every valid night-assignment for a week (≤ slots/night, no team
   // twice a night). Weeks too dense to enumerate keep their current assignment.
-  const enumerateColorings = (gis: number[], nightIdx: number[]): WeekColoring[] => {
+  const enumerateColorings = (
+    gis: number[],
+    nightIdx: number[],
+  ): WeekColoring[] => {
     const k = gis.length;
     const m = nightIdx.length;
     const currentAssign = () =>
@@ -473,8 +480,12 @@ function balanceWeekdays(
       totalGames.set(g.home, totalGames.get(g.home)! + 1);
       totalGames.set(g.away, totalGames.get(g.away)! + 1);
     }
-    const ceilT = new Map(tids.map((t) => [t, Math.ceil(totalGames.get(t)! / weekdays)]));
-    const floorT = new Map(tids.map((t) => [t, Math.floor(totalGames.get(t)! / weekdays)]));
+    const ceilT = new Map(
+      tids.map((t) => [t, Math.ceil(totalGames.get(t)! / weekdays)]),
+    );
+    const floorT = new Map(
+      tids.map((t) => [t, Math.floor(totalGames.get(t)! / weekdays)]),
+    );
     // Most-constrained weeks first for stronger pruning.
     const order = [...sts].sort((a, b) => a.options.length - b.options.length);
     // Suffix sum of each team's games in order[i..] for a floor look-ahead prune.
@@ -483,7 +494,8 @@ function balanceWeekdays(
     for (let i = order.length - 1; i >= 0; i--) {
       const m = new Map(suffix[i + 1]);
       for (const gi of order[i].gis) {
-        for (const t of [gs[gi].home, gs[gi].away]) m.set(t, (m.get(t) ?? 0) + 1);
+        for (const t of [gs[gi].home, gs[gi].away])
+          m.set(t, (m.get(t) ?? 0) + 1);
       }
       suffix[i] = m;
     }
@@ -510,7 +522,10 @@ function balanceWeekdays(
           const r = run.get(t)!;
           const cap = ceilT.get(t)!;
           for (let d = 0; d < weekdays; d++) {
-            if (r[d] + v[d] > cap) { ok = false; break; }
+            if (r[d] + v[d] > cap) {
+              ok = false;
+              break;
+            }
           }
           if (!ok) break;
         }
@@ -527,7 +542,10 @@ function balanceWeekdays(
           const f = floorT.get(t)!;
           let deficit = 0;
           for (let d = 0; d < weekdays; d++) if (r[d] < f) deficit += f - r[d];
-          if (deficit > (rem.get(t) ?? 0)) { feasible = false; break; }
+          if (deficit > (rem.get(t) ?? 0)) {
+            feasible = false;
+            break;
+          }
         }
         if (feasible) {
           pick[i] = c;
@@ -685,7 +703,9 @@ function refineSpacing(
     slotByNight.get(g.home)!.set(g.nightIndex, g.slotIndex);
     slotByNight.get(g.away)!.set(g.nightIndex, g.slotIndex);
     const k = matchupKey(g.home, g.away);
-    (matchupNights.get(k) ?? matchupNights.set(k, []).get(k)!).push(g.nightIndex);
+    (matchupNights.get(k) ?? matchupNights.set(k, []).get(k)!).push(
+      g.nightIndex,
+    );
   }
 
   // Unified per-team cost: weekday balance (#1) dominates via a huge weight, so
@@ -826,14 +846,21 @@ function refineSpacing(
       slotByNight.get(g.home)!.set(g.nightIndex, g.slotIndex);
       slotByNight.get(g.away)!.set(g.nightIndex, g.slotIndex);
       const k = matchupKey(g.home, g.away);
-      (matchupNights.get(k) ?? matchupNights.set(k, []).get(k)!).push(g.nightIndex);
+      (matchupNights.get(k) ?? matchupNights.set(k, []).get(k)!).push(
+        g.nightIndex,
+      );
       nightTeams[g.nightIndex].add(g.home);
       nightTeams[g.nightIndex].add(g.away);
     }
   }
 }
 
-type WeekCap = { week: number; nightIdx: number[]; cap: number; maxPer: number };
+type WeekCap = {
+  week: number;
+  nightIdx: number[];
+  cap: number;
+  maxPer: number;
+};
 
 /** Per-week capacity: total ice slots that week and the max games a team can
  * play (= number of game nights that week, since no team plays twice a night). */
@@ -1003,7 +1030,9 @@ function repairWeeks(
     return c;
   };
   const matchupCost = (k: string): number => {
-    const ws = [...mWeeks.get(k)!].sort((a, b) => order.get(a)! - order.get(b)!);
+    const ws = [...mWeeks.get(k)!].sort(
+      (a, b) => order.get(a)! - order.get(b)!,
+    );
     let c = 0;
     for (let i = 1; i < ws.length; i++) {
       const gap = order.get(ws[i])! - order.get(ws[i - 1])!;
@@ -1052,10 +1081,11 @@ function repairWeeks(
         const valid =
           teamIds.every((t) => {
             const m = cnt.get(t)!;
-            return (m.get(a.w) ?? 0) <= maxPer.get(a.w)! &&
-              (m.get(b.w) ?? 0) <= maxPer.get(b.w)!;
-          }) &&
-          !hasDupMatchup(items, i, j, a.w, b.w);
+            return (
+              (m.get(a.w) ?? 0) <= maxPer.get(a.w)! &&
+              (m.get(b.w) ?? 0) <= maxPer.get(b.w)!
+            );
+          }) && !hasDupMatchup(items, i, j, a.w, b.w);
         const after =
           teams.reduce((s, t) => s + teamCost(t), 0) +
           (ka === kb ? matchupCost(ka) : matchupCost(ka) + matchupCost(kb));
@@ -1191,7 +1221,9 @@ function placeWeek(
         if (perCount[a] >= nights[ni].slots.length) continue;
         const wi = meta.nightW[ni];
         const c =
-          seasonWd.get(p.home)![wi] + seasonWd.get(p.away)![wi] + perCount[a] * 0.01;
+          seasonWd.get(p.home)![wi] +
+          seasonWd.get(p.away)![wi] +
+          perCount[a] * 0.01;
         if (c < bestC) {
           bestC = c;
           bestA = a;
@@ -1257,7 +1289,14 @@ function planByWeeks(
   );
   let stranded = 0;
   for (const { nightIdx, week } of weekCaps) {
-    stranded += placeWeek(byWeek.get(week)!, nightIdx, nights, meta, seasonWd, games);
+    stranded += placeWeek(
+      byWeek.get(week)!,
+      nightIdx,
+      nights,
+      meta,
+      seasonWd,
+      games,
+    );
   }
 
   // Drive weekday balance (#1) to optimal by re-picking each week's night
@@ -1276,8 +1315,8 @@ function distributeGames(caps: number[], total: number): number[] | null {
   const n = caps.length;
   if (n === 0) return total === 0 ? [] : null;
   // Bresenham-style even split: night i gets the games between two exact cuts.
-  const out = caps.map((_, i) =>
-    Math.floor(((i + 1) * total) / n) - Math.floor((i * total) / n),
+  const out = caps.map(
+    (_, i) => Math.floor(((i + 1) * total) / n) - Math.floor((i * total) / n),
   );
   let overflow = 0;
   for (let i = 0; i < n; i++) {
@@ -1529,7 +1568,8 @@ function rankSchedule(
 ): number[] {
   const r = spacingReport(plan.games, nights, teamIds);
   const { slot, wd } = vectorsOf(plan.games, teamIds, meta);
-  const sum = (f: (t: string) => number) => teamIds.reduce((s, t) => s + f(t), 0);
+  const sum = (f: (t: string) => number) =>
+    teamIds.reduce((s, t) => s + f(t), 0);
   return [
     plan.unscheduled,
     r.byesAdjNight,
@@ -1617,7 +1657,10 @@ export function assignNights(
   const pairsByNight: [number, number][][] = nights.map(() => []);
   const slotOf: number[][] = nights.map(() => []);
   for (const g of games) {
-    pairsByNight[g.nightIndex].push([teamIndex.get(g.home)!, teamIndex.get(g.away)!]);
+    pairsByNight[g.nightIndex].push([
+      teamIndex.get(g.home)!,
+      teamIndex.get(g.away)!,
+    ]);
     slotOf[g.nightIndex].push(g.slotIndex);
   }
 
@@ -1630,9 +1673,15 @@ export function assignNights(
       totalScheduled: games.length,
       unscheduled,
       gamesPerTeam: teamIds.map((t) => ({ team: t, count: finalGp.get(t)! })),
-      slotShareByTeam: teamIds.map((t) => ({ team: t, counts: finalSlot.get(t)! })),
+      slotShareByTeam: teamIds.map((t) => ({
+        team: t,
+        counts: finalSlot.get(t)!,
+      })),
       weekdays: meta.usedWeekdays.map((d) => WEEKDAY[d]),
-      nightShareByTeam: teamIds.map((t) => ({ team: t, counts: nightTally.get(t)! })),
+      nightShareByTeam: teamIds.map((t) => ({
+        team: t,
+        counts: nightTally.get(t)!,
+      })),
       pairingCounts: [...pairingTally.entries()].map(([matchup, count]) => ({
         matchup,
         count,

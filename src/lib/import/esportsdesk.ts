@@ -66,8 +66,18 @@ export type ParsedStat = {
 };
 
 const MONTHS: Record<string, number> = {
-  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
-  july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+  january: 1,
+  february: 2,
+  march: 3,
+  april: 4,
+  may: 5,
+  june: 6,
+  july: 7,
+  august: 8,
+  september: 9,
+  october: 10,
+  november: 11,
+  december: 12,
 };
 
 /** Two-digit zero-pad for date parts. */
@@ -95,7 +105,8 @@ async function fetchPage(
   const res = await fetch(`${BASE}/${path}?${qs}`, {
     headers: { "User-Agent": UA },
   });
-  if (!res.ok) throw new Error(`esportsdesk ${path} returned HTTP ${res.status}`);
+  if (!res.ok)
+    throw new Error(`esportsdesk ${path} returned HTTP ${res.status}`);
   return res.text();
 }
 
@@ -118,7 +129,11 @@ async function fetchLeagueIndex(
   clientId: string,
   leagueId: string,
   season?: string | null,
-): Promise<{ leagueName: string; teamIds: string[]; seasons: EsportsdeskSeason[] }> {
+): Promise<{
+  leagueName: string;
+  teamIds: string[];
+  seasons: EsportsdeskSeason[];
+}> {
   const $ = cheerio.load(
     await fetchPage("teams.cfm", {
       clientID: clientId,
@@ -166,8 +181,9 @@ async function fetchTeamRoster(
   // is the position (most leagues leave it blank → Forward).
   const text = $("body").text().replace(/\s+/g, " ");
   const name =
-    text.match(/([A-Za-z][A-Za-z'-]*)\s+\d+\s*w-\d+\s*l-\d+\s*t/i)?.[1]?.trim() ??
-    `Team ${teamId}`;
+    text
+      .match(/([A-Za-z][A-Za-z'-]*)\s+\d+\s*w-\d+\s*l-\d+\s*t/i)?.[1]
+      ?.trim() ?? `Team ${teamId}`;
 
   const players: ParsedPlayer[] = [];
   $("tr").each((_, tr) => {
@@ -360,7 +376,15 @@ export async function fetchEsportsdeskStats(
       const key = `${name.toLowerCase()}|${team.toLowerCase()}|${jersey}`;
       if (seen.has(key)) return;
       seen.add(key);
-      out.push({ name, jersey, team, gp: Number(c[5]), g, a, pim: Number(c[10]) });
+      out.push({
+        name,
+        jersey,
+        team,
+        gp: Number(c[5]),
+        g,
+        a,
+        pim: Number(c[10]),
+      });
       found++;
     });
     if (found === 0) break;

@@ -18,12 +18,10 @@ export async function uploadTeamLogo(formData: FormData) {
   const path = `teams/${teamId}.${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  const { error } = await admin.storage
-    .from("logos")
-    .upload(path, buffer, {
-      contentType: file.type || "image/png",
-      upsert: true,
-    });
+  const { error } = await admin.storage.from("logos").upload(path, buffer, {
+    contentType: file.type || "image/png",
+    upsert: true,
+  });
   if (error) return;
 
   const { data: was } = await admin

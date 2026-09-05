@@ -23,9 +23,20 @@ function TeamScore({
 }) {
   return (
     <div className="flex flex-1 flex-col items-center gap-2">
-      <TeamLogo name={team?.name ?? "TBD"} color={team?.color} className="size-10 text-sm" />
-      <span className="text-center text-sm font-medium">{team?.name ?? "TBD"}</span>
-      <span className={cn("text-4xl font-bold tabular-nums", !winner && "text-muted-foreground")}>
+      <TeamLogo
+        name={team?.name ?? "TBD"}
+        color={team?.color}
+        className="size-10 text-sm"
+      />
+      <span className="text-center text-sm font-medium">
+        {team?.name ?? "TBD"}
+      </span>
+      <span
+        className={cn(
+          "text-4xl font-bold tabular-nums",
+          !winner && "text-muted-foreground",
+        )}
+      >
         {score}
       </span>
     </div>
@@ -68,9 +79,15 @@ function TeamLines({
                   {r.number ?? "—"}
                 </TableCell>
                 <TableCell className="font-medium">{r.name}</TableCell>
-                <TableCell className="text-center tabular-nums">{r.goals}</TableCell>
-                <TableCell className="text-center tabular-nums">{r.assists}</TableCell>
-                <TableCell className="text-center tabular-nums">{r.pim}</TableCell>
+                <TableCell className="text-center tabular-nums">
+                  {r.goals}
+                </TableCell>
+                <TableCell className="text-center tabular-nums">
+                  {r.assists}
+                </TableCell>
+                <TableCell className="text-center tabular-nums">
+                  {r.pim}
+                </TableCell>
               </TableRow>
             ))}
             <TableRow className="bg-muted/20 font-semibold">
@@ -78,9 +95,15 @@ function TeamLines({
               <TableCell className="text-muted-foreground text-xs uppercase">
                 Total
               </TableCell>
-              <TableCell className="text-center tabular-nums">{totals.g}</TableCell>
-              <TableCell className="text-center tabular-nums">{totals.a}</TableCell>
-              <TableCell className="text-center tabular-nums">{totals.pim}</TableCell>
+              <TableCell className="text-center tabular-nums">
+                {totals.g}
+              </TableCell>
+              <TableCell className="text-center tabular-nums">
+                {totals.a}
+              </TableCell>
+              <TableCell className="text-center tabular-nums">
+                {totals.pim}
+              </TableCell>
             </TableRow>
           </TableBody>
         </Table>

@@ -27,11 +27,13 @@ export async function getEnrolledTeams(
   const supabase = opts.client ?? (await createClient());
   const { data } = await supabase
     .from("season_teams")
-    .select("team:teams!season_teams_team_id_fkey(id, name, slug, color, logo_path)")
+    .select(
+      "team:teams!season_teams_team_id_fkey(id, name, slug, color, logo_path)",
+    )
     .eq("season_id", seasonId);
-  const teams = ((data ?? [])
+  const teams = (data ?? [])
     .map((r) => r.team)
-    .filter(Boolean) as unknown) as TeamSummary[];
+    .filter(Boolean) as unknown as TeamSummary[];
   return teams.sort((a, b) => a.name.localeCompare(b.name));
 }
 

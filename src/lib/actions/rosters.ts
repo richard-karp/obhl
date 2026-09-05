@@ -226,7 +226,8 @@ export async function transferPlayer(
   const admin = createAdminClient();
   const id = String(formData.get("id") ?? "");
   const to_team_id = String(formData.get("to_team_id") ?? "");
-  if (!id || !to_team_id) return { ok: false, message: "Pick a team to transfer to." };
+  if (!id || !to_team_id)
+    return { ok: false, message: "Pick a team to transfer to." };
 
   // The row first, and the season and old team come FROM it, not from the form.
   // A form that names its own `from_team_id` is a form that can lie about which
@@ -237,7 +238,8 @@ export async function transferPlayer(
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (!existing) return { ok: false, message: "That roster row no longer exists." };
+  if (!existing)
+    return { ok: false, message: "That roster row no longer exists." };
   const { season_id, team_id: from_team_id, player_id } = existing;
   if (from_team_id === to_team_id) {
     return { ok: false, message: "They are already on that team." };
@@ -297,7 +299,9 @@ export async function transferPlayer(
   if (wanted != null) {
     const { data: clash } = await admin
       .from("team_players")
-      .select("player_id, players!team_players_player_id_fkey(first_name, last_name)")
+      .select(
+        "player_id, players!team_players_player_id_fkey(first_name, last_name)",
+      )
       .eq("season_id", season_id)
       .eq("team_id", to_team_id)
       .eq("jersey_number", wanted)
@@ -328,7 +332,11 @@ export async function transferPlayer(
     .from("team_players")
     .update({ left_on, is_captain: false, is_default_goalie: false })
     .eq("id", id);
-  if (dErr) return { ok: false, message: `Could not release the player: ${dErr.message}` };
+  if (dErr)
+    return {
+      ok: false,
+      message: `Could not release the player: ${dErr.message}`,
+    };
 
   // 2. The old team's default-goalie days for this player. Unlike the roster
   //    row these say nothing about the past — they are a standing instruction
@@ -361,7 +369,10 @@ export async function transferPlayer(
       .delete()
       .eq("player_id", player_id)
       .eq("team_id", from_team_id)
-      .in("game_id", upcoming.map((g) => g.id))
+      .in(
+        "game_id",
+        upcoming.map((g) => g.id),
+      )
       .select("game_id");
     undressed = (removed ?? []).map((r) => r.game_id);
   }
@@ -382,7 +393,11 @@ export async function transferPlayer(
     ? (
         await admin
           .from("team_players")
-          .update({ left_on: null, jersey_number: wanted, position: existing.position })
+          .update({
+            left_on: null,
+            jersey_number: wanted,
+            position: existing.position,
+          })
           .eq("id", former.id)
       ).error
     : (
@@ -454,7 +469,9 @@ export async function transferPlayer(
 export async function toggleCaptain(formData: FormData) {
   const admin = createAdminClient();
   const id = String(formData.get("id"));
-  const manager = await requireLeagueManager(() => leagueOfTeamPlayer(id, admin));
+  const manager = await requireLeagueManager(() =>
+    leagueOfTeamPlayer(id, admin),
+  );
   const make = formData.get("make") === "1";
   await admin.from("team_players").update({ is_captain: make }).eq("id", id);
   void logAudit({
@@ -491,7 +508,10 @@ export async function setDefaultGoalie(formData: FormData) {
     .eq("team_id", team_id)
     .eq("season_id", season_id);
   if (make) {
-    await admin.from("team_players").update({ is_default_goalie: true }).eq("id", id);
+    await admin
+      .from("team_players")
+      .update({ is_default_goalie: true })
+      .eq("id", id);
   }
   void logAudit({
     user_id: manager.id,
@@ -520,7 +540,10 @@ export async function setGoalieDay(formData: FormData) {
   if (player_id) {
     await admin
       .from("team_goalie_days")
-      .upsert({ team_id, season_id, day_of_week, player_id }, { onConflict: "team_id,season_id,day_of_week" });
+      .upsert(
+        { team_id, season_id, day_of_week, player_id },
+        { onConflict: "team_id,season_id,day_of_week" },
+      );
   } else {
     await admin
       .from("team_goalie_days")
@@ -542,7 +565,9 @@ export async function setGoalieDay(formData: FormData) {
 export async function updatePlayerStatus(formData: FormData) {
   const admin = createAdminClient();
   const id = String(formData.get("id"));
-  const manager = await requireLeagueManager(() => leagueOfTeamPlayer(id, admin));
+  const manager = await requireLeagueManager(() =>
+    leagueOfTeamPlayer(id, admin),
+  );
   const field = String(formData.get("field"));
 
   // Capture current value before update so revert can restore it
@@ -554,7 +579,10 @@ export async function updatePlayerStatus(formData: FormData) {
 
   if (field === "injury_notes") {
     const raw = String(formData.get("value") ?? "").trim();
-    await admin.from("team_players").update({ injury_notes: raw || null }).eq("id", id);
+    await admin
+      .from("team_players")
+      .update({ injury_notes: raw || null })
+      .eq("id", id);
   } else if (field === "is_rookie") {
     const val = formData.get("value") === "1";
     await admin.from("team_players").update({ is_rookie: val }).eq("id", id);

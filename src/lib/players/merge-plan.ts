@@ -52,7 +52,12 @@ export type MergePlan =
   | { ok: false; reason: "opposing-teams"; gameId: string }
   | { ok: false; reason: "different-active-teams"; teamIds: string[] }
   | { ok: false; reason: "both-linked"; playerIds: string[] }
-  | { ok: true; rosterKeep: string[]; rosterDelete: string[]; games: GameResolution[] };
+  | {
+      ok: true;
+      rosterKeep: string[];
+      rosterDelete: string[];
+      games: GameResolution[];
+    };
 
 function groupBy<T>(rows: T[], key: (r: T) => string): Map<string, T[]> {
   const out = new Map<string, T[]>();
@@ -114,7 +119,8 @@ export function planMerge(
   // people. Summing them would carry goals across teams.
   for (const [gameId, rows] of groupBy(games, (r) => r.gameId)) {
     const teamIds = new Set(rows.map((r) => r.teamId));
-    if (teamIds.size > 1) return { ok: false, reason: "opposing-teams", gameId };
+    if (teamIds.size > 1)
+      return { ok: false, reason: "opposing-teams", gameId };
   }
 
   // 2. Two records CURRENTLY on different teams in one season cannot become one
@@ -132,7 +138,11 @@ export function planMerge(
   for (const [, rows] of groupBy(active, (r) => r.seasonId)) {
     const teamIds = [...new Set(rows.map((r) => r.teamId))];
     if (teamIds.length > 1) {
-      return { ok: false, reason: "different-active-teams", teamIds: teamIds.sort() };
+      return {
+        ok: false,
+        reason: "different-active-teams",
+        teamIds: teamIds.sort(),
+      };
     }
   }
 
@@ -141,14 +151,20 @@ export function planMerge(
   // joins `profiles` on `player_id`, so both would hold captain rights over that
   // team. The operator unlinks one account first.
   if (linkedPlayerIds.length > 1) {
-    return { ok: false, reason: "both-linked", playerIds: [...linkedPlayerIds].sort() };
+    return {
+      ok: false,
+      reason: "both-linked",
+      playerIds: [...linkedPlayerIds].sort(),
+    };
   }
 
   // One resolution per game, so two-way and N-way merges behave identically and
   // no two rows ever repoint onto the same (game_id, player_id).
   const resolutions: GameResolution[] = [];
   for (const [gameId, rows] of groupBy(games, (r) => r.gameId)) {
-    const ordered = [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const ordered = [...rows].sort((a, b) =>
+      a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+    );
     const survivor = ordered.find((r) => r.playerId === keepId) ?? ordered[0];
     resolutions.push({
       gameId,
@@ -172,5 +188,10 @@ export function planMerge(
     for (const r of rows) if (r.id !== winner.id) rosterDelete.push(r.id);
   }
 
-  return { ok: true, rosterKeep: rosterKeep.sort(), rosterDelete: rosterDelete.sort(), games: resolutions };
+  return {
+    ok: true,
+    rosterKeep: rosterKeep.sort(),
+    rosterDelete: rosterDelete.sort(),
+    games: resolutions,
+  };
 }

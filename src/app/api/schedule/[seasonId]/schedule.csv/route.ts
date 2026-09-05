@@ -22,13 +22,11 @@ export async function GET(
   const csv = buildScheduleCsv(
     games
       .filter((g) => isExportableFixture(g.status))
-      .map(
-        (g): CsvGame => ({
-          scheduled_at: g.scheduled_at,
-          home: g.home_team?.name ?? "Home",
-          away: g.away_team?.name ?? "Away",
-        }),
-      ),
+      .map((g): CsvGame => ({
+        scheduled_at: g.scheduled_at,
+        home: g.home_team?.name ?? "Home",
+        away: g.away_team?.name ?? "Away",
+      })),
   );
 
   return new Response(csv, {

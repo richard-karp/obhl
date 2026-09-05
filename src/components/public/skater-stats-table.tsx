@@ -87,15 +87,59 @@ export function SkaterStatsTable({
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/40">
-            {showRank ? <TableHead className="w-10 text-center">#</TableHead> : null}
+            {showRank ? (
+              <TableHead className="w-10 text-center">#</TableHead>
+            ) : null}
             <TableHead>Player</TableHead>
             <TableHead className="hidden sm:table-cell">Team</TableHead>
-            <SortHead label="GP" col="gp" active={sortCol} dir={sortDir} onSort={handleSort} className="text-center" />
-            <SortHead label="G" col="g" active={sortCol} dir={sortDir} onSort={handleSort} className="text-center" />
-            <SortHead label="A" col="a" active={sortCol} dir={sortDir} onSort={handleSort} className="text-center" />
-            <SortHead label="PTS" col="pts" active={sortCol} dir={sortDir} onSort={handleSort} className="text-center" />
-            <SortHead label="P/G" col="ppg" active={sortCol} dir={sortDir} onSort={handleSort} className="text-center" />
-            <SortHead label="PIM" col="pim" active={sortCol} dir={sortDir} onSort={handleSort} className="text-center" />
+            <SortHead
+              label="GP"
+              col="gp"
+              active={sortCol}
+              dir={sortDir}
+              onSort={handleSort}
+              className="text-center"
+            />
+            <SortHead
+              label="G"
+              col="g"
+              active={sortCol}
+              dir={sortDir}
+              onSort={handleSort}
+              className="text-center"
+            />
+            <SortHead
+              label="A"
+              col="a"
+              active={sortCol}
+              dir={sortDir}
+              onSort={handleSort}
+              className="text-center"
+            />
+            <SortHead
+              label="PTS"
+              col="pts"
+              active={sortCol}
+              dir={sortDir}
+              onSort={handleSort}
+              className="text-center"
+            />
+            <SortHead
+              label="P/G"
+              col="ppg"
+              active={sortCol}
+              dir={sortDir}
+              onSort={handleSort}
+              className="text-center"
+            />
+            <SortHead
+              label="PIM"
+              col="pim"
+              active={sortCol}
+              dir={sortDir}
+              onSort={handleSort}
+              className="text-center"
+            />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -107,7 +151,10 @@ export function SkaterStatsTable({
                 </TableCell>
               ) : null}
               <TableCell className="font-medium">
-                <Link href={`/${league}/players/${r.player_id}`} className="hover:underline">
+                <Link
+                  href={`/${league}/players/${r.player_id}`}
+                  className="hover:underline"
+                >
                   {r.first_name} {r.last_name}
                 </Link>
                 {r.jersey_number != null ? (
@@ -130,7 +177,9 @@ export function SkaterStatsTable({
               <TableCell className="text-center">{r.gp ?? 0}</TableCell>
               <TableCell className="text-center">{r.g ?? 0}</TableCell>
               <TableCell className="text-center">{r.a ?? 0}</TableCell>
-              <TableCell className="text-center font-bold">{r.pts ?? 0}</TableCell>
+              <TableCell className="text-center font-bold">
+                {r.pts ?? 0}
+              </TableCell>
               <TableCell className="text-muted-foreground text-center tabular-nums">
                 {r.gp ? ((r.pts ?? 0) / r.gp).toFixed(2) : "—"}
               </TableCell>

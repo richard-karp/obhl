@@ -28,7 +28,8 @@ export async function sendMagicLink(
   if (error) return { ok: false, message: error.message };
   return {
     ok: true,
-    message: "If that email belongs to a staff account, a sign-in link is on its way.",
+    message:
+      "If that email belongs to a staff account, a sign-in link is on its way.",
   };
 }
 

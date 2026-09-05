@@ -23,7 +23,8 @@ export async function GET(request: NextRequest) {
   // under /<league> — and a magic link cannot know which league was meant, so
   // both the default and the sanitising fallback land on the league picker.
   const rawNext = searchParams.get("next") ?? "/";
-  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
+  const next =
+    rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
@@ -32,10 +33,15 @@ export async function GET(request: NextRequest) {
 
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return withAuditSession(NextResponse.redirect(`${origin}${next}`));
+    if (!error)
+      return withAuditSession(NextResponse.redirect(`${origin}${next}`));
   } else if (tokenHash && type) {
-    const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
-    if (!error) return withAuditSession(NextResponse.redirect(`${origin}${next}`));
+    const { error } = await supabase.auth.verifyOtp({
+      type,
+      token_hash: tokenHash,
+    });
+    if (!error)
+      return withAuditSession(NextResponse.redirect(`${origin}${next}`));
   }
 
   return NextResponse.redirect(`${origin}/login?error=link`);

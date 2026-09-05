@@ -75,7 +75,9 @@ export default async function SeasonsPage({
                   </TableCell>
                   <TableCell className="space-x-2 text-right">
                     <Button asChild variant="outline" size="sm">
-                      <Link href={`/${league!.slug}/seasons/${s.id}`}>Setup</Link>
+                      <Link href={`/${league!.slug}/seasons/${s.id}`}>
+                        Setup
+                      </Link>
                     </Button>
                     {!s.is_active ? (
                       <form action={setActiveSeason} className="inline">

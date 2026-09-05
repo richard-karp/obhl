@@ -201,7 +201,11 @@ export default async function SeasonSetupPage({
                       </TableCell>
                       <TableCell className="text-right">
                         <form action={unenrollTeam} className="inline">
-                          <input type="hidden" name="season_id" value={seasonId} />
+                          <input
+                            type="hidden"
+                            name="season_id"
+                            value={seasonId}
+                          />
                           <input type="hidden" name="team_id" value={t.id} />
                           <Button type="submit" variant="ghost" size="sm">
                             Remove
@@ -237,7 +241,8 @@ export default async function SeasonSetupPage({
             </p>
           ) : (
             <p className="text-muted-foreground text-sm">
-              No summary yet. Click Generate to create an AI-written league update.
+              No summary yet. Click Generate to create an AI-written league
+              update.
             </p>
           )}
         </CardContent>

@@ -47,15 +47,33 @@ export default async function PlayerProfilePage({
   // The season total and the per-team split. The total is the headline; the
   // split only renders when there is more than one team in it, which is the
   // case a transfer creates and the total on its own hides.
-  const [skaterStats, goalieStats, skaterByTeam, goalieByTeam, gameLog, byOpponent] =
-    await Promise.all([
-      !isGoalie ? getPlayerSkaterTotals(playerId, ctx.season.id) : Promise.resolve(null),
-      isGoalie ? getPlayerGoalieTotals(playerId, ctx.season.id) : Promise.resolve(null),
-      !isGoalie ? getPlayerSkaterStatsByTeam(playerId, ctx.season.id) : Promise.resolve([]),
-      isGoalie ? getPlayerGoalieStatsByTeam(playerId, ctx.season.id) : Promise.resolve([]),
-      !isGoalie ? getPlayerGameLog(playerId, ctx.season.id, 10) : Promise.resolve([]),
-      !isGoalie ? getPlayerStatsByOpponent(playerId, ctx.season.id) : Promise.resolve([]),
-    ]);
+  const [
+    skaterStats,
+    goalieStats,
+    skaterByTeam,
+    goalieByTeam,
+    gameLog,
+    byOpponent,
+  ] = await Promise.all([
+    !isGoalie
+      ? getPlayerSkaterTotals(playerId, ctx.season.id)
+      : Promise.resolve(null),
+    isGoalie
+      ? getPlayerGoalieTotals(playerId, ctx.season.id)
+      : Promise.resolve(null),
+    !isGoalie
+      ? getPlayerSkaterStatsByTeam(playerId, ctx.season.id)
+      : Promise.resolve([]),
+    isGoalie
+      ? getPlayerGoalieStatsByTeam(playerId, ctx.season.id)
+      : Promise.resolve([]),
+    !isGoalie
+      ? getPlayerGameLog(playerId, ctx.season.id, 10)
+      : Promise.resolve([]),
+    !isGoalie
+      ? getPlayerStatsByOpponent(playerId, ctx.season.id)
+      : Promise.resolve([]),
+  ]);
 
   const fullName = `${bio.first_name} ${bio.last_name}`;
 
@@ -77,38 +95,59 @@ export default async function PlayerProfilePage({
             </Link>
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
-                <Link href={`/${league}/teams/${bio.team_slug}`} className="font-semibold hover:underline">
+                <Link
+                  href={`/${league}/teams/${bio.team_slug}`}
+                  className="font-semibold hover:underline"
+                >
                   {bio.team_name}
                 </Link>
                 {bio.jersey_number != null && (
-                  <span className="text-muted-foreground text-sm">#{bio.jersey_number}</span>
+                  <span className="text-muted-foreground text-sm">
+                    #{bio.jersey_number}
+                  </span>
                 )}
-                <span className="text-muted-foreground text-sm">{POS[bio.position] ?? bio.position}</span>
+                <span className="text-muted-foreground text-sm">
+                  {POS[bio.position] ?? bio.position}
+                </span>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {bio.is_captain && (
-                  <Badge variant="secondary" className="px-1.5 py-0 text-[0.65rem]">
+                  <Badge
+                    variant="secondary"
+                    className="px-1.5 py-0 text-[0.65rem]"
+                  >
                     Captain
                   </Badge>
                 )}
                 {bio.is_rookie && (
-                  <Badge variant="outline" className="px-1.5 py-0 text-[0.65rem]">
+                  <Badge
+                    variant="outline"
+                    className="px-1.5 py-0 text-[0.65rem]"
+                  >
                     Rookie
                   </Badge>
                 )}
                 {bio.is_suspended && (
-                  <Badge variant="destructive" className="px-1.5 py-0 text-[0.65rem]">
+                  <Badge
+                    variant="destructive"
+                    className="px-1.5 py-0 text-[0.65rem]"
+                  >
                     Suspended
                   </Badge>
                 )}
                 {bio.injury_notes && (
-                  <Badge variant="destructive" className="px-1.5 py-0 text-[0.65rem]">
+                  <Badge
+                    variant="destructive"
+                    className="px-1.5 py-0 text-[0.65rem]"
+                  >
                     Injured
                   </Badge>
                 )}
               </div>
               {bio.injury_notes && (
-                <p className="text-muted-foreground text-sm">{bio.injury_notes}</p>
+                <p className="text-muted-foreground text-sm">
+                  {bio.injury_notes}
+                </p>
               )}
             </div>
           </div>
@@ -144,7 +183,9 @@ export default async function PlayerProfilePage({
                     <TableHead className="text-center">GP</TableHead>
                     <TableHead className="text-center">G</TableHead>
                     <TableHead className="text-center">A</TableHead>
-                    <TableHead className="text-center font-semibold">PTS</TableHead>
+                    <TableHead className="text-center font-semibold">
+                      PTS
+                    </TableHead>
                     <TableHead className="text-center">PIM</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -159,11 +200,21 @@ export default async function PlayerProfilePage({
                           {row.team_name}
                         </Link>
                       </TableCell>
-                      <TableCell className="text-center">{row.gp ?? 0}</TableCell>
-                      <TableCell className="text-center">{row.g ?? 0}</TableCell>
-                      <TableCell className="text-center">{row.a ?? 0}</TableCell>
-                      <TableCell className="text-center font-semibold">{row.pts ?? 0}</TableCell>
-                      <TableCell className="text-center">{row.pim ?? 0}</TableCell>
+                      <TableCell className="text-center">
+                        {row.gp ?? 0}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {row.g ?? 0}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {row.a ?? 0}
+                      </TableCell>
+                      <TableCell className="text-center font-semibold">
+                        {row.pts ?? 0}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {row.pim ?? 0}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -206,7 +257,9 @@ export default async function PlayerProfilePage({
                     <TableHead className="text-center">T</TableHead>
                     <TableHead className="text-center">GA</TableHead>
                     <TableHead className="text-center">SO</TableHead>
-                    <TableHead className="text-center font-semibold">GAA</TableHead>
+                    <TableHead className="text-center font-semibold">
+                      GAA
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -220,13 +273,27 @@ export default async function PlayerProfilePage({
                           {row.team_name}
                         </Link>
                       </TableCell>
-                      <TableCell className="text-center">{row.gp ?? 0}</TableCell>
-                      <TableCell className="text-center">{row.wins ?? 0}</TableCell>
-                      <TableCell className="text-center">{row.losses ?? 0}</TableCell>
-                      <TableCell className="text-center">{row.ties ?? 0}</TableCell>
-                      <TableCell className="text-center">{row.ga ?? 0}</TableCell>
-                      <TableCell className="text-center">{row.so ?? 0}</TableCell>
-                      <TableCell className="text-center font-semibold">{row.gaa ?? "—"}</TableCell>
+                      <TableCell className="text-center">
+                        {row.gp ?? 0}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {row.wins ?? 0}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {row.losses ?? 0}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {row.ties ?? 0}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {row.ga ?? 0}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {row.so ?? 0}
+                      </TableCell>
+                      <TableCell className="text-center font-semibold">
+                        {row.gaa ?? "—"}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -240,7 +307,9 @@ export default async function PlayerProfilePage({
       {!isGoalie && gameLog.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Goals &amp; Assists — Last {gameLog.length} Games</CardTitle>
+            <CardTitle className="text-base">
+              Goals &amp; Assists — Last {gameLog.length} Games
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <PlayerGameChart games={gameLog} />
@@ -269,7 +338,9 @@ export default async function PlayerProfilePage({
                       <TableHead className="text-center">Result</TableHead>
                       <TableHead className="text-center">G</TableHead>
                       <TableHead className="text-center">A</TableHead>
-                      <TableHead className="text-center font-semibold">PTS</TableHead>
+                      <TableHead className="text-center font-semibold">
+                        PTS
+                      </TableHead>
                       <TableHead className="text-center">PIM</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -291,7 +362,9 @@ export default async function PlayerProfilePage({
                                 name={row.opponent_name}
                                 color={row.opponent_color}
                               />
-                              <span className="text-sm">{row.opponent_name}</span>
+                              <span className="text-sm">
+                                {row.opponent_name}
+                              </span>
                             </Link>
                           </TableCell>
                           <TableCell className="text-center text-sm">
@@ -307,10 +380,18 @@ export default async function PlayerProfilePage({
                               {row.team_goals}–{row.opp_goals}
                             </span>
                           </TableCell>
-                          <TableCell className="text-center">{row.goals}</TableCell>
-                          <TableCell className="text-center">{row.assists}</TableCell>
-                          <TableCell className="text-center font-bold">{row.pts}</TableCell>
-                          <TableCell className="text-center">{row.pim}</TableCell>
+                          <TableCell className="text-center">
+                            {row.goals}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {row.assists}
+                          </TableCell>
+                          <TableCell className="text-center font-bold">
+                            {row.pts}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {row.pim}
+                          </TableCell>
                         </TableRow>
                       );
                     })}
@@ -337,7 +418,9 @@ export default async function PlayerProfilePage({
                     <TableHead className="text-center">GP</TableHead>
                     <TableHead className="text-center">G</TableHead>
                     <TableHead className="text-center">A</TableHead>
-                    <TableHead className="text-center font-semibold">PTS</TableHead>
+                    <TableHead className="text-center font-semibold">
+                      PTS
+                    </TableHead>
                     <TableHead className="text-center">PIM</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -349,14 +432,19 @@ export default async function PlayerProfilePage({
                           href={`/${league}/teams/${row.opponent_slug}`}
                           className="flex items-center gap-2 hover:underline"
                         >
-                          <TeamLogo name={row.opponent_name} color={row.opponent_color} />
+                          <TeamLogo
+                            name={row.opponent_name}
+                            color={row.opponent_color}
+                          />
                           <span className="text-sm">{row.opponent_name}</span>
                         </Link>
                       </TableCell>
                       <TableCell className="text-center">{row.gp}</TableCell>
                       <TableCell className="text-center">{row.g}</TableCell>
                       <TableCell className="text-center">{row.a}</TableCell>
-                      <TableCell className="text-center font-bold">{row.pts}</TableCell>
+                      <TableCell className="text-center font-bold">
+                        {row.pts}
+                      </TableCell>
                       <TableCell className="text-center">{row.pim}</TableCell>
                     </TableRow>
                   ))}

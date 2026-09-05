@@ -116,7 +116,9 @@ export type OfficeAuditEntry = {
  * fallback. The snapshot is the point of an audit entry: after a profile is
  * deleted it is the only thing left that says who this was.
  */
-export async function recentOfficeAudit(limit = 5): Promise<OfficeAuditEntry[]> {
+export async function recentOfficeAudit(
+  limit = 5,
+): Promise<OfficeAuditEntry[]> {
   const admin = createAdminClient();
   const { data: rows } = await admin
     .from("audit_log")

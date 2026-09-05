@@ -19,7 +19,10 @@ export const BYE = "__BYE__";
  * meetings land a whole cycle apart — good temporal spread. The `round` field
  * is the global 1-based round index.
  */
-export function roundRobinRounds(teamIds: string[], numRounds: number): Pairing[] {
+export function roundRobinRounds(
+  teamIds: string[],
+  numRounds: number,
+): Pairing[] {
   const base = [...teamIds];
   if (base.length < 2 || numRounds < 1) return [];
   if (base.length % 2 === 1) base.push(BYE);

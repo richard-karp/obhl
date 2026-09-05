@@ -65,13 +65,27 @@ export default async function PeoplePage({
 
   const [{ data: profiles }, { data: allMemberships }] = await Promise.all([
     memberIds.length
-      ? admin.from("profiles").select("id, role, display_name").in("id", memberIds)
-      : Promise.resolve({ data: [] as { id: string; role: string | null; display_name: string | null }[] }),
+      ? admin
+          .from("profiles")
+          .select("id, role, display_name")
+          .in("id", memberIds)
+      : Promise.resolve({
+          data: [] as {
+            id: string;
+            role: string | null;
+            display_name: string | null;
+          }[],
+        }),
     // Every league these people work, not just this one — a role change reaches
     // all of them. One query for the table, rather than one per row.
     memberIds.length
-      ? admin.from("profile_leagues").select("profile_id, league_id").in("profile_id", memberIds)
-      : Promise.resolve({ data: [] as { profile_id: string; league_id: string }[] }),
+      ? admin
+          .from("profile_leagues")
+          .select("profile_id, league_id")
+          .in("profile_id", memberIds)
+      : Promise.resolve({
+          data: [] as { profile_id: string; league_id: string }[],
+        }),
   ]);
 
   let captains: CaptainOption[] = [];
@@ -114,7 +128,10 @@ export default async function PeoplePage({
   const viewerLeagues = new Set(await memberLeagueIds(viewer.id));
   const leaguesOf = new Map<string, string[]>();
   for (const m of allMemberships ?? []) {
-    leaguesOf.set(m.profile_id, [...(leaguesOf.get(m.profile_id) ?? []), m.league_id]);
+    leaguesOf.set(m.profile_id, [
+      ...(leaguesOf.get(m.profile_id) ?? []),
+      m.league_id,
+    ]);
   }
   // The SAME rule the server applies, not a second statement of it. What renders
   // and what `updateStaffRole` permits have to agree, and they now agree by
@@ -130,7 +147,8 @@ export default async function PeoplePage({
       viewerTier,
       officeTiers.get(id) ?? null,
       (leaguesOf.get(id) ?? []).every((l) => viewerLeagues.has(l)),
-    ) && (role !== "league_manager" || viewerTier !== null);
+    ) &&
+    (role !== "league_manager" || viewerTier !== null);
 
   return (
     <div className="space-y-6">

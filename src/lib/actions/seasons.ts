@@ -13,9 +13,11 @@ import { getSkaterLeaders } from "@/lib/queries/stats";
 import { getRecentResults } from "@/lib/queries/schedule";
 import { slugify } from "@/lib/utils/slug";
 
-export type SeasonActionState =
-  | { ok: boolean; message: string; seasonId?: string }
-  | null;
+export type SeasonActionState = {
+  ok: boolean;
+  message: string;
+  seasonId?: string;
+} | null;
 export type TeamActionState = { ok: boolean; message: string } | null;
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -26,7 +28,10 @@ type Admin = ReturnType<typeof createAdminClient>;
  * would have meant every write landing in whichever league was created first.
  * An action holding a season id can just ask the season.
  */
-async function leagueIdOfSeason(admin: Admin, seasonId: string): Promise<string> {
+async function leagueIdOfSeason(
+  admin: Admin,
+  seasonId: string,
+): Promise<string> {
   const leagueId = await leagueOfSeason(seasonId, admin);
   if (!leagueId) throw new Error("That season no longer exists.");
   return leagueId;
@@ -84,11 +89,15 @@ export async function createTeamForSeason(
   const admin = createAdminClient();
 
   const season_id = String(formData.get("season_id") ?? "");
-  const manager = await requireLeagueManager(() => leagueOfSeason(season_id, admin));
+  const manager = await requireLeagueManager(() =>
+    leagueOfSeason(season_id, admin),
+  );
   const name = String(formData.get("name") ?? "").trim();
   const color = String(formData.get("color") ?? "").trim() || null;
   const captainName = String(formData.get("captain_name") ?? "").trim();
-  const captainEmail = String(formData.get("captain_email") ?? "").trim().toLowerCase();
+  const captainEmail = String(formData.get("captain_email") ?? "")
+    .trim()
+    .toLowerCase();
   if (!name) return { ok: false, message: "Team name is required." };
   if (captainEmail && !captainName) {
     return { ok: false, message: "Enter the captain's name too." };
@@ -123,7 +132,10 @@ export async function createTeamForSeason(
     .insert({ season_id, team_id: team.id });
   if (enrollErr) {
     await admin.from("teams").delete().eq("id", team.id);
-    return { ok: false, message: `Couldn't enroll the team: ${enrollErr.message}` };
+    return {
+      ok: false,
+      message: `Couldn't enroll the team: ${enrollErr.message}`,
+    };
   }
 
   // Logged HERE, not after the captain block, because from this line on the team
@@ -157,7 +169,10 @@ export async function createTeamForSeason(
       .single();
     if (pErr || !player) {
       revalidatePath("/[league]/seasons/[seasonId]", "page");
-      return { ok: false, message: `Added ${name}, but couldn't create the captain (${pErr?.message ?? "unknown"}). Add them under Rosters.` };
+      return {
+        ok: false,
+        message: `Added ${name}, but couldn't create the captain (${pErr?.message ?? "unknown"}). Add them under Rosters.`,
+      };
     }
 
     const { error: tpErr } = await admin.from("team_players").insert({
@@ -170,7 +185,10 @@ export async function createTeamForSeason(
     if (tpErr) {
       await admin.from("players").delete().eq("id", player.id);
       revalidatePath("/[league]/seasons/[seasonId]", "page");
-      return { ok: false, message: `Added ${name}, but couldn't set the captain (${tpErr.message}).` };
+      return {
+        ok: false,
+        message: `Added ${name}, but couldn't set the captain (${tpErr.message}).`,
+      };
     }
 
     if (captainEmail) {
@@ -198,7 +216,10 @@ export async function createTeamForSeason(
         });
         if (profErr) {
           revalidatePath("/[league]/seasons/[seasonId]", "page");
-          return { ok: false, message: `Added ${name} with captain ${captainName}, but couldn't create their login (${profErr.message}).` };
+          return {
+            ok: false,
+            message: `Added ${name} with captain ${captainName}, but couldn't create their login (${profErr.message}).`,
+          };
         }
         // A role without a league reaches nothing: every manage page now asks
         // for membership as well. Granted for the league this season is in.
@@ -265,7 +286,9 @@ export async function unenrollTeam(formData: FormData) {
   const admin = createAdminClient();
   const season_id = String(formData.get("season_id"));
   const team_id = String(formData.get("team_id"));
-  const manager = await requireLeagueManager(() => leagueOfSeason(season_id, admin));
+  const manager = await requireLeagueManager(() =>
+    leagueOfSeason(season_id, admin),
+  );
 
   // The team's name, read before the enrollment goes: the team row survives an
   // unenroll, but reading it here keeps the entry readable even if the team is
@@ -301,7 +324,9 @@ export async function unenrollTeam(formData: FormData) {
 export async function generateLeagueSummary(formData: FormData) {
   const admin = createAdminClient();
   const season_id = String(formData.get("season_id"));
-  const manager = await requireLeagueManager(() => leagueOfSeason(season_id, admin));
+  const manager = await requireLeagueManager(() =>
+    leagueOfSeason(season_id, admin),
+  );
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured.");
@@ -316,7 +341,11 @@ export async function generateLeagueSummary(formData: FormData) {
     // `ai_summary` alongside the name, on the read that was already happening:
     // the update below overwrites it, and the replaced text is the only thing
     // this entry can say that the season row does not already hold.
-    admin.from("seasons").select("name, ai_summary").eq("id", season_id).maybeSingle(),
+    admin
+      .from("seasons")
+      .select("name, ai_summary")
+      .eq("id", season_id)
+      .maybeSingle(),
   ]);
 
   const standings = ranked.slice(0, 6);
@@ -331,7 +360,8 @@ export async function generateLeagueSummary(formData: FormData) {
       `${r.points ?? 0} pts (${r.gp ?? 0} GP)`,
   );
   const scorerLines = scorers.map((r) => {
-    const name = [r.first_name, r.last_name].filter(Boolean).join(" ") || "Unknown";
+    const name =
+      [r.first_name, r.last_name].filter(Boolean).join(" ") || "Unknown";
     return `${name} (${r.team_name ?? ""}): ${r.g ?? 0}G ${r.a ?? 0}A ${r.pts ?? 0}PTS`;
   });
   const gameLines = recentGames.map((g) => {
@@ -427,7 +457,10 @@ export async function carryForwardEnrollment(formData: FormData) {
       // Pressing the button twice used to record "carried 6 teams" both times.
       const { data: added } = await admin
         .from("season_teams")
-        .upsert(rows, { onConflict: "season_id,team_id", ignoreDuplicates: true })
+        .upsert(rows, {
+          onConflict: "season_id,team_id",
+          ignoreDuplicates: true,
+        })
         .select("team_id");
       carried = added?.length ?? 0;
     }

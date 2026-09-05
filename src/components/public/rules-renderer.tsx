@@ -55,13 +55,19 @@ function renderNode(node: Node, key: number): React.ReactNode {
       );
     case "bulletList":
       return (
-        <ul key={key} className="text-muted-foreground mb-4 ml-5 list-disc space-y-1">
+        <ul
+          key={key}
+          className="text-muted-foreground mb-4 ml-5 list-disc space-y-1"
+        >
           {children}
         </ul>
       );
     case "orderedList":
       return (
-        <ol key={key} className="text-muted-foreground mb-4 ml-5 list-decimal space-y-1">
+        <ol
+          key={key}
+          className="text-muted-foreground mb-4 ml-5 list-decimal space-y-1"
+        >
           {children}
         </ol>
       );

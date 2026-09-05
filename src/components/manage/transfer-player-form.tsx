@@ -42,7 +42,10 @@ export function TransferPlayerForm({
   }
 
   return (
-    <form action={action} className="flex flex-wrap items-center justify-end gap-1">
+    <form
+      action={action}
+      className="flex flex-wrap items-center justify-end gap-1"
+    >
       <input type="hidden" name="id" value={rosterId} />
       <label className="sr-only" htmlFor={`to-team-${rosterId}`}>
         To team
@@ -90,7 +93,10 @@ export function TransferPlayerForm({
         Cancel
       </Button>
       {state && !state.ok ? (
-        <p role="status" className="text-destructive basis-full text-right text-xs">
+        <p
+          role="status"
+          className="text-destructive basis-full text-right text-xs"
+        >
           {state.message}
         </p>
       ) : null}

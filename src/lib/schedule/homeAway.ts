@@ -97,7 +97,9 @@ export function assignHomeAway(opts: {
   /** Change in Σ diff² from flipping game `i`. Negative is an improvement. */
   const gain = (i: number): number => {
     const [h, a] = out[i];
-    return (diff[h] - 2) ** 2 + (diff[a] + 2) ** 2 - diff[h] ** 2 - diff[a] ** 2;
+    return (
+      (diff[h] - 2) ** 2 + (diff[a] + 2) ** 2 - diff[h] ** 2 - diff[a] ** 2
+    );
   };
 
   const total = () => diff.reduce((s, d) => s + d * d, 0);

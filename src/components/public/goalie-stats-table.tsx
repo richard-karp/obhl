@@ -19,8 +19,14 @@ type SortDir = "asc" | "desc";
 function sortRows(rows: GoalieRow[], col: SortCol, dir: SortDir): GoalieRow[] {
   return [...rows].sort((a, b) => {
     const nullFallback = dir === "desc" ? -Infinity : Infinity;
-    const av = a[col] !== null && a[col] !== undefined ? (a[col] as number) : nullFallback;
-    const bv = b[col] !== null && b[col] !== undefined ? (b[col] as number) : nullFallback;
+    const av =
+      a[col] !== null && a[col] !== undefined
+        ? (a[col] as number)
+        : nullFallback;
+    const bv =
+      b[col] !== null && b[col] !== undefined
+        ? (b[col] as number)
+        : nullFallback;
     return dir === "desc" ? bv - av : av - bv;
   });
 }
@@ -85,20 +91,72 @@ export function GoalieStatsTable({
           <TableRow className="bg-muted/40">
             <TableHead>Goalie</TableHead>
             <TableHead className="hidden sm:table-cell">Team</TableHead>
-            <SortHead label="GP" col="gp" active={sortCol} dir={sortDir} onSort={handleSort} className="text-center" />
-            <SortHead label="W" col="wins" active={sortCol} dir={sortDir} onSort={handleSort} className="text-center" />
-            <SortHead label="L" col="losses" active={sortCol} dir={sortDir} onSort={handleSort} className="text-center" />
-            <SortHead label="T" col="ties" active={sortCol} dir={sortDir} onSort={handleSort} className="text-center" />
-            <SortHead label="GA" col="ga" active={sortCol} dir={sortDir} onSort={handleSort} className="text-center" />
-            <SortHead label="SO" col="so" active={sortCol} dir={sortDir} onSort={handleSort} className="text-center" />
-            <SortHead label="GAA" col="gaa" active={sortCol} dir={sortDir} onSort={handleSort} className="text-center" />
+            <SortHead
+              label="GP"
+              col="gp"
+              active={sortCol}
+              dir={sortDir}
+              onSort={handleSort}
+              className="text-center"
+            />
+            <SortHead
+              label="W"
+              col="wins"
+              active={sortCol}
+              dir={sortDir}
+              onSort={handleSort}
+              className="text-center"
+            />
+            <SortHead
+              label="L"
+              col="losses"
+              active={sortCol}
+              dir={sortDir}
+              onSort={handleSort}
+              className="text-center"
+            />
+            <SortHead
+              label="T"
+              col="ties"
+              active={sortCol}
+              dir={sortDir}
+              onSort={handleSort}
+              className="text-center"
+            />
+            <SortHead
+              label="GA"
+              col="ga"
+              active={sortCol}
+              dir={sortDir}
+              onSort={handleSort}
+              className="text-center"
+            />
+            <SortHead
+              label="SO"
+              col="so"
+              active={sortCol}
+              dir={sortDir}
+              onSort={handleSort}
+              className="text-center"
+            />
+            <SortHead
+              label="GAA"
+              col="gaa"
+              active={sortCol}
+              dir={sortDir}
+              onSort={handleSort}
+              className="text-center"
+            />
           </TableRow>
         </TableHeader>
         <TableBody>
           {sorted.map((r) => (
             <TableRow key={`${r.player_id}-${r.team_id}`}>
               <TableCell className="font-medium">
-                <Link href={`/${league}/players/${r.player_id}`} className="hover:underline">
+                <Link
+                  href={`/${league}/players/${r.player_id}`}
+                  className="hover:underline"
+                >
                   {r.first_name} {r.last_name}
                 </Link>
               </TableCell>
