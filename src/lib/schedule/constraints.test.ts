@@ -493,23 +493,33 @@ describe("what the manager is told", () => {
     .map((date) => ({ date, slots: ["19:00", "20:15", "21:30"] }));
   const SIX = ["a", "b", "c", "d", "e", "f"];
 
+  // ⛔ GENERATED IN THE DESCRIBE BODY, NOT INSIDE `it()` — the convention the
+  // block below already follows, and CI is why. `OBHL_SLOT_BUDGET_MS` is 5000,
+  // so ONE `assignNights` can spend five seconds in Phase S alone, and vitest's
+  // default `testTimeout` is also 5000. A generation inside a test body is
+  // therefore racing the budget against the timeout: it passes on a machine
+  // fast enough to converge early and fails on a slower runner. Collection is
+  // not subject to `testTimeout`, so the work belongs here.
+  const unresolvedSet = resolveConstraints(
+    [c("1", "a", "bye_on", { date: "2030-01-01" })],
+    { nights: NIGHTS4, teamIds: SIX },
+  );
+  const unresolvedReport = assignNights(
+    buildBalancedPairings(SIX, 4),
+    NIGHTS4,
+    SIX,
+    { constraints: unresolvedSet },
+  ).report;
+
   it("reports a set whose every constraint failed to resolve", () => {
-    // ⛔ `empty` is true here — nothing reached a solver phase — and gating the
+    // `empty` is true here — nothing reached a solver phase — and gating the
     // report on it meant the likeliest first mistake (a date that is not a game
     // night) produced a cheerful success toast and no verdict at all.
-    const r = resolveConstraints(
-      [c("1", "a", "bye_on", { date: "2030-01-01" })],
-      { nights: NIGHTS4, teamIds: SIX },
-    );
-    expect(r.empty).toBe(true);
-    expect(r.items).toHaveLength(1);
-
-    const { report } = assignNights(buildBalancedPairings(SIX, 4), NIGHTS4, SIX, {
-      constraints: r,
-    });
-    expect(report.constraints).toHaveLength(1);
-    expect(report.constraints[0].satisfied).toBe(false);
-    expect(report.constraints[0].reason).toMatch(/not a game night/);
+    expect(unresolvedSet.empty).toBe(true);
+    expect(unresolvedSet.items).toHaveLength(1);
+    expect(unresolvedReport.constraints).toHaveLength(1);
+    expect(unresolvedReport.constraints[0].satisfied).toBe(false);
+    expect(unresolvedReport.constraints[0].reason).toMatch(/not a game night/);
   });
 
   it("does not call two identical pins a contradiction", () => {
@@ -551,29 +561,41 @@ describe("what the manager is told", () => {
     expect(out[0].reason).toBeNull();
   });
 
+  // Two full generations — see the note above on why these are not in `it()`.
+  const biasTeams = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"];
+  const biasDates = [
+    "2026-09-15", "2026-09-17", "2026-09-22", "2026-09-24", "2026-09-29",
+    "2026-10-01", "2026-10-06", "2026-10-08", "2026-10-13", "2026-10-15",
+    "2026-10-20",
+  ];
+  const biasNights: Night[] = biasDates.map((date) => ({
+    date,
+    slots: ["19:00", "20:15", "21:30"],
+  }));
+  const biasPairings = buildBalancedPairings(biasTeams, 8);
+  const bare = assignNights(biasPairings, biasNights, biasTeams).report;
+  const biased = assignNights(biasPairings, biasNights, biasTeams, {
+    constraints: resolveConstraints(
+      [c("1", "t1", "slot_bias", { from: biasDates[0], to: biasDates[5], prefer: "early" })],
+      { nights: biasNights, teamIds: biasTeams },
+    ),
+  }).report;
+
   it("does not force Phase P for a bias-only set", () => {
-    // A `slot_bias` reaches no solver phase Phase P owns, so overriding the
-    // rank-off for it bought nothing: measured a rule-2 breach (consecutive-week
-    // byes 1 → 2) for a tie-break weighted at 4, which came back unmet anyway.
-    const teams = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"];
-    const dates = [
-      "2026-09-15", "2026-09-17", "2026-09-22", "2026-09-24", "2026-09-29",
-      "2026-10-01", "2026-10-06", "2026-10-08", "2026-10-13", "2026-10-15",
-      "2026-10-20",
-    ];
-    const nights: Night[] = dates.map((date) => ({ date, slots: ["19:00", "20:15", "21:30"] }));
-    const pairings = buildBalancedPairings(teams, 8);
-
-    const bare = assignNights(pairings, nights, teams).report;
-    const biased = assignNights(pairings, nights, teams, {
-      constraints: resolveConstraints(
-        [c("1", "t1", "slot_bias", { from: dates[0], to: dates[5], prefer: "early" })],
-        { nights, teamIds: teams },
-      ),
-    }).report;
-
-    expect(biased.spacing.byesConsecWeek).toBe(bare.spacing.byesConsecWeek);
-    expect(biased.spacing.byesMultiWeek).toBe(bare.spacing.byesMultiWeek);
+    // A `slot_bias` moves no participation cell, so forcing Phase P for one
+    // bought a rule-2 breach (consecutive-week byes 1 → 2) for a tie-break
+    // weighted at 4, which came back unmet anyway.
+    // ⚠️ `toBeLessThanOrEqual`, not equality: both runs are independently
+    // searched under a wall-clock budget, so the seed counts differ with
+    // machine load and exact parity is not something either search promises.
+    // The property that matters is one-directional anyway — a bias must never
+    // make the bye spacing WORSE, which is exactly what forcing Phase P did.
+    expect(biased.spacing.byesConsecWeek).toBeLessThanOrEqual(
+      bare.spacing.byesConsecWeek,
+    );
+    expect(biased.spacing.byesMultiWeek).toBeLessThanOrEqual(
+      bare.spacing.byesMultiWeek,
+    );
   });
 });
 
