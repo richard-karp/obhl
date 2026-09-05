@@ -48,6 +48,17 @@ async function tamper(page: Page, field: Locator, value: string) {
   await expect(field).toHaveValue(value);
 }
 
+/** Does this address + password actually sign in? The only honest test of a set password. */
+async function canSignIn(email: string, password: string) {
+  const client = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+  const { error } = await client.auth.signInWithPassword({ email, password });
+  return !error;
+}
+
 async function profileIdFor(email: string) {
   const { data } = await admin().auth.admin.listUsers();
   const id = data!.users.find((u) => u.email === email)?.id;
@@ -408,6 +419,248 @@ test.describe("Path 20 — League Office", () => {
         .delete()
         .eq("profile_id", deputyId)
         .eq("league_id", league!.id);
+    }
+  });
+
+  /**
+   * Commissioner-set passwords — the recovery path that needs no email.
+   *
+   * ⛔ ASSERTED BY SIGNING IN, not by reading the form's success message. The
+   * admin API reports success for a write that a policy would have refused, and a
+   * message rendered by the same request that did the work proves only that the
+   * code ran. The password either opens the account or it does not.
+   */
+  test("a commissioner sets a staff password and the account signs in with it", async ({
+    page,
+  }) => {
+    const db = admin();
+    const email = `pw-target-${Date.now()}@obhl.test`;
+    const { data: created } = await db.auth.admin.createUser({
+      email,
+      password: "old-password-000",
+      email_confirm: true,
+    });
+    const targetId = created!.user!.id;
+    await db.from("profiles").upsert({
+      id: targetId,
+      role: "scorekeeper",
+      display_name: "Password Target",
+    });
+
+    try {
+      await signInAs(page, "Commissioner");
+      await page.goto("/manage/office");
+
+      await page.getByLabel("Staff email").fill(email);
+      await page.getByLabel("New password").fill("brand-new-pw-01");
+      await page.getByRole("button", { name: "Set password" }).click();
+      await expect(page.getByRole("status")).toContainText("Password set");
+
+      expect(
+        await canSignIn(email, "brand-new-pw-01"),
+        "the new password must actually open the account",
+      ).toBe(true);
+      expect(
+        await canSignIn(email, "old-password-000"),
+        "and the old one must not",
+      ).toBe(false);
+
+      // The entry is filed under a NULL league on purpose — the office is
+      // instance-wide — and it must never carry the password itself.
+      const { data: entries } = await db
+        .from("audit_log")
+        .select("action, entity_type, league_id, new_data")
+        .eq("entity_type", "office")
+        .eq("action", "set_password")
+        .eq("entity_id", targetId);
+      expect(entries ?? []).toHaveLength(1);
+      expect(entries![0].league_id).toBeNull();
+      expect(
+        JSON.stringify(entries![0].new_data),
+        "an audit entry must never carry a live credential",
+      ).not.toContain("brand-new-pw-01");
+    } finally {
+      await db.from("audit_log").delete().eq("entity_id", targetId);
+      await db.from("profiles").delete().eq("id", targetId);
+      await db.auth.admin.deleteUser(targetId);
+    }
+  });
+
+  test("a deputy is offered no set-password control", async ({ page }) => {
+    await signInAs(page, "Deputy");
+    await page.goto("/manage/office");
+    // On the page, so this is "not offered" rather than "not there at all".
+    await expect(
+      page.getByRole("heading", { name: "League Office" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Staff email")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Set password" }),
+    ).toHaveCount(0);
+  });
+
+  /**
+   * ⛔ THE GUARD THAT MATTERS, and the one an absent button does not provide.
+   *
+   * `ACCESS_CONTROL_HANDOFF.md`'s *Traps* section: every export of a
+   * `"use server"` file is a callable endpoint, and a control rendered only for a
+   * commissioner is a rendering decision, not a restriction. So this replays the
+   * commissioner's own submit — verbatim, with only the password swapped — from a
+   * deputy's session and then from an ordinary manager's.
+   *
+   * The swap is length-preserving so the captured multipart body stays
+   * well-formed. It also makes the outcome legible: if a replay landed, the
+   * forged password opens the account; if it was refused, the commissioner's
+   * still does. Replaying the SAME password would be indistinguishable either
+   * way — the account would open on it whether or not the second write happened.
+   */
+  test("setStaffPassword refuses a replayed POST from a deputy and from a manager", async ({
+    page,
+  }) => {
+    const db = admin();
+    const email = `pw-forge-${Date.now()}@obhl.test`;
+    const { data: created } = await db.auth.admin.createUser({
+      email,
+      password: "old-password-000",
+      email_confirm: true,
+    });
+    const targetId = created!.user!.id;
+    await db.from("profiles").upsert({
+      id: targetId,
+      role: "scorekeeper",
+      display_name: "Forge Target",
+    });
+
+    try {
+      await signInAs(page, "Commissioner");
+      await page.goto("/manage/office");
+
+      const posted = page.waitForRequest(
+        (r) => r.method() === "POST" && r.url().includes("/manage/office"),
+      );
+      await page.getByLabel("Staff email").fill(email);
+      await page.getByLabel("New password").fill("commissioner-pw-1");
+      await page.getByRole("button", { name: "Set password" }).click();
+      const request = await posted;
+      await expect(page.getByRole("status")).toContainText("Password set");
+
+      const body = request.postDataBuffer();
+      const headers = request.headers();
+      expect(
+        body,
+        "the submit must be capturable, or the replays below prove nothing",
+      ).toBeTruthy();
+      expect(await canSignIn(email, "commissioner-pw-1")).toBe(true);
+
+      // Same 17 characters, so the multipart body's lengths are untouched.
+      const forged = Buffer.from(
+        body!
+          .toString("binary")
+          .replace("commissioner-pw-1", "forged-by-them-01"),
+        "binary",
+      );
+      expect(
+        forged.equals(body!),
+        "the forged body must differ from the captured one",
+      ).toBe(false);
+
+      const replayHeaders: Record<string, string> = {
+        "content-type": headers["content-type"],
+        origin: new URL(page.url()).origin,
+      };
+      if (headers["next-action"])
+        replayHeaders["next-action"] = headers["next-action"];
+
+      for (const who of ["Deputy", "Manager"] as const) {
+        // A fresh session per attacker; `page.request` uses the context's cookies.
+        await signInAs(page, who);
+        await page.request.post("/manage/office", {
+          headers: replayHeaders,
+          data: forged,
+          maxRedirects: 0,
+          failOnStatusCode: false,
+        });
+        expect(
+          await canSignIn(email, "forged-by-them-01"),
+          `a ${who}'s replayed POST must not land`,
+        ).toBe(false);
+        expect(
+          await canSignIn(email, "commissioner-pw-1"),
+          "and the commissioner's password must survive it",
+        ).toBe(true);
+      }
+    } finally {
+      await db.from("audit_log").delete().eq("entity_id", targetId);
+      await db.from("profiles").delete().eq("id", targetId);
+      await db.auth.admin.deleteUser(targetId);
+    }
+  });
+
+  /**
+   * The tier is peer-flat, and a password is a takeover. A commissioner who could
+   * reset a peer's password could sign in as them and unseat them — which is
+   * exactly what "appointing or removing a commissioner is done in the database"
+   * exists to prevent.
+   */
+  test("a commissioner cannot set another commissioner's password, but can set their own", async ({
+    page,
+  }) => {
+    const db = admin();
+    const email = `peer-commissioner-${Date.now()}@obhl.test`;
+    const { data: created } = await db.auth.admin.createUser({
+      email,
+      password: "peer-old-pw-000",
+      email_confirm: true,
+    });
+    const peerId = created!.user!.id;
+    // `league_manager` first — 0034's trigger refuses a tier for any other role.
+    await db.from("profiles").upsert({
+      id: peerId,
+      role: "league_manager",
+      display_name: "Peer Commissioner",
+    });
+    await db
+      .from("league_office")
+      .upsert(
+        { profile_id: peerId, tier: "commissioner" },
+        { onConflict: "profile_id" },
+      );
+
+    try {
+      await signInAs(page, "Commissioner");
+      await page.goto("/manage/office");
+
+      await page.getByLabel("Staff email").fill(email);
+      await page.getByLabel("New password").fill("peer-takeover-01");
+      await page.getByRole("button", { name: "Set password" }).click();
+      await expect(page.getByRole("status")).toContainText("peer-flat");
+
+      expect(await canSignIn(email, "peer-takeover-01")).toBe(false);
+      expect(
+        await canSignIn(email, "peer-old-pw-000"),
+        "the peer's account must be untouched",
+      ).toBe(true);
+
+      // Their OWN, though, is the bootstrap: a commissioner who arrived by magic
+      // link gives themselves a password so the next sign-in needs no email.
+      await page.getByLabel("Staff email").fill(COMMISSIONER);
+      await page.getByLabel("New password").fill("self-bootstrap-01");
+      await page.getByRole("button", { name: "Set password" }).click();
+      await expect(page.getByRole("status")).toContainText("Password set");
+      expect(await canSignIn(COMMISSIONER, "self-bootstrap-01")).toBe(true);
+    } finally {
+      // ⛔ PUT THE SEEDED PASSWORD BACK. Every other spec signs in through the dev
+      // panel, which posts `hockey123` and nothing else — leaving this changed
+      // would break the whole suite from here on, in whatever order it runs.
+      const commissionerId = await profileIdFor(COMMISSIONER);
+      await db.auth.admin.updateUserById(commissionerId, {
+        password: "hockey123",
+      });
+      await db.from("audit_log").delete().eq("entity_id", commissionerId);
+      await db.from("audit_log").delete().eq("entity_id", peerId);
+      await db.from("league_office").delete().eq("profile_id", peerId);
+      await db.from("profiles").delete().eq("id", peerId);
+      await db.auth.admin.deleteUser(peerId);
     }
   });
 });

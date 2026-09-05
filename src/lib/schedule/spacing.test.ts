@@ -389,15 +389,16 @@ describe("compareIceOutcome", () => {
     weekdaySpread: 8,
     streak3: 0,
     consecutive: 46,
+    biasCost: 0,
   };
 
   it("prefers a flat season share over every other gain", () => {
     // The failure mode this exists to prevent: a candidate that looks better on
     // weekday spread and repeats but breaks the even season share.
     const tempting = {
+      ...base,
       seasonSpread: 4,
       weekdaySpread: 0,
-      streak3: 0,
       consecutive: 41,
     };
     expect(compareIceOutcome(base, tempting)).toBeLessThan(0);

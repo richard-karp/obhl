@@ -3,6 +3,7 @@ import { cache } from "react";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { officeTierOf } from "./office";
 import { decideProfileWrite } from "./precedence";
+import { leaguesOfPlayer } from "@/lib/league/of-entity";
 import type { LeagueOption } from "@/lib/league/current";
 
 /**
@@ -166,6 +167,51 @@ export async function mayWriteProfileOf(
     null,
     theirs.every((id) => mine.includes(id)),
   );
+}
+
+/**
+ * May this actor rewrite a PLAYER — the global person row, not a roster row?
+ *
+ * ⛔ NOT `mayWriteProfileOf`, AND NOT REDUCIBLE TO IT. That function answers who
+ * may write a *profile*: two office tiers plus a profile-to-profile containment
+ * test, over `profiles`/`league_office`. A player is not an account. It has no
+ * role, no tier and no `profile_leagues` row, so three of that function's four
+ * branches have nothing to evaluate. The same shape of question, a different
+ * subject.
+ *
+ * The rule, mirroring 0033's containment: A MANAGER MAY RENAME A PLAYER ONLY
+ * WHEN EVERY LEAGUE THAT PLAYER PLAYS IN IS A LEAGUE THE MANAGER ALSO WORKS.
+ * `players` is global (0002_core.sql:43) — one human, one row, in every league
+ * they play — so a rename lands everywhere that person appears, including
+ * leagues the manager has never seen.
+ *
+ * ⛔ `memberLeagueIds`, NEVER A DIRECT `profile_leagues` QUERY. An office member
+ * has NO `profile_leagues` rows at all — 0034 makes their reach a rule rather
+ * than data — so a direct query returns zero leagues and containment fails for
+ * them. That would refuse the commissioner: precisely the person the refusal
+ * message below sends the manager to, unable to do the thing they were sent to
+ * do. `memberLeagueIds` answers the office with every league (its office
+ * branch), so containment passes there by construction.
+ *
+ * A player nobody has rostered contains no leagues and passes vacuously — the
+ * same shape `mayWriteProfileOf` relies on for an account in no league, and what
+ * keeps a person just created on this page editable by whoever created them.
+ *
+ * The accepted cost, decided rather than overlooked: a single-league manager
+ * cannot fix a typo on a player who also plays elsewhere. `updatePlayerName`
+ * refuses out loud and names the League Office. It does not fail silently, and
+ * there is no partial rename to fall back to — there is one row.
+ */
+export async function mayWritePlayer(
+  actorId: string,
+  playerId: string,
+): Promise<boolean> {
+  const admin = createAdminClient();
+  const [mine, theirs] = await Promise.all([
+    memberLeagueIds(actorId),
+    leaguesOfPlayer(playerId, admin),
+  ]);
+  return theirs.every((id) => mine.includes(id));
 }
 
 /** Grant membership. Idempotent — re-adding an existing member is a no-op. */

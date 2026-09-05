@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { getActiveContext } from "@/lib/queries/season";
+import { resolveLeagueBySlug } from "@/lib/league/current";
+import { getActiveContext, getManageContext } from "@/lib/queries/season";
 import { getTeamBySlug } from "@/lib/queries/teams";
 import { canManageLeague } from "@/lib/auth/guards";
 import { RosterEditor } from "@/components/manage/roster-editor";
@@ -10,6 +11,7 @@ import {
 import { GoalieStatsTable } from "@/components/public/goalie-stats-table";
 import { GameRow } from "@/components/public/game-row";
 import { TeamLogo } from "@/components/shared/team-logo";
+import { SeasonSwitcher } from "@/components/manage/season-switcher";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/shared/empty-state";
 import { NoSeason } from "@/components/public/no-season";
@@ -40,20 +42,41 @@ import { NoSeason } from "@/components/public/no-season";
  * ⚠️ The team is resolved by SLUG WITHIN THE LEAGUE, which is what makes the old
  * page's ownership check unnecessary rather than merely absent — see the note on
  * `RosterEditor`.
+ *
+ * ⚠️ TWO SEASONS, ONE PAGE. `is_active` means "what the public site shows" and
+ * nothing else, and both importers create seasons inactive — so a manage surface
+ * keyed on the active season cannot edit the season it just imported. That is why
+ * the staff pages take `?season=`. This page serves both audiences, so it
+ * resolves BOTH ways: `getManageContext` for a manager (their picked season, plus
+ * the list the switcher offers), `getActiveContext` for everyone else. A visitor
+ * therefore cannot reach a non-public season by guessing the query parameter —
+ * the parameter is only read after `canManageLeague` says yes.
  */
 export default async function TeamPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ league: string; slug: string }>;
+  searchParams: Promise<{ season?: string }>;
 }) {
   const { league: leagueParam, slug } = await params;
-  const ctx = await getActiveContext(leagueParam);
+  const { season: seasonParam } = await searchParams;
+  // League, then the entitlement, then the context — the order the manage pages
+  // use. `getManageContext` reads every season on the ADMIN client, so it must
+  // not run for a viewer who is not entitled to it. `resolveLeagueBySlug` is
+  // cache()-wrapped, so asking here costs the context below nothing.
+  const resolved = await resolveLeagueBySlug(leagueParam);
+  if (!resolved) notFound();
+  const canEdit = await canManageLeague(resolved.id);
+  const manageCtx = canEdit
+    ? await getManageContext(leagueParam, seasonParam)
+    : null;
+  const ctx = manageCtx ?? (await getActiveContext(leagueParam));
   if (!ctx.season) return <NoSeason />;
   const league = ctx.league.slug;
 
   const detail = await getTeamBySlug(ctx.league.id, ctx.season.id, slug);
   if (!detail) notFound();
-  const canEdit = await canManageLeague(ctx.league.id);
 
   let w = 0;
   let l = 0;
@@ -116,6 +139,7 @@ export default async function TeamPage({
           name={detail.team.name}
           color={detail.team.color}
           logoPath={detail.team.logo_path}
+          textColor={detail.team.logo_text_color}
           className="size-12 text-base"
         />
         <div>
@@ -171,13 +195,26 @@ export default async function TeamPage({
               aria-labelledby="manage-roster"
               className="space-y-4 border-t pt-6"
             >
-              <h2
-                id="manage-roster"
-                className="text-muted-foreground text-sm font-semibold"
-              >
-                Manage roster
-              </h2>
-              <RosterEditor team={detail.team} season={ctx.season} />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2
+                  id="manage-roster"
+                  className="text-muted-foreground text-sm font-semibold"
+                >
+                  Manage roster
+                </h2>
+                {/*
+                  Beside the editor's own heading, not in the page header: the
+                  season it switches is the one this section edits, and the
+                  public tables above are the active season's. Only a manager
+                  sees it at all, so nothing changes for a visitor.
+                */}
+                {manageCtx ? <SeasonSwitcher ctx={manageCtx} /> : null}
+              </div>
+              <RosterEditor
+                team={detail.team}
+                season={ctx.season}
+                leagueId={ctx.league.id}
+              />
             </section>
           ) : null}
         </TabsContent>

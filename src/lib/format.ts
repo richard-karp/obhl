@@ -33,6 +33,24 @@ export function leagueDateKey(iso: string): string {
 }
 
 /**
+ * League-local wall-clock time as "HH:MM", 24-hour.
+ *
+ * The counterpart of `leagueDateKey`, and it exists for the same reason: a
+ * schedule constraint stores the ice time the manager typed into the generate
+ * form ("21:30"), and matching it against a placed game means reading that
+ * game's time back in the league's timezone rather than the server's. The
+ * display formatter above cannot be used for that — it renders "9:30 PM".
+ */
+export function leagueTimeKey(iso: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: LEAGUE_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(iso));
+}
+
+/**
  * Day of week (0 = Sunday) of a plain "YYYY-MM-DD" calendar date. No timezone
  * is involved: the components are read directly, so the result can't drift.
  *

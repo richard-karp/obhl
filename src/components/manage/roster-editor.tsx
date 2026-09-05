@@ -1,7 +1,8 @@
 import { createAdminClient } from "@/utils/supabase/admin";
-import { AddPlayerForm } from "./add-player-form";
-import { TransferPlayerForm } from "./transfer-player-form";
-import { LogoUpload } from "./logo-upload";
+import { AddPlayerForm } from "@/components/manage/add-player-form";
+import { TransferPlayerForm } from "@/components/manage/transfer-player-form";
+import { EditPlayerForm } from "@/components/manage/edit-player-form";
+import { archivedPlayerIdsIn } from "@/lib/players/archive";
 import {
   removeRosterPlayer,
   toggleCaptain,
@@ -22,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/empty-state";
 import { TeamLogo } from "@/components/shared/team-logo";
+import { LogoUpload } from "@/components/manage/logo-upload";
 import type { TeamRow } from "@/lib/queries/teams";
 import type { Season } from "@/lib/queries/season";
 
@@ -50,6 +52,13 @@ const POS: Record<string, string> = { F: "Forward", D: "Defense", G: "Goalie" };
  * named here at all. If this component ever grows an id parameter, that check
  * comes back with it.
  *
+ * ⚠️ THE SEASON AND THE SWITCHER BELONG TO THE PAGE, NOT TO THIS. `season` is
+ * whatever the page resolved — the manage context's season for a manager, which
+ * is not necessarily the active one — and the page renders the switcher beside
+ * the heading. This component only edits the season it is handed. That split is
+ * what lets the same page serve the public its active season and a manager the
+ * one they picked.
+ *
  * A server component: it reads on the admin client, and it is rendered only for
  * a viewer `canManageLeague` has already said yes to, so an anonymous visitor
  * never triggers any of these queries.
@@ -57,12 +66,13 @@ const POS: Record<string, string> = { F: "Forward", D: "Defense", G: "Goalie" };
 export async function RosterEditor({
   team,
   season,
+  leagueId,
 }: {
   team: TeamRow;
   season: Season;
+  leagueId: string;
 }) {
   const admin = createAdminClient();
-
   const [{ data: roster }, { data: goalieDays }] = await Promise.all([
     admin
       .from("team_players")
@@ -98,16 +108,64 @@ export async function RosterEditor({
     )
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  // ⚠️ THE TEAM BELONGS TO THE LEAGUE BUT NOT TO THIS SEASON. The check above
+  // only proves the former. Reachable in one click now that the season switcher
+  // exists: it posts `next = usePathname()`, so switching season here keeps the
+  // same `team.id`, and a team enrolled last season but not this one rendered an
+  // empty roster with a working Add Player form — which wrote `team_players`
+  // rows for a team the season does not have. An empty state rather than
+  // `notFound()`, because the team is real and the switcher is how they got
+  // here: name the season, and leave the switcher on the page to get back.
+  //
+  // The server refuses it too (`addRosterPlayer`) — hiding a form is a list,
+  // not a restriction, the same distinction the picker comment below draws.
+  if (!(enrolled ?? []).some((e) => e.team_id === team.id)) {
+    return (
+      <EmptyState
+        title={`${team.name} is not in ${season.name}`}
+        description="Enrol the team in this season on the season setup page, or switch to a season it plays in."
+      />
+    );
+  }
+
   // Global people not already on this team's roster — for the shared-identity
   // "existing person" picker (reuse someone who plays in another league).
-  const { data: allPeople } = await admin
-    .from("players")
-    .select("id, first_name, last_name")
-    .order("last_name", { ascending: true });
+  //
+  // ⛔ STILL READ UNFILTERED FROM `players`, AND THAT IS THE POINT. The archive
+  // is applied below, per league. Pushing it into this query as a global flag —
+  // the shape a `players.archived_at` column would have forced — would hide the
+  // person from every OTHER league's picker too, silently, for leagues that
+  // never archived them.
+  const [{ data: allPeople }, archived, { data: leagueRostered }] =
+    await Promise.all([
+      admin
+        .from("players")
+        .select("id, first_name, last_name")
+        .order("last_name", { ascending: true }),
+      archivedPlayerIdsIn(leagueId, admin),
+      // Who is on some team in THIS league right now. Used only so the picker can
+      // say so: `archivePlayer` refuses these, and a button that always fails is
+      // worse than no button.
+      admin
+        .from("team_players")
+        .select("player_id, seasons!inner(league_id)")
+        .is("left_on", null)
+        .eq("seasons.league_id", leagueId),
+    ]);
   const onRoster = new Set((roster ?? []).map((r) => r.player_id));
+  const rosteredInLeague = new Set(
+    (leagueRostered ?? []).map((r) => r.player_id),
+  );
   const people = (allPeople ?? [])
     .filter((p) => !onRoster.has(p.id))
-    .map((p) => ({ id: p.id, name: `${p.first_name} ${p.last_name}` }));
+    .map((p) => ({
+      id: p.id,
+      name: `${p.first_name} ${p.last_name}`,
+      // Archived OUT OF THIS LEAGUE. The picker hides these until "Show
+      // archived" is ticked; every other league still lists them normally.
+      archived: archived.has(p.id),
+      rostered: rosteredInLeague.has(p.id),
+    }));
 
   return (
     <div className="space-y-6">
@@ -120,6 +178,7 @@ export async function RosterEditor({
             name={team.name}
             color={team.color}
             logoPath={team.logo_path}
+            textColor={team.logo_text_color}
             className="size-12 text-base"
           />
           <LogoUpload teamId={team.id} />
@@ -134,6 +193,7 @@ export async function RosterEditor({
           <AddPlayerForm
             seasonId={season.id}
             teamId={team.id}
+            leagueId={leagueId}
             people={people}
           />
         </CardContent>
@@ -306,6 +366,13 @@ export async function RosterEditor({
                           {r.is_captain ? "Unset C" : "Make C"}
                         </Button>
                       </form>
+                      <EditPlayerForm
+                        rosterId={r.id}
+                        firstName={r.players?.first_name ?? ""}
+                        lastName={r.players?.last_name ?? ""}
+                        jerseyNumber={r.jersey_number ?? null}
+                        position={r.position}
+                      />
                       <TransferPlayerForm
                         rosterId={r.id}
                         jerseyNumber={r.jersey_number ?? null}

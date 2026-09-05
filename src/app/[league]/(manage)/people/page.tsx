@@ -1,12 +1,15 @@
+import { notFound } from "next/navigation";
 import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getActiveContext } from "@/lib/queries/season";
+import { resolveLeagueBySlug } from "@/lib/league/current";
+import { getManageContext } from "@/lib/queries/season";
 import {
   CreateStaffForm,
   type CaptainOption,
 } from "@/components/manage/create-staff-form";
 import { StaffRowActions } from "@/components/manage/staff-row-actions";
 import { memberLeagueIds } from "@/lib/auth/membership";
+import { archivedPlayerIdsIn } from "@/lib/players/archive";
 import { listOfficeTiers } from "@/lib/auth/office";
 import { emailsByProfileId } from "@/lib/auth/users";
 import { decideProfileWrite } from "@/lib/auth/precedence";
@@ -20,6 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PageHeader } from "@/components/shared/page-header";
+import { SeasonSwitcher } from "@/components/manage/season-switcher";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
@@ -38,12 +42,22 @@ const OFFICE_LABEL: Record<string, string> = {
 
 export default async function PeoplePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ league: string }>;
+  searchParams: Promise<{ season?: string }>;
 }) {
   const { league: leagueSlug } = await params;
-  const ctx = await getActiveContext(leagueSlug);
-  const viewer = await requireLeagueManager(ctx.league.id);
+  const { season: seasonParam } = await searchParams;
+  // Season-scoped for one reason: the captain candidates below come from one
+  // season's rosters. Everything else on the page is league-wide.
+  // League, then GUARD, then context — `getManageContext` reads every season on
+  // the ADMIN client, so it must not run for a request about to be refused.
+  // `resolveLeagueBySlug` is cache()-wrapped, so the context reuses it free.
+  const league = await resolveLeagueBySlug(leagueSlug);
+  if (!league) notFound();
+  const viewer = await requireLeagueManager(league.id);
+  const ctx = await getManageContext(leagueSlug, seasonParam);
   const admin = createAdminClient();
 
   // This league's staff, not the instance's. The page listed every profile in
@@ -101,10 +115,21 @@ export default async function PeoplePage({
       // history it preserves, and offering it here would link an account to a
       // team the person has left.
       .is("left_on", null);
-    captains = (caps ?? []).map((c) => ({
-      id: c.player_id,
-      label: `${c.players?.first_name} ${c.players?.last_name} (${c.teams?.name})`,
-    }));
+    // Archived out of THIS league (0040) — filtered in memory rather than in the
+    // query above, because `player_league_archive` has no join to `team_players`
+    // and the candidate list is a handful of rows either way.
+    //
+    // ⚠️ This is the only player-derived list on this page. Everything else here
+    // is staff PROFILES, which the archive has nothing to say about — a person
+    // archived out of a league is not an account, and nothing here should go
+    // looking for a general player list to filter, because there isn't one.
+    const archived = await archivedPlayerIdsIn(ctx.league.id, admin);
+    captains = (caps ?? [])
+      .filter((c) => !archived.has(c.player_id))
+      .map((c) => ({
+        id: c.player_id,
+        label: `${c.players?.first_name} ${c.players?.last_name} (${c.teams?.name})`,
+      }));
   }
 
   // Addresses for everyone the table will show. The strategy, and why it is not
@@ -156,6 +181,12 @@ export default async function PeoplePage({
         title="People & Roles"
         description="Create staff accounts and assign manager, captain, or scorekeeper roles."
       >
+        {/*
+          The switcher scopes the captain candidates in the form below, and
+          nothing else on this page — the staff list is league-wide. It is here
+          rather than in the brand bar for the reason on `SeasonSwitcher`.
+        */}
+        <SeasonSwitcher ctx={ctx} />
         {/*
           Here rather than in the top nav: the nav already carries its five
           inline links and a sixth pushes the whole set onto its own row, and

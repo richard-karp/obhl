@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { getActiveContext } from "@/lib/queries/season";
+import { notFound } from "next/navigation";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 import { getRules } from "@/lib/queries/rules";
 import { canManageLeague } from "@/lib/auth/guards";
 import { RulesRenderer } from "@/components/public/rules-renderer";
@@ -23,9 +24,15 @@ export default async function RulesPage({
   params: Promise<{ league: string }>;
 }) {
   const { league: slug } = await params;
-  const ctx = await getActiveContext(slug);
-  const rules = await getRules(ctx.league.id);
-  const canEdit = await canManageLeague(ctx.league.id);
+  // No season, and no season switcher either — carried over from
+  // `/manage/rules/edit`, which stopped paying for a season it never read:
+  // rules belong to the LEAGUE (`league_rules`, 0002). This page is the one
+  // merged surface with nothing to scope, which is why it takes no `?season=`
+  // while the schedule and the team pages both do.
+  const league = await resolveLeagueBySlug(slug);
+  if (!league) notFound();
+  const rules = await getRules(league.id);
+  const canEdit = await canManageLeague(league.id);
 
   // Built once and handed to whichever wrapper is used, so the manager's
   // preview and the public page cannot drift into two renderings of one
@@ -42,7 +49,7 @@ export default async function RulesPage({
       <PageHeader title="League Rules" />
       {canEdit ? (
         <RulesSection
-          leagueId={ctx.league.id}
+          leagueId={league.id}
           initialContent={rules?.content ?? null}
         >
           {published}

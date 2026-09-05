@@ -84,12 +84,22 @@ async function seedFutureSeason(page: Page) {
   // The list only renders that button for inactive seasons, so its absence is
   // proof the switch landed. Don't assert on the "Active" badge text: getByText
   // matches case-insensitive substrings, so it also matches "Set active" and
-  // would pass before the click took — and `setActiveSeason` clears every
-  // season before setting one, so racing it lands on "No active season".
+  // would pass before the click took.
+  //
+  // Racing `setActiveSeason` used to land on "No active season", because it
+  // clears every season before setting one. That empty state is gone: the
+  // builder now resolves a season of its own and, with nothing active, falls
+  // back to the newest by `starts_on` — which is this 2027 season. So the race
+  // resolves to the right season either way, and the assertion below is about
+  // the switch having landed rather than about surviving it.
   await expect(setActive).toHaveCount(0);
 
   await page.goto("/obhl/schedule-builder");
-  await expect(page.getByText(`${SEASON} (active)`)).toBeVisible();
+  // No "(active)" suffix any more — see `11-schedule-builder`. The builder
+  // names whichever season it is scoped to.
+  await expect(
+    page.getByText(new RegExp(`${SEASON} · \\d+ teams enrolled`)),
+  ).toBeVisible();
   if ((await page.getByText("No draft schedule").count()) > 0) {
     await page.getByLabel("First game night").fill("2027-01-05");
     await page.getByLabel("Games per team").fill("6");

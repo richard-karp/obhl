@@ -140,9 +140,16 @@ test.describe("Path 9 — Roster editor", () => {
     await page.waitForLoadState("networkidle");
     await expect(manageRoster(page).getByRole("cell", { name })).toHaveCount(0);
 
-    await page
-      .getByLabel("Existing person (optional)")
-      .selectOption({ label: name });
+    // ⛔ NOT `selectOption`. The picker is a filtered combobox now, not a
+    // `<select>` — `players` is global and unfiltered here, so the list grows
+    // with the instance and scrolling it was the thing being replaced. Type
+    // enough of the name to narrow the list, then click the option.
+    //
+    // There is deliberately NO hidden `<select>` kept behind it to make the old
+    // line keep working: two fields that can disagree about who is selected,
+    // one of them invisible, is worse than a test that had to be rewritten.
+    await page.getByLabel("Existing person (optional)").fill(name);
+    await page.getByRole("option", { name }).click();
     await page.getByLabel("Pos").selectOption(position);
     await page.getByRole("button", { name: /add/i }).click();
     await page.waitForLoadState("networkidle");

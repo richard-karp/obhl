@@ -1,13 +1,16 @@
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getActiveContext } from "@/lib/queries/season";
+import { resolveLeagueBySlug } from "@/lib/league/current";
+import { getManageContext } from "@/lib/queries/season";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { getSeasonNights } from "@/lib/queries/schedule";
 import { OneOffGameForm } from "@/components/manage/one-off-game-form";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
+import { SeasonSwitcher } from "@/components/manage/season-switcher";
 
 /**
  * Mid-season one-off games — a tournament final or semifinals dropped into a
@@ -17,20 +20,28 @@ import { Button } from "@/components/ui/button";
  */
 export default async function OneOffGamePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ league: string }>;
+  searchParams: Promise<{ season?: string }>;
 }) {
   const { league: leagueParam } = await params;
-  const ctx = await getActiveContext(leagueParam);
-  await requireLeagueManager(ctx.league.id);
+  const { season: seasonParam } = await searchParams;
+  // League, then GUARD, then context — `getManageContext` reads every season on
+  // the ADMIN client, so it must not run for a request about to be refused.
+  // `resolveLeagueBySlug` is cache()-wrapped, so the context reuses it free.
+  const league = await resolveLeagueBySlug(leagueParam);
+  if (!league) notFound();
+  await requireLeagueManager(league.id);
+  const ctx = await getManageContext(leagueParam, seasonParam);
   // The resolved slug, not the URL's — links stay canonical from /OBHL.
   const leagueSlug = ctx.league.slug;
   if (!ctx.season) {
     return (
       <div className="space-y-4">
         <EmptyState
-          title="No active season"
-          description="Set a season active before scheduling a one-off game."
+          title="No seasons yet"
+          description="Create a season and publish its schedule before scheduling a one-off game."
         />
         <div className="text-center">
           <Button asChild size="sm">
@@ -58,6 +69,7 @@ export default async function OneOffGamePage({
         title="Schedule a one-off game"
         description={`${ctx.season.name} · tournament final or semifinals, mid-season`}
       >
+        <SeasonSwitcher ctx={ctx} />
         <Button asChild size="sm" variant="outline">
           <Link href={`/${leagueSlug}/schedule-builder`}>Schedule Builder</Link>
         </Button>

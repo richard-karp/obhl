@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { getActiveContext } from "@/lib/queries/season";
+import { notFound } from "next/navigation";
+import { resolveLeagueBySlug } from "@/lib/league/current";
+import { getActiveContext, getManageContext } from "@/lib/queries/season";
 import { getSchedule, type GameWithTeams } from "@/lib/queries/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { canScoreLeague } from "@/lib/auth/guards";
@@ -10,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { NoSeason } from "@/components/public/no-season";
+import { SeasonSwitcher } from "@/components/manage/season-switcher";
 import { formatLongDate, leagueDateKey } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Schedule" };
@@ -72,18 +75,31 @@ export default async function SchedulePage({
   searchParams,
 }: {
   params: Promise<{ league: string }>;
-  searchParams: Promise<{ team?: string }>;
+  searchParams: Promise<{ team?: string; season?: string }>;
 }) {
   const { league: leagueParam } = await params;
-  const ctx = await getActiveContext(leagueParam);
-  if (!ctx.season) return <NoSeason />;
-  const slug = ctx.league.slug;
-  const { team } = await searchParams;
+  const { team, season: seasonParam } = await searchParams;
 
   // This page absorbed `/manage/score`, which was the same games in a table
   // with a button on each row. The games are the same games; the button is the
   // only thing that was ever different.
-  const canScore = await canScoreLeague(ctx.league.id);
+  //
+  // ⚠️ TWO SEASONS, ONE PAGE, the same split as the team page. `/manage/score`
+  // gained a season switcher — `is_active` means "what the public site shows",
+  // and both importers create seasons inactive, so a scorekeeper pinned to the
+  // active season cannot work an imported one. That has to survive the merge:
+  // staff resolve through `getManageContext` and may name a season, everyone
+  // else gets the active one. The parameter is read only after `canScoreLeague`
+  // says yes, so a visitor cannot reach an unpublished season by guessing it.
+  const resolved = await resolveLeagueBySlug(leagueParam);
+  if (!resolved) notFound();
+  const canScore = await canScoreLeague(resolved.id);
+  const manageCtx = canScore
+    ? await getManageContext(leagueParam, seasonParam)
+    : null;
+  const ctx = manageCtx ?? (await getActiveContext(leagueParam));
+  if (!ctx.season) return <NoSeason />;
+  const slug = ctx.league.slug;
   const teams = await getEnrolledTeams(ctx.season.id);
   const selected = team ? teams.find((t) => t.slug === team) : undefined;
   const games = await getSchedule(ctx.season.id, { teamId: selected?.id });
@@ -114,6 +130,8 @@ export default async function SchedulePage({
   return (
     <div className="space-y-8">
       <PageHeader title="Schedule" description={ctx.season.name}>
+        {/* Staff only — a visitor has one season and nothing to switch to. */}
+        {manageCtx ? <SeasonSwitcher ctx={manageCtx} /> : null}
         <ScheduleFilter teams={teams} value={selected?.slug} />
         {/*
           `/manage/score`'s header also held a "Schedule a one-off game" button,

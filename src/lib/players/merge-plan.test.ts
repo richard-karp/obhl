@@ -146,3 +146,39 @@ describe("planMerge", () => {
     expect(plan.rosterDelete).toEqual(["r1"]);
   });
 });
+
+// The merge is a third writer to 0040's invariant, and it reaches the forbidden
+// state from the side the other two do not guard: `archivePlayer` refuses while
+// someone is rostered, `addRosterPlayer` refuses to roster someone archived —
+// but repointing a roster row at an already-archived survivor passes both.
+describe("planMerge with an archived survivor", () => {
+  it("refuses when an active roster row would land on the archived record", () => {
+    const rosters: RosterRow[] = [
+      r({ id: "r1", playerId: "keep", leftOn: "2026-01-01" }),
+      r({ id: "r2", playerId: "dupe1", teamId: "t2" }),
+    ];
+    const plan = planMerge("keep", rosters, [], [], true);
+    expect(plan.ok).toBe(false);
+    if (plan.ok) return;
+    expect(plan.reason).toBe("keep-archived");
+    if (plan.reason !== "keep-archived") return;
+    expect(plan.teamIds).toEqual(["t2"]);
+  });
+
+  it("allows the merge when every surviving row is departed", () => {
+    const rosters: RosterRow[] = [
+      r({ id: "r1", playerId: "keep", leftOn: "2026-01-01" }),
+      r({ id: "r2", playerId: "dupe1", leftOn: "2026-02-01" }),
+    ];
+    const plan = planMerge("keep", rosters, [], [], true);
+    expect(plan.ok).toBe(true);
+  });
+
+  it("is the archive flag that refuses, not the rows", () => {
+    const rosters: RosterRow[] = [
+      r({ id: "r1", playerId: "keep", leftOn: "2026-01-01" }),
+      r({ id: "r2", playerId: "dupe1", teamId: "t2" }),
+    ];
+    expect(planMerge("keep", rosters, [], [], false).ok).toBe(true);
+  });
+});

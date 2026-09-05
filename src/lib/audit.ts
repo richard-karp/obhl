@@ -5,6 +5,7 @@ import {
   leagueOfAnnouncement,
   leagueOfGame,
   leagueOfSeason,
+  leagueOfScheduleConstraint,
   leagueOfTeam,
   leagueOfTeamPlayer,
 } from "@/lib/league/of-entity";
@@ -60,6 +61,15 @@ async function leagueOfEntity(
       return leagueOfTeamPlayer(entityId, admin);
     case "announcement":
       return leagueOfAnnouncement(entityId, admin);
+    // Added in the SAME change as the first `logAudit({entity_type:
+    // "schedule_constraint"})` call, per the warning above: an unhandled type
+    // logs with a null league, and a null league is hidden by RLS and filtered
+    // out of every league-scoped view — correct, written, and permanently
+    // invisible. A DELETE resolves to null here once the row is gone, so
+    // `deleteScheduleConstraint` reads the league before the delete and passes
+    // it explicitly.
+    case "schedule_constraint":
+      return leagueOfScheduleConstraint(entityId, admin);
     // A player is global — `players` has no `league_id`, and the same human in
     // two leagues is two records — so there is no league to resolve from the id.
     // Listed anyway rather than left to `default`, so the null is a decision

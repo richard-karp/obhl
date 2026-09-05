@@ -211,3 +211,217 @@ describe("solveParticipation", () => {
     expect(spreads.filter((s) => s === 3).length).toBe(2);
   });
 });
+
+/**
+ * Manager constraints in Phase P.
+ *
+ * The invariant every one of these asserts, in one form or another: a forced
+ * bye MOVES a bye. Games per team and the per-night bye quota are properties of
+ * the calendar, not of the request, and nothing here is allowed to bend them.
+ */
+describe("solveParticipation with manager constraints", () => {
+  const base = () => ({
+    teamCount: 8,
+    nights: twoNightWeeks(12, 3),
+    gamesPerTeam: new Array(8).fill(18),
+    weekdayCount: 2,
+  });
+
+  /** Games per team, and teams playing each night — the untouchable pair. */
+  const expectStructureHolds = (
+    plays: boolean[][],
+    nights: ParticipationNight[],
+    gamesPerTeam: number,
+  ) => {
+    for (const row of plays)
+      expect(row.filter(Boolean).length).toBe(gamesPerTeam);
+    nights.forEach((n, i) => {
+      expect(plays.filter((row) => row[i]).length).toBe(2 * n.games);
+    });
+  };
+
+  it("puts a forced bye exactly where it was asked for, and moves one to pay", () => {
+    const opts = base();
+    const res = solveParticipation({
+      ...opts,
+      forced: [{ team: 3, night: 5, plays: false }],
+    })!;
+    expect(res).not.toBeNull();
+    expect(res.plays[3][5]).toBe(false);
+    expectStructureHolds(res.plays, opts.nights, 18);
+  });
+
+  it("forces a play night, and nobody else loses a game to it", () => {
+    const opts = base();
+    // Night 4 is one this team byes when left alone, so the pin has work to do.
+    const free = solveParticipation(base())!;
+    const night = free.plays[2].findIndex((p) => !p);
+    const res = solveParticipation({
+      ...opts,
+      forced: [{ team: 2, night, plays: true }],
+    })!;
+    expect(res).not.toBeNull();
+    expect(res.plays[2][night]).toBe(true);
+    expectStructureHolds(res.plays, opts.nights, 18);
+  });
+
+  it("takes a whole week off without spending an extra bye", () => {
+    const opts = base();
+    const res = solveParticipation({
+      ...opts,
+      // Week 4 is nights 8 and 9 under `twoNightWeeks`.
+      forced: [
+        { team: 1, night: 8, plays: false },
+        { team: 1, night: 9, plays: false },
+      ],
+    })!;
+    expect(res).not.toBeNull();
+    expect(res.plays[1][8]).toBe(false);
+    expect(res.plays[1][9]).toBe(false);
+    expectStructureHolds(res.plays, opts.nights, 18);
+    // The rule-1 breach the request creates is REAL in the solver's own metric —
+    // it is only excluded when the numbers are presented. Asserting the solver
+    // reports zero here would contradict the design: `byeRuleCost` is also the
+    // basis of the admissible bound, and is deliberately left alone.
+    expect(res.byeMultiWeek).toBeGreaterThanOrEqual(1);
+  });
+
+  it("satisfies a bye_in_week disjunction without pinning a night", () => {
+    const opts = base();
+    const res = solveParticipation({
+      ...opts,
+      byeInWeek: [{ team: 6, week: 7 }],
+    })!;
+    expect(res).not.toBeNull();
+    // Week 7 is nights 14 and 15.
+    expect(res.plays[6][14] && res.plays[6][15]).toBe(false);
+    expectStructureHolds(res.plays, opts.nights, 18);
+  });
+
+  it("survives a constraint set that forces no cells at all", () => {
+    // A season carrying only `slot_bias` — or only `bye_in_week` — arrives here
+    // with an EMPTY `forced` array rather than none: the set is non-empty, so
+    // the caller does not short-circuit. Crashed before the guard was written
+    // against "has forced cells" instead of "was given a forced argument".
+    const opts = base();
+    const empty = solveParticipation({ ...opts, forced: [] });
+    expect(empty).not.toBeNull();
+    expectStructureHolds(empty!.plays, opts.nights, 18);
+    // ...and it is the same schedule an unconstrained solve produces, since
+    // nothing was actually asked for.
+    expect(empty!.plays).toEqual(solveParticipation(base())!.plays);
+    expect(solveParticipation({ ...opts, byeInWeek: [] })).not.toBeNull();
+  });
+
+  it("refuses a cell asked to be both a bye and a game", () => {
+    expect(
+      solveParticipation({
+        ...base(),
+        forced: [
+          { team: 0, night: 3, plays: false },
+          { team: 0, night: 3, plays: true },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("refuses more forced byes than a night has to give", () => {
+    // 8 teams, 3 games a night → exactly 2 byes available.
+    const forced = [0, 1, 2].map((team) => ({ team, night: 3, plays: false }));
+    expect(solveParticipation({ ...base(), forced })).toBeNull();
+  });
+
+  /**
+   * The mechanism `chooseWeekdayByeTargets` gained: unconstrained teams keep
+   * their exact even split and the slack lands on as few of them as the column
+   * totals allow, instead of being smeared across the league.
+   *
+   * The arithmetic, so the bound below is not mistaken for a search result: 24
+   * nights, 12 of each weekday, hands out 24 byes per weekday. Team 0's six byes
+   * split 3/3 when nobody asks for anything. Forcing four of them onto Mondays
+   * takes one Monday bye off the pool, so exactly one other team must drop to
+   * two — the column sum says so, and no allocation can do better. What the
+   * pinning buys is that it is ONE other team and not several.
+   */
+  it("lands a forced bye's weekday cost on as few other teams as the totals allow", () => {
+    const opts = base();
+    const res = solveParticipation({
+      ...opts,
+      // Nights 0, 2, 4, 6 are the first four Mondays.
+      forced: [0, 2, 4, 6].map((night) => ({ team: 0, night, plays: false })),
+      // A fourth Monday bye is one more than a perfectly even 18 games allows,
+      // so the request only fits at all once the weekday band widens by a game.
+      // The generator's own ladder does this for itself — this is the rung it
+      // lands on, reached directly because the unit under test is the solver.
+      weekdaySlack: 1,
+    })!;
+    expect(res).not.toBeNull();
+    for (const night of [0, 2, 4, 6]) expect(res.plays[0][night]).toBe(false);
+    expectStructureHolds(res.plays, opts.nights, 18);
+
+    const spreadOf = (t: number) => {
+      const games = [0, 0];
+      opts.nights.forEach((n, i) => {
+        if (res.plays[t][i]) games[n.weekday]++;
+      });
+      return Math.abs(games[0] - games[1]);
+    };
+    const others = [1, 2, 3, 4, 5, 6, 7].map(spreadOf);
+    expect(others.filter((s) => s !== 0).length).toBeLessThanOrEqual(1);
+  });
+});
+
+/**
+ * Two requests naming ONE cell.
+ *
+ * The per-weekday bye limits are per-cell, `forced` is a list of requests, and
+ * the two are not the same length. Neither route in requires the manager to do
+ * anything wrong: `saveScheduleConstraint` is a plain insert with no unique
+ * index and the picker keeps its team after a successful add, so a double-click
+ * duplicates a request; and a `bye_week` plus a `bye_on` inside that same week
+ * resolves to two entries for one night with no duplicate request at all.
+ *
+ * ⚠️ `exactWeekdayTargets: true` — the bug lives in the exact-target pinning,
+ * and the generator's rung ladder drops to `exact: false` at rung 4, which is
+ * why this never surfaced as a refusal end-to-end. It surfaced as a worse
+ * schedule and no message, so it is asserted here at the solver.
+ */
+describe("solveParticipation with duplicate forced cells", () => {
+  // Tighter than `base()` above on purpose: 8 nights leaves 2 byes a team, so
+  // a single duplicated request is already enough to over-count a weekday.
+  const tight = () => ({
+    teamCount: 8,
+    nights: twoNightWeeks(4, 3),
+    gamesPerTeam: new Array(8).fill(6),
+    weekdayCount: 2,
+    exactWeekdayTargets: true,
+  });
+  const bye = { team: 0, night: 0, plays: false };
+
+  it("plans on one request, which is the control", () => {
+    const res = solveParticipation({ ...tight(), forced: [bye] });
+    expect(res).not.toBeNull();
+    expect(res!.plays[0][0]).toBe(false);
+  });
+
+  it("plans on the same request twice", () => {
+    const res = solveParticipation({ ...tight(), forced: [bye, bye] });
+    expect(res).not.toBeNull();
+    expect(res!.plays[0][0]).toBe(false);
+  });
+
+  it("plans on a bye_week overlapping a bye_on", () => {
+    // Week 0 is nights 0 and 1. `bye_week` forces both; `bye_on` re-forces one.
+    const res = solveParticipation({
+      ...tight(),
+      forced: [
+        { team: 1, night: 0, plays: false },
+        { team: 1, night: 1, plays: false },
+        { team: 1, night: 0, plays: false },
+      ],
+    });
+    expect(res).not.toBeNull();
+    expect(res!.plays[1][0]).toBe(false);
+    expect(res!.plays[1][1]).toBe(false);
+  });
+});

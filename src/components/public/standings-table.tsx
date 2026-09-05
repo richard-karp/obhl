@@ -53,7 +53,11 @@ export function StandingsTable({
                   href={`/${league}/teams/${r.team_slug}`}
                   className="flex items-center gap-2 font-medium hover:underline"
                 >
-                  <TeamLogo name={r.team_name ?? ""} color={r.team_color} />
+                  <TeamLogo
+                    name={r.team_name ?? ""}
+                    color={r.team_color}
+                    textColor={r.team_logo_text_color}
+                  />
                   {r.team_name}
                 </Link>
               </TableCell>

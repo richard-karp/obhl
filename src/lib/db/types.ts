@@ -470,6 +470,49 @@ export type Database = {
           },
         ];
       };
+      player_league_archive: {
+        Row: {
+          archived_at: string;
+          archived_by: string | null;
+          league_id: string;
+          player_id: string;
+        };
+        Insert: {
+          archived_at?: string;
+          archived_by?: string | null;
+          league_id: string;
+          player_id: string;
+        };
+        Update: {
+          archived_at?: string;
+          archived_by?: string | null;
+          league_id?: string;
+          player_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "player_league_archive_archived_by_fkey";
+            columns: ["archived_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "player_league_archive_league_id_fkey";
+            columns: ["league_id"];
+            isOneToOne: false;
+            referencedRelation: "leagues";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "player_league_archive_player_id_fkey";
+            columns: ["player_id"];
+            isOneToOne: false;
+            referencedRelation: "players";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       players: {
         Row: {
           birthdate: string | null;
@@ -555,6 +598,48 @@ export type Database = {
             columns: ["player_id"];
             isOneToOne: false;
             referencedRelation: "players";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      season_schedule_constraints: {
+        Row: {
+          created_at: string;
+          id: string;
+          kind: string;
+          params: Json;
+          season_id: string;
+          team_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          kind: string;
+          params?: Json;
+          season_id: string;
+          team_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          kind?: string;
+          params?: Json;
+          season_id?: string;
+          team_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "season_schedule_constraints_season_id_fkey";
+            columns: ["season_id"];
+            isOneToOne: false;
+            referencedRelation: "seasons";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "season_schedule_constraints_team_id_fkey";
+            columns: ["team_id"];
+            isOneToOne: false;
+            referencedRelation: "teams";
             referencedColumns: ["id"];
           },
         ];
@@ -766,6 +851,7 @@ export type Database = {
           id: string;
           league_id: string;
           logo_path: string | null;
+          logo_text_color: string;
           name: string;
           slug: string;
         };
@@ -775,6 +861,7 @@ export type Database = {
           id?: string;
           league_id: string;
           logo_path?: string | null;
+          logo_text_color?: string;
           name: string;
           slug: string;
         };
@@ -784,6 +871,7 @@ export type Database = {
           id?: string;
           league_id?: string;
           logo_path?: string | null;
+          logo_text_color?: string;
           name?: string;
           slug?: string;
         };

@@ -2,6 +2,11 @@ import { createClient } from "@/utils/supabase/server";
 import { leagueDateKey } from "@/lib/format";
 import { isUuid } from "@/lib/db/uuid";
 import { groupIntoNights, type SeasonNight } from "@/lib/schedule/nights";
+import {
+  isConstraintKind,
+  type ConstraintParams,
+  type ScheduleConstraint,
+} from "@/lib/schedule/constraints";
 import type { DbClient } from "@/lib/db/helpers";
 
 // Every helper here that filters by team interpolates the id into a PostgREST
@@ -149,6 +154,54 @@ export async function getSeasonNights(
   }
 
   return groupIntoNights(data ?? [], leagueDateKey(new Date().toISOString()));
+}
+
+/**
+ * A season's manager constraints, oldest first.
+ *
+ * Returned in the generator's own shape (`ScheduleConstraint`), not the row
+ * shape: `params` is `jsonb`, so it arrives as `unknown` and the one place that
+ * narrows it should be the one place that knows what each kind means. A row
+ * whose `kind` is not one this build understands is dropped rather than passed
+ * on — it can only have come from a newer deploy, and the generator would
+ * report it unresolvable anyway.
+ */
+export async function getScheduleConstraints(
+  seasonId: string,
+  // ⛔ REQUIRED, and it has to be the admin client. 0039 grants
+  // `season_schedule_constraints` to nobody — `revoke all from anon,
+  // authenticated` — so an RLS-client read returns `42501`, this function logs
+  // and returns `[]`, and the caller sees a season with no requests rather than
+  // an error. "No constraints" and "I was not allowed to look" must not be the
+  // same value. Required rather than defaulted so the choice is made at every
+  // call site instead of inherited silently — `DbClient` still admits the RLS
+  // client, so this forces the decision rather than making the wrong one
+  // impossible.
+  opts: { client: DbClient },
+): Promise<ScheduleConstraint[]> {
+  if (!isUuid(seasonId)) return [];
+  const supabase = opts.client;
+  const { data, error } = await supabase
+    .from("season_schedule_constraints")
+    .select("id, team_id, kind, params")
+    .eq("season_id", seasonId)
+    .order("created_at", { ascending: true });
+  if (error) {
+    console.error("schedule constraints query failed:", error.message);
+    return [];
+  }
+  return (data ?? []).flatMap((r) =>
+    isConstraintKind(r.kind)
+      ? [
+          {
+            id: r.id,
+            teamId: r.team_id,
+            kind: r.kind,
+            params: (r.params ?? {}) as ConstraintParams,
+          },
+        ]
+      : [],
+  );
 }
 
 /** Most recent final games. */

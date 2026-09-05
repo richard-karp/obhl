@@ -78,6 +78,38 @@ export async function leagueOfTeamPlayer(
   return data?.season?.league_id ?? null;
 }
 
+/**
+ * Every league a PLAYER plays in — plural, and that is not an oversight.
+ *
+ * ⛔ The singular resolvers above exist because every other entity belongs to
+ * exactly one league. A player does not. `players` has no `league_id` at all
+ * (0002_core.sql:43, and 0032's header restates it), deliberately, so that one
+ * human is one row across every league they play in. There is therefore no
+ * `leagueOfPlayer` to write, and reaching for one is the mistake this function
+ * is named to prevent.
+ *
+ * Derived through the only path the schema offers: `team_players` → `seasons`
+ * → `league_id`. NOT filtered on `left_on`: a player who left a team in March
+ * still played in that league, and a rename still changes the name on that
+ * league's stats pages — which is exactly what the containment test in
+ * `mayWritePlayer` is asking about.
+ *
+ * An empty array means a player nobody has rostered anywhere. Callers must
+ * decide what that means for them rather than reading it as "no restriction";
+ * in `mayWritePlayer` it passes containment vacuously, and is meant to.
+ */
+export async function leaguesOfPlayer(
+  playerId: string,
+  admin: Admin,
+): Promise<string[]> {
+  if (!playerId) return [];
+  const { data } = await admin
+    .from("team_players")
+    .select("season:seasons!inner(league_id)")
+    .eq("player_id", playerId);
+  return [...new Set((data ?? []).map((r) => r.season.league_id))];
+}
+
 /** Announcements carry their league directly; the id is all an action gets. */
 export async function leagueOfAnnouncement(
   announcementId: string,
@@ -90,6 +122,28 @@ export async function leagueOfAnnouncement(
     .eq("id", announcementId)
     .maybeSingle();
   return data?.league_id ?? null;
+}
+
+/**
+ * A schedule constraint belongs to the league of the season it constrains.
+ *
+ * Same shape as `leagueOfTeamPlayer`: the action holds a constraint id and no
+ * league, and the season is the only hop to one. Not resolved through `team_id`
+ * — a team carries a `league_id` directly, but a constraint's authority comes
+ * from the season it is attached to, and those are the same league by
+ * construction (a season only enrols its own league's teams).
+ */
+export async function leagueOfScheduleConstraint(
+  constraintId: string,
+  admin: Admin,
+): Promise<string | null> {
+  if (!constraintId) return null;
+  const { data } = await admin
+    .from("season_schedule_constraints")
+    .select("season:seasons!inner(league_id)")
+    .eq("id", constraintId)
+    .maybeSingle();
+  return data?.season?.league_id ?? null;
 }
 
 /**

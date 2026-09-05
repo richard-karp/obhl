@@ -9,7 +9,13 @@
  * in the same slot on back-to-back games.
  */
 
-import { SPACING_W, proportionalSplit } from "./spacing";
+import {
+  SPACING_W,
+  SLOT_BIAS_W,
+  biasSign,
+  proportionalSplit,
+  type SlotBias,
+} from "./spacing";
 
 /**
  * Even-share pull over the *season*, as a sum-of-squares gradient toward a flat
@@ -119,8 +125,14 @@ export type SlotOptions = {
    * `initial[night][gameIndex]` — start from these slots rather than the default
    * packing. Repairing a published season starts from the slots it already has,
    * so unchanged nights stay put unless moving them helps.
+   *
+   * A night may be left `undefined`, and that is not the same as supplying the
+   * identity packing: an undefined night is seeded by `seedNights` like any
+   * other, while a supplied one is taken as given. Generation relies on that —
+   * it supplies only the handful of nights carrying a `slot_on` pin and lets the
+   * seed lay out the rest of the season.
    */
-  initial?: number[][];
+  initial?: (number[] | undefined)[];
   /**
    * Nights the search may not touch (already played, or otherwise off limits).
    * Their slots still count toward every team's share — they're fixed history
@@ -133,6 +145,17 @@ export type SlotOptions = {
    * to hold a labelled game on the feature ice time.
    */
   pinned?: (number[] | undefined)[];
+  /**
+   * Manager ice-time preferences (`slot_bias`): over a stretch of the season,
+   * lean one team's games toward the earlier or the later ice times.
+   *
+   * ⚠️ The same list must reach `iceOutcome`. Generation runs this function
+   * five times and keeps the winner by `compareIceOutcome`, so a term that
+   * exists only in the cost below is invisible to the choice that ships and the
+   * feature becomes a coin toss. `SLOT_BIAS_W` and `biasSign` live in
+   * `spacing.ts` for exactly that reason — one definition, two readers.
+   */
+  biases?: SlotBias[];
 };
 
 function mulberry32(seed: number): () => number {
@@ -224,6 +247,7 @@ export function assignSlots(opts: SlotOptions): number[][] {
     initial,
     frozen,
     pinned,
+    biases,
   } = opts;
   const N = pairsByNight.length;
   if (N === 0) return [];
@@ -272,6 +296,35 @@ export function assignSlots(opts: SlotOptions): number[][] {
   const wdOfGame: number[][] = nightsOf.map((list) =>
     list.map((n) => wdOfNight[n]),
   );
+
+  /**
+   * `biasOfGame[t][i]` — the signed pull on that team's i-th game, or 0 outside
+   * the requested window. Undefined for every team nobody asked anything for,
+   * which is every team on an unconstrained generation, so the innermost cost
+   * loop below never runs and the search prices a season exactly as it did
+   * before this feature existed.
+   */
+  const biasOfGame: (Int8Array | undefined)[] = new Array(T).fill(undefined);
+  for (const b of biases ?? []) {
+    if (b.team < 0 || b.team >= T) continue;
+    const sign = biasSign(b.prefer);
+    const row = biasOfGame[b.team] ?? new Int8Array(nightsOf[b.team].length);
+    nightsOf[b.team].forEach((n, i) => {
+      // ⛔ `+=`, NOT `=`. One row is shared by every bias this team has, so
+      // assigning let the LAST overlapping request decide a night on its own
+      // while `iceOutcome` (`spacing.ts`) summed the same night across biases.
+      // Two functions the doc there says "have to price it identically" then
+      // did not: the descent minimised one cost and the five-candidate rank-off
+      // compared another, so the winner need not be the candidate the descent
+      // had optimised. Summing is the side that moves because it is also the
+      // defensible reading — two "early" requests over one night pull harder,
+      // and an "early" against a "late" cancels, which is what contradicting
+      // yourself should cost. Overflowing an Int8 needs 127 overlapping
+      // requests on one team.
+      if (b.nights[n]) row[i] += sign;
+    });
+    biasOfGame[b.team] = row;
+  }
 
   /**
    * `idealOf[t][d * numSlots + s]` — the flattest split of team `t`'s games on
@@ -329,7 +382,7 @@ export function assignSlots(opts: SlotOptions): number[][] {
     isPermutation(initial?.[n], pairs.length),
   );
   const slotOf: number[][] = pairsByNight.map((pairs, n) =>
-    fromInitial[n] ? [...initial![n]] : pairs.map((_, gi) => gi),
+    fromInitial[n] ? [...initial![n]!] : pairs.map((_, gi) => gi),
   );
 
   /** A game the search must leave alone: on a frozen night, or explicitly pinned. */
@@ -450,12 +503,16 @@ export function assignSlots(opts: SlotOptions): number[][] {
         wdDev += dv * dv;
       }
     }
+    let bias = 0;
+    const bg = biasOfGame[t];
+    if (bg) for (let i = 0; i < seq.length; i++) bias += bg[i] * seq[i];
     return (
       consec +
       streak +
       SPACING_W.slotSpread * Math.max(0, hi - lo - 1) +
       SHARE_W * sq +
-      WEEKDAY_SHARE_W * wdDev
+      WEEKDAY_SHARE_W * wdDev +
+      SLOT_BIAS_W * bias
     );
   };
 

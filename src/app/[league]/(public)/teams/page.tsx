@@ -1,22 +1,38 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getActiveContext } from "@/lib/queries/season";
+import { notFound } from "next/navigation";
+import { resolveLeagueBySlug } from "@/lib/league/current";
+import { getActiveContext, getManageContext } from "@/lib/queries/season";
+import { canManageLeague } from "@/lib/auth/guards";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { NoSeason } from "@/components/public/no-season";
+import { SeasonSwitcher } from "@/components/manage/season-switcher";
 
 export const metadata: Metadata = { title: "Teams" };
 
 export default async function TeamsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ league: string }>;
+  searchParams: Promise<{ season?: string }>;
 }) {
   const { league: leagueParam } = await params;
-  const ctx = await getActiveContext(leagueParam);
+  const { season: seasonParam } = await searchParams;
+  // ⚠️ TWO SEASONS, ONE PAGE — see the team page for the whole reasoning. A
+  // manager picks a season here and follows it into the team they open; the
+  // public gets the active one, and the parameter is read only after
+  // `canManageLeague` says yes.
+  const resolved = await resolveLeagueBySlug(leagueParam);
+  if (!resolved) notFound();
+  const manageCtx = (await canManageLeague(resolved.id))
+    ? await getManageContext(leagueParam, seasonParam)
+    : null;
+  const ctx = manageCtx ?? (await getActiveContext(leagueParam));
   if (!ctx.season) return <NoSeason />;
   const slug = ctx.league.slug;
   // This absorbed `/manage/rosters`, whose one substantive difference was that
@@ -34,7 +50,10 @@ export default async function TeamsPage({
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Teams" description={ctx.season.name} />
+      <PageHeader title="Teams" description={ctx.season.name}>
+        {/* Staff only — a visitor has one season and nothing to switch to. */}
+        {manageCtx ? <SeasonSwitcher ctx={manageCtx} /> : null}
+      </PageHeader>
       {teams.length === 0 ? (
         <EmptyState title="No teams enrolled yet" />
       ) : (
@@ -47,6 +66,7 @@ export default async function TeamsPage({
                     name={t.name}
                     color={t.color}
                     logoPath={t.logo_path}
+                    textColor={t.logo_text_color}
                     className="size-10 text-sm"
                   />
                   <span className="font-semibold">{t.name}</span>

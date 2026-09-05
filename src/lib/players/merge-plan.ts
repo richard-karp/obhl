@@ -52,6 +52,7 @@ export type MergePlan =
   | { ok: false; reason: "opposing-teams"; gameId: string }
   | { ok: false; reason: "different-active-teams"; teamIds: string[] }
   | { ok: false; reason: "both-linked"; playerIds: string[] }
+  | { ok: false; reason: "keep-archived"; teamIds: string[] }
   | {
       ok: true;
       rosterKeep: string[];
@@ -108,12 +109,19 @@ function richer(a: RosterRow, b: RosterRow): RosterRow {
  * `rosters` carries the same requirement. `linkedPlayerIds` does too, but it
  * fails safe — an id from outside the set can only cause a spurious
  * `both-linked` refusal, never a bad write.
+ *
+ * `keepArchived` says whether the SURVIVOR is archived out of the league this
+ * merge is running in (0040). Passed in rather than looked up for the same
+ * reason `linkedPlayerIds` is: this function stays pure and the league is the
+ * caller's fact, not this function's. Defaulting it to `false` keeps every
+ * existing call honest — a caller that does not know is asserting nothing.
  */
 export function planMerge(
   keepId: string,
   rosters: RosterRow[],
   games: GameRow[],
   linkedPlayerIds: readonly string[] = [],
+  keepArchived = false,
 ): MergePlan {
   // 1. Two same-named records on both sides of one game is proof they are two
   // people. Summing them would carry goals across teams.
@@ -186,6 +194,39 @@ export function planMerge(
     const winner = rows.reduce(richer);
     rosterKeep.push(winner.id);
     for (const r of rows) if (r.id !== winner.id) rosterDelete.push(r.id);
+  }
+
+  // 4. An archived survivor may not come out of this holding an active roster
+  // row. `archivePlayer` refuses to archive anyone still rostered, and 0040's
+  // header calls that an invariant — but a merge reaches the same end from the
+  // other side: archive P out of this league while every row P has here is
+  // departed (allowed), then merge an actively-rostered duplicate INTO P. The
+  // repoint below moves that active row onto P and the league now has an
+  // archived player on a team, hidden from every picker that filters the
+  // archive and still holding a working Transfer button.
+  //
+  // ⛔ THIS IS A THIRD WRITER TO THAT INVARIANT, NOT A SECOND. `archivePlayer`
+  // guards its own direction and `addRosterPlayer` guards the other; neither
+  // sees a merge. Anything else that repoints `team_players.player_id` has to
+  // answer this question too.
+  //
+  // Read off the SURVIVORS rather than off `rosters`, so it stays exact if
+  // `richer` ever stops preferring active rows. Today it does prefer them, so
+  // the two readings agree and this is the one that cannot drift.
+  const kept = new Set(rosterKeep);
+  const strandedTeams = [
+    ...new Set(
+      rosters
+        .filter((r) => kept.has(r.id) && r.leftOn == null)
+        .map((r) => r.teamId),
+    ),
+  ];
+  if (keepArchived && strandedTeams.length) {
+    return {
+      ok: false,
+      reason: "keep-archived",
+      teamIds: strandedTeams.sort(),
+    };
   }
 
   return {

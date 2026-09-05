@@ -4,12 +4,13 @@ import { requireUser } from "@/lib/auth/guards";
 import { isLeagueMember } from "@/lib/auth/membership";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 import { createClient } from "@/utils/supabase/server";
-import { getActiveContext } from "@/lib/queries/season";
+import { getManageContext } from "@/lib/queries/season";
 import { getSchedule } from "@/lib/queries/schedule";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { EmptyState } from "@/components/shared/empty-state";
+import { SeasonSwitcher } from "@/components/manage/season-switcher";
 import { formatGameDateTime } from "@/lib/format";
 
 function ActionCard({
@@ -37,14 +38,17 @@ function ActionCard({
 
 export default async function DashboardPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ league: string }>;
+  searchParams: Promise<{ season?: string }>;
 }) {
   const { league: leagueParam } = await params;
+  const { season: seasonParam } = await searchParams;
   const user = await requireUser();
   // The league alone first, so a request that is about to be refused does not
-  // also pay for the active-season lookup. `resolveLeagueBySlug` is
-  // cache()-wrapped, so `getActiveContext` below reuses this answer.
+  // also pay for the season lookup. `resolveLeagueBySlug` is cache()-wrapped,
+  // so `getManageContext` below reuses this answer.
   const league = await resolveLeagueBySlug(leagueParam);
   if (!league) notFound();
   // Membership, not role, decides which leagues a staff account can open. The
@@ -53,10 +57,10 @@ export default async function DashboardPage({
   // the one page that tells someone why nothing works — unreachable. It renders
   // no league data, so there is nothing for it to leak.
   if (user.role && !(await isLeagueMember(user.id, league.id))) redirect("/");
-  const ctx = await getActiveContext(leagueParam);
+  const ctx = await getManageContext(leagueParam, seasonParam);
   // The resolved slug, not the URL's — links stay canonical from /OBHL.
   const leagueSlug = ctx.league.slug;
-  const seasonLabel = ctx.season?.name ?? "No active season";
+  const seasonLabel = ctx.season?.name ?? "No seasons yet";
 
   if (!user.role) {
     return (
@@ -69,11 +73,18 @@ export default async function DashboardPage({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-bold tracking-tight">Manage</h1>
-        <p className="text-muted-foreground text-sm">
-          {user.email} · {seasonLabel}
-        </p>
+      {/*
+        The switcher sits on this row rather than in the brand bar — see the
+        note on `SeasonSwitcher`, and `MAX_INLINE_LINKS` in `manage-nav.tsx`.
+      */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold tracking-tight">Manage</h1>
+          <p className="text-muted-foreground text-sm">
+            {user.email} · {seasonLabel}
+          </p>
+        </div>
+        <SeasonSwitcher ctx={ctx} />
       </div>
 
       {user.role === "league_manager" ? (
@@ -191,7 +202,7 @@ async function CaptainPanel({
     return explainWhenAbsent ? (
       <EmptyState
         title="No team to captain this season"
-        description="You don't captain a team in the current league's active season. Switch leagues in the header if your team is elsewhere."
+        description="You don't captain a team in the season shown above. Switch season or league in the header if your team is elsewhere."
       />
     ) : null;
   }

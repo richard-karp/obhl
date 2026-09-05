@@ -15,8 +15,55 @@ export type SessionUser = {
 };
 
 /**
+ * The role from `profiles`, for a session whose JWT carries no role claim.
+ *
+ * ⛔ THIS IS THE LOCKOUT FIX, AND IT IS DELIBERATELY ON THE READ SIDE.
+ *
+ * `app_metadata.role` is written by the custom-access-token hook (`0010`). If
+ * that hook did not fire when the token was minted — it is enabled in the
+ * Supabase dashboard, not in a migration, so a restored project or a fresh
+ * environment can simply not have it — the account signs in with `role: null`
+ * and `requireRole` refuses it at every manage page: present in `profiles` with
+ * the right role, locked out of the tools, and no error anywhere. That is the
+ * standing lockout risk in `LAUNCH_READINESS_HANDOFF.md`.
+ *
+ * Fixing it here rather than in the hook is a choice: this repairs tokens that
+ * have ALREADY been issued, needs no dashboard action, and cannot break sign-in
+ * for the accounts that work today. The hook and the `app_role` enum stay
+ * untouched.
+ *
+ * ⚠️ NORMAL RLS CLIENT, NOT THE ADMIN ONE. `own profile read`
+ * (`0009_rls_roles.sql:111`) is `for select using (id = auth.uid())` — it does
+ * not call `auth_role()`, so a session with no role claim can still read its own
+ * row and there is no recursion to break. Reaching past RLS for a row the caller
+ * already owns would be widening the blast radius for nothing. (`officeTierOf`
+ * uses the admin client for the opposite reason: 0034 grants `league_office` to
+ * nobody, so RLS cannot answer it at all.)
+ *
+ * ⚠️ `cache()` IS NOT OPTIONAL. `getSessionUser` is called by several segments
+ * per render — layout, page, and any action they submit to — so an uncached
+ * fallback would be one round trip each. Memoized per request; the answer cannot
+ * change mid-render.
+ *
+ * This changes what the app OFFERS, not what the database ACCEPTS. RLS still
+ * authorizes every write through `auth_role()`, which reads `profiles` itself.
+ */
+const roleFromProfile = cache(async function roleFromProfile(
+  id: string,
+): Promise<AppRole | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", id)
+    .maybeSingle();
+  return data?.role ?? null;
+});
+
+/**
  * Resolves the current user + role from the verified JWT claims. The role comes
- * from the custom-access-token hook (app_metadata.role) for cheap gating; RLS
+ * from the custom-access-token hook (app_metadata.role) for cheap gating, and
+ * falls back to `profiles` when the claim is absent (see `roleFromProfile`); RLS
  * still authorizes writes against the profiles table.
  *
  * Memoized per request, like `memberLeagueIds` and `resolveLeagueBySlug`, and
@@ -33,10 +80,13 @@ export const getSessionUser = cache(
       | { sub?: string; email?: string; app_metadata?: { role?: AppRole } }
       | undefined;
     if (error || !claims?.sub) return null;
+    // The claim stays the fast path: a working session costs no extra query, and
+    // only a token missing the claim pays for the lookup.
+    const claimed = claims.app_metadata?.role ?? null;
     return {
       id: claims.sub,
       email: claims.email ?? null,
-      role: claims.app_metadata?.role ?? null,
+      role: claimed ?? (await roleFromProfile(claims.sub)),
     };
   },
 );

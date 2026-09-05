@@ -8,10 +8,13 @@
    (383 lines); nothing outstanding depends on it.
 2. ⛔ **Hazards, before any instruction:**
    - `supabase db reset --linked` **wipes production**. Use `db push`.
-   - ⚠️ **The lockout risk is now REAL, not hypothetical.** Items 1 and 2 are
-     closed, so dev-login and the seeded accounts are both gone — and with them
-     every verified way into production's manage tools. If the JWT hook, SMTP or
-     the redirect allow-list is broken, recovery is SQL against production. See
+   - ⚠️ **The lockout risk is still real, but it lost a leg on 2026-09-05.**
+     Items 1 and 2 are closed, so dev-login and the seeded accounts are both
+     gone — and with them every verified way into production's manage tools.
+     Of the three ways in that could break, **the JWT hook is no longer one**:
+     `getSessionUser` now falls back to `profiles.role` (#24, workstream D1).
+     SMTP and the redirect allow-list are untouched and still break sign-in one
+     step earlier, at the link itself. Recovery is still SQL. See
      *Getting locked out*.
    - **Mutating** `gh` (`pr create`, `pr merge`) and `vercel env` are denied to
      an agent under the auto-mode classifier — ask a human, do not work around
@@ -25,38 +28,70 @@
    `vercel env ls` shows `ENABLE_DEV_LOGIN` absent from every environment. The
    auth user list is still **unread from here**; item 2 was closed by a human and
    is taken on report, not measured.
-4. Verify code changes with `npm test && npm run test:e2e`. Measured on
-   `feat/league-office` after merging `main`, 2026-09-04: **290 unit; 144 e2e
-   passed / 1 skipped / 0 failed.** The skip is the AI-summary test, gated on an
-   API key — not a regression. ⚠️ The counts move with every merge; re-measure
-   rather than quoting them.
-   ⛔ **Run e2e against a dev server belonging to YOUR worktree.** Every worktree
-   runs `npm run dev` on port 3000 and Playwright's `reuseExistingServer` takes
-   whichever is already up — so a suite can silently drive another branch's code
-   and report it as yours. That produced nine phantom failures on 2026-09-04.
-   `lsof -ti:3000` before believing a red run; a spare port sidesteps it.
+   ⚠️ **That reading is now stale on the Local side and unrepeated on the
+   Remote one.** `0039`-`0041` exist in the repo as of #24 and have never been
+   pushed; Remote has not been read since 2026-09-04, and `migration list
+   --linked` **cannot run from a worktree** — the link lives in the main
+   checkout. Run it there. This is item 6.
+4. Verify code changes with `npm test && npm run test:e2e`. Measured on CI at
+   `244e95b` (`feat/manager-tools`), 2026-09-05: **27 unit files / 357 tests;
+   168 e2e passed / 1 skipped / 0 failed** in 9.2m, across 23 spec files. The
+   skip is the AI-summary test, gated on an API key — not a regression.
+   ⚠️ The counts move with every merge; re-measure rather than quoting them.
+   ⛔ **Run e2e against a dev server belonging to YOUR worktree.** Playwright's
+   `reuseExistingServer` takes whichever server is already up, so a suite can
+   silently drive another branch's code and report it as yours — nine phantom
+   failures on 2026-09-04. **Since #24 the port is a variable**: export a
+   distinct `PORT` per worktree and `playwright.config.ts` derives both
+   `baseURL` and `npm run dev -p` from it, so the two can never disagree. It
+   still defaults to 3000, so two worktrees that both forget still collide.
+   `lsof -ti:$PORT` before believing a red run.
 
-**Status: both doors are shut and every migration is pushed.** As of 2026-09-04
-`ENABLE_DEV_LOGIN` is gone from every Vercel environment, the seeded accounts are
-deleted, and production carries `0001`-`0038` — including `0037`, which fixed
-GAA being inflated by empty-net goals on live pages.
+**Status: both doors are shut; three migrations are now waiting.** As of
+2026-09-04 `ENABLE_DEV_LOGIN` is gone from every Vercel environment, the seeded
+accounts are deleted, and production carries `0001`-`0038` — including `0037`,
+which fixed GAA being inflated by empty-net goals on live pages. Since then #24
+has added `0039`-`0041`, **unpushed**.
 
-**What remains is item 4: the five `LAUNCH.md` phases, never verified.** That is
-the whole of the launch gap now, and it needs a human on production. Item 5 is
-deferred odds and ends.
+**What remains is item 4 (the `LAUNCH.md` phases, never verified) and item 6
+(the three migrations).** Both need a human on production. Item 5 is deferred
+odds and ends, item 7 is the half of the auth work that a checkout cannot do.
 
 ## Next action
 
-**Walk `LAUNCH.md` Phases 2-6 on production.** Nothing else is outstanding that a
-checkout can see, and nothing below can be done from one.
+**Push `0039`-`0041` before #24 merges — in that order, not the other one.**
 
-⛔ **Read *Getting locked out* first.** `getSessionUser` reads the role from the
-JWT claim with no database fallback, so a real manager whose claim is missing
-gets a signed-in session with no role and no way in — and with dev-login now
-removed, recovery is SQL against production. That risk went UP when item 1
-closed, not down.
+⛔ **The merge deploys code that reads tables production does not have.** Vercel
+builds `main` on merge, and #24's pages select `season_schedule_constraints`,
+`player_league_archive` and `teams.logo_text_color`. The failures are not
+uniform, and the quiet ones are worse than the loud one:
 
-## The five items, and where they stand
+- **Public standings degrade by design.** `getStandings` logs and carries on,
+  and `inkOf` falls back to null, which `TeamLogo` already renders as the white
+  letters it drew before `0041`. Nobody sees anything wrong.
+- **`archivedPlayerIdsIn` returns an empty set** on a failed read, so no one
+  looks archived and every removed player is back in the pickers — a correct
+  page showing the wrong league.
+- **The manage roster page 404s.** `teams` is read with an explicit
+  `logo_text_color` in the select list and `if (!team) notFound()` follows, so
+  the whole page goes rather than the colour.
+
+*A reading of the code, not a probe.* Push first, then merge.
+
+    # from the MAIN checkout, not a worktree — the link lives there
+    npx supabase migration list --linked      # expect 0039-0041 Local-only
+    npx supabase db push --include-all
+    npx supabase migration list --linked      # confirm they landed
+
+⚠️ `--include-all` is not decoration. `0039`-`0041` sort below nothing applied,
+but they will not be the only gap for long, and `db push` **silently skips** any
+migration sorting under the latest applied one. This exact case needed it for
+`0034`. ⛔ Never `db reset --linked`; it wipes production.
+
+**Then walk `LAUNCH.md` Phases 2-6 on production.** Nothing else outstanding can
+be done from a checkout.
+
+## The items, and where they stand
 
 | # | Item | Where | Status |
 |---|---|---|---|
@@ -65,10 +100,17 @@ closed, not down.
 | 3 | `0033` not pushed — the RLS half of the escalation | `supabase db push` | ✅ **closed** — and `0034`-`0038` with it |
 | 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | **OPEN** — below |
 | 5 | Smaller deferred items | below | open |
+| 6 | **`0039`-`0041` not pushed** — #24's three tables | `supabase db push` | **OPEN, and it gates the merge** — *Next action* |
+| 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard + `vercel env` | **OPEN** — needs a human; *The other half of auth* |
 
 ⛔ **Do not re-file 1-3.** They are kept as rows, rather than deleted, because a
 reader who knows this file by its old shape will otherwise assume they were
 forgotten. The reasoning behind each is under *Closed doors* below.
+
+⚠️ **6 and 7 both arrived with #24** (`feat/manager-tools`: schedule
+constraints, roster editing, team branding, staff auth, season gating). Item 6
+is a blocker with a two-line fix; item 7 is a standing limitation that needs an
+account created outside this repo.
 
 ---
 
@@ -138,27 +180,37 @@ Count rows per action after any change here. The suite was once green while
 
 ### Getting locked out
 
-`getSessionUser` (`src/lib/auth/session.ts`) reads the role from the JWT claim
-with **no database fallback** — `role: claims.app_metadata?.role ?? null`. So if
-the Custom Access Token hook is disabled, sign-in still appears to succeed and
-every user has `role: null`, reaching no manage tools at all. A missing SMTP
-config or redirect-allow-list entry breaks it one step earlier, at the magic
-link. Any of the three, with the dev-login panel already removed and the seeded
-accounts deleted, leaves no way in but SQL.
+**The hook leg is closed.** `getSessionUser` (`src/lib/auth/session.ts`) used
+to read the role from the JWT claim with no database fallback, so a disabled
+Custom Access Token hook meant sign-in appeared to succeed while every user held
+`role: null` and reached no manage tools at all. Since #24 the claim is only the
+fast path: when it is absent, `roleFromProfile` reads `profiles.role` through
+the **normal RLS client** (`own profile read` is `id = auth.uid()`, no
+`auth_role()` call, so no recursion), memoized with `cache()` because several
+segments call it per render. A working session still costs no extra query.
 
-⛔ **That is now the standing state, not a warning about a future one.** Both
-doors closed on 2026-09-04, and whether a real magic-link sign-in works has still
-never been confirmed. Doing that — on `obhl.vercel.app`, as a real
-(non-`@obhl.test`) manager, checking `/<league>/dashboard` shows the Manager badge
-— is the single highest-value action left in this file.
+⚠️ **It repairs a missing CLAIM, not a missing ROW.** An account with no
+`profiles` row, or a row whose `role` is null, is exactly as locked out as
+before — the fallback has nothing to find. The hook and the `app_role` enum were
+deliberately not touched.
+
+⛔ **Two legs are still standing.** A missing SMTP config or redirect-allow-list
+entry breaks sign-in one step earlier, at the magic link — before any of this
+runs. With the dev-login panel removed and the seeded accounts deleted, either
+one still leaves no way in but SQL. And whether a real magic-link sign-in works
+has **still never been confirmed**. Doing that — on `obhl.vercel.app`, as a real
+(non-`@obhl.test`) manager, checking `/<league>/dashboard` shows the Manager
+badge — remains the single highest-value action left in this file.
 
 **`LAUNCH.md` Phases 2-6 are unverified from here.** This file speaks only to
 Phase 1 (the test doors). The site is live with two leagues, so most of the rest
 presumably happened — but *presumably* is the operative word: nobody has checked
 SMTP, the Supabase redirect allow-list, or that the Custom Access Token hook is
-still enabled. The hook is the one that fails quietly: `getSessionUser` reads
-the role only from the JWT claim with no database fallback, so with it off
-sign-in still appears to work and nobody reaches the manage tools.
+still enabled. ⚠️ **The hook used to be the one that failed quietly; since #24
+it degrades instead** — sign-in falls back to `profiles.role` and the tools
+still open. Check it anyway: the fallback is a round trip per render on every
+session it saves, and a hook that silently stopped firing is worth knowing
+about. SMTP and the allow-list have no such fallback.
 ⚠️ **Phase 6 carries the only hard deadline in the project.** A published
 season locks the moment its first game night passes — `season_is_started`
 (`0026_replace_published_schedule.sql`) then permanently blocks generate,
@@ -251,6 +303,37 @@ returning profile_id, tier;
 ```
 END COPY
 
+## 7 — The other half of auth: a password can be SET but not USED
+
+⛔ **The recovery path is half-built, and the half that exists is the half that
+does nothing on its own.** #24 shipped `setStaffPassword`
+(`src/lib/actions/office.ts`, guarded by `requireCommissioner`, writing through
+`admin.auth.admin.updateUserById`) — so a commissioner can give a locked-out
+staff member a password. **Nothing on production can then sign in with it.**
+`/login` renders one field and one button, both `sendMagicLink`; the only
+`signInWithPassword` call in `src/` is inside `devSignIn`, which is gated on
+`ENABLE_DEV_LOGIN` and that is absent from every Vercel environment (item 1).
+The other two callers are e2e specs going straight to the Supabase client,
+which is not a route a person has.
+
+*A reading of the code, checked against every `signInWithPassword` and every
+`type="password"` in the repo on 2026-09-05 — not a probe against production.*
+
+**So do not reach for it in a lockout expecting it to work.** Today the button
+is a bootstrap for the flow that has not shipped. What closes it, in order:
+
+1. **Custom SMTP (Resend).** ⛔ Cannot be done from a checkout: it is Supabase
+   dashboard configuration plus `vercel env` writes, and mutating `vercel env`
+   is denied to an agent. Deliverable from a checkout is the written steps and
+   the exact env keys — a human runs them.
+2. **A self-serve set/reset-password flow**, riding on that SMTP.
+3. **Only then**, a password field on `/login`. ⚠️ Magic link stays as the
+   secondary path; removing it would make step 1 the only way back in, and the
+   whole point of this item is not having a single one of those.
+
+Until 1 lands, 2 and 3 cannot be verified, so none of it should ship. That is
+why the sequence is written down rather than left to whoever picks it up.
+
 ## 5 — Smaller, deliberately deferred
 
 - **`saveRules` read-then-upsert is not atomic** — two concurrent saves both
@@ -264,9 +347,17 @@ END COPY
 - **CI does not run `npm run lint`**, though the script exists.
 - **No `.nvmrc` or `engines`** — `.github/workflows/ci.yml` is the de-facto
   source of truth for the Node version (22).
-- **CI is proven on runner hardware** — green on both jobs, unit at ~1m40s
-  across four runs, all with the default `OBHL_SLOT_BUDGET_MS`. The env
-  overrides in `vitest.config.ts` stay as unused levers.
+- **The generator has TWO bounds, and which one binds depends on where it
+  runs.** Phase S ends at `OBHL_SLOT_RESTARTS` restarts *or*
+  `OBHL_SLOT_BUDGET_MS`, whichever comes first (`assignNights.ts:140-141`).
+  Production and the dev server take the defaults — 20,000 restarts against a
+  5 s budget, so the **budget** is what ends it, which is why the e2e lever
+  below is the right one. `vitest.config.ts` pins restarts to 2,000, so the unit
+  suite is **restart**-bound instead: dropping it to 200 took the schedule suite
+  from 3.66 s to 733 ms, while doubling the budget to 10,000 moved it not at all
+  (3.67 s). ⚠️ Reaching for the budget to speed up unit tests does nothing, and
+  the commit message on `4e82dae` says otherwise — it is wrong and left in
+  history rather than rewritten. `vitest.config.ts` carries the correction.
 - **Two Playwright timeouts are load-bearing; do not tidy them back.**
   `expect` is 15s and the per-test `timeout` is 60s
   (`playwright.config.ts`). The generator is wall-clock budgeted at
@@ -281,10 +372,14 @@ END COPY
   **e2e job's** env, which flows through `npm run dev` to the generator — no
   code change, `envInt` already reads it. **Raise the budget; never loosen the
   assertion.**
-- **Every worktree runs `npm run dev` on port 3000.** Playwright's
-  `reuseExistingServer` takes whichever server is already up, so a suite can
-  drive another branch's code and report the result as yours. Nine phantom
-  failures on 2026-09-04 before `ps` named the culprit. Check `lsof -ti:3000`.
+- **Worktrees collide on the dev-server port unless each exports `PORT`.**
+  Playwright's `reuseExistingServer` takes whichever server is already up, so a
+  suite can drive another branch's code and report the result as yours — nine
+  phantom failures on 2026-09-04 before `ps` named the culprit. #24 made
+  `playwright.config.ts` derive `baseURL` AND the `npm run dev -p` flag from one
+  `PORT`, so those two can no longer disagree; ⚠️ it still **defaults to 3000**,
+  which means the collision is now avoidable rather than avoided. Export a
+  distinct `PORT` per worktree and check `lsof -ti:$PORT`.
 - **A migration can reach production without reaching the repo.** `0036` was
   `db push`ed from a worktree while its file was uncommitted, so for a day
   production carried a column no checkout described and `db push` refused from
@@ -299,6 +394,16 @@ END COPY
 Items 1, 2 and 4 come from `LAUNCH.md`, which remains the operational runbook —
 this file records only what is still outstanding in it. Item 3 came out of the
 PR #13 review on 2026-09-02.
+
+Items 6 and 7 arrived with **PR #24** (`feat/manager-tools`) on 2026-09-05, the
+five-workstream branch planned in
+`docs/superpowers/specs/2026-09-04-manager-tools-and-auth-design.md`. Item 6 is
+mechanical — three migrations the branch added. Item 7 is that branch's D
+workstream stopping where it was always going to stop, at the SMTP account
+nobody has created. ⚠️ Both were found by re-reading this file against the
+branch rather than by anything failing, which is the only way either would have
+surfaced before a merge: **the tests are green with item 6 open**, because CI
+runs migrations from the repo and never sees production's.
 
 Items 1, 2 and 3 were closed on 2026-09-04 alongside the League Office work
 (`docs/worklists/2026-09-03-678b2916-league-office.md`, PR #22) and the roster

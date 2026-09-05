@@ -2,7 +2,17 @@ import Link from "next/link";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { discardSchedule } from "@/lib/actions/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
-import { getPublishState } from "@/lib/queries/schedule";
+import {
+  getPublishState,
+  getScheduleConstraints,
+} from "@/lib/queries/schedule";
+import {
+  describeConstraint,
+  evaluateConstraints,
+  forcedByeCredits,
+  presentSpacing,
+  resolveConstraints,
+} from "@/lib/schedule/constraints";
 import { publishMode } from "@/lib/schedule/publishMode";
 import { estimatedGenerateMs } from "@/lib/schedule/assignNights";
 import { weekdayOf } from "@/lib/format";
@@ -22,7 +32,12 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ScheduleGenerateForm } from "@/components/manage/schedule-generate-form";
 import { PublishControls } from "@/components/manage/publish-controls";
 import { RemoveControls } from "@/components/manage/remove-controls";
-import { formatLongDate, formatGameTime, leagueDateKey } from "@/lib/format";
+import {
+  formatLongDate,
+  formatGameTime,
+  leagueDateKey,
+  leagueTimeKey,
+} from "@/lib/format";
 
 const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -61,6 +76,10 @@ export async function ScheduleBuilderPanel({
   const enrolledTeams = await getEnrolledTeams(seasonId, { client: admin });
 
   const publish = await getPublishState(seasonId, { client: admin });
+
+  const storedConstraints = await getScheduleConstraints(seasonId, {
+    client: admin,
+  });
 
   // This panel's own draft read is part of the same fail-closed contract as
   // getPublishState's six. It errors independently and PostgREST hands back
@@ -178,8 +197,81 @@ export async function ScheduleBuilderPanel({
       });
     });
   }
-  const spacing =
+  const rawSpacing =
     placed.length > 0 ? spacingReport(placed, spacingNights, teamRows) : null;
+
+  // ── Manager requests, checked against the draft on this page ───────────────
+  //
+  // Re-derived here rather than carried out of the generator, and that is
+  // deliberate twice over. It survives a reload, which a returned report does
+  // not; and it is decided by READING THE PLACED GAMES, which is the only
+  // evidence that a pin actually shipped — later steps can move things, and
+  // asking a phase whether it did what it was told would report a pin as
+  // honoured whether or not it survived.
+  //
+  // Scope, stated so it cannot be misread: this card answers "does the draft
+  // below satisfy this request?" — not "did the generator apply it?". Those come
+  // apart in exactly one case, when the fallback planner wins the rank-off and
+  // no constraint was ever applied; the generate action says so in its own
+  // message, which is the moment that fact exists.
+  const constraintNights = draftDates.map((d) => ({
+    date: d,
+    // Games are already in ice-time order within the night, so this index IS
+    // the slot index the constraint resolves to.
+    slots: (byDate.get(d) ?? []).map((g) =>
+      g.scheduled_at ? leagueTimeKey(g.scheduled_at) : "--:--",
+    ),
+  }));
+  const constraintTeamIds = enrolledTeams.map((t) => t.id);
+  const resolvedConstraints = resolveConstraints(storedConstraints, {
+    nights: constraintNights,
+    teamIds: constraintTeamIds,
+  });
+  const teamSlot = new Map<string, number>();
+  const teamPlays = constraintTeamIds.map(() =>
+    new Array<boolean>(draftDates.length).fill(false),
+  );
+  const constraintTeamIndex = new Map(
+    constraintTeamIds.map((id, i) => [id, i]),
+  );
+  for (const g of placed) {
+    for (const id of [g.home, g.away]) {
+      const ti = constraintTeamIndex.get(id);
+      if (ti === undefined) continue;
+      teamPlays[ti][g.nightIndex] = true;
+      teamSlot.set(`${ti}:${g.nightIndex}`, g.slotIndex);
+    }
+  }
+  // ⛔ `items.length`, NOT `empty` — the same distinction `assignNights` makes,
+  // and this is the surface where it matters most. An all-unresolved set is
+  // `empty === true` with items in it, so gating here meant the transient
+  // "couldn't be met" toast was right while THIS card — the one a manager sees
+  // on every later page load — silently vanished, leaving the request listed
+  // in the form above with no verdict against it.
+  const constraintOutcomes =
+    resolvedConstraints.items.length === 0 || placed.length === 0
+      ? []
+      : evaluateConstraints(resolvedConstraints, {
+          plays: teamPlays,
+          slotOf: (t, n) => teamSlot.get(`${t}:${n}`) ?? null,
+          plannerHonours: true,
+        });
+  // Breaches the manager's own forced byes made unavoidable, subtracted from
+  // what is shown. ⛔ Presentation only — the solver's `byeRuleCost` still counts
+  // every one of them, because it is also the basis of Phase P's admissible
+  // lower bound and re-deriving that is not worth an even-looking table.
+  const credits =
+    placed.length > 0
+      ? forcedByeCredits(resolvedConstraints, {
+          nights: constraintNights,
+          teamIds: constraintTeamIds,
+          byed: (t, n) => !teamPlays[t][n],
+        })
+      : null;
+  const spacing =
+    rawSpacing && credits ? presentSpacing(rawSpacing, credits) : rawSpacing;
+  const constraintNameOf = (id: string) =>
+    enrolledTeams.find((t) => t.id === id)?.name ?? "A removed team";
 
   // Nights that run fewer games than the fullest one. Those nights drop their
   // latest slot, so it gets used on fewer nights than the earlier ones and equal
@@ -259,7 +351,8 @@ export async function ScheduleBuilderPanel({
                 seasonId={seasonId}
                 seasonStart={season?.starts_on ?? null}
                 seasonEnd={season?.ends_on ?? null}
-                teamCount={enrolledCount}
+                teams={enrolledTeams.map((t) => ({ id: t.id, name: t.name }))}
+                constraints={storedConstraints}
                 // Read here rather than in the form: the generator's budget
                 // constants are server-side, and the form is a client
                 // component.
@@ -504,6 +597,50 @@ export async function ScheduleBuilderPanel({
             </CardContent>
           </Card>
 
+          {constraintOutcomes.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Manager requests</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-1.5 text-sm">
+                  {constraintOutcomes.map((o) => {
+                    const source = storedConstraints.find((c) => c.id === o.id);
+                    return (
+                      <li key={o.id} className="flex items-start gap-2">
+                        <span
+                          className={
+                            o.satisfied
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-amber-600 dark:text-amber-400"
+                          }
+                        >
+                          {o.satisfied ? "✓" : "✗"}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {source
+                            ? describeConstraint(
+                                source,
+                                constraintNameOf(o.teamId),
+                              )
+                            : o.kind}
+                          {o.reason ? ` — ${o.reason}` : ""}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="text-muted-foreground mt-2 text-xs">
+                  Checked against the draft on this page, not against what the
+                  generator was asked to do — a request only counts as met if
+                  the games below actually show it. Requests are best effort: an
+                  even schedule comes first, so a request can be declined rather
+                  than bought with an unbalanced season.
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
+
           {spacing ? (
             <Card>
               <CardHeader>
@@ -571,6 +708,17 @@ export async function ScheduleBuilderPanel({
                     </li>
                   ))}
                 </ul>
+                {credits &&
+                (credits.byesMultiWeek ||
+                  credits.byesConsecWeek ||
+                  credits.byesConsecWeekSameDay ||
+                  credits.byesAdjNight) ? (
+                  <p className="text-muted-foreground mt-2 text-xs">
+                    Bye counts above exclude breaches your own forced byes made
+                    unavoidable — a whole week off is two byes in one week by
+                    definition, so it is not counted against the schedule.
+                  </p>
+                ) : null}
                 <p className="text-muted-foreground mt-2 text-xs">
                   Byes and repeated matchups are minimized after an even
                   schedule is fixed. Some are unavoidable when there are fewer

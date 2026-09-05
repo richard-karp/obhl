@@ -22,9 +22,27 @@ export async function GET(request: NextRequest) {
   // There is no league-agnostic dashboard any more — the staff tools live
   // under /<league> — and a magic link cannot know which league was meant, so
   // both the default and the sanitising fallback land on the league picker.
+  //
+  // ⛔ DECIDED BY THE PARSER. The older check here was `startsWith("/") &&
+  // !startsWith("//")`, which is one normalisation short in both directions:
+  // the WHATWG parser folds a backslash into a slash AND strips ASCII
+  // tab/CR/LF before parsing, so "/\\evil.com" and "/<TAB>\\evil.com" both walk
+  // past it. Not exploitable here — this route builds `${origin}${next}` and
+  // `NextResponse.redirect` re-parses, keeping the host — but a check that is
+  // only safe because of what its caller does later is a trap for whoever
+  // moves it. `selectSeason` uses the identical test, and the comment there
+  // saying so is now true again.
   const rawNext = searchParams.get("next") ?? "/";
-  const next =
-    rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
+  let next = "/";
+  if (rawNext.startsWith("/")) {
+    try {
+      const probe = new URL(rawNext, "http://a.invalid");
+      if (probe.origin === "http://a.invalid")
+        next = probe.pathname + probe.search;
+    } catch {
+      // Unparseable — keep the league picker.
+    }
+  }
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
