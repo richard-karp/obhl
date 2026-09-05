@@ -82,6 +82,65 @@ function Links({ links, base }: { links: NavLink[]; base: string }) {
   );
 }
 
+/**
+ * The staff link row on its own, for the SHARED pages.
+ *
+ * `/rules`, `/teams/<slug>` and `/schedule` are one URL serving the public and
+ * the people who run the league. They live under `(public)`, so a manager who
+ * followed one lost `ManageNav` and every link in it — three reviews flagged it
+ * independently, as a consequence nobody had decided on.
+ *
+ * ⛔ A ROW BENEATH THE PUBLIC HEADER, NOT A REPLACEMENT FOR IT. Swapping in the
+ * whole `ManageNav` was the obvious move and is wrong: its "View site" link
+ * would then point at a page that renders `ManageNav` again, so the one control
+ * for getting back to the public view becomes a no-op. A shared page is a public
+ * page with more on it, and this is the more.
+ */
+export function StaffLinks({
+  role,
+  currentSlug,
+  officeTier,
+}: {
+  role: AppRole | null;
+  currentSlug: string;
+  officeTier: string | null;
+}) {
+  return (
+    <div className="bg-muted/30 border-b">
+      <nav
+        aria-label="Staff tools"
+        className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 py-1"
+      >
+        <Links links={staffLinks(role, officeTier)} base={`/${currentSlug}`} />
+      </nav>
+    </div>
+  );
+}
+
+/**
+ * The links a role gets, plus the League Office when a tier says so. Shared by
+ * `ManageNav` and `StaffLinks` so the two cannot offer different tools.
+ */
+function staffLinks(
+  role: AppRole | null,
+  officeTier: string | null,
+): NavLink[] {
+  return [
+    ...(role ? LINKS[role] : [{ path: "/dashboard", label: "Dashboard" }]),
+    // Without this the page is reachable only by typing the URL. It is not in
+    // `LINKS` because that map is keyed on role and its paths are
+    // league-relative, and the office is neither.
+    //
+    // Does not disturb the measurement below: 0034 refuses a tier to anyone who
+    // is not a `league_manager`, so the only set this can extend is the
+    // manager's, which is already past MAX_INLINE_LINKS and on its own
+    // full-width row.
+    ...(officeTier
+      ? [{ path: "/manage/office", label: "League Office", absolute: true }]
+      : []),
+  ];
+}
+
 export function ManageNav({
   role,
   leagues,
@@ -99,20 +158,7 @@ export function ManageNav({
   officeTier: string | null;
 }) {
   const base = `/${currentSlug}`;
-  const links: NavLink[] = [
-    ...(role ? LINKS[role] : [{ path: "/dashboard", label: "Dashboard" }]),
-    // Without this the page is reachable only by typing the URL. It is not in
-    // `LINKS` because that map is keyed on role and its paths are
-    // league-relative, and the office is neither.
-    //
-    // Does not disturb the measurement below: 0034 refuses a tier to anyone who
-    // is not a `league_manager`, so the only set this can extend is the
-    // manager's, which is already past MAX_INLINE_LINKS and on its own
-    // full-width row.
-    ...(officeTier
-      ? [{ path: "/manage/office", label: "League Office", absolute: true }]
-      : []),
-  ];
+  const links = staffLinks(role, officeTier);
 
   // The manager's ten links cannot sit beside the account controls at any
   // window size, so they get the full-width row to themselves — the same row

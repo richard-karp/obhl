@@ -103,9 +103,13 @@ test.describe("Path 6b — Auth-aware chrome", () => {
     await page.getByRole("link", { name: "Manage" }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
 
-    // And a public league page, which has its own header.
+    // And a public league page, which has its own header — plus, for a manager,
+    // the staff link row beneath it, so the merged pages are not a dead end.
     await page.goto("/obhl/standings");
     await expect(badge(page)).toBeVisible();
+    const staff = page.getByRole("navigation", { name: "Staff tools" });
+    await expect(staff).toBeVisible();
+    await expect(staff.getByRole("link", { name: "Seasons" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Manage" })).toHaveAttribute(
       "href",
       "/obhl/dashboard",
@@ -121,6 +125,9 @@ test.describe("Path 6b — Auth-aware chrome", () => {
       );
       await expect(page.getByRole("link", { name: "Manage" })).toHaveCount(0);
       await expect(badge(page)).toHaveCount(0);
+      await expect(
+        page.getByRole("navigation", { name: "Staff tools" }),
+      ).toHaveCount(0);
     }
   });
 
