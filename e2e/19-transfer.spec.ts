@@ -9,9 +9,12 @@ async function signInAsManager(page: Page) {
 }
 
 async function openRoster(page: Page, team: string) {
-  await page.goto("/obhl/rosters");
+  await page.goto("/obhl/teams");
   await page.getByText(team).click();
-  await expect(page).toHaveURL(/\/rosters\//);
+  await expect(page).toHaveURL(/\/teams\//);
+  // The roster editor is a tab on the team page now, not a page of
+  // its own behind a uuid.
+  await page.getByRole("tab", { name: "Manage" }).click();
 }
 
 /**
@@ -24,7 +27,9 @@ async function firstRowName(page: Page) {
   return (await row.locator("td").nth(1).innerText()).split("\n")[0].trim();
 }
 
-test("a clashing jersey number is refused, and nothing moves", async ({ page }) => {
+test("a clashing jersey number is refused, and nothing moves", async ({
+  page,
+}) => {
   await signInAsManager(page);
 
   // Read the number off the destination rather than assuming one. Earlier specs
@@ -32,7 +37,12 @@ test("a clashing jersey number is refused, and nothing moves", async ({ page }) 
   // passes alone and fails in the run — which is how this one first failed.
   await openRoster(page, "Bears");
   const taken = (
-    await page.locator("table tbody tr").first().locator("td").first().innerText()
+    await page
+      .locator("table tbody tr")
+      .first()
+      .locator("td")
+      .first()
+      .innerText()
   ).trim();
   expect(taken).toMatch(/^\d+$/);
 
@@ -51,7 +61,9 @@ test("a clashing jersey number is refused, and nothing moves", async ({ page }) 
   await expect(page.getByRole("cell", { name })).toBeVisible();
 });
 
-test("a transferred player leaves one roster and joins the other", async ({ page }) => {
+test("a transferred player leaves one roster and joins the other", async ({
+  page,
+}) => {
   await signInAsManager(page);
   await openRoster(page, "Sharks");
   const name = await firstRowName(page);

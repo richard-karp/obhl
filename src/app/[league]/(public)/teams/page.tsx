@@ -19,6 +19,17 @@ export default async function TeamsPage({
   const ctx = await getActiveContext(leagueParam);
   if (!ctx.season) return <NoSeason />;
   const slug = ctx.league.slug;
+  // This absorbed `/manage/rosters`, whose one substantive difference was that
+  // it read on the ADMIN client, "so a season the public-read policies don't
+  // cover shows its teams rather than coming back silently empty" — a staged
+  // league being exactly that case.
+  //
+  // That read is NOT carried over, because it turns out not to be needed:
+  // 0032's "manager write teams"/"manager write season_teams" are `for all`
+  // using `manages_league`, so a manager reads their own staged league's teams
+  // through their own session. Measured, not assumed — reverting to this line
+  // leaves the staged-league assertion in `15-league-routing.spec.ts` green,
+  // which is what that assertion is now here to keep true.
   const teams = await getEnrolledTeams(ctx.season.id);
 
   return (

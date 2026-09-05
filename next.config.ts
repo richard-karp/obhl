@@ -40,6 +40,17 @@ const nextConfig: NextConfig = {
         destination: "/:league/rules",
         permanent: true,
       },
+      // `/rosters` merged into `/teams`. Only the INDEX is a path rewrite:
+      // `/rosters/<uuid>` names a team by an id the new URL replaces with a
+      // slug, so it needs a lookup and lives at
+      // `(manage)/rosters/[teamId]/page.tsx` instead. A source of
+      // `/:league/rosters` matches that one segment only, so the two do not
+      // overlap.
+      {
+        source: "/:league/rosters",
+        destination: "/:league/teams",
+        permanent: true,
+      },
     ];
   },
 };

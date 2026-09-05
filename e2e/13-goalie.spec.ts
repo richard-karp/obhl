@@ -5,7 +5,10 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
+async function signedInAs(
+  page: Page,
+  role: "Manager" | "Scorekeeper" | "Captain",
+) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
@@ -40,7 +43,10 @@ test.describe("Path 19 — Scorekeeper goalie buttons", () => {
       for (let i = 0; i < (await boxes.count()); i++) {
         await boxes.nth(i).check();
       }
-      await lineupForms.nth(f).getByRole("button", { name: "Save lineup" }).click();
+      await lineupForms
+        .nth(f)
+        .getByRole("button", { name: "Save lineup" })
+        .click();
       await page.waitForLoadState("networkidle");
     }
 
@@ -70,16 +76,21 @@ test.describe("Path 20 — Default goalie on roster page", () => {
     page,
   }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/rosters");
+    await page.goto("/obhl/teams");
     await page.getByText("Sharks").click();
-    await expect(page).toHaveURL(/\/rosters\//);
+    await expect(page).toHaveURL(/\/teams\//);
+    // The roster editor is a tab on the team page now, not a page of
+    // its own behind a uuid.
+    await page.getByRole("tab", { name: "Manage" }).click();
 
     // Goalie row has a "Set Default" button
     const goalieRow = page
       .locator("table tbody tr")
       .filter({ hasText: "Goalie" })
       .first();
-    await expect(goalieRow.getByRole("button", { name: /Set Default|Default ✓/ })).toBeVisible();
+    await expect(
+      goalieRow.getByRole("button", { name: /Set Default|Default ✓/ }),
+    ).toBeVisible();
 
     // If already set, unset first so we're in a known state
     const alreadyDefault = goalieRow.getByRole("button", { name: "Default ✓" });
@@ -91,16 +102,21 @@ test.describe("Path 20 — Default goalie on roster page", () => {
     // Set as default
     await goalieRow.getByRole("button", { name: "Set Default" }).click();
     await page.waitForLoadState("networkidle");
-    await expect(goalieRow.getByRole("button", { name: "Default ✓" })).toBeVisible();
+    await expect(
+      goalieRow.getByRole("button", { name: "Default ✓" }),
+    ).toBeVisible();
   });
 
   test("Goalie Schedule card is visible when team has a rostered goalie", async ({
     page,
   }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/rosters");
+    await page.goto("/obhl/teams");
     await page.getByText("Sharks").click();
-    await expect(page).toHaveURL(/\/rosters\//);
+    await expect(page).toHaveURL(/\/teams\//);
+    // The roster editor is a tab on the team page now, not a page of
+    // its own behind a uuid.
+    await page.getByRole("tab", { name: "Manage" }).click();
 
     await expect(page.getByText("Goalie Schedule")).toBeVisible();
     // Mon and Thu rows should be present
@@ -110,9 +126,12 @@ test.describe("Path 20 — Default goalie on roster page", () => {
 
   test("manager can assign a goalie to a day and save it", async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/rosters");
+    await page.goto("/obhl/teams");
     await page.getByText("Sharks").click();
-    await expect(page).toHaveURL(/\/rosters\//);
+    await expect(page).toHaveURL(/\/teams\//);
+    // The roster editor is a tab on the team page now, not a page of
+    // its own behind a uuid.
+    await page.getByRole("tab", { name: "Manage" }).click();
 
     // Find the Mon row select and pick the first non-default option
     const monForm = page
@@ -129,9 +148,9 @@ test.describe("Path 20 — Default goalie on roster page", () => {
     await monForm.getByRole("button", { name: "Set" }).click();
     await page.waitForLoadState("networkidle");
 
-    // Page should still be on the roster, the Goalie Schedule card intact,
-    // and Mon row still present — confirms the server action didn't crash.
-    await expect(page).toHaveURL(/\/rosters\//);
+    // Page should still be on the team, the Goalie Schedule card intact, and
+    // the Mon row still present — confirms the server action didn't crash.
+    await expect(page).toHaveURL(/\/teams\//);
     await expect(page.getByText("Goalie Schedule")).toBeVisible();
     const freshForm = page
       .locator("form")
@@ -162,7 +181,9 @@ test.describe("Path 21 — Captain sets goalie of record", () => {
     await expect(goalieForm.getByRole("button")).toBeVisible();
   });
 
-  test("captain can click a goalie button and it persists", async ({ page }) => {
+  test("captain can click a goalie button and it persists", async ({
+    page,
+  }) => {
     await signedInAs(page, "Captain");
 
     const gameLink = page.getByRole("link", { name: "Set lineup" }).first();

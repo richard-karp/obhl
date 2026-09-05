@@ -4,7 +4,10 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
+async function signedInAs(
+  page: Page,
+  role: "Manager" | "Scorekeeper" | "Captain",
+) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
@@ -17,11 +20,16 @@ test.describe("Path 12 — Audit log", () => {
   test("suspension action appears in the audit log", async ({ page }) => {
     await signedInAs(page, "Manager");
 
-    await page.goto("/obhl/rosters");
+    await page.goto("/obhl/teams");
     await page.getByText("Bears").click();
-    await expect(page).toHaveURL(/\/rosters\//);
+    await expect(page).toHaveURL(/\/teams\//);
+    // The roster editor is a tab on the team page now, not a page of
+    // its own behind a uuid.
+    await page.getByRole("tab", { name: "Manage" }).click();
 
-    await page.locator("table tbody tr").nth(2)
+    await page
+      .locator("table tbody tr")
+      .nth(2)
       .getByRole("button", { name: "Suspend" })
       .click();
     await page.waitForLoadState("networkidle");
@@ -38,9 +46,12 @@ test.describe("Path 12 — Audit log", () => {
   test("captain toggle appears in audit log", async ({ page }) => {
     await signedInAs(page, "Manager");
 
-    await page.goto("/obhl/rosters");
+    await page.goto("/obhl/teams");
     await page.getByText("Bears").click();
-    await expect(page).toHaveURL(/\/rosters\//);
+    await expect(page).toHaveURL(/\/teams\//);
+    // The roster editor is a tab on the team page now, not a page of
+    // its own behind a uuid.
+    await page.getByRole("tab", { name: "Manage" }).click();
 
     // Toggle captain status on the first skater row (nth(1) skips goalie)
     const row = page.locator("table tbody tr").nth(1);
@@ -60,20 +71,29 @@ test.describe("Path 12 — Audit log", () => {
     ).toBeVisible();
   });
 
-  test("revert button is present when session entries exist", async ({ page }) => {
+  test("revert button is present when session entries exist", async ({
+    page,
+  }) => {
     await signedInAs(page, "Manager");
 
     // Create a revertible action
-    await page.goto("/obhl/rosters");
+    await page.goto("/obhl/teams");
     await page.getByText("Wolves").click();
-    await expect(page).toHaveURL(/\/rosters\//);
-    await page.locator("table tbody tr").nth(2)
+    await expect(page).toHaveURL(/\/teams\//);
+    // The roster editor is a tab on the team page now, not a page of
+    // its own behind a uuid.
+    await page.getByRole("tab", { name: "Manage" }).click();
+    await page
+      .locator("table tbody tr")
+      .nth(2)
       .getByRole("button", { name: "Suspend" })
       .click();
     await page.waitForLoadState("networkidle");
 
     await page.goto("/obhl/audit");
-    const revertBtn = page.getByRole("button", { name: /revert selected/i }).first();
+    const revertBtn = page
+      .getByRole("button", { name: /revert selected/i })
+      .first();
     await expect(revertBtn).toBeVisible();
     await revertBtn.click();
     await page.waitForLoadState("networkidle");

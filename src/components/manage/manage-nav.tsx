@@ -14,7 +14,7 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
     { path: "/dashboard", label: "Dashboard" },
     { path: "/people", label: "People & Roles" },
     { path: "/seasons", label: "Seasons" },
-    { path: "/rosters", label: "Rosters" },
+    { path: "/teams", label: "Teams" },
     { path: "/schedule-builder", label: "Schedule" },
     { path: "/score", label: "Games" },
     { path: "/announcements", label: "Announcements" },

@@ -4,7 +4,10 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
+async function signedInAs(
+  page: Page,
+  role: "Manager" | "Scorekeeper" | "Captain",
+) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
@@ -16,9 +19,12 @@ async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain
 test.describe("Path 9 — Roster editor", () => {
   test.beforeEach(async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/rosters");
+    await page.goto("/obhl/teams");
     await page.getByText("Sharks").click();
-    await expect(page).toHaveURL(/\/rosters\//);
+    await expect(page).toHaveURL(/\/teams\//);
+    // The roster editor is a tab on the team page now, not a page of
+    // its own behind a uuid.
+    await page.getByRole("tab", { name: "Manage" }).click();
   });
 
   test("roster page shows 14 players with jersey numbers", async ({ page }) => {
@@ -41,7 +47,9 @@ test.describe("Path 9 — Roster editor", () => {
     await page.getByRole("button", { name: /add/i }).click();
     await page.waitForLoadState("networkidle");
 
-    await expect(page.getByRole("cell", { name: "Testy McTestface" })).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: "Testy McTestface" }),
+    ).toBeVisible();
   });
 
   test("removing a player is visible in this league's audit log", async ({
@@ -93,30 +101,43 @@ test.describe("Path 9 — Roster editor", () => {
    * subtracts is filtered to active rows. Coming back is therefore the normal
    * way an operator undoes a removal, not an edge case.
    */
-  test("a removed player can be added back to the same team", async ({ page }) => {
+  test("a removed player can be added back to the same team", async ({
+    page,
+  }) => {
     const row = page.locator("table tbody tr").first();
     // The second cell: the table is #, Player, Position, Status, Manage.
-    const name = (await row.locator("td").nth(1).innerText()).split("\n")[0].trim();
+    const name = (await row.locator("td").nth(1).innerText())
+      .split("\n")[0]
+      .trim();
 
     // Their position, so it can be put back. The add form is the same form
     // whether the person is new or returning, so it decides both position and
     // number — and its position default is F. Re-adding the Sharks' goalie
     // without setting it turns them into a forward and leaves the team with no
     // goalie at all, which is what broke e2e/13 the first time this ran.
-    const POS_CODE: Record<string, string> = { Forward: "F", Defense: "D", Goalie: "G" };
-    const position = POS_CODE[(await row.locator("td").nth(2).innerText()).trim()] ?? "F";
+    const POS_CODE: Record<string, string> = {
+      Forward: "F",
+      Defense: "D",
+      Goalie: "G",
+    };
+    const position =
+      POS_CODE[(await row.locator("td").nth(2).innerText()).trim()] ?? "F";
 
     await row.getByRole("button", { name: "Remove" }).click();
     await page.waitForLoadState("networkidle");
     await expect(page.getByRole("cell", { name })).toHaveCount(0);
 
-    await page.getByLabel("Existing person (optional)").selectOption({ label: name });
+    await page
+      .getByLabel("Existing person (optional)")
+      .selectOption({ label: name });
     await page.getByLabel("Pos").selectOption(position);
     await page.getByRole("button", { name: /add/i }).click();
     await page.waitForLoadState("networkidle");
 
     await expect(page.getByRole("cell", { name })).toBeVisible();
-    await expect(page.locator("table tbody tr").filter({ hasText: name })).toHaveCount(1);
+    await expect(
+      page.locator("table tbody tr").filter({ hasText: name }),
+    ).toHaveCount(1);
   });
 
   test("toggle captain sets and removes C badge", async ({ page }) => {
@@ -136,11 +157,15 @@ test.describe("Path 9 — Roster editor", () => {
     const row = page.locator("table tbody tr").nth(2);
     await row.getByRole("button", { name: "Suspend" }).click();
     await page.waitForLoadState("networkidle");
-    await expect(row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" })).toBeVisible();
+    await expect(
+      row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" }),
+    ).toBeVisible();
 
     await row.getByRole("button", { name: "Lift Susp." }).click();
     await page.waitForLoadState("networkidle");
-    await expect(row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" })).not.toBeVisible();
+    await expect(
+      row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" }),
+    ).not.toBeVisible();
   });
 
   test("logo upload card is visible", async ({ page }) => {

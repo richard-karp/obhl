@@ -43,6 +43,6 @@ export async function uploadTeamLogo(formData: FormData) {
     old_data: { logo_path: was?.logo_path ?? null },
     new_data: { logo_path: path },
   });
-  revalidatePath("/[league]/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/teams", "page");
 }

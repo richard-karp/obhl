@@ -406,7 +406,7 @@ export async function mergePlayers(
   });
 
   revalidatePath("/[league]/people/duplicates", "page");
-  revalidatePath("/[league]/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]", "layout");
 

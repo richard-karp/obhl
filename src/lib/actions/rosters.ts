@@ -119,7 +119,7 @@ export async function addRosterPlayer(
     new_data: { player_id, team_id, season_id, position, returned: !!prior },
   });
 
-  revalidatePath("/[league]/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
   return {
     ok: true,
     message: prior
@@ -204,7 +204,7 @@ export async function removeRosterPlayer(formData: FormData) {
     // has to know which one it is undoing.
     new_data: { removal: played ? "departed" : "deleted" },
   });
-  revalidatePath("/[league]/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
 }
 
 /**
@@ -436,11 +436,14 @@ export async function transferPlayer(
     new_data: { to_team_id, jersey_number: wanted, left_on },
   });
 
-  // A transfer changes two rosters plus the public team and stats pages, so it
-  // needs more revalidation than an add, not the same. Without this the player
-  // shows on BOTH rosters until something unrelated invalidates the cache —
-  // which looks exactly like the bug this feature exists to prevent.
-  revalidatePath("/[league]/rosters/[teamId]", "page");
+  // A transfer changes two rosters plus the stats pages, so it needs more
+  // revalidation than an add, not the same. Without this the player shows on
+  // BOTH rosters until something unrelated invalidates the cache — which looks
+  // exactly like the bug this feature exists to prevent.
+  //
+  // One call, not two, since the roster page merged into the team page: the
+  // route PATTERN covers every team, so naming it twice was already the same
+  // instruction twice. Both teams are still covered.
   revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/stats", "page");
   revalidatePath("/[league]", "layout");
@@ -461,7 +464,7 @@ export async function toggleCaptain(formData: FormData) {
     entity_id: id,
     new_data: { is_captain: make },
   });
-  revalidatePath("/[league]/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
 }
 
 export async function setDefaultGoalie(formData: FormData) {
@@ -497,7 +500,7 @@ export async function setDefaultGoalie(formData: FormData) {
     entity_id: id,
     new_data: { is_default_goalie: make },
   });
-  revalidatePath("/[league]/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
 }
 
 export async function setGoalieDay(formData: FormData) {
@@ -533,7 +536,7 @@ export async function setGoalieDay(formData: FormData) {
     entity_id: team_id,
     new_data: { day_of_week, player_id: player_id || null },
   });
-  revalidatePath("/[league]/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
 }
 
 export async function updatePlayerStatus(formData: FormData) {
@@ -577,5 +580,5 @@ export async function updatePlayerStatus(formData: FormData) {
     old_data: oldVal !== undefined ? { [field]: oldVal } : null,
     new_data: { field, value: formData.get("value") },
   });
-  revalidatePath("/[league]/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
 }

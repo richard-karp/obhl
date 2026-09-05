@@ -203,6 +203,17 @@ test.describe("Path 16 — Per-league routing", () => {
       expect(asMember?.status()).toBe(200);
       await expect(page.getByRole("link", { name: "Manage" })).toBeVisible();
 
+      // ...including Teams, which absorbed `/manage/rosters`. That page read
+      // past RLS on purpose, and losing it in the merge would have shown a
+      // manager staging a league an empty Teams page with nothing to explain
+      // it. The public-read policies cover neither a staged league's seasons
+      // nor its teams.
+      await page.goto("/harbor/teams");
+      await expect(page.getByText("No teams enrolled yet")).toHaveCount(0);
+      await expect(
+        page.locator('a[href^="/harbor/teams/"]').first(),
+      ).toBeVisible();
+
       // ...and the staff pages, which never depended on this rule.
       await page.goto("/harbor/dashboard");
       await expect(page).toHaveURL("/harbor/dashboard");
@@ -366,18 +377,57 @@ test.describe("Path 16 — Per-league routing", () => {
     await expect(page.getByText("That page couldn't be found.")).toBeVisible();
   });
 
-  test("a roster from another league is not editable under this one", async ({
+  test("a team from another league is not reachable under this one", async ({
     page,
   }) => {
+    // The roster editor merged into the team page, so this is now a SLUG rather
+    // than a uuid — and the property is the same one: a team is addressable only
+    // under the league that owns it. `getTeamBySlug` is scoped to the league, so
+    // the foreign slug resolves to nothing rather than to somebody else's team.
     await signInAsManager(page);
-    const id = await harborId(page, "/harbor/rosters", "/harbor/rosters/");
+    const slug = await harborId(page, "/harbor/teams", "/harbor/teams/");
 
-    const own = await page.goto(`/harbor/rosters/${id}`);
+    const own = await page.goto(`/harbor/teams/${slug}`);
     expect(own?.status()).toBe(200);
+    const ownName = await page.locator("h1").first().innerText();
 
-    const foreign = await page.goto(`/obhl/rosters/${id}`);
-    expect(foreign?.status()).toBe(404);
+    // The assertion is the CONTENT, not the status. A `notFound()` thrown by a
+    // page inside `(public)` answers 200 in dev, because the layout above it has
+    // already begun streaming by the time the page throws — watched on `main`
+    // too, for `/obhl/teams/nosuchteam` and `/obhl/players/<bogus>`, so it is
+    // neither new here nor caused by the merge. What matters for THIS test is
+    // that the other league's team does not appear.
+    await page.goto(`/obhl/teams/${slug}`);
     await expect(page.getByText("That page couldn't be found.")).toBeVisible();
+    await expect(page.getByText(ownName, { exact: true })).toHaveCount(0);
+  });
+
+  test("the old /rosters/<id> URL redirects, and only under its own league", async ({
+    page,
+    request,
+  }) => {
+    // The one redirect in this change that has to read the database: the old URL
+    // names a team by id, the new one by slug. That lookup is also a place to
+    // leak — answering for another league's team would hand out its slug — so
+    // the id is checked against the league in the URL.
+    await signInAsManager(page);
+    const slug = await harborId(page, "/harbor/teams", "/harbor/teams/");
+    const { data: team } = await admin()
+      .from("teams")
+      .select("id")
+      .eq("slug", slug)
+      .single();
+
+    const moved = await request.get(`/harbor/rosters/${team!.id}`, {
+      maxRedirects: 0,
+    });
+    expect(moved.status()).toBe(308);
+    expect(
+      new URL(moved.headers()["location"], "http://localhost").pathname,
+    ).toBe(`/harbor/teams/${slug}`);
+
+    const foreign = await page.goto(`/obhl/rosters/${team!.id}`);
+    expect(foreign?.status()).toBe(404);
   });
 
   test("a game from another league is not scoreable under this one", async ({
@@ -405,8 +455,9 @@ test.describe("Path 16 — Per-league routing", () => {
     const oceanviewBefore = await page.getByText(SUSPENSION).count();
 
     // Suspend a Harbor player: one audit entry, against Harbor.
-    const teamId = await harborId(page, "/harbor/rosters", "/harbor/rosters/");
-    await page.goto(`/harbor/rosters/${teamId}`);
+    const teamSlug = await harborId(page, "/harbor/teams", "/harbor/teams/");
+    await page.goto(`/harbor/teams/${teamSlug}`);
+    await page.getByRole("tab", { name: "Manage" }).click();
     const row = page.locator("table tbody tr").nth(2);
     await row.getByRole("button", { name: "Suspend" }).click();
     await expect(

@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { getActiveContext } from "@/lib/queries/season";
 import { getTeamBySlug } from "@/lib/queries/teams";
+import { canManageLeague } from "@/lib/auth/guards";
+import { RosterEditor } from "@/components/manage/roster-editor";
 import {
   TeamPlayerTable,
   type TeamPlayerRow,
@@ -12,6 +14,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/shared/empty-state";
 import { NoSeason } from "@/components/public/no-season";
 
+/**
+ * A team — one URL, for everybody.
+ *
+ * This absorbed `/manage/rosters/<uuid>`, which showed the same team to its
+ * manager behind an id nobody could read or share. The public content is
+ * unchanged and unconditional; a manager of THIS league gets one more tab.
+ *
+ * ⚠️ The team is resolved by SLUG WITHIN THE LEAGUE, which is what makes the old
+ * page's ownership check unnecessary rather than merely absent — see the note on
+ * `RosterEditor`.
+ */
 export default async function TeamPage({
   params,
 }: {
@@ -24,6 +37,7 @@ export default async function TeamPage({
 
   const detail = await getTeamBySlug(ctx.league.id, ctx.season.id, slug);
   if (!detail) notFound();
+  const canEdit = await canManageLeague(ctx.league.id);
 
   let w = 0;
   let l = 0;
@@ -89,7 +103,9 @@ export default async function TeamPage({
           className="size-12 text-base"
         />
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">{detail.team.name}</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {detail.team.name}
+          </h1>
           <p className="text-muted-foreground text-sm">
             {w}-{l}-{t} · {ctx.season.name}
           </p>
@@ -100,6 +116,14 @@ export default async function TeamPage({
         <TabsList>
           <TabsTrigger value="roster">Roster &amp; Stats</TabsTrigger>
           <TabsTrigger value="schedule">Schedule</TabsTrigger>
+          {/*
+            A tab rather than a section below the roster: the public content is
+            what this page is, and the editing surface is a place a manager goes
+            rather than a thing every visitor scrolls past. It is also what keeps
+            the page from becoming the 500-line hybrid the design warned about —
+            everything behind it lives in one component.
+          */}
+          {canEdit ? <TabsTrigger value="manage">Manage</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="roster" className="space-y-6">
@@ -128,9 +152,17 @@ export default async function TeamPage({
           {detail.games.length === 0 ? (
             <EmptyState title="No games scheduled" />
           ) : (
-            detail.games.map((g) => <GameRow key={g.id} game={g} league={league} />)
+            detail.games.map((g) => (
+              <GameRow key={g.id} game={g} league={league} />
+            ))
           )}
         </TabsContent>
+
+        {canEdit ? (
+          <TabsContent value="manage">
+            <RosterEditor team={detail.team} season={ctx.season} />
+          </TabsContent>
+        ) : null}
       </Tabs>
     </div>
   );

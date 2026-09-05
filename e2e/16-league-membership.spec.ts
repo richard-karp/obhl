@@ -149,7 +149,9 @@ test.describe("Path 17 — Per-league membership", () => {
     "/dashboard",
     "/people",
     "/seasons",
-    "/rosters",
+    // NOT "/teams": the roster editor merged into the public team page, so a
+    // manager of another league SEES it, like `/rules`. What they must not get
+    // is the Manage tab — asserted on its own below.
     "/schedule-builder",
     "/schedule-builder/one-off",
     "/score",
@@ -275,6 +277,21 @@ test.describe("Path 17 — Per-league membership", () => {
   // saw the two tests above cover only the affordance and the RLS half, and
   // concluded the guard was unprotected. It is not — but it is protected
   // somewhere else, which is worth saying here rather than re-deriving.
+
+  test("a manager of another league sees a team page with no Manage tab", async ({
+    page,
+  }) => {
+    // `/teams/<slug>` is shared now: public content, plus the roster editor for
+    // whoever is entitled. This account IS a league_manager — just not of this
+    // league — which is exactly the case `canManageLeague` exists to separate
+    // from the role alone.
+    await signInAs(page, "One-league mgr");
+    await page.goto(await teamRosterUrl(page, LEAD_OUT));
+    await expect(
+      page.getByRole("tab", { name: "Roster & Stats" }),
+    ).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Manage" })).toHaveCount(0);
+  });
 
   test("a scorekeeper cannot score another league's games", async ({
     page,
@@ -982,14 +999,20 @@ test.describe("Path 17 — Per-league membership", () => {
     ).length;
   }
 
-  /** A roster page in the league whose form the test will tamper with. */
+  /** A team page in the league whose form the test will tamper with. */
   async function teamRosterUrl(page: Page, slug: string) {
-    await page.goto(`/${slug}/rosters`);
+    await page.goto(`/${slug}/teams`);
     const href = await page
-      .locator(`a[href^="/${slug}/rosters/"]`)
+      .locator(`a[href^="/${slug}/teams/"]`)
       .first()
       .getAttribute("href");
     return href!;
+  }
+
+  /** ...and the tab the editing forms now live behind. */
+  async function openRosterEditor(page: Page, slug: string) {
+    await page.goto(await teamRosterUrl(page, slug));
+    await page.getByRole("tab", { name: "Manage" }).click();
   }
 
   test("a roster add cannot name another league's team", async ({ page }) => {
@@ -1004,7 +1027,7 @@ test.describe("Path 17 — Per-league membership", () => {
     const first = `Smuggled${Date.now()}`;
     try {
       await signInAs(page, "Manager");
-      await page.goto(await teamRosterUrl(page, LEAD_IN));
+      await openRosterEditor(page, LEAD_IN);
 
       const form = page.locator("form").filter({
         has: page.locator('input[name="first_name"]'),
@@ -1071,7 +1094,7 @@ test.describe("Path 17 — Per-league membership", () => {
 
     try {
       await signInAs(page, "Manager");
-      await page.goto(await teamRosterUrl(page, LEAD_IN));
+      await openRosterEditor(page, LEAD_IN);
 
       // The one form carrying id + team_id + season_id + make is setDefaultGoalie.
       const form = page
@@ -1116,7 +1139,7 @@ test.describe("Path 17 — Per-league membership", () => {
       .single();
 
     await signInAs(page, "Manager");
-    await page.goto(await teamRosterUrl(page, LEAD_IN));
+    await openRosterEditor(page, LEAD_IN);
 
     const form = page
       .locator("form")
