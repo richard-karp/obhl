@@ -163,7 +163,10 @@ export async function getScheduleConstraints(
   // authenticated` — so an RLS-client read returns `42501`, this function logs
   // and returns `[]`, and the caller sees a season with no requests rather than
   // an error. "No constraints" and "I was not allowed to look" must not be the
-  // same value, and the type is what stops them becoming it.
+  // same value. Required rather than defaulted so the choice is made at every
+  // call site instead of inherited silently — `DbClient` still admits the RLS
+  // client, so this forces the decision rather than making the wrong one
+  // impossible.
   opts: { client: DbClient },
 ): Promise<ScheduleConstraint[]> {
   if (!isUuid(seasonId)) return [];

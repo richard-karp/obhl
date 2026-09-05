@@ -1722,14 +1722,30 @@ export function assignNights(
   //     night and nobody ever byes. `refuteConstraints` says so by arithmetic
   //     before a search runs. `play_on`, `slot_on` and `slot_bias` still work.
   //
-  // ⚠️ GATED ON THE KINDS A PLANNER CAN ACT ON, not on `!empty`. `slot_bias`
-  // never reaches Phase P at all — it contributes no forced cell and no
-  // disjunction, so Phase P's matrix is byte-identical with and without it —
-  // yet `!empty` is true for a bias-only set and this branch was discarding the
-  // rank-off winner for nothing. Measured on the acceptance shape above: one
-  // bias took `byesConsecWeek` from 1 to 2 and the bias was STILL reported
-  // unmet. The league paid a rule-2 breach to buy a tie-break weighted at 4,
-  // and did not even get the tie-break.
+  // ⚠️ GATED ON THE KINDS THAT MOVE THE PARTICIPATION MATRIX, not on `!empty`.
+  //
+  // ⛔ AND THE TRADE IS NOT FREE — an earlier version of this comment said the
+  // old branch discarded the rank-off winner "for nothing", which is wrong and
+  // worth stating plainly. A `slot_bias` contributes no forced cell and no
+  // disjunction, so Phase P's MATRIX is byte-identical with and without it —
+  // but `resolved.biases` is consumed INSIDE `planByParticipation`, into
+  // `assignSlots` and into `iceOutcome` (see `slotArgs` and `outcomeFor`
+  // below). `planByWeeks` takes no constraints at all. So forcing Phase P for a
+  // bias-only set was buying the only plan whose Phase S had ever seen the
+  // bias.
+  //
+  // What it cost was real too: measured on the acceptance shape above, one bias
+  // took `byesConsecWeek` from 1 to 2 — a rule-2 breach — and still came back
+  // unmet. And what it buys is smaller than it looks: measured over 12
+  // bias-only runs (T ∈ {6,8,10}, both directions), satisfaction was a wash,
+  // 8/12 either way, while `planByWeeks` now ships in 8 of those 12 — so on
+  // this branch the bias reaches no code at all two times in three.
+  //
+  // A wash on satisfaction and a real cost in ranking is why the better-ranked
+  // schedule wins. The honest description of today's behaviour is that a bias
+  // is heard only when Phase P wins the rank-off on its own merits. Making it
+  // deterministic means plumbing `biases` into the fallback's slot polish,
+  // which is a change to `planByWeeks` and is not this.
   const needsPhaseP =
     resolved.forced.length > 0 ||
     resolved.byeInWeek.length > 0 ||

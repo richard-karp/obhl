@@ -61,7 +61,11 @@ export function PersonPicker({
   const [showArchived, setShowArchived] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; message: string } | null>(null);
   const [active, setActive] = useState(0);
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
+  // ⚠️ WHICH person is in flight, not a boolean — the same correction
+  // `ConstraintsCard` carries. One shared flag disables every Archive and
+  // Restore button in the list while any one of them is running.
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -80,7 +84,11 @@ export function PersonPicker({
     onSelectedChange?.(p?.id ?? null);
   }
 
-  function run(action: () => Promise<{ ok: boolean; message: string } | null>) {
+  function run(
+    id: string,
+    action: () => Promise<{ ok: boolean; message: string } | null>,
+  ) {
+    setBusyId(id);
     startTransition(async () => {
       try {
         const result = await action();
@@ -98,6 +106,8 @@ export function PersonPicker({
           ok: false,
           message: "That didn't go through — check your connection and try again.",
         });
+      } finally {
+        setBusyId(null);
       }
     });
   }
@@ -236,11 +246,11 @@ export function PersonPicker({
                   {p.archived ? (
                     <button
                       type="button"
-                      disabled={pending}
+                      disabled={busyId === p.id}
                       className="shrink-0 text-xs underline"
                       onClick={(e) => {
                         e.stopPropagation();
-                        run(() => restorePlayer(p.id, leagueId));
+                        run(p.id, () => restorePlayer(p.id, leagueId));
                       }}
                     >
                       Restore
@@ -252,11 +262,11 @@ export function PersonPicker({
                   ) : (
                     <button
                       type="button"
-                      disabled={pending}
+                      disabled={busyId === p.id}
                       className="text-destructive shrink-0 text-xs underline"
                       onClick={(e) => {
                         e.stopPropagation();
-                        run(() => archivePlayer(p.id, leagueId));
+                        run(p.id, () => archivePlayer(p.id, leagueId));
                       }}
                     >
                       Archive

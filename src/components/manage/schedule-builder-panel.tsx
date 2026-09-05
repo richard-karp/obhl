@@ -226,8 +226,14 @@ export async function ScheduleBuilderPanel({
       teamSlot.set(`${ti}:${g.nightIndex}`, g.slotIndex);
     }
   }
+  // ⛔ `items.length`, NOT `empty` — the same distinction `assignNights` makes,
+  // and this is the surface where it matters most. An all-unresolved set is
+  // `empty === true` with items in it, so gating here meant the transient
+  // "couldn't be met" toast was right while THIS card — the one a manager sees
+  // on every later page load — silently vanished, leaving the request listed
+  // in the form above with no verdict against it.
   const constraintOutcomes =
-    resolvedConstraints.empty || placed.length === 0
+    resolvedConstraints.items.length === 0 || placed.length === 0
       ? []
       : evaluateConstraints(resolvedConstraints, {
           plays: teamPlays,

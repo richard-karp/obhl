@@ -92,9 +92,12 @@ const TIME_RE = /^\d{1,2}:\d{2}$/;
 function normalizeTime(raw: string): string | null {
   if (!TIME_RE.test(raw)) return null;
   const [h, m] = raw.split(":");
-  // The shape check above admits "99:99". This is the one place an ice time is
-  // validated, and a time that cannot exist is stored happily and then simply
-  // never matches a slot — a request that fails for a reason nobody can see.
+  // The shape check above admits "99:99", which would be stored happily and
+  // then never match a slot. Since `55947c2` that surfaces as "99:99 is not an
+  // ice time on <date>" rather than silence, so this is no longer a hidden
+  // failure — it refuses at the point the manager can still fix it, which is
+  // the better place. (`DATE_RE` above has the same shape-only gap and accepts
+  // "2026-13-45"; that one surfaces as "not a game night".)
   if (Number(h) > 23 || Number(m) > 59) return null;
   return `${h.padStart(2, "0")}:${m}`;
 }

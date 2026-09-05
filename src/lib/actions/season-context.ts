@@ -41,14 +41,27 @@ export async function selectSeason(formData: FormData): Promise<void> {
   const raw = String(formData.get("next") ?? "");
   // Same rule as the magic-link handler: same-origin relative paths only, so a
   // hand-made form cannot turn the switcher into an open redirect.
-  // ⛔ `//` IS NOT THE ONLY ESCAPE. Browsers normalise a backslash to a forward
-  // slash in a Location header, so "/\\evil.com" leaves here looking like a
-  // relative path and arrives as "//evil.com" — an off-site redirect. Not
-  // reachable cross-site today (Next verifies Origin on Server Actions) and the
-  // real caller passes `usePathname()`, so this is depth rather than a hole.
-  const looksRelative =
-    raw.startsWith("/") && !raw.startsWith("//") && raw[1] !== "\\";
-  const next = looksRelative ? raw : `/${slug}/manage/dashboard`;
+  // ⛔ DECIDED BY THE PARSER, NOT BY INSPECTING CHARACTERS. Every hand-written
+  // version of this check has been exactly one normalisation short: `//` alone
+  // missed the backslash, and adding `raw[1] !== "\\"` missed that the WHATWG
+  // parser strips ASCII tab/CR/LF BEFORE parsing — so "/<TAB>\\evil.com" walks
+  // past a positional test and still resolves off-origin. Resolving against a
+  // throwaway origin and demanding the result stay on it is the only test that
+  // sees what the browser will see.
+  //
+  // Not reachable cross-site today — Next verifies Origin on Server Actions —
+  // and the real caller passes `usePathname()`. This is depth, not a hole.
+  let next = `/${slug}/manage/dashboard`;
+  if (raw.startsWith("/")) {
+    try {
+      const probe = new URL(raw, "http://a.invalid");
+      // `pathname + search` rather than `raw`: it is what the parser made of
+      // it, with the normalisation already applied rather than still pending.
+      if (probe.origin === "http://a.invalid") next = probe.pathname + probe.search;
+    } catch {
+      // Unparseable — keep the dashboard default.
+    }
+  }
 
   const league = await resolveLeagueBySlug(slug);
   if (!league) redirect("/");

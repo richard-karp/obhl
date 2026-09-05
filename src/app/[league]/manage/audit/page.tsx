@@ -239,11 +239,22 @@ export default async function AuditLogPage({
       }
       case "transfer_player": {
         // `new_data.name` is only written on the add-form path; `transferPlayer`
-        // passes no label. The entity is a `team_players` id either way, which
-        // `tpNameMap` resolves — the same fallback the other roster cases use.
+        // passes no label.
+        //
+        // ⛔ `playerNameMap` VIA `old_data`, NOT `tpNameMap`. `tpNameMap` is
+        // built from `lookupByTeamPlayer`, which filters to four actions —
+        // toggle_captain, update_player_status and their two reverts — and
+        // `transfer_player` is not one of them. Reading it here resolved a name
+        // only when the same roster row happened to appear under one of those
+        // four inside the same 500-row window, which is to say almost never.
+        // `movePlayerToTeam` writes the whole `team_players` row into
+        // `old_data`, and step 2 above harvests `old_data.player_id` from every
+        // row regardless of action — so the name is already in `playerNameMap`,
+        // which is the map `remove_player` reads for exactly this reason.
+        const pid = typeof od?.player_id === "string" ? od.player_id : null;
         const who =
           (typeof nd?.name === "string" ? nd.name : null) ??
-          tpNameMap.get(r.entity_id) ??
+          (pid ? playerNameMap.get(pid) : undefined) ??
           null;
         const via = nd?.via === "add" ? " (via the add form)" : "";
         return `Transferred ${who ?? "a player"} to another team${via}`;
