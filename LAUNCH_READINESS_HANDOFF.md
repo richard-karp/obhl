@@ -23,16 +23,22 @@
      page snapshot has twice settled in seconds what guessing got wrong.
 3. Every number here was **watched appear**. Where a claim is a reading of the
    code rather than a measurement, it says so in those words.
-   ⚠️ Production was read on **2026-09-04**: `migration list --linked` shows
-   `0001`-`0038` on both Local and Remote — no gaps, no drift — and
-   `vercel env ls` shows `ENABLE_DEV_LOGIN` absent from every environment. The
-   auth user list is still **unread from here**; item 2 was closed by a human and
-   is taken on report, not measured.
-   ⚠️ **That reading is now stale on the Local side and unrepeated on the
-   Remote one.** `0039`-`0041` exist in the repo as of #24 and have never been
-   pushed; Remote has not been read since 2026-09-04, and `migration list
-   --linked` **cannot run from a worktree** — the link lives in the main
-   checkout. Run it there. This is item 6.
+   ⚠️ Production was read again on **2026-09-05**, after #24 merged:
+   `migration list --linked` shows `0001`-`0041` on both Local and Remote — no
+   drift. `0005` and `0017` are absent from BOTH columns and always have been:
+   those numbers were never used, 39 files span `0001`-`0041`, and the two sides
+   agree. Not a gap; do not try to repair it.
+   `vercel env ls` (2026-09-04) shows `ENABLE_DEV_LOGIN` absent from every
+   environment. The auth user list is still **unread from here**; item 2 was
+   closed by a human and is taken on report, not measured.
+   ⛔ **`migration list --linked` needs the link, and worktrees do not have
+   it.** `supabase/.temp/` is gitignored, so only the checkout that ran
+   `supabase link` carries `project-ref` and `linked-project.json`. ⚠️ Do NOT
+   reach for `--workdir <main checkout>` to borrow it: that also switches which
+   `supabase/migrations` directory is read, so a `db push` aimed at the main
+   checkout pushes whatever is on `main` and silently skips the migrations that
+   exist only on your branch. Copy those two files into the worktree's
+   `supabase/.temp/` instead, or re-run `supabase link` there.
 4. Verify code changes with `npm test && npm run test:e2e`. Measured on CI at
    `244e95b` (`feat/manager-tools`), 2026-09-05: **27 unit files / 357 tests;
    168 e2e passed / 1 skipped / 0 failed** in 9.2m, across 23 spec files. The
@@ -47,49 +53,66 @@
    still defaults to 3000, so two worktrees that both forget still collide.
    `lsof -ti:$PORT` before believing a red run.
 
-**Status: both doors are shut; three migrations are now waiting.** As of
-2026-09-04 `ENABLE_DEV_LOGIN` is gone from every Vercel environment, the seeded
-accounts are deleted, and production carries `0001`-`0038` — including `0037`,
-which fixed GAA being inflated by empty-net goals on live pages. Since then #24
-has added `0039`-`0041`, **unpushed**.
+**Status: both doors are shut and every migration is pushed.** As of
+2026-09-05 `ENABLE_DEV_LOGIN` is gone from every Vercel environment, the seeded
+accounts are deleted, and production carries `0001`-`0041` — including `0037`,
+which fixed GAA being inflated by empty-net goals on live pages, and
+`0039`-`0041`, which #24's manage tools read.
 
-**What remains is item 4 (the `LAUNCH.md` phases, never verified) and item 6
-(the three migrations).** Both need a human on production. Item 5 is deferred
+**What remains is item 4: the `LAUNCH.md` phases, never verified.** It needs a
+human on production and is the whole of the launch gap again. Item 5 is deferred
 odds and ends, item 7 is the half of the auth work that a checkout cannot do.
 
 ## Next action
 
-**Push `0039`-`0041` before #24 merges — in that order, not the other one.**
+**Sign in to production with a real magic link.** On `obhl.vercel.app`, as a
+real (non-`@obhl.test`) manager: request the link, follow it, and check that
+`/manage/dashboard` shows the Manager badge.
 
-⛔ **The merge deploys code that reads tables production does not have.** Vercel
-builds `main` on merge, and #24's pages select `season_schedule_constraints`,
-`player_league_archive` and `teams.logo_text_color`. The failures are not
-uniform, and the quiet ones are worse than the loud one:
-
-- **Public standings degrade by design.** `getStandings` logs and carries on,
-  and `inkOf` falls back to null, which `TeamLogo` already renders as the white
-  letters it drew before `0041`. Nobody sees anything wrong.
-- **`archivedPlayerIdsIn` returns an empty set** on a failed read, so no one
-  looks archived and every removed player is back in the pickers — a correct
-  page showing the wrong league.
-- **The manage roster page 404s.** `teams` is read with an explicit
-  `logo_text_color` in the select list and `if (!team) notFound()` follows, so
-  the whole page goes rather than the colour.
-
-*A reading of the code, not a probe.* Push first, then merge.
-
-    # from the MAIN checkout, not a worktree — the link lives there
-    npx supabase migration list --linked      # expect 0039-0041 Local-only
-    npx supabase db push --include-all
-    npx supabase migration list --linked      # confirm they landed
-
-⚠️ `--include-all` is not decoration. `0039`-`0041` sort below nothing applied,
-but they will not be the only gap for long, and `db push` **silently skips** any
-migration sorting under the latest applied one. This exact case needed it for
-`0034`. ⛔ Never `db reset --linked`; it wipes production.
+⛔ **It has never been done, and two of the three ways it can fail have no
+fallback.** #24 closed the third — a missing role claim now falls back to
+`profiles.role` — but a missing SMTP config or a redirect-allow-list entry
+breaks sign-in one step earlier, before any application code runs. With
+dev-login removed and the seeded accounts deleted, either one leaves no way in
+but SQL against production. Ten minutes, and it is the highest-value unverified
+thing in the project.
 
 **Then walk `LAUNCH.md` Phases 2-6 on production.** Nothing else outstanding can
 be done from a checkout.
+
+## The rule item 6 leaves behind — push migrations BEFORE merging their code
+
+⛔ **A merge deploys. If the code reads a table production does not have yet,
+the deploy is the outage.** Vercel builds `main` on merge, so the window between
+"merged" and "migration applied" is served to real users. `0039`-`0041` went to
+Remote first on 2026-09-05 and #24 merged after, which is the order to keep.
+
+⚠️ **The reason to care is that the failures are not uniform, and the quiet ones
+are worse than the loud one.** Had it gone the other way, #24 would have shown:
+
+- **Public standings degrading by design** — `getStandings` logs and carries on
+  and `inkOf` falls back to null, which `TeamLogo` renders as the white letters
+  it drew before `0041`. Nobody sees anything wrong.
+- **`archivedPlayerIdsIn` returning an empty set**, so nobody looks archived and
+  every removed player is back in every picker — a correct-looking page showing
+  the wrong league.
+- **The manage roster page 404ing** — `teams` is read with an explicit
+  `logo_text_color` in the select list and `if (!team) notFound()` follows, so
+  the whole page goes rather than the colour.
+
+*A reading of the code, not a probe — the order held, so none of it happened.*
+
+    npx supabase migration list --linked      # what is Local-only?
+    npx supabase db push
+    npx supabase migration list --linked      # confirm both columns
+
+⚠️ **`--include-all` when, and only when, a number sorts BELOW the latest
+applied one.** `db push` silently skips those. `0039`-`0041` all sorted above
+`0038`, so plain `db push` was enough — but `0034` needed the flag, and parallel
+workstreams that pre-assign migration numbers land out of numeric order by
+design, so assume the gap and check the list rather than the flag.
+
+⛔ Never `db reset --linked`; it wipes production.
 
 ## The items, and where they stand
 
@@ -100,17 +123,21 @@ be done from a checkout.
 | 3 | `0033` not pushed — the RLS half of the escalation | `supabase db push` | ✅ **closed** — and `0034`-`0038` with it |
 | 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | **OPEN** — below |
 | 5 | Smaller deferred items | below | open |
-| 6 | **`0039`-`0041` not pushed** — #24's three tables | `supabase db push` | **OPEN, and it gates the merge** — *Next action* |
+| 6 | `0039`-`0041` not pushed — #24's three tables | `supabase db push` | ✅ **closed 2026-09-05** — pushed before #24 merged; `migration list --linked` shows all three on both sides |
 | 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard + `vercel env` | **OPEN** — needs a human; *The other half of auth* |
 
 ⛔ **Do not re-file 1-3.** They are kept as rows, rather than deleted, because a
 reader who knows this file by its old shape will otherwise assume they were
 forgotten. The reasoning behind each is under *Closed doors* below.
 
+⛔ **Do not re-file 6 either.** It is kept for the same reason as 1-3, and
+because the ORDER it was closed in is the reusable part — see *The rule item 6
+leaves behind* above.
+
 ⚠️ **6 and 7 both arrived with #24** (`feat/manager-tools`: schedule
-constraints, roster editing, team branding, staff auth, season gating). Item 6
-is a blocker with a two-line fix; item 7 is a standing limitation that needs an
-account created outside this repo.
+constraints, roster editing, team branding, staff auth, season gating), merged
+2026-09-05 as `b244f65`. Item 7 is the one still open: a standing limitation
+that needs an account created outside this repo.
 
 ---
 
@@ -395,15 +422,19 @@ Items 1, 2 and 4 come from `LAUNCH.md`, which remains the operational runbook �
 this file records only what is still outstanding in it. Item 3 came out of the
 PR #13 review on 2026-09-02.
 
-Items 6 and 7 arrived with **PR #24** (`feat/manager-tools`) on 2026-09-05, the
-five-workstream branch planned in
-`docs/superpowers/specs/2026-09-04-manager-tools-and-auth-design.md`. Item 6 is
-mechanical — three migrations the branch added. Item 7 is that branch's D
-workstream stopping where it was always going to stop, at the SMTP account
-nobody has created. ⚠️ Both were found by re-reading this file against the
-branch rather than by anything failing, which is the only way either would have
-surfaced before a merge: **the tests are green with item 6 open**, because CI
-runs migrations from the repo and never sees production's.
+Items 6 and 7 arrived with **PR #24** (`feat/manager-tools`), merged 2026-09-05
+as `b244f65` — the five-workstream branch planned in
+`docs/superpowers/specs/2026-09-04-manager-tools-and-auth-design.md`. Item 6 was
+mechanical, three migrations the branch added, and closed the same day. Item 7
+is that branch's D workstream stopping where it was always going to stop, at the
+SMTP account nobody has created.
+
+⚠️ **Both were found by re-reading this file against the branch, not by anything
+failing** — which is the only way either could have surfaced before the merge:
+**CI was fully green with item 6 open**, because it runs migrations from the
+repo and never looks at production's. A green build is not evidence that
+production has the schema the build assumes. Nothing in the pipeline checks
+that, so re-reading this file against the branch is the check.
 
 Items 1, 2 and 3 were closed on 2026-09-04 alongside the League Office work
 (`docs/worklists/2026-09-03-678b2916-league-office.md`, PR #22) and the roster
