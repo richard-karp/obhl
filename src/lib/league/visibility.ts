@@ -35,7 +35,12 @@
  * 0039 adds "member read leagues" — `for select using is_league_member(id)` —
  * so both halves are now the same rule written twice, which is what this
  * codebase does with a rule that matters (`may_write_profile` /
- * `mayWriteProfileOf`). ⛔ REVIEW THEM AS A PAIR. Widening this function alone
+ * `mayWriteProfileOf`).
+ *
+ * ⚠️ THIS RULE DECIDES REACHABILITY, NOT CONTENT. 0039 widened the `leagues` row
+ * and nothing beneath it: a non-manager member of a STAGED league passes this and
+ * then finds the page empty, because every child table is still gated on
+ * `is_public`. Saying yes here is not saying they can see anything. ⛔ REVIEW THEM AS A PAIR. Widening this function alone
  * no longer widens nothing; it widens the app half of a rule whose RLS half has
  * to be widened with it, or the two disagree in the direction that locks people
  * out silently. Narrowing either half alone is the same mistake mirrored.

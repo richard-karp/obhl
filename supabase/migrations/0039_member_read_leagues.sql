@@ -1,9 +1,13 @@
 -- A staged league was invisible to its own scorekeepers and captains.
 --
--- `leagues` has exactly two select paths: "public read leagues" (0008), which is
--- `using (is_public)`, and "manager write leagues" (0032), which is `for all`
--- using `manages_league(id)` — the league_manager role AND membership. Nothing
--- else selects from the table.
+-- `leagues` has exactly two select POLICIES: "public read leagues" (0008), which
+-- is `using (is_public)`, and "manager write leagues" (0032), which is `for all`
+-- using `manages_league(id)` — the league_manager role AND membership.
+--
+-- Two functions also read the table — `league_is_public` and `player_is_public`,
+-- both 0008 — but both are SECURITY DEFINER and so bypass RLS entirely. That is
+-- the load-bearing point for anyone auditing what composes with this policy:
+-- nothing does.
 --
 -- So while `is_public` is false, only managers and the office resolve the league
 -- at all. A scorekeeper or captain who genuinely belongs to it got null from
@@ -24,6 +28,23 @@
 --
 -- SELECT ONLY. Membership is not permission to write a league row; `manages_league`
 -- still governs that, and this policy is deliberately not `for all`.
+--
+-- ⛔ WHAT THIS DOES *NOT* DO, AND THE LIMIT IS THE INTERESTING PART. It widens
+-- the `leagues` ROW only. Every child table — `seasons`, `teams`, `season_teams`,
+-- `team_players`, `league_rules`, `games` and the `v_*` views — is still gated by
+-- 0008's `league_is_public` / `season_is_public`, which are NOT membership-aware,
+-- and by 0009/0032's role policies, which reach only `league_manager`.
+--
+-- So a scorekeeper or captain member of a staged league now gets a 200 instead of
+-- a 404, and the page is EMPTY: `getActiveSeason` returns null and they see the
+-- no-season state. Reachable, not populated. Everything fails closed, so this is
+-- a UX limit rather than a leak — but do not read this migration as "members can
+-- work in a staged league".
+--
+-- Making that true means widening `league_is_public`/`season_is_public` to
+-- `... or public.is_league_member(l)`, which changes the gate on every child
+-- table at once. That is a materially bigger decision and wants its own migration
+-- and its own review, not an edit to this one.
 --
 -- `is_league_member` fails closed on a null argument (0032's invariant, restated
 -- and made load-bearing by 0034), and its office branch means a commissioner

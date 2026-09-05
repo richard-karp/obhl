@@ -22,8 +22,11 @@ export type LeagueOption = { id: string; name: string; slug: string };
  * Resolution is deliberately not filtered on `is_public`; `(public)/layout.tsx`
  * applies that. A league can therefore be staged — manageable before it is
  * visible. RLS narrows this for us: "public read leagues" exposes only
- * `is_public` rows, while a manager's "manager write leagues" policy is `for
- * all`, so a staged league resolves for its manager and 404s for everyone else.
+ * `is_public` rows, "manager write leagues" is `for all` for a manager of it, and
+ * 0039's "member read leagues" adds any member — so a staged league resolves for
+ * its own people and 404s for everyone else. What those people then SEE is
+ * another question: the child tables are still gated on `is_public`, so a
+ * non-manager member gets the league and an empty page. See 0039.
  */
 export const resolveLeagueBySlug = cache(async function resolveLeagueBySlug(
   slug: string,
@@ -39,7 +42,9 @@ export const resolveLeagueBySlug = cache(async function resolveLeagueBySlug(
 });
 
 /** Public leagues only — the root landing page. */
-export async function getPublicLeagues(client: Client): Promise<LeagueOption[]> {
+export async function getPublicLeagues(
+  client: Client,
+): Promise<LeagueOption[]> {
   const { data } = await client
     .from("leagues")
     .select("id, name, slug")

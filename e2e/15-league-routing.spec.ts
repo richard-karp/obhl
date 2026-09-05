@@ -18,6 +18,22 @@ function admin() {
   );
 }
 
+/** The leagues a seeded account is actually confined to, read from the seed. */
+async function leaguesOfAccount(displayName: string): Promise<string[]> {
+  const db = admin();
+  const { data: prof } = await db
+    .from("profiles")
+    .select("id")
+    .eq("display_name", displayName)
+    .single();
+  const { data } = await db
+    .from("profile_leagues")
+    .select("leagues!inner(slug)")
+    .eq("profile_id", prof!.id);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data ?? []).map((r: any) => r.leagues.slug as string);
+}
+
 async function setHarborPublic(is_public: boolean) {
   const { error } = await admin()
     .from("leagues")
@@ -239,6 +255,14 @@ test.describe("Path 16 — Per-league routing", () => {
     // Signed in is not the test — membership is. The one-league scorekeeper
     // belongs to obhl and not to harbor, so staging harbor must look the same
     // to them as it does to an anonymous visitor.
+    //
+    // The confinement is DERIVED, not assumed. `16-league-membership.spec.ts`
+    // rejects hardcoding it, and if the seed ever moved this account into harbor
+    // the assertion below would fail for a reason that has nothing to do with the
+    // guard it is testing.
+    expect(await leaguesOfAccount("Single League Scorer")).not.toContain(
+      "harbor",
+    );
     await setHarborPublic(false);
     try {
       await page.goto("/login");
