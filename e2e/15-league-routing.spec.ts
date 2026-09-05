@@ -595,6 +595,13 @@ test.describe("Path 16 — Per-league routing", () => {
     // one door while opening the other.
     const junk = await request.get("/api/schedule/not-a-uuid");
     expect(junk.status()).toBe(404);
+
+    // ⚠️ The team feed is a SUBSCRIPTION, so this assertion is load-bearing in a
+    // way the two above are not: a calendar app polls this URL indefinitely, and
+    // the 404 is what tells its owner the team is gone rather than leaving them
+    // an empty calendar that never says so.
+    const feed = await request.get(`/api/schedule/team/${missing}/feed.ics`);
+    expect(feed.status()).toBe(404);
   });
 
   test("a section stays marked on its detail pages", async ({ page }) => {
