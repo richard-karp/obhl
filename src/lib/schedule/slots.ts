@@ -299,7 +299,18 @@ export function assignSlots(opts: SlotOptions): number[][] {
     const sign = biasSign(b.prefer);
     const row = biasOfGame[b.team] ?? new Int8Array(nightsOf[b.team].length);
     nightsOf[b.team].forEach((n, i) => {
-      if (b.nights[n]) row[i] = sign;
+      // ⛔ `+=`, NOT `=`. One row is shared by every bias this team has, so
+      // assigning let the LAST overlapping request decide a night on its own
+      // while `iceOutcome` (`spacing.ts`) summed the same night across biases.
+      // Two functions the doc there says "have to price it identically" then
+      // did not: the descent minimised one cost and the five-candidate rank-off
+      // compared another, so the winner need not be the candidate the descent
+      // had optimised. Summing is the side that moves because it is also the
+      // defensible reading — two "early" requests over one night pull harder,
+      // and an "early" against a "late" cancels, which is what contradicting
+      // yourself should cost. Overflowing an Int8 needs 127 overlapping
+      // requests on one team.
+      if (b.nights[n]) row[i] += sign;
     });
     biasOfGame[b.team] = row;
   }

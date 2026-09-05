@@ -290,6 +290,16 @@ export const SLOT_BIAS_W = 4;
  * from `slotsPerNight`, `iceOutcome` from the assignment it was handed). A
  * signed index differs from a distance by a per-game constant, which cancels in
  * every comparison either of them makes, and cannot drift.
+ *
+ * ⚠️ OVERLAPPING WINDOWS ADD. A team can carry several biases and their date
+ * ranges can overlap, so a night inside two of them is charged twice — and
+ * inside an "early" and a "late" it cancels to nothing, which is what asking
+ * for both should cost. Both consumers must accumulate: `iceOutcome` below
+ * sums by looping the biases, and `assignSlots` folds them into one row per
+ * team with `+=` for the same reason. Assigning there instead let the last
+ * window win outright, which is how these two came to price the same season
+ * differently — the descent optimised one number and the rank-off compared
+ * another.
  */
 export const biasSign = (prefer: SlotBias["prefer"]): number =>
   prefer === "early" ? 1 : -1;
