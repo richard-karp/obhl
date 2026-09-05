@@ -270,8 +270,12 @@ badge there means the whole chain works, and a bounce back to `/` means the
 membership is for a different league than the slug tried.
 
 **`LAUNCH.md` Phases 2-6 are unverified from here.** This file speaks only to
-Phase 1 (the test doors). The site is live with two leagues, so most of the rest
-presumably happened — but *presumably* is the operative word: nobody has checked
+Phase 1 (the test doors). ⚠️ **Production has ONE league, not two** — measured
+2026-09-05: `lcc-old-boys-hockey-league` ("LCC Old Boys Hockey League"),
+`is_public = true`, and it is the only row in `leagues`. Two is the goal this
+file is named for, not the current state, and `LAUNCH.md`'s verification step 1
+("`/` lists both leagues") cannot pass until a second one exists. The site being
+live means some of the rest presumably happened — but *presumably* is the operative word: nobody has checked
 SMTP, the Supabase redirect allow-list, or that the Custom Access Token hook is
 still enabled. ⚠️ **The hook used to be the one that failed quietly; since #24
 it degrades instead** — sign-in falls back to `profiles.role` and the tools
