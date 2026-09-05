@@ -157,19 +157,37 @@ test.describe("Path 16 — Per-league routing", () => {
     await page.waitForURL("/harbor/dashboard");
   });
 
-  test("a league can be managed before it is public", async ({ page }) => {
-    // Private staging: a league is manageable while still invisible publicly.
-    // `[league]/layout.tsx` resolves without an is_public filter; the public
-    // layout is what applies it.
-    await page.goto("/login");
-    await page.getByRole("button", { name: "Manager" }).click();
-    await page.waitForURL("/");
-
+  test("a staged league is invisible to the public and open to its own people", async ({
+    page,
+  }) => {
+    // Private staging: a league is built before it launches. The public must
+    // see nothing; the people building it must see everything, including the
+    // public side, because those pages are becoming shared — one URL that shows
+    // the visitor a team and its manager the same team with editing on it.
+    //
+    // Both directions are asserted here because both are ways to be wrong, and
+    // they fail in opposite directions: leaking an unpublished league, or
+    // locking out the people staging one. See `lib/league/visibility.ts`.
     await setHarborPublic(false);
     try {
-      const publicPage = await page.goto("/harbor");
-      expect(publicPage?.status()).toBe(404);
+      // Anonymous: indistinguishable from a slug nobody ever took. A redirect
+      // would confirm the league exists, so this must be a 404.
+      const anon = await page.goto("/harbor");
+      expect(anon?.status()).toBe(404);
+      const anonStandings = await page.goto("/harbor/standings");
+      expect(anonStandings?.status()).toBe(404);
 
+      await page.goto("/login");
+      await page.getByRole("button", { name: "Manager" }).click();
+      await page.waitForURL("/");
+
+      // A member of the league, on the public side of it: renders, chrome and
+      // all. This is the half that used to 404.
+      const asMember = await page.goto("/harbor");
+      expect(asMember?.status()).toBe(200);
+      await expect(page.getByRole("link", { name: "Manage" })).toBeVisible();
+
+      // ...and the staff pages, which never depended on this rule.
       await page.goto("/harbor/dashboard");
       await expect(page).toHaveURL("/harbor/dashboard");
       await expect(page.getByRole("heading", { name: "Manage" })).toBeVisible();
@@ -179,6 +197,24 @@ test.describe("Path 16 — Per-league routing", () => {
 
     const restored = await page.goto("/harbor");
     expect(restored?.status()).toBe(200);
+  });
+
+  test("a staged league stays 404 for a signed-in stranger to it", async ({
+    page,
+  }) => {
+    // Signed in is not the test — membership is. The one-league scorekeeper
+    // belongs to obhl and not to harbor, so staging harbor must look the same
+    // to them as it does to an anonymous visitor.
+    await setHarborPublic(false);
+    try {
+      await page.goto("/login");
+      await page.getByRole("button", { name: "One-league scorer" }).click();
+      await page.waitForURL("/");
+      const res = await page.goto("/harbor");
+      expect(res?.status()).toBe(404);
+    } finally {
+      await setHarborPublic(true);
+    }
   });
 
   // ── Writes land in the league whose page issued them ──────────────────────

@@ -1,7 +1,9 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getSessionUser, type AppRole, type SessionUser } from "./session";
 import { isLeagueMember } from "./membership";
 import { officeTierOf } from "./office";
+import { decideLeagueVisible } from "@/lib/league/visibility";
+import type { Tables } from "@/lib/db/helpers";
 
 /** Redirects to /login if not signed in. */
 export async function requireUser(): Promise<SessionUser> {
@@ -35,7 +37,8 @@ export function requireManager() {
  * request still cost an admin-client query on its way to /login. Passing the
  * lookup instead keeps the cheap check first.
  */
-export type LeagueRef = string | null | undefined | (() => Promise<string | null>);
+export type LeagueRef =
+  string | null | undefined | (() => Promise<string | null>);
 
 const resolveLeague = async (ref: LeagueRef) =>
   typeof ref === "function" ? await ref() : ref;
@@ -62,7 +65,8 @@ export async function requireLeagueRole(
   ...roles: AppRole[]
 ): Promise<SessionUser> {
   const user = await requireRole(...roles);
-  if (!(await isLeagueMember(user.id, await resolveLeague(league)))) redirect("/");
+  if (!(await isLeagueMember(user.id, await resolveLeague(league))))
+    redirect("/");
   return user;
 }
 
@@ -126,4 +130,32 @@ export async function requireCommissioner(): Promise<SessionUser> {
   const user = await requireUser();
   if ((await officeTierOf(user.id)) !== "commissioner") redirect("/");
   return user;
+}
+
+/**
+ * May this viewer see this league at all? 404s if not.
+ *
+ * `notFound()`, not `redirect()`, and that is the whole point: a staged league
+ * must be indistinguishable from a slug that was never taken. A redirect to the
+ * picker would confirm the league exists to anyone who typed its name.
+ *
+ * The rule itself is `decideLeagueVisible`, where the four cells are asserted
+ * directly and where the asymmetry with RLS is written down. This is only the
+ * lookups: `getSessionUser` short-circuits for an anonymous visitor, and
+ * `isLeagueMember` is memoized per request, so a published league costs one
+ * `getClaims()` and a staged one costs a membership read that some guard on the
+ * page was going to make anyway.
+ *
+ * Used by the layout over every page that is, or is about to become, SHARED —
+ * one URL that serves the public and the people who run the league. The staff
+ * pages under `(manage)` do not need it: their own guards are strictly
+ * stronger, and 404ing a manager out of the league they are staging is the
+ * failure this exists to avoid.
+ */
+export async function requireVisibleLeague(
+  league: Tables<"leagues">,
+): Promise<void> {
+  const user = await getSessionUser();
+  const member = user ? await isLeagueMember(user.id, league.id) : false;
+  if (!decideLeagueVisible(league.is_public, member)) notFound();
 }
