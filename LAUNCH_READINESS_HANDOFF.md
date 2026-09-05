@@ -83,47 +83,11 @@ everything else outstanding the moment the answer is "soon".
 **Then the rest of `LAUNCH.md` Phases 2-6.** Nothing else outstanding can be
 done from a checkout.
 
-### ✅ Sign-in and access control: verified end to end, 2026-09-05
+✅ **Sign-in, the app guard and RLS were all verified on production 2026-09-05**
+— see *Verified on production* under item 4. ⛔ **Test `/<slug>/manage/dashboard`,
+never `/`**: a completed sign-in lands on `/`, which shows no badge to anybody, and
+that cost a round of misdiagnosis here.
 
-⚠️ **A completed sign-in lands on `/`, which shows no badge to anybody.** That
-is what `src/app/page.tsx` documents ("a bare domain, a role-denied redirect,
-and a completed sign-in all land on" it), and it cost a round of misdiagnosis
-here: the nav and its badge live only in `src/app/[league]/manage/layout.tsx`.
-**The test is `/<slug>/manage/dashboard`, never `/`.** Confirmed working at
-`/lcc-old-boys-hockey-league/manage/dashboard`, Manager badge shown.
-
-**The app guard.** Every manage route answers `307 -> /login` with no session
-cookie — `dashboard`, `people`, `rosters`, `schedule-builder`, `audit`, and
-`/manage/office` — while `/lcc-old-boys-hockey-league/standings` serves `200`.
-Measured with curl, which carries no cookies, so that is the true anonymous
-case.
-
-**RLS, which is the half that matters.** Probed directly against PostgREST with
-the publishable key, bypassing the app entirely:
-
-| Probe | Result |
-|---|---|
-| `select` on `profiles`, `profile_leagues`, `audit_log`, `league_office` | `[]` each |
-| `select` on `leagues`, `seasons`, `team_players` | rows — public, as designed |
-| `insert` into `announcements` | `401`, `42501 new row violates row-level security policy` |
-| `update` on `leagues`, `profiles`, `team_players` | `200` with `[]` — zero rows matched |
-
-⛔ **The public reads are the load-bearing part of that table, not filler.** Had
-everything returned `[]`, a wrong key or a wrong URL would look exactly like
-working RLS. Public data coming back is what proves the probe reached the
-database as an anonymous caller and *then* got refused. Every write was a
-deliberate no-op (setting a column to the value it already held) except the
-`announcements` insert, which was refused; a follow-up read confirmed no probe
-row landed.
-
-⚠️ **Only the ANONYMOUS dimension is proven on production.** Signed-in-but-wrong-
-role and signed-in-but-wrong-league are proven in the fixture only
-(`e2e/09-access.spec.ts`, and the five API-level tests in
-`16-league-membership.spec.ts` — four refusals plus the own-league positive
-control that stops them passing vacuously). Production has one account and one
-league, so there is nothing there to refuse yet. **Re-probe when a second staff
-member exists**, especially a scorekeeper or captain, whose dashboard should be
-visibly smaller.
 
 ## The rule item 6 leaves behind — push migrations BEFORE merging their code
 
@@ -170,6 +134,7 @@ design, so assume the gap and check the list rather than the flag.
 | 5 | Smaller deferred items | below | open |
 | 6 | `0039`-`0041` not pushed — #24's three tables | `supabase db push` | ✅ **closed 2026-09-05** — pushed before #24 merged; `migration list --linked` shows all three on both sides |
 | 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard + `vercel env` | **OPEN** — needs a human; *The other half of auth* |
+| 8 | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code | **OPEN, unstarted** — brief is `docs/superpowers/specs/2026-09-05-unified-url-space-design.md`, self-contained; do NOT read this file for it |
 
 ⛔ **Do not re-file 1-3.** They are kept as rows, rather than deleted, because a
 reader who knows this file by its old shape will otherwise assume they were
@@ -347,6 +312,48 @@ step two is what makes keeping it safe. And the manage dashboard checks
 membership only for a *roled* account, because the page that explains "you have
 no role yet" would otherwise be unreachable; it renders no league data.
 
+### Verified on production — sign-in, the app guard, and RLS (2026-09-05)
+
+⚠️ **A completed sign-in lands on `/`, which shows no badge to anybody.** That
+is what `src/app/page.tsx` documents ("a bare domain, a role-denied redirect,
+and a completed sign-in all land on" it), and it cost a round of misdiagnosis
+here: the nav and its badge live only in `src/app/[league]/manage/layout.tsx`.
+**The test is `/<slug>/manage/dashboard`, never `/`.** Confirmed working at
+`/lcc-old-boys-hockey-league/manage/dashboard`, Manager badge shown.
+
+**The app guard.** Every manage route answers `307 -> /login` with no session
+cookie — `dashboard`, `people`, `rosters`, `schedule-builder`, `audit`, and
+`/manage/office` — while `/lcc-old-boys-hockey-league/standings` serves `200`.
+Measured with curl, which carries no cookies, so that is the true anonymous
+case.
+
+**RLS, which is the half that matters.** Probed directly against PostgREST with
+the publishable key, bypassing the app entirely:
+
+| Probe | Result |
+|---|---|
+| `select` on `profiles`, `profile_leagues`, `audit_log`, `league_office` | `[]` each |
+| `select` on `leagues`, `seasons`, `team_players` | rows — public, as designed |
+| `insert` into `announcements` | `401`, `42501 new row violates row-level security policy` |
+| `update` on `leagues`, `profiles`, `team_players` | `200` with `[]` — zero rows matched |
+
+⛔ **The public reads are the load-bearing part of that table, not filler.** Had
+everything returned `[]`, a wrong key or a wrong URL would look exactly like
+working RLS. Public data coming back is what proves the probe reached the
+database as an anonymous caller and *then* got refused. Every write was a
+deliberate no-op (setting a column to the value it already held) except the
+`announcements` insert, which was refused; a follow-up read confirmed no probe
+row landed.
+
+⚠️ **Only the ANONYMOUS dimension is proven on production.** Signed-in-but-wrong-
+role and signed-in-but-wrong-league are proven in the fixture only
+(`e2e/09-access.spec.ts`, and the five API-level tests in
+`16-league-membership.spec.ts` — four refusals plus the own-league positive
+control that stops them passing vacuously). Production has one account and one
+league, so there is nothing there to refuse yet. **Re-probe when a second staff
+member exists**, especially a scorekeeper or captain, whose dashboard should be
+visibly smaller.
+
 ## Tests: never submit an unverified form tamper
 
 The cross-league attack tests reach a server action by rewriting a form's hidden
@@ -442,6 +449,27 @@ Until 1 lands, 2 and 3 cannot be verified, so none of it should ship. That is
 why the sequence is written down rather than left to whoever picks it up.
 
 ## 5 — Smaller, deliberately deferred
+
+### From the sixth review of #24 — open, never triaged
+
+⚠️ **Recorded from that review, NOT re-verified since.** Treat each as a claim to
+check, not a measurement. No `/fix-all` has been run over them; the user's standing
+pattern is to invoke that skill separately, and it requires an outline plus an
+explicit go-ahead before any code changes.
+
+1. `SCHEDULE_HANDOFF.md` drifted on the `slot_bias` exemption — doc, not code.
+2. `constraintCredits` / `teamMetrics` have **no production reader**. Dead until
+   something renders them.
+3. The constraints panel applies `forcedByeCredits` **unconditionally**, rather than
+   only where a forced bye caused the breach.
+4. `slot_on` resolves against **two different slot lists** depending on the path in.
+   The likeliest of these to be a real bug.
+5. The `add_player` revert **deletes a row** that the "returning player" branch only
+   un-departed — so reverting an add can destroy history the add did not create.
+   ⚠️ Same shape as the `0036` goalie-stats class.
+6. `refuteConstraints` misses `bye_in_week` on an all-zero-quota week.
+7. The unbounded `players` select — **pre-existing**, not introduced by #24.
+
 
 - **`saveRules` read-then-upsert is not atomic** — two concurrent saves both
   read the same previous document, so one audit entry's `old_data` names

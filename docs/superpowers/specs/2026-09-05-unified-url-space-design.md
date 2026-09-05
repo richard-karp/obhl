@@ -1,6 +1,40 @@
 # One URL per thing — flattening the manage prefix and merging the duplicated pages
 
-**Status:** design approved 2026-09-05, not yet implemented.
+**Protocol — read this and nothing else to resume.**
+
+1. This file is self-contained: the ask, the measurements, the hazards, the seven
+   steps and the acceptance bars are all below. ⛔ **Do NOT read
+   `LAUNCH_READINESS_HANDOFF.md` (538 lines)** — it covers launching production and
+   nothing outstanding in it blocks or is blocked by this work. Open it only if you
+   are asked to do launch work instead.
+2. ⛔ **Hazards, before any instruction:**
+   - `supabase db reset --linked` **wipes production**. Use `db push`. **This change
+     needs no migration at all** — it is routing, chrome and page merges.
+   - **Mutating `gh` (`pr create`, `pr merge`) and `vercel env` are denied to an
+     agent** under the auto-mode classifier, as are mutating HTTP requests to
+     production. Ask a human; do not work around it. Read-only `gh` works.
+   - ⚠️ **Never bare `git stash`.** The stack is shared across worktrees and other
+     sessions use it. Use `git stash push -u -m "<tag>"`, capture the SHA, `apply`
+     not `pop`. A temporary WIP commit is better.
+   - Other sessions may share this tree — **re-check the branch before every git
+     write**.
+3. Every number below was **watched appear** (line counts, reference counts, the
+   guard table). Where a claim is a reading of the code rather than a measurement,
+   it says so in those words.
+4. Verify with `npm run typecheck && npm test`, then `PORT=<yours> npm run test:e2e`.
+   ⚠️ **Re-measure the baseline, do not quote one** — the counts move with every
+   merge. Export a distinct `PORT` per worktree and `lsof -ti:$PORT` before
+   believing a red run; `reuseExistingServer` will otherwise hand your suite
+   another branch's dev server. Worktrees share ONE Supabase database, so serialize
+   e2e. CI runs the full suite, so run only the specs covering your step locally.
+
+**Status: approved, nothing implemented.** No branch exists for it yet. Branch off
+`main`. Run `git log --oneline origin/main..origin/docs/close-migration-push` — if
+non-empty, those are **docs-only** commits awaiting a fast-forward to `main` and
+cannot conflict with this work.
+
+**Start at step 1.** It is small, self-contained, depends on nothing else here, and
+is the only step that fixes something broken rather than something awkward.
 
 ## The ask, in the user's words
 
