@@ -42,7 +42,7 @@ export async function finalizeGameById(gameId: string, actorId: string) {
     .from("game_rosters")
     .select(
       "team_id, goals, assists, pim, is_substitute, player_id, " +
-      "players:players!game_rosters_player_id_fkey(first_name, last_name)",
+        "players:players!game_rosters_player_id_fkey(first_name, last_name)",
     )
     .eq("game_id", gameId);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -85,7 +85,10 @@ export async function finalizeGameById(gameId: string, actorId: string) {
     action: "finalize_game",
     entity_type: "game",
     entity_id: gameId,
-    new_data: { home_goals: sum(game.home_team_id), away_goals: sum(game.away_team_id) },
+    new_data: {
+      home_goals: sum(game.home_team_id),
+      away_goals: sum(game.away_team_id),
+    },
   });
 
   revalidateAfterScore(gameId, true);

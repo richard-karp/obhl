@@ -32,7 +32,11 @@ async function signInAs(page: Page, label: "Manager" | "One-league mgr") {
 
 async function activeSeason(slug: string) {
   const db = admin();
-  const { data: league } = await db.from("leagues").select("id").eq("slug", slug).single();
+  const { data: league } = await db
+    .from("leagues")
+    .select("id")
+    .eq("slug", slug)
+    .single();
   const { data: season } = await db
     .from("seasons")
     .select("id")
@@ -43,7 +47,11 @@ async function activeSeason(slug: string) {
 }
 
 async function teamName(teamId: string) {
-  const { data } = await admin().from("teams").select("name").eq("id", teamId).single();
+  const { data } = await admin()
+    .from("teams")
+    .select("name")
+    .eq("id", teamId)
+    .single();
   return data!.name as string;
 }
 
@@ -56,16 +64,30 @@ async function playerName(playerId: string) {
   return `${data!.first_name} ${data!.last_name}`;
 }
 
-/** Open a team's roster editor by name, from the rosters index. */
+/**
+ * Open a team's roster editor by name, from the teams index.
+ *
+ * ⚠️ `/teams`, NOT `/manage/rosters`. The roster editor is not a page any more —
+ * it is a section of the team's own public page, shown to whoever
+ * `canManageLeague` admits. Both old URLs still 308 to the new ones, but a test
+ * that follows a redirect is testing the redirect as much as the page, so this
+ * goes to the real address.
+ */
 async function openRoster(page: Page, slug: string, team: string) {
-  await page.goto(`/${slug}/manage/rosters`);
+  await page.goto(`/${slug}/teams`);
   await page.getByText(team, { exact: true }).first().click();
-  await expect(page).toHaveURL(/\/rosters\//);
+  await expect(page).toHaveURL(/\/teams\//);
+  await expect(manageRoster(page)).toBeVisible();
+}
+
+/** The editor's region — the public roster table sits above it on the same page. */
+function manageRoster(page: Page) {
+  return page.getByRole("region", { name: "Manage roster" });
 }
 
 /** The row for one player on the open roster editor. */
 function rowFor(page: Page, name: string) {
-  return page.locator("table tbody tr").filter({ hasText: name });
+  return manageRoster(page).locator("table tbody tr").filter({ hasText: name });
 }
 
 /** Type into the combobox and wait for the list to narrow. */
@@ -144,11 +166,16 @@ test.describe("Path 22 — Roster editing", () => {
       .eq("season_id", seasonId)
       .eq("position", "G")
       .is("left_on", null);
-    const activeKeys = new Set((active ?? []).map((r) => `${r.player_id}:${r.team_id}`));
+    const activeKeys = new Set(
+      (active ?? []).map((r) => `${r.player_id}:${r.team_id}`),
+    );
     const before = (rows ?? []).find((r) =>
       activeKeys.has(`${r.player_id}:${r.team_id}`),
     );
-    expect(before, "the seed should leave at least one rostered goalie with games").toBeTruthy();
+    expect(
+      before,
+      "the seed should leave at least one rostered goalie with games",
+    ).toBeTruthy();
 
     const fromTeam = await teamName(before!.team_id!);
     const who = await playerName(before!.player_id!);
@@ -177,7 +204,9 @@ test.describe("Path 22 — Roster editing", () => {
     // runs, and the number is not what this test is about.
     await row.getByLabel(/jersey number/i).fill("");
     await row.getByRole("button", { name: /confirm transfer/i }).click();
-    await expect(page.getByRole("cell", { name: who })).toHaveCount(0);
+    await expect(
+      manageRoster(page).getByRole("cell", { name: who }),
+    ).toHaveCount(0);
 
     const { data: after } = await db
       .from("v_goalie_stats")
@@ -190,7 +219,10 @@ test.describe("Path 22 — Roster editing", () => {
     // `toBeTruthy` first and on its own: a null row here is the exact failure —
     // the record did not change, it VANISHED — and asserting equality against
     // null would report a confusing field-by-field diff instead.
-    expect(after, `${fromTeam}'s goalie record for ${who} must survive the move`).toBeTruthy();
+    expect(
+      after,
+      `${fromTeam}'s goalie record for ${who} must survive the move`,
+    ).toBeTruthy();
     expect(after).toEqual({
       gp: before!.gp,
       wins: before!.wins,
@@ -218,7 +250,9 @@ test.describe("Path 22 — Roster editing", () => {
    * the same code. Before this, adding somebody already rostered elsewhere hit
    * `team_players_one_active_team` and came back as a bare 23505.
    */
-  test("adding someone already on another team moves them off it", async ({ page }) => {
+  test("adding someone already on another team moves them off it", async ({
+    page,
+  }) => {
     const db = admin();
     const { seasonId } = await activeSeason("obhl");
 
@@ -227,7 +261,10 @@ test.describe("Path 22 — Roster editing", () => {
       .select("team_id")
       .eq("season_id", seasonId);
     const teams = await Promise.all(
-      (enrolled ?? []).map(async (e) => ({ id: e.team_id, name: await teamName(e.team_id) })),
+      (enrolled ?? []).map(async (e) => ({
+        id: e.team_id,
+        name: await teamName(e.team_id),
+      })),
     );
 
     // Our own skater on our own chosen team — see `scratchSkater`. Picking
@@ -249,14 +286,24 @@ test.describe("Path 22 — Roster editing", () => {
 
     // Said out loud. "I meant to add them, why did they leave the other team"
     // is the question this message exists to answer before it is asked.
-    await expect(page.getByText(/already on another team this season/i)).toBeVisible();
-    await expect(page.getByRole("cell", { name: who })).toBeVisible();
+    await expect(
+      page.getByText(/already on another team this season/i),
+    ).toBeVisible();
+    // ⚠️ Scoped to the editor, like `19-transfer`. The public roster table sits
+    // above it on the same page and lists anyone with stats for the team, so an
+    // unscoped `cell` matches twice on arrival and once after a removal — which
+    // is a strict-mode error on the way in and a false negative on the way out.
+    await expect(
+      manageRoster(page).getByRole("cell", { name: who }),
+    ).toBeVisible();
 
     await openRoster(page, "obhl", from.name);
-    await expect(page.getByRole("cell", { name: who })).toHaveCount(0);
+    await expect(
+      manageRoster(page).getByRole("cell", { name: who }),
+    ).toHaveCount(0);
 
     // Exactly one active row — the property the whole design turns on.
-    const { data:stillActive } = await db
+    const { data: stillActive } = await db
       .from("team_players")
       .select("team_id")
       .eq("season_id", seasonId)
@@ -350,7 +397,9 @@ test.describe("Path 22 — Roster editing", () => {
       .getByRole("option", { name: who })
       .getByRole("button", { name: "Restore" })
       .click();
-    await expect(page.getByText(/available in this league again/i)).toBeVisible();
+    await expect(
+      page.getByText(/available in this league again/i),
+    ).toBeVisible();
   });
 
   /**
@@ -378,7 +427,9 @@ test.describe("Path 22 — Roster editing", () => {
       .eq("season_id", obhl.seasonId);
     const inOceanview = new Set((obhlRows ?? []).map((r) => r.player_id));
 
-    const shared = (harborRows ?? []).find((r) => inOceanview.has(r.player_id))!;
+    const shared = (harborRows ?? []).find((r) =>
+      inOceanview.has(r.player_id),
+    )!;
     const local = (harborRows ?? []).find(
       (r) => !inOceanview.has(r.player_id) && r.team_id === shared.team_id,
     )!;
@@ -418,7 +469,9 @@ test.describe("Path 22 — Roster editing", () => {
   });
 
   /** A number lives on `team_players`; a scoresheet lives on `game_rosters`. */
-  test("editing a jersey number does not disturb game history", async ({ page }) => {
+  test("editing a jersey number does not disturb game history", async ({
+    page,
+  }) => {
     const db = admin();
     const { seasonId } = await activeSeason("obhl");
 
@@ -482,7 +535,9 @@ test.describe("Path 22 — Roster editing", () => {
   });
 
   /** A number already worn is refused by name, not by a raw constraint error. */
-  test("a clashing jersey number is refused with the wearer named", async ({ page }) => {
+  test("a clashing jersey number is refused with the wearer named", async ({
+    page,
+  }) => {
     const db = admin();
     const { seasonId } = await activeSeason("obhl");
     const { data: active } = await db
@@ -497,7 +552,9 @@ test.describe("Path 22 — Roster editing", () => {
     for (const r of active ?? []) {
       byTeam.set(r.team_id, [...(byTeam.get(r.team_id) ?? []), r]);
     }
-    const [teamId, members] = [...byTeam.entries()].find(([, m]) => m!.length >= 2)!;
+    const [teamId, members] = [...byTeam.entries()].find(
+      ([, m]) => m!.length >= 2,
+    )!;
     const [subject, wearer] = members!;
 
     await signInAs(page, "Manager");

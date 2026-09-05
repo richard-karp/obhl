@@ -17,7 +17,7 @@ import { join } from "node:path";
  * guards is a test failure rather than a silent hole.
  */
 const ACTIONS_DIR = join(process.cwd(), "src/lib/actions");
-const MANAGE_DIR = join(process.cwd(), "src/app/[league]/manage");
+const MANAGE_DIR = join(process.cwd(), "src/app/[league]/(manage)");
 
 /**
  * Files allowed to use the role-only guards, with the count they may use, so
@@ -60,8 +60,10 @@ const NO_LEAGUE_ACTIONS: Record<string, string> = {
   "auth.ts:sendMagicLink": "sign-in happens before any league is known",
   "auth.ts:signOut": "ends a session; touches no league data",
   "auth.ts:devSignIn": "sign-in happens before any league is known",
-  "import.ts:previewEsportsdeskImport": "fetches an external URL and writes nothing",
-  "import.ts:runEsportsdeskImport": "creates the league it would be guarded against",
+  "import.ts:previewEsportsdeskImport":
+    "fetches an external URL and writes nothing",
+  "import.ts:runEsportsdeskImport":
+    "creates the league it would be guarded against",
   "import-rosters.ts:runRosterOnlyImport":
     "creates the league it would be guarded against",
   // The office is instance-wide and belongs to no league, so there is no league

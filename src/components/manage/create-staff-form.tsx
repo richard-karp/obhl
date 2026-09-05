@@ -37,7 +37,13 @@ export function CreateStaffForm({
       <input type="hidden" name="league_id" value={leagueId} />
       <div className="space-y-2">
         <Label htmlFor="email">Email</Label>
-        <Input id="email" name="email" type="email" required placeholder="person@example.com" />
+        <Input
+          id="email"
+          name="email"
+          type="email"
+          required
+          placeholder="person@example.com"
+        />
       </div>
       <div className="space-y-2">
         <Label htmlFor="display_name">Display name</Label>

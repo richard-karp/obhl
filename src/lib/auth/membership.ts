@@ -70,7 +70,10 @@ export async function getMemberLeagues(
 ): Promise<LeagueOption[]> {
   const admin = createAdminClient();
   const select = () =>
-    admin.from("leagues").select("id, name, slug").order("created_at", { ascending: true });
+    admin
+      .from("leagues")
+      .select("id, name, slug")
+      .order("created_at", { ascending: true });
 
   if (await officeTierOf(profileId)) {
     const { data } = await select();
@@ -159,7 +162,11 @@ export async function mayWriteProfileOf(
     memberLeagueIds(actorId),
     memberLeagueIds(profileId),
   ]);
-  return decideProfileWrite(null, null, theirs.every((id) => mine.includes(id)));
+  return decideProfileWrite(
+    null,
+    null,
+    theirs.every((id) => mine.includes(id)),
+  );
 }
 
 /**
@@ -213,11 +220,12 @@ export async function addLeagueMembership(
   leagueId: string,
 ): Promise<void> {
   const admin = createAdminClient();
-  await admin
-    .from("profile_leagues")
-    .upsert({ profile_id: profileId, league_id: leagueId }, {
+  await admin.from("profile_leagues").upsert(
+    { profile_id: profileId, league_id: leagueId },
+    {
       onConflict: "profile_id,league_id",
-    });
+    },
+  );
 }
 
 /** Revoke membership of ONE league. The account and its other leagues remain. */

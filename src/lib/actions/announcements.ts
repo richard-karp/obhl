@@ -56,7 +56,7 @@ export async function createAnnouncement(
     new_data: { title },
   });
 
-  revalidatePath("/[league]/manage/announcements", "page");
+  revalidatePath("/[league]/announcements", "page");
   revalidatePath("/[league]", "page");
   return { ok: true, message: "Announcement posted." };
 }
@@ -98,6 +98,6 @@ export async function deleteAnnouncement(formData: FormData) {
     league_id,
     old_data: before ?? { title: null },
   });
-  revalidatePath("/[league]/manage/announcements", "page");
+  revalidatePath("/[league]/announcements", "page");
   revalidatePath("/[league]", "page");
 }

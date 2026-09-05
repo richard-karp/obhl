@@ -51,13 +51,14 @@ export async function selectSeason(formData: FormData): Promise<void> {
   //
   // Not reachable cross-site today — Next verifies Origin on Server Actions —
   // and the real caller passes `usePathname()`. This is depth, not a hole.
-  let next = `/${slug}/manage/dashboard`;
+  let next = `/${slug}/dashboard`;
   if (raw.startsWith("/")) {
     try {
       const probe = new URL(raw, "http://a.invalid");
       // `pathname + search` rather than `raw`: it is what the parser made of
       // it, with the normalisation already applied rather than still pending.
-      if (probe.origin === "http://a.invalid") next = probe.pathname + probe.search;
+      if (probe.origin === "http://a.invalid")
+        next = probe.pathname + probe.search;
     } catch {
       // Unparseable — keep the dashboard default.
     }
@@ -65,7 +66,12 @@ export async function selectSeason(formData: FormData): Promise<void> {
 
   const league = await resolveLeagueBySlug(slug);
   if (!league) redirect("/");
-  await requireLeagueRole(league.id, "league_manager", "scorekeeper", "captain");
+  await requireLeagueRole(
+    league.id,
+    "league_manager",
+    "scorekeeper",
+    "captain",
+  );
 
   // Both halves matter. The id must exist AND belong to this league: without
   // the second clause a manager of two leagues could pin league A's season onto
@@ -88,11 +94,19 @@ export async function selectSeason(formData: FormData): Promise<void> {
     }
   }
 
-  // The whole manage subtree, because the cookie rescopes every page under it —
+  // The whole league subtree, because the cookie rescopes every page under it —
   // not just the one being returned to. These pages are all dynamic, so this is
   // about the client router cache: without it, going back to a page visited
   // before the switch can render the previous season's data and make the
   // control look like it did nothing.
-  revalidatePath("/[league]/manage", "layout");
+  //
+  // ⚠️ `/[league]`, NOT `/[league]/manage`. There is no `/manage` segment any
+  // more — the staff pages live in a `(manage)` ROUTE GROUP, which
+  // `normalizeAppPath` strips, so the old string names nothing and would
+  // revalidate nothing at all. It also has to be the league root rather than a
+  // narrower subtree now that staff surfaces render on PUBLIC pages: the team
+  // page and the schedule both change with the season for a signed-in manager,
+  // and neither is under a manage path to be caught by one.
+  revalidatePath("/[league]", "layout");
   redirect(next);
 }

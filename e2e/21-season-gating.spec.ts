@@ -64,7 +64,11 @@ async function teardown() {
   // The league cascades to its seasons, teams, roster rows and memberships.
   await db.from("leagues").delete().eq("slug", SLUG);
   // `players` is global and hangs off no league, so it does not cascade.
-  await db.from("players").delete().eq("first_name", FIRST).eq("last_name", LAST);
+  await db
+    .from("players")
+    .delete()
+    .eq("first_name", FIRST)
+    .eq("last_name", LAST);
 }
 
 test.beforeAll(async () => {
@@ -98,11 +102,18 @@ test.beforeAll(async () => {
 
   const { data: team } = await db
     .from("teams")
-    .insert({ league_id: leagueId, name: TEAM, slug: "import-otters", color: "#2f6f4f" })
+    .insert({
+      league_id: leagueId,
+      name: TEAM,
+      slug: "import-otters",
+      color: "#2f6f4f",
+    })
     .select("id")
     .single();
   teamId = team!.id;
-  await db.from("season_teams").insert({ season_id: seasonId, team_id: teamId });
+  await db
+    .from("season_teams")
+    .insert({ season_id: seasonId, team_id: teamId });
 
   const { data: player } = await db
     .from("players")
@@ -128,10 +139,17 @@ test.beforeAll(async () => {
     .single();
   await db
     .from("profile_leagues")
-    .upsert({ profile_id: mgr!.id, league_id: leagueId }, { onConflict: "profile_id,league_id" });
+    .upsert(
+      { profile_id: mgr!.id, league_id: leagueId },
+      { onConflict: "profile_id,league_id" },
+    );
 
   // The seeded ids the OBHL half of this file compares against.
-  const { data: obhl } = await db.from("leagues").select("id").eq("slug", "obhl").single();
+  const { data: obhl } = await db
+    .from("leagues")
+    .select("id")
+    .eq("slug", "obhl")
+    .single();
   obhlLeagueId = obhl!.id;
   const { data: seasons } = await db
     .from("seasons")
@@ -174,17 +192,26 @@ test.describe("Path 23 — season gating", () => {
 
   test("a season nobody activated is still editable", async ({ page }) => {
     await signedInAsManager(page);
-    await page.goto(`/${SLUG}/manage/rosters`);
+    // ⚠️ `/teams`, not `/manage/rosters`: the rosters index and the roster
+    // editor page are both gone — the index IS the public teams list and the
+    // editor is a section of the team's own page. What this test asks is
+    // unchanged: can a manager work in a season nobody activated.
+    await page.goto(`/${SLUG}/teams`);
 
     // The empty state this workstream deleted. Its presence here is the whole
     // bug: an imported league had nothing else to show.
     await expect(page.getByText("No active season")).toHaveCount(0);
+    await expect(page.getByText("No seasons yet")).toHaveCount(0);
     await expect(page.getByLabel("Select season")).toHaveValue(seasonId);
-    await expect(page.getByText(`Pick a team to manage its ${SEASON} roster.`)).toBeVisible();
+    await expect(page.getByText(SEASON).first()).toBeVisible();
 
-    await page.goto(`/${SLUG}/manage/rosters/${teamId}`);
-    await expect(page.getByRole("heading", { name: `${TEAM} — Roster` })).toBeVisible();
-    const row = page.getByRole("row", { name: new RegExp(`${FIRST} ${LAST}`) });
+    await page.getByText(TEAM, { exact: true }).first().click();
+    await expect(page).toHaveURL(/\/teams\//);
+    const editor = page.getByRole("region", { name: "Manage roster" });
+    await expect(editor).toBeVisible();
+    const row = editor.getByRole("row", {
+      name: new RegExp(`${FIRST} ${LAST}`),
+    });
     await expect(row).toBeVisible();
 
     // Editable, not merely visible — a read-only page would satisfy everything
@@ -199,33 +226,67 @@ test.describe("Path 23 — season gating", () => {
     page,
   }) => {
     await signedInAsManager(page);
-    await page.goto("/obhl/manage/rosters");
+    await page.goto("/obhl/teams");
     await expect(page.getByLabel("Select season")).toHaveValue(springId);
 
     // Fall 2026 exists, is enrolled, and is NOT active — the seed builds it for
     // exactly this kind of test.
     await page.getByLabel("Select season").selectOption(fallId);
-    await expect(page.getByText("Pick a team to manage its Fall 2026 roster.")).toBeVisible();
+    await expect(page.getByText("Fall 2026").first()).toBeVisible();
 
-    // The choice is a cookie, so it follows you to the next manage page rather
-    // than living in one URL.
-    await page.goto("/obhl/manage/score");
+    // The choice is a cookie, so it follows you to the next staff surface
+    // rather than living in one URL. `/schedule` is where `/manage/score` went.
+    await page.goto("/obhl/schedule");
     await expect(page.getByLabel("Select season")).toHaveValue(fallId);
 
-    // …and stops at the manage tools. The public standings page names the
-    // season it is showing, so this reads which one the public site resolved.
+    // …and stops at what the PUBLIC sees. The standings page names the season
+    // it is showing, and is keyed on `is_active` for everybody.
     await page.goto("/obhl/standings");
     await expect(page.getByText("Spring 2026")).toBeVisible();
     await expect(page.getByText("Fall 2026")).toHaveCount(0);
   });
 
-  test("?season= scopes one page without disturbing the rest", async ({ page }) => {
+  /**
+   * ⛔ THE HALF THE MERGE PUT AT RISK. `/teams` and `/schedule` are public pages
+   * that now carry the switcher for staff, so "the manager's season does not
+   * move the public site" stopped being a claim about separate URLs and became a
+   * claim about the same URL answering two viewers differently. A fresh context
+   * is the only way to ask it: the assertions above all run as the manager, and
+   * would pass whether or not an anonymous visitor were dragged along.
+   */
+  test("a manager's season choice does not follow a visitor", async ({
+    page,
+    browser,
+  }) => {
     await signedInAsManager(page);
-    await page.goto(`/obhl/manage/rosters?season=${fallId}`);
+    await page.goto("/obhl/teams");
+    await page.getByLabel("Select season").selectOption(fallId);
+    await expect(page.getByText("Fall 2026").first()).toBeVisible();
+
+    const anon = await browser.newContext();
+    try {
+      const visitor = await anon.newPage();
+      await visitor.goto("/obhl/teams");
+      await expect(visitor.getByText("Spring 2026").first()).toBeVisible();
+      await expect(visitor.getByText("Fall 2026")).toHaveCount(0);
+      // And no switcher at all — it is not a control a visitor is offered.
+      await expect(visitor.getByLabel("Select season")).toHaveCount(0);
+      await visitor.goto("/obhl/schedule");
+      await expect(visitor.getByLabel("Select season")).toHaveCount(0);
+    } finally {
+      await anon.close();
+    }
+  });
+
+  test("?season= scopes one page without disturbing the rest", async ({
+    page,
+  }) => {
+    await signedInAsManager(page);
+    await page.goto(`/obhl/teams?season=${fallId}`);
     await expect(page.getByLabel("Select season")).toHaveValue(fallId);
 
     // The param is not sticky — only the switcher writes the cookie.
-    await page.goto("/obhl/manage/rosters");
+    await page.goto("/obhl/teams");
     await expect(page.getByLabel("Select season")).toHaveValue(springId);
   });
 
@@ -236,7 +297,7 @@ test.describe("Path 23 — season gating", () => {
     await signedInAsManager(page);
 
     // As a param.
-    const res = await page.goto(`/obhl/manage/rosters?season=${harborSeasonId}`);
+    const res = await page.goto(`/obhl/teams?season=${harborSeasonId}`);
     expect(res?.status()).toBe(200);
     await expect(page.getByLabel("Select season")).toHaveValue(springId);
 
@@ -252,7 +313,7 @@ test.describe("Path 23 — season gating", () => {
         path: "/",
       },
     ]);
-    const forged = await page.goto("/obhl/manage/rosters");
+    const forged = await page.goto("/obhl/teams");
     expect(forged?.status()).toBe(200);
     await expect(page.getByLabel("Select season")).toHaveValue(springId);
   });

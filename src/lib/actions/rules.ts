@@ -86,7 +86,10 @@ export async function saveRules(leagueId: string, content: unknown) {
   // when the runtime freezes the function after the response, and this entry
   // holds the only copy of the rules being replaced. logAudit swallows its own
   // errors, so awaiting cannot turn a successful save into a reported failure.
-  if (saved && canonical(previous?.content ?? null) !== canonical(content ?? null)) {
+  if (
+    saved &&
+    canonical(previous?.content ?? null) !== canonical(content ?? null)
+  ) {
     await logAudit({
       user_id: user.id,
       action: "save_rules",
@@ -97,7 +100,23 @@ export async function saveRules(leagueId: string, content: unknown) {
     });
   }
 
+  // One path, because there is now one page: `/rules` serves the public the
+  // rules and their manager the same page with an editor on it.
   revalidatePath("/[league]/rules", "page");
-  revalidatePath("/[league]/manage/rules/edit", "page");
-  return error ? { ok: false, message: error.message } : { ok: true };
+
+  // Keyed on `saved`, not on `error`, for the reason stated eight lines above:
+  // A WRITE REFUSED AT THE POLICY LEVEL IN THIS AREA NEED NOT SET `error`. The
+  // audit gate already knew that; this return did not, so a silently refused
+  // save answered `{ ok: true }` and the editor said "Saved." while nothing had
+  // been written. `requireLeagueManager` at the top should make that
+  // unreachable — this is what stops the manager's confirmation resting on that
+  // guard alone.
+  if (!saved) {
+    return {
+      ok: false,
+      message:
+        error?.message ?? "Rules were not saved. You may not have access.",
+    };
+  }
+  return { ok: true };
 }

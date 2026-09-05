@@ -46,7 +46,11 @@ export type DismissedPair = {
   nameB: string;
 };
 
-const POSITION_LABEL: Record<string, string> = { F: "Forward", D: "Defence", G: "Goalie" };
+const POSITION_LABEL: Record<string, string> = {
+  F: "Forward",
+  D: "Defence",
+  G: "Goalie",
+};
 
 function AppearanceLine({ a }: { a: Appearance }) {
   return (
@@ -72,17 +76,23 @@ function AppearanceLine({ a }: { a: Appearance }) {
  * Its own component so each cluster carries its own action state. A single hook
  * over the whole page would put one cluster's refusal under every other one.
  */
-function ClusterCard({ leagueId, cluster }: { leagueId: string; cluster: ClusterView }) {
+function ClusterCard({
+  leagueId,
+  cluster,
+}: {
+  leagueId: string;
+  cluster: ClusterView;
+}) {
   const [keepId, setKeepId] = useState(cluster.players[0]?.id ?? "");
   const [absorb, setAbsorb] = useState<Record<string, boolean>>({});
-  const [merged, mergeAction, merging] = useActionState<PlayersActionState, FormData>(
-    mergePlayers,
-    null,
-  );
-  const [dismissed, dismissAction, dismissing] = useActionState<PlayersActionState, FormData>(
-    dismissDuplicatePair,
-    null,
-  );
+  const [merged, mergeAction, merging] = useActionState<
+    PlayersActionState,
+    FormData
+  >(mergePlayers, null);
+  const [dismissed, dismissAction, dismissing] = useActionState<
+    PlayersActionState,
+    FormData
+  >(dismissDuplicatePair, null);
 
   // Default to folding in everything that is not the keeper: the common case is
   // one person imported twice, and asking the operator to tick the box they
@@ -137,14 +147,19 @@ function ClusterCard({ leagueId, cluster }: { leagueId: string; cluster: Cluster
                   ))}
                 </ul>
                 {p.id === keepId ? (
-                  <span className="text-muted-foreground text-xs">survives</span>
+                  <span className="text-muted-foreground text-xs">
+                    survives
+                  </span>
                 ) : (
                   <label className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
                       checked={willAbsorb(p.id)}
                       onChange={(e) =>
-                        setAbsorb((prev) => ({ ...prev, [p.id]: e.target.checked }))
+                        setAbsorb((prev) => ({
+                          ...prev,
+                          [p.id]: e.target.checked,
+                        }))
                       }
                       disabled={busy}
                     />
@@ -219,7 +234,13 @@ function UndoButton() {
 }
 
 /** The dismissed list, and the undo that is the only way back out of a misclick. */
-function DismissedList({ leagueId, pairs }: { leagueId: string; pairs: DismissedPair[] }) {
+function DismissedList({
+  leagueId,
+  pairs,
+}: {
+  leagueId: string;
+  pairs: DismissedPair[];
+}) {
   const [state, action] = useActionState<PlayersActionState, FormData>(
     restoreDuplicatePair,
     null,
@@ -236,9 +257,13 @@ function DismissedList({ leagueId, pairs }: { leagueId: string; pairs: Dismissed
       </p>
       <ul className="mt-3 space-y-2">
         {pairs.map((p) => (
-          <li key={p.id} className="flex items-center justify-between gap-4 text-sm">
+          <li
+            key={p.id}
+            className="flex items-center justify-between gap-4 text-sm"
+          >
             <span>
-              {p.nameA} <span className="text-muted-foreground">≠</span> {p.nameB}
+              {p.nameA} <span className="text-muted-foreground">≠</span>{" "}
+              {p.nameB}
             </span>
             <form action={action}>
               <input type="hidden" name="league_id" value={leagueId} />
@@ -249,7 +274,12 @@ function DismissedList({ leagueId, pairs }: { leagueId: string; pairs: Dismissed
         ))}
       </ul>
       {state ? (
-        <p role="status" className={state.ok ? "mt-2 text-sm" : "text-destructive mt-2 text-sm"}>
+        <p
+          role="status"
+          className={
+            state.ok ? "mt-2 text-sm" : "text-destructive mt-2 text-sm"
+          }
+        >
           {state.message}
         </p>
       ) : null}

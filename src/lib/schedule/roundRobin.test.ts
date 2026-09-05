@@ -73,7 +73,9 @@ describe("roundRobin", () => {
       away.set(p.away, (away.get(p.away) ?? 0) + 1);
     }
     for (const t of ts) {
-      expect(Math.abs((home.get(t) ?? 0) - (away.get(t) ?? 0))).toBeLessThanOrEqual(2);
+      expect(
+        Math.abs((home.get(t) ?? 0) - (away.get(t) ?? 0)),
+      ).toBeLessThanOrEqual(2);
     }
   });
 });

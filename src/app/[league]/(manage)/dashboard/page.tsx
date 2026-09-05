@@ -90,22 +90,22 @@ export default async function DashboardPage({
       {user.role === "league_manager" ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <ActionCard
-            href={`/${leagueSlug}/manage/people`}
+            href={`/${leagueSlug}/people`}
             title="People & Roles"
             description="Create staff accounts and assign manager, captain, or scorekeeper roles."
           />
           <ActionCard
-            href={`/${leagueSlug}/manage/seasons`}
+            href={`/${leagueSlug}/seasons`}
             title="Seasons"
             description="Create seasons, set the active one, and enroll teams (carry forward)."
           />
           <ActionCard
-            href={`/${leagueSlug}/manage/rosters`}
-            title="Rosters"
+            href={`/${leagueSlug}/teams`}
+            title="Teams"
             description="Add players to teams and set numbers, positions, and captains."
           />
           <ActionCard
-            href={`/${leagueSlug}/manage/score`}
+            href={`/${leagueSlug}/schedule`}
             title="Games"
             description="Browse the schedule and open the scoresheet for any game."
           />
@@ -115,7 +115,7 @@ export default async function DashboardPage({
       {user.role === "scorekeeper" ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <ActionCard
-            href={`/${leagueSlug}/manage/score`}
+            href={`/${leagueSlug}/schedule`}
             title="Score Games"
             description="Open a game to set rosters, record goals and penalties, and finalize."
           />
@@ -172,8 +172,12 @@ async function CaptainPanel({
     ) : null;
   }
 
-  let team: { id: string; name: string; slug: string; color: string | null } | null =
-    null;
+  let team: {
+    id: string;
+    name: string;
+    slug: string;
+    color: string | null;
+  } | null = null;
   if (seasonId) {
     const { data } = await supabase
       .from("team_players")
@@ -212,7 +216,9 @@ async function CaptainPanel({
       <CardHeader>
         <div className="flex items-center gap-2">
           <TeamLogo name={team.name} color={team.color} />
-          <CardTitle className="text-base">You captain the {team.name}</CardTitle>
+          <CardTitle className="text-base">
+            You captain the {team.name}
+          </CardTitle>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -242,7 +248,9 @@ async function CaptainPanel({
                     <span className="font-medium">{opp?.name ?? "TBD"}</span>
                   </span>
                   <Button asChild size="sm">
-                    <Link href={`/${leagueSlug}/manage/score/${g.id}`}>Set lineup</Link>
+                    <Link href={`/${leagueSlug}/games/${g.id}/score`}>
+                      Set lineup
+                    </Link>
                   </Button>
                 </div>
               );

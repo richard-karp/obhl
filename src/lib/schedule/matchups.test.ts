@@ -13,7 +13,9 @@ function scenario(nightCount: number) {
     plays[(2 * n) % T][n] = false;
     plays[(2 * n + 1) % T][n] = false;
   }
-  const nightWeek = Array.from({ length: nightCount }, (_, n) => Math.floor(n / 2));
+  const nightWeek = Array.from({ length: nightCount }, (_, n) =>
+    Math.floor(n / 2),
+  );
   const nightWeekday = Array.from({ length: nightCount }, (_, n) => n % 2);
   return { T, plays, nightWeek, nightWeekday };
 }
@@ -38,7 +40,10 @@ function cadence(nights: [number, number][]) {
 }
 
 /** Per pairing, how many times it meets on each weekday, in weekday order. */
-function countsByWeekday(pairsByNight: [number, number][][], nightWeekday: number[]) {
+function countsByWeekday(
+  pairsByNight: [number, number][][],
+  nightWeekday: number[],
+) {
   const wds = [...new Set(nightWeekday)].sort((a, b) => a - b);
   const counts = new Map<string, number[]>();
   pairsByNight.forEach((pairs, n) => {
@@ -53,7 +58,10 @@ function countsByWeekday(pairsByNight: [number, number][][], nightWeekday: numbe
 }
 
 /** `pairingWeekdayExcess` over a Phase M result, in the units the report uses. */
-function pairingExcess(pairsByNight: [number, number][][], nightWeekday: number[]) {
+function pairingExcess(
+  pairsByNight: [number, number][][],
+  nightWeekday: number[],
+) {
   const wds = [...new Set(nightWeekday)].sort((a, b) => a - b);
   const perWd = wds.map((d) => nightWeekday.filter((x) => x === d).length);
   const counts = countsByWeekday(pairsByNight, nightWeekday);
@@ -119,7 +127,13 @@ describe("assignMatchups", () => {
     const targets = Array.from({ length: T }, (_, a) =>
       Array.from({ length: T }, (_, b) => (a === b ? 0 : 3)),
     );
-    const res = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets });
+    const res = assignMatchups({
+      teamCount: T,
+      plays,
+      nightWeek,
+      nightWeekday,
+      targets,
+    });
     expect(res).not.toBeNull();
     expect(res!.multiplicityError).toBe(0);
     expect(counts(T, res!.pairsByNight)).toEqual(targets);
@@ -130,11 +144,19 @@ describe("assignMatchups", () => {
     const targets = Array.from({ length: T }, (_, a) =>
       Array.from({ length: T }, (_, b) => (a === b ? 0 : 3)),
     );
-    const res = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    const res = assignMatchups({
+      teamCount: T,
+      plays,
+      nightWeek,
+      nightWeekday,
+      targets,
+    })!;
     res.pairsByNight.forEach((pairs, n) => {
       const seen = pairs.flat();
       expect(new Set(seen).size).toBe(seen.length); // nobody twice a night
-      const expected = plays.map((row, t) => (row[n] ? t : -1)).filter((t) => t >= 0);
+      const expected = plays
+        .map((row, t) => (row[n] ? t : -1))
+        .filter((t) => t >= 0);
       expect([...seen].sort((a, b) => a - b)).toEqual(expected);
     });
   });
@@ -163,9 +185,18 @@ describe("assignMatchups weekday split", () => {
     const nights: [number, number][] = [];
     for (let w = 0; w < 5; w++) for (const d of [1, 3, 5]) nights.push([w, d]);
     const { T, plays, nightWeek, nightWeekday, targets } = cadence(nights);
-    const res = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    const res = assignMatchups({
+      teamCount: T,
+      plays,
+      nightWeek,
+      nightWeekday,
+      targets,
+    })!;
     expect(res.multiplicityError).toBe(0);
-    const { excess, off, pairs } = pairingExcess(res.pairsByNight, nightWeekday);
+    const { excess, off, pairs } = pairingExcess(
+      res.pairsByNight,
+      nightWeekday,
+    );
     expect(pairs).toBe(15);
     expect(off).toBe(0);
     expect(excess).toBe(0);
@@ -183,7 +214,13 @@ describe("assignMatchups weekday split", () => {
     const { T, plays, nightWeek, nightWeekday, targets } = cadence(nights);
     expect(nightWeekday.filter((d) => d === 1).length).toBe(10);
     expect(nightWeekday.filter((d) => d === 4).length).toBe(5);
-    const res = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    const res = assignMatchups({
+      teamCount: T,
+      plays,
+      nightWeek,
+      nightWeekday,
+      targets,
+    })!;
     expect(res.multiplicityError).toBe(0);
     const { excess, off } = pairingExcess(res.pairsByNight, nightWeekday);
     expect(off).toBe(0);
@@ -201,7 +238,13 @@ describe("assignMatchups weekday split", () => {
     const nights: [number, number][] = [];
     for (let w = 0; w < 15; w++) nights.push([w, 4]);
     const { T, plays, nightWeek, nightWeekday, targets } = cadence(nights);
-    const res = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    const res = assignMatchups({
+      teamCount: T,
+      plays,
+      nightWeek,
+      nightWeekday,
+      targets,
+    })!;
     expect(res.multiplicityError).toBe(0);
     expect(pairingExcess(res.pairsByNight, nightWeekday).excess).toBe(0);
   });
@@ -212,7 +255,13 @@ describe("assignMatchups weekday split", () => {
     const nights: [number, number][] = [];
     for (let w = 0; w < 5; w++) for (const d of [1, 3, 5]) nights.push([w, d]);
     const { T, plays, nightWeek, nightWeekday, targets } = cadence(nights);
-    const res = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    const res = assignMatchups({
+      teamCount: T,
+      plays,
+      nightWeek,
+      nightWeekday,
+      targets,
+    })!;
     // Three meetings each over five weeks: same-week and back-to-back-night
     // repeats are avoidable here, consecutive weeks are not.
     const r = rematchCounts(res.pairsByNight, nightWeek, nightWeekday);
@@ -232,7 +281,13 @@ describe("assignMatchups night constraints", () => {
 
   it("carries a pinned night through untouched", () => {
     const { T, plays, nightWeek, nightWeekday, targets } = base();
-    const free = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    const free = assignMatchups({
+      teamCount: T,
+      plays,
+      nightWeek,
+      nightWeekday,
+      targets,
+    })!;
     const pinned = free.pairsByNight[5];
     const res = assignMatchups({
       teamCount: T,
@@ -292,7 +347,10 @@ describe("assignMatchups night constraints", () => {
       targets,
     })!.pairsByNight;
     const key = (ps: [number, number][]) =>
-      ps.map((p) => [...p].sort().join("-")).sort().join(",");
+      ps
+        .map((p) => [...p].sort().join("-"))
+        .sort()
+        .join(",");
     const res = assignMatchups({
       teamCount: T,
       plays,
@@ -301,7 +359,8 @@ describe("assignMatchups night constraints", () => {
       targets,
       restarts: 1,
       initial: incumbent,
-      nightPenalty: (n, pairs) => (key(pairs) === key(incumbent[n]) ? 0 : 5_000),
+      nightPenalty: (n, pairs) =>
+        key(pairs) === key(incumbent[n]) ? 0 : 5_000,
     })!;
     // Already optimal, so a churn cost means there's no reason to move at all.
     expect(res.pairsByNight.map(key)).toEqual(incumbent.map(key));
@@ -315,7 +374,13 @@ describe("assignSlots", () => {
     const { T, plays, nightWeek, nightWeekday } = scenario(24);
     // Targets are irrelevant here; we just need a valid pairing to slot.
     const targets = Array.from({ length: T }, () => new Array(T).fill(0));
-    const m = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    const m = assignMatchups({
+      teamCount: T,
+      plays,
+      nightWeek,
+      nightWeekday,
+      targets,
+    })!;
     const slotOf = assignSlots({
       teamCount: T,
       pairsByNight: m.pairsByNight,
@@ -332,7 +397,13 @@ describe("assignSlots", () => {
     const targets = Array.from({ length: T }, (_, a) =>
       Array.from({ length: T }, (_, b) => (a === b ? 0 : 3)),
     );
-    const m = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    const m = assignMatchups({
+      teamCount: T,
+      plays,
+      nightWeek,
+      nightWeekday,
+      targets,
+    })!;
     const slotOf = assignSlots({
       teamCount: T,
       pairsByNight: m.pairsByNight,
@@ -351,13 +422,20 @@ describe("assignSlots", () => {
         share[b][slotOf[n][gi]]++;
       });
     });
-    for (const s of share) expect(Math.max(...s) - Math.min(...s)).toBeLessThanOrEqual(1);
+    for (const s of share)
+      expect(Math.max(...s) - Math.min(...s)).toBeLessThanOrEqual(1);
   });
 
   it("starts from `initial` and never moves a frozen night", () => {
     const { T, plays, nightWeek, nightWeekday } = scenario(24);
     const targets = Array.from({ length: T }, () => new Array(T).fill(0));
-    const m = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    const m = assignMatchups({
+      teamCount: T,
+      plays,
+      nightWeek,
+      nightWeekday,
+      targets,
+    })!;
     // A deliberately bad starting layout, with the first half held there.
     const initial = m.pairsByNight.map(() => [2, 1, 0]);
     const frozen = m.pairsByNight.map((_, n) => n < 12);
@@ -370,13 +448,20 @@ describe("assignSlots", () => {
     });
     for (let n = 0; n < 12; n++) expect(slotOf[n]).toEqual([2, 1, 0]);
     // The free half is still a valid permutation and free to have moved.
-    for (let n = 12; n < 24; n++) expect([...slotOf[n]].sort()).toEqual([0, 1, 2]);
+    for (let n = 12; n < 24; n++)
+      expect([...slotOf[n]].sort()).toEqual([0, 1, 2]);
   });
 
   it("holds a pinned game on its slot while the night permutes around it", () => {
     const { T, plays, nightWeek, nightWeekday } = scenario(24);
     const targets = Array.from({ length: T }, () => new Array(T).fill(0));
-    const m = assignMatchups({ teamCount: T, plays, nightWeek, nightWeekday, targets })!;
+    const m = assignMatchups({
+      teamCount: T,
+      plays,
+      nightWeek,
+      nightWeekday,
+      targets,
+    })!;
     const slotOf = assignSlots({
       teamCount: T,
       pairsByNight: m.pairsByNight,
@@ -417,7 +502,9 @@ function slotCadence(weekdayOfNight: number[]) {
   const pairsByNight: [number, number][][] = [];
   for (let n = 0; n < N; n++) {
     const bye = new Set([(2 * n) % T, (2 * n + 1) % T]);
-    const playing = Array.from({ length: T }, (_, t) => t).filter((t) => !bye.has(t));
+    const playing = Array.from({ length: T }, (_, t) => t).filter(
+      (t) => !bye.has(t),
+    );
     // Circle method: hold the first team, rotate the rest by the night index,
     // then fold the list onto itself.
     const [head, ...rest] = playing;
@@ -494,7 +581,8 @@ function slotMetrics(
   let streak3 = 0;
   let consec = 0;
   for (let t = 0; t < T; t++) {
-    for (const counts of perWd[t]) weekdaySpread += Math.max(...counts) - Math.min(...counts);
+    for (const counts of perWd[t])
+      weekdaySpread += Math.max(...counts) - Math.min(...counts);
     const all = new Array(numSlots).fill(0);
     for (const s of seq[t]) all[s]++;
     seasonSpread += Math.max(...all) - Math.min(...all);

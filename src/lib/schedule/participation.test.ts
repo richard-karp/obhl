@@ -233,7 +233,8 @@ describe("solveParticipation with manager constraints", () => {
     nights: ParticipationNight[],
     gamesPerTeam: number,
   ) => {
-    for (const row of plays) expect(row.filter(Boolean).length).toBe(gamesPerTeam);
+    for (const row of plays)
+      expect(row.filter(Boolean).length).toBe(gamesPerTeam);
     nights.forEach((n, i) => {
       expect(plays.filter((row) => row[i]).length).toBe(2 * n.games);
     });

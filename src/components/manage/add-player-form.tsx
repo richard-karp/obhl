@@ -5,7 +5,10 @@ import { addRosterPlayer, type RosterActionState } from "@/lib/actions/rosters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PersonPicker, type PersonOption } from "@/components/manage/person-picker";
+import {
+  PersonPicker,
+  type PersonOption,
+} from "@/components/manage/person-picker";
 
 export type { PersonOption };
 
@@ -54,7 +57,13 @@ export function AddPlayerForm({
         </div>
         <div className="space-y-1">
           <Label htmlFor="jersey_number">#</Label>
-          <Input id="jersey_number" name="jersey_number" type="number" min="0" max="99" />
+          <Input
+            id="jersey_number"
+            name="jersey_number"
+            type="number"
+            min="0"
+            max="99"
+          />
         </div>
         <div className="space-y-1">
           <Label htmlFor="position">Pos</Label>

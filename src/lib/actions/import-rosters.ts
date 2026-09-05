@@ -20,8 +20,18 @@ import type { ImportRunState } from "./import";
 // cosmetic defaults a manager can change per team, so the two lists drifting
 // apart costs nothing.
 const palette = [
-  "#0ea5e9", "#b45309", "#16a34a", "#64748b", "#7c3aed", "#dc2626",
-  "#0891b2", "#ca8a04", "#475569", "#059669", "#db2777", "#4f46e5",
+  "#0ea5e9",
+  "#b45309",
+  "#16a34a",
+  "#64748b",
+  "#7c3aed",
+  "#dc2626",
+  "#0891b2",
+  "#ca8a04",
+  "#475569",
+  "#059669",
+  "#db2777",
+  "#4f46e5",
 ];
 
 /**
@@ -70,7 +80,11 @@ export async function runRosterOnlyImport(
   const admin = createAdminClient();
   let parsed: ParsedLeague;
   try {
-    parsed = await fetchEsportsdeskLeague(ids.clientId, ids.leagueId, sourceSeason);
+    parsed = await fetchEsportsdeskLeague(
+      ids.clientId,
+      ids.leagueId,
+      sourceSeason,
+    );
   } catch (e) {
     return { ok: false, message: `Fetch failed: ${(e as Error).message}` };
   }
@@ -126,7 +140,10 @@ export async function runRosterOnlyImport(
     .single();
   if (sErr || !season) {
     await admin.from("leagues").delete().eq("id", league.id);
-    return { ok: false, message: `Couldn't create the season: ${sErr?.message}` };
+    return {
+      ok: false,
+      message: `Couldn't create the season: ${sErr?.message}`,
+    };
   }
 
   let teamCount = 0;
@@ -173,11 +190,16 @@ export async function runRosterOnlyImport(
     const { data: inserted, error: pErr } = await admin
       .from("players")
       .insert(
-        t.players.map((p) => ({ first_name: p.firstName, last_name: p.lastName })),
+        t.players.map((p) => ({
+          first_name: p.firstName,
+          last_name: p.lastName,
+        })),
       )
       .select("id");
     if (pErr || !inserted || inserted.length !== t.players.length) {
-      problems.push(`${t.name} (players: ${pErr?.message ?? "incomplete insert"})`);
+      problems.push(
+        `${t.name} (players: ${pErr?.message ?? "incomplete insert"})`,
+      );
       continue;
     }
 
@@ -213,7 +235,7 @@ export async function runRosterOnlyImport(
     playerCount += t.players.length;
   }
 
-  revalidatePath("/[league]/manage/seasons", "page");
+  revalidatePath("/[league]/seasons", "page");
   revalidatePath("/[league]", "layout");
   // This import creates a league; the root landing page lists them.
   revalidatePath("/");

@@ -1,9 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { findDuplicateClusters, type DuplicateCandidate } from "./duplicates";
 
-const row = (o: Partial<DuplicateCandidate> & { playerId: string }): DuplicateCandidate => ({
-  firstName: "Mike", lastName: "Smith", seasonId: "s1", teamId: "t1",
-  teamName: "Sharks", jerseyNumber: 17, position: "F", ...o,
+const row = (
+  o: Partial<DuplicateCandidate> & { playerId: string },
+): DuplicateCandidate => ({
+  firstName: "Mike",
+  lastName: "Smith",
+  seasonId: "s1",
+  teamId: "t1",
+  teamName: "Sharks",
+  jerseyNumber: 17,
+  position: "F",
+  ...o,
 });
 
 describe("findDuplicateClusters", () => {

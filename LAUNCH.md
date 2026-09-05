@@ -128,7 +128,7 @@ on conflict (id) do update set role = 'league_manager';
    **Manager** badge. A stale session carries a JWT issued before the hook was
    enabled and will still show no role — sign in again.
 
-Everyone else is created from `/<league>/manage/people`. Note it **sends no
+Everyone else is created from `/<league>/people`. Note it **sends no
 email**: the account is created without a password, so tell the person to go to
 `/login` and request a link themselves.
 
@@ -169,15 +169,21 @@ values ('<season id>', '<team id>', '<player id>', 9, 'F', true);
 on it.
 
 **Staging a league privately.** Create it with `is_public = false` and it is
-manageable at `/<slug>/manage/…` while 404ing publicly. Only managers can reach
-it: RLS exposes non-public leagues to the manager policy alone, so scorekeepers
-and captains cannot see a staged league at all. Flip `is_public` to `true` to go
+manageable at its ordinary URLs while 404ing for the public. **Its own staff can
+see it**: migrations 0042 and 0043 expose a non-public league and its content to
+anyone with a `profile_leagues` row for it, so scorekeepers and captains can
+work in a staged league rather than getting a 404 on the league they are
+staffing. Everyone else still gets nothing. Flip `is_public` to `true` to go
 live.
+
+⚠️ This changed. Before 0042 the manager policy was the only way in, and this
+paragraph used to say scorekeepers and captains could not see a staged league at
+all. If you are reading an older copy of that sentence somewhere, it is stale.
 
 ## Phase 6 — Schedules
 
 This is the step with the deadline. Build and publish each season's schedule from
-`/<league>/manage/schedule-builder` (or a season's setup page) **before its first
+`/<league>/schedule-builder` (or a season's setup page) **before its first
 game night**. See `SCHEDULE_HANDOFF.md` for what the generator balances and why.
 
 Once the first published game's date passes, that season's schedule is locked for
@@ -219,7 +225,7 @@ So a scorekeeper or a second manager is a supported thing to hand out, not a
 reason to stay the sole manager. `ACCESS_CONTROL_HANDOFF.md` has the model and
 the traps.
 
-**People & Roles is league-scoped.** `/<league>/manage/people` lists that
+**People & Roles is league-scoped.** `/<league>/people` lists that
 league's staff only, and **Remove** revokes that one membership rather than
 deleting the account — the account, its role, its player link and its other
 leagues all survive, so it is reversible. Two rules there are worth knowing

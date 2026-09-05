@@ -93,7 +93,7 @@ export type NightMeta = {
 function weekAnchor(nights: Night[]): number {
   const first = toUTC(nights[0].date);
   const firstWd = new Date(first).getUTCDay();
-  return first - (((firstWd + 6) % 7) * DAY); // back to Monday
+  return first - ((firstWd + 6) % 7) * DAY; // back to Monday
 }
 
 /**
@@ -116,7 +116,9 @@ export function buildNightMeta(nights: Night[]): NightMeta {
     return { week: [], weekday: [], weekNights: new Map(), sortedWeeks: [] };
   }
   const anchor = weekAnchor(nights);
-  const week = nights.map((n) => Math.floor((toUTC(n.date) - anchor) / (7 * DAY)));
+  const week = nights.map((n) =>
+    Math.floor((toUTC(n.date) - anchor) / (7 * DAY)),
+  );
   const weekday = nights.map((n) => new Date(toUTC(n.date)).getUTCDay());
   const weekNights = new Map<number, number[]>();
   nights.forEach((_, ni) => {
@@ -202,7 +204,8 @@ export function matchupSpacingCost(nights: number[], meta: NightMeta): number {
   return c;
 }
 
-const spreadOf = (a: number[]) => (a.length ? Math.max(...a) - Math.min(...a) : 0);
+const spreadOf = (a: number[]) =>
+  a.length ? Math.max(...a) - Math.min(...a) : 0;
 
 /**
  * Split `total` items across weekdays in proportion to each weekday's share of
@@ -218,7 +221,10 @@ const spreadOf = (a: number[]) => (a.length ? Math.max(...a) - Math.min(...a) : 
  * Kept in integers throughout — `total·nights[d]` and a `% N` rather than a
  * division — so no rounding error can move a floor across an integer boundary.
  */
-export function proportionalSplit(total: number, nightsPerWd: number[]): number[] {
+export function proportionalSplit(
+  total: number,
+  nightsPerWd: number[],
+): number[] {
   const N = nightsPerWd.reduce((s, n) => s + n, 0);
   if (N === 0) return nightsPerWd.map(() => 0);
   const num = nightsPerWd.map((n) => total * n);
@@ -241,7 +247,10 @@ export function proportionalSplit(total: number, nightsPerWd: number[]): number[
  * sums many of these and divides once, so no float noise reaches a comparison.
  * Zero whenever there is only one weekday, so single-weekday cadences are free.
  */
-export function weekdayExcessScaled(counts: number[], nightsPerWd: number[]): number {
+export function weekdayExcessScaled(
+  counts: number[],
+  nightsPerWd: number[],
+): number {
   const N = nightsPerWd.reduce((s, n) => s + n, 0);
   if (N === 0) return 0;
   const total = counts.reduce((s, c) => s + c, 0);
@@ -399,7 +408,8 @@ export function iceOutcome(opts: {
     const mine = seq[bias.team];
     if (!mine) continue;
     for (let i = 0; i < mine.length; i++) {
-      if (bias.nights[seqN[bias.team][i]]) biasCost += SLOT_BIAS_W * sign * mine[i];
+      if (bias.nights[seqN[bias.team][i]])
+        biasCost += SLOT_BIAS_W * sign * mine[i];
     }
   }
 
@@ -432,7 +442,9 @@ export function spacingReport(
   teamIds: string[],
 ): SpacingReport {
   const meta = buildNightMeta(nights);
-  const played = new Map<string, Set<number>>(teamIds.map((t) => [t, new Set()]));
+  const played = new Map<string, Set<number>>(
+    teamIds.map((t) => [t, new Set()]),
+  );
   const slotByNight = new Map<string, Map<number, number>>(
     teamIds.map((t) => [t, new Map()]),
   );
@@ -443,7 +455,9 @@ export function spacingReport(
       slotByNight.get(t)!.set(g.nightIndex, g.slotIndex);
     }
     const k = matchupKey(g.home, g.away);
-    (matchupNights.get(k) ?? matchupNights.set(k, []).get(k)!).push(g.nightIndex);
+    (matchupNights.get(k) ?? matchupNights.set(k, []).get(k)!).push(
+      g.nightIndex,
+    );
   }
 
   const report: SpacingReport = {
@@ -509,7 +523,11 @@ export function spacingReport(
     const mine = [...slotByNight.get(t)!.entries()].sort((x, y) => x[0] - y[0]);
     for (let i = 1; i < mine.length; i++) {
       if (mine[i][1] === mine[i - 1][1]) report.slotConsecutive++;
-      if (i >= 2 && mine[i][1] === mine[i - 2][1] && mine[i][1] === mine[i - 1][1]) {
+      if (
+        i >= 2 &&
+        mine[i][1] === mine[i - 2][1] &&
+        mine[i][1] === mine[i - 1][1]
+      ) {
         report.slotStreak3++;
       }
     }
@@ -526,7 +544,9 @@ export function spacingReport(
     // Longest layoff, in days rather than nights — the point of it is that the
     // calendar gap between two adjacent night indexes can be three weeks.
     for (let i = 1; i < mine.length; i++) {
-      const gap = (toUTC(nights[mine[i][0]].date) - toUTC(nights[mine[i - 1][0]].date)) / DAY;
+      const gap =
+        (toUTC(nights[mine[i][0]].date) - toUTC(nights[mine[i - 1][0]].date)) /
+        DAY;
       if (report.longestLayoffDays === null || gap > report.longestLayoffDays) {
         report.longestLayoffDays = gap;
       }
@@ -562,7 +582,8 @@ export function spacingReport(
   // Round to 4dp: the value feeds a lexicographic rank tuple, where a 1e-16
   // residue would read as one plan genuinely beating another.
   if (N > 0) {
-    report.pairingWeekdayExcess = Math.round((excessScaled / (N * N)) * 1e4) / 1e4;
+    report.pairingWeekdayExcess =
+      Math.round((excessScaled / (N * N)) * 1e4) / 1e4;
   }
 
   return report;

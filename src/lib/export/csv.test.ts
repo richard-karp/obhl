@@ -4,7 +4,11 @@ import { buildScheduleCsv, type CsvGame } from "./csv";
 const BOM = "﻿";
 const HEADER = "Date,Time,Home,Away";
 
-const g = (scheduled_at: string | null, home: string, away: string): CsvGame => ({
+const g = (
+  scheduled_at: string | null,
+  home: string,
+  away: string,
+): CsvGame => ({
   scheduled_at,
   home,
   away,

@@ -1,13 +1,15 @@
-import { notFound } from "next/navigation";
-import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { resolveLeagueBySlug } from "@/lib/league/current";
-import { getManageContext } from "@/lib/queries/season";
 import { AddPlayerForm } from "@/components/manage/add-player-form";
 import { TransferPlayerForm } from "@/components/manage/transfer-player-form";
 import { EditPlayerForm } from "@/components/manage/edit-player-form";
 import { archivedPlayerIdsIn } from "@/lib/players/archive";
-import { removeRosterPlayer, toggleCaptain, updatePlayerStatus, setDefaultGoalie, setGoalieDay } from "@/lib/actions/rosters";
+import {
+  removeRosterPlayer,
+  toggleCaptain,
+  updatePlayerStatus,
+  setDefaultGoalie,
+  setGoalieDay,
+} from "@/lib/actions/rosters";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -19,49 +21,58 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { LogoUpload } from "@/components/manage/logo-upload";
-import { SeasonSwitcher } from "@/components/manage/season-switcher";
+import type { TeamRow } from "@/lib/queries/teams";
+import type { Season } from "@/lib/queries/season";
 
 const POS: Record<string, string> = { F: "Forward", D: "Defense", G: "Goalie" };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export default async function RosterEditorPage({
-  params,
-  searchParams,
+
+/**
+ * Everything a manager can do to a roster, as one section of the team page.
+ *
+ * This WAS `/manage/rosters/[teamId]`, a second URL over the same team, reached
+ * by a uuid nobody could read. The forms below are the same forms, wired to the
+ * same actions, moved rather than rewritten.
+ *
+ * ⛔ DO NOT GIVE THIS ITS OWN WRITE PATH. `0036` exists because a second, naive
+ * implementation of a transfer destroyed goalie records through
+ * `v_goalie_stats`' inner join while the games stayed on the schedule, and
+ * reported no error while doing it. Every control here submits to
+ * `lib/actions/rosters.ts`, which guards itself and knows about departures.
+ *
+ * ⚠️ THE OWNERSHIP CHECK IS GONE BECAUSE IT IS NO LONGER POSSIBLE TO FAIL, not
+ * because it was tidied away. The old page took a team UUID from the URL and had
+ * to prove `team.league_id === ctx.league.id` before trusting it — an id says
+ * nothing about whose it is. This one is handed the team its page already
+ * resolved BY SLUG WITHIN THE LEAGUE, so a team from another league cannot be
+ * named here at all. If this component ever grows an id parameter, that check
+ * comes back with it.
+ *
+ * ⚠️ THE SEASON AND THE SWITCHER BELONG TO THE PAGE, NOT TO THIS. `season` is
+ * whatever the page resolved — the manage context's season for a manager, which
+ * is not necessarily the active one — and the page renders the switcher beside
+ * the heading. This component only edits the season it is handed. That split is
+ * what lets the same page serve the public its active season and a manager the
+ * one they picked.
+ *
+ * A server component: it reads on the admin client, and it is rendered only for
+ * a viewer `canManageLeague` has already said yes to, so an anonymous visitor
+ * never triggers any of these queries.
+ */
+export async function RosterEditor({
+  team,
+  season,
+  leagueId,
 }: {
-  params: Promise<{ league: string; teamId: string }>;
-  searchParams: Promise<{ season?: string }>;
+  team: TeamRow;
+  season: Season;
+  leagueId: string;
 }) {
-  const { league: leagueSlug, teamId } = await params;
-  const { season: seasonParam } = await searchParams;
-  // ⚠️ League, then GUARD, then context. `getManageContext` reads every season
-  // of the league on the ADMIN client; running it ahead of the guard makes a
-  // request that is about to be refused pay for data it never renders. See the
-  // same note on the rosters index.
-  const league = await resolveLeagueBySlug(leagueSlug);
-  if (!league) notFound();
-  await requireLeagueManager(league.id);
-  const ctx = await getManageContext(leagueSlug, seasonParam);
-  // A league with no seasons at all — the one case left. An imported season
-  // that nobody activated resolves like any other now, which is the point.
-  if (!ctx.season) {
-    return <EmptyState title="No seasons yet" description="Create a season first." />;
-  }
-
-  const season = ctx.season;
   const admin = createAdminClient();
-  const { data: team } = await admin
-    .from("teams")
-    .select("id, name, color, league_id, logo_path, logo_text_color")
-    .eq("id", teamId)
-    .maybeSingle();
-  // The id says nothing about which league it belongs to, so the slug in the
-  // URL is the only claim of ownership — enforce it rather than trust it.
-  if (!team || team.league_id !== ctx.league.id) notFound();
-
   const [{ data: roster }, { data: goalieDays }] = await Promise.all([
     admin
       .from("team_players")
@@ -69,7 +80,7 @@ export default async function RosterEditorPage({
         "id, player_id, jersey_number, position, is_captain, is_rookie, injury_notes, is_suspended, is_default_goalie, players!team_players_player_id_fkey(first_name, last_name)",
       )
       .eq("season_id", season.id)
-      .eq("team_id", teamId)
+      .eq("team_id", team.id)
       // The active roster. A departed row is kept as history (0036) so the
       // stats views can still credit what was earned here; it is not somebody
       // to set a lineup with.
@@ -79,7 +90,7 @@ export default async function RosterEditorPage({
       .from("team_goalie_days")
       .select("day_of_week, player_id")
       .eq("season_id", season.id)
-      .eq("team_id", teamId),
+      .eq("team_id", team.id),
   ]);
 
   // The season's other teams, for the per-row transfer control. Read from
@@ -90,13 +101,17 @@ export default async function RosterEditorPage({
     .select("team_id, teams!season_teams_team_id_fkey(id, name)")
     .eq("season_id", season.id);
   const transferTargets = (enrolled ?? [])
-    .flatMap((e) => (e.teams && e.teams.id !== teamId ? [{ id: e.teams.id, name: e.teams.name }] : []))
+    .flatMap((e) =>
+      e.teams && e.teams.id !== team.id
+        ? [{ id: e.teams.id, name: e.teams.name }]
+        : [],
+    )
     .sort((a, b) => a.name.localeCompare(b.name));
 
   // ⚠️ THE TEAM BELONGS TO THE LEAGUE BUT NOT TO THIS SEASON. The check above
   // only proves the former. Reachable in one click now that the season switcher
   // exists: it posts `next = usePathname()`, so switching season here keeps the
-  // same `teamId`, and a team enrolled last season but not this one rendered an
+  // same `team.id`, and a team enrolled last season but not this one rendered an
   // empty roster with a working Add Player form — which wrote `team_players`
   // rows for a team the season does not have. An empty state rather than
   // `notFound()`, because the team is real and the switcher is how they got
@@ -104,17 +119,12 @@ export default async function RosterEditorPage({
   //
   // The server refuses it too (`addRosterPlayer`) — hiding a form is a list,
   // not a restriction, the same distinction the picker comment below draws.
-  if (!(enrolled ?? []).some((e) => e.team_id === teamId)) {
+  if (!(enrolled ?? []).some((e) => e.team_id === team.id)) {
     return (
-      <div className="space-y-6">
-        <PageHeader title={`${team.name} — Roster`} description={season.name}>
-          <SeasonSwitcher ctx={ctx} />
-        </PageHeader>
-        <EmptyState
-          title={`${team.name} is not in ${season.name}`}
-          description="Enrol the team in this season on the season setup page, or switch to a season it plays in."
-        />
-      </div>
+      <EmptyState
+        title={`${team.name} is not in ${season.name}`}
+        description="Enrol the team in this season on the season setup page, or switch to a season it plays in."
+      />
     );
   }
 
@@ -126,23 +136,26 @@ export default async function RosterEditorPage({
   // the shape a `players.archived_at` column would have forced — would hide the
   // person from every OTHER league's picker too, silently, for leagues that
   // never archived them.
-  const [{ data: allPeople }, archived, { data: leagueRostered }] = await Promise.all([
-    admin
-      .from("players")
-      .select("id, first_name, last_name")
-      .order("last_name", { ascending: true }),
-    archivedPlayerIdsIn(ctx.league.id, admin),
-    // Who is on some team in THIS league right now. Used only so the picker can
-    // say so: `archivePlayer` refuses these, and a button that always fails is
-    // worse than no button.
-    admin
-      .from("team_players")
-      .select("player_id, seasons!inner(league_id)")
-      .is("left_on", null)
-      .eq("seasons.league_id", ctx.league.id),
-  ]);
+  const [{ data: allPeople }, archived, { data: leagueRostered }] =
+    await Promise.all([
+      admin
+        .from("players")
+        .select("id, first_name, last_name")
+        .order("last_name", { ascending: true }),
+      archivedPlayerIdsIn(leagueId, admin),
+      // Who is on some team in THIS league right now. Used only so the picker can
+      // say so: `archivePlayer` refuses these, and a button that always fails is
+      // worse than no button.
+      admin
+        .from("team_players")
+        .select("player_id, seasons!inner(league_id)")
+        .is("left_on", null)
+        .eq("seasons.league_id", leagueId),
+    ]);
   const onRoster = new Set((roster ?? []).map((r) => r.player_id));
-  const rosteredInLeague = new Set((leagueRostered ?? []).map((r) => r.player_id));
+  const rosteredInLeague = new Set(
+    (leagueRostered ?? []).map((r) => r.player_id),
+  );
   const people = (allPeople ?? [])
     .filter((p) => !onRoster.has(p.id))
     .map((p) => ({
@@ -156,10 +169,6 @@ export default async function RosterEditorPage({
 
   return (
     <div className="space-y-6">
-      <PageHeader title={`${team.name} — Roster`} description={season.name}>
-        <SeasonSwitcher ctx={ctx} />
-      </PageHeader>
-
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Team logo</CardTitle>
@@ -184,7 +193,7 @@ export default async function RosterEditorPage({
           <AddPlayerForm
             seasonId={season.id}
             teamId={team.id}
-            leagueId={ctx.league.id}
+            leagueId={leagueId}
             people={people}
           />
         </CardContent>
@@ -213,22 +222,34 @@ export default async function RosterEditorPage({
                   <TableCell className="font-medium">
                     {r.players?.first_name} {r.players?.last_name}
                     {r.is_captain ? (
-                      <Badge variant="secondary" className="ml-2 px-1.5 py-0 text-[0.65rem]">
+                      <Badge
+                        variant="secondary"
+                        className="ml-2 px-1.5 py-0 text-[0.65rem]"
+                      >
                         C
                       </Badge>
                     ) : null}
                     {r.is_rookie ? (
-                      <Badge variant="outline" className="ml-1 px-1.5 py-0 text-[0.65rem]">
+                      <Badge
+                        variant="outline"
+                        className="ml-1 px-1.5 py-0 text-[0.65rem]"
+                      >
                         R
                       </Badge>
                     ) : null}
                     {r.is_suspended ? (
-                      <Badge variant="destructive" className="ml-1 px-1.5 py-0 text-[0.65rem]">
+                      <Badge
+                        variant="destructive"
+                        className="ml-1 px-1.5 py-0 text-[0.65rem]"
+                      >
                         SUSP
                       </Badge>
                     ) : null}
                     {r.injury_notes ? (
-                      <Badge variant="destructive" className="ml-1 px-1.5 py-0 text-[0.65rem]">
+                      <Badge
+                        variant="destructive"
+                        className="ml-1 px-1.5 py-0 text-[0.65rem]"
+                      >
                         INJ
                       </Badge>
                     ) : null}
@@ -242,31 +263,65 @@ export default async function RosterEditorPage({
                         <input type="hidden" name="id" value={r.id} />
                         <input type="hidden" name="team_id" value={team.id} />
                         <input type="hidden" name="field" value="is_rookie" />
-                        <input type="hidden" name="value" value={r.is_rookie ? "0" : "1"} />
-                        <Button type="submit" variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                        <input
+                          type="hidden"
+                          name="value"
+                          value={r.is_rookie ? "0" : "1"}
+                        />
+                        <Button
+                          type="submit"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                        >
                           {r.is_rookie ? "Unset Rookie" : "Rookie"}
                         </Button>
                       </form>
                       <form action={updatePlayerStatus}>
                         <input type="hidden" name="id" value={r.id} />
                         <input type="hidden" name="team_id" value={team.id} />
-                        <input type="hidden" name="field" value="is_suspended" />
-                        <input type="hidden" name="value" value={r.is_suspended ? "0" : "1"} />
-                        <Button type="submit" variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                        <input
+                          type="hidden"
+                          name="field"
+                          value="is_suspended"
+                        />
+                        <input
+                          type="hidden"
+                          name="value"
+                          value={r.is_suspended ? "0" : "1"}
+                        />
+                        <Button
+                          type="submit"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                        >
                           {r.is_suspended ? "Lift Susp." : "Suspend"}
                         </Button>
                       </form>
-                      <form action={updatePlayerStatus} className="flex items-center gap-1">
+                      <form
+                        action={updatePlayerStatus}
+                        className="flex items-center gap-1"
+                      >
                         <input type="hidden" name="id" value={r.id} />
                         <input type="hidden" name="team_id" value={team.id} />
-                        <input type="hidden" name="field" value="injury_notes" />
+                        <input
+                          type="hidden"
+                          name="field"
+                          value="injury_notes"
+                        />
                         <input
                           name="value"
                           defaultValue={r.injury_notes ?? ""}
                           placeholder="Injury notes…"
                           className="h-7 w-28 rounded border px-2 text-xs"
                         />
-                        <Button type="submit" variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                        <Button
+                          type="submit"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                        >
                           Set
                         </Button>
                       </form>
@@ -278,9 +333,23 @@ export default async function RosterEditorPage({
                         <form action={setDefaultGoalie}>
                           <input type="hidden" name="id" value={r.id} />
                           <input type="hidden" name="team_id" value={team.id} />
-                          <input type="hidden" name="season_id" value={season.id} />
-                          <input type="hidden" name="make" value={r.is_default_goalie ? "0" : "1"} />
-                          <Button type="submit" variant={r.is_default_goalie ? "secondary" : "ghost"} size="sm">
+                          <input
+                            type="hidden"
+                            name="season_id"
+                            value={season.id}
+                          />
+                          <input
+                            type="hidden"
+                            name="make"
+                            value={r.is_default_goalie ? "0" : "1"}
+                          />
+                          <Button
+                            type="submit"
+                            variant={
+                              r.is_default_goalie ? "secondary" : "ghost"
+                            }
+                            size="sm"
+                          >
                             {r.is_default_goalie ? "Default ✓" : "Set Default"}
                           </Button>
                         </form>
@@ -288,7 +357,11 @@ export default async function RosterEditorPage({
                       <form action={toggleCaptain}>
                         <input type="hidden" name="id" value={r.id} />
                         <input type="hidden" name="team_id" value={team.id} />
-                        <input type="hidden" name="make" value={r.is_captain ? "0" : "1"} />
+                        <input
+                          type="hidden"
+                          name="make"
+                          value={r.is_captain ? "0" : "1"}
+                        />
                         <Button type="submit" variant="ghost" size="sm">
                           {r.is_captain ? "Unset C" : "Make C"}
                         </Button>
@@ -308,7 +381,12 @@ export default async function RosterEditorPage({
                       <form action={removeRosterPlayer}>
                         <input type="hidden" name="id" value={r.id} />
                         <input type="hidden" name="team_id" value={team.id} />
-                        <Button type="submit" variant="ghost" size="sm" className="text-destructive">
+                        <Button
+                          type="submit"
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive"
+                        >
                           Remove
                         </Button>
                       </form>
@@ -327,7 +405,10 @@ export default async function RosterEditorPage({
         if (goalies.length === 0) return null;
         const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         const dayMap = new Map<number, string>(
-          ((goalieDays ?? []) as any[]).map((d) => [d.day_of_week, d.player_id]),
+          ((goalieDays ?? []) as any[]).map((d) => [
+            d.day_of_week,
+            d.player_id,
+          ]),
         );
         return (
           <Card>
@@ -336,12 +417,19 @@ export default async function RosterEditorPage({
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground mb-4 text-xs">
-                Set which goalie plays on each day of the week. Overrides the team default for that day. Leave blank to use the team default.
+                Set which goalie plays on each day of the week. Overrides the
+                team default for that day. Leave blank to use the team default.
               </p>
               <div className="space-y-2">
                 {dayNames.map((name, dow) => (
-                  <form key={dow} action={setGoalieDay} className="flex items-center gap-3">
-                    <span className="w-8 shrink-0 text-sm font-medium">{name}</span>
+                  <form
+                    key={dow}
+                    action={setGoalieDay}
+                    className="flex items-center gap-3"
+                  >
+                    <span className="w-8 shrink-0 text-sm font-medium">
+                      {name}
+                    </span>
                     <input type="hidden" name="team_id" value={team.id} />
                     <input type="hidden" name="season_id" value={season.id} />
                     <input type="hidden" name="day_of_week" value={dow} />
@@ -353,11 +441,17 @@ export default async function RosterEditorPage({
                       <option value="">— use default</option>
                       {goalies.map((g: any) => (
                         <option key={g.player_id} value={g.player_id}>
-                          #{g.jersey_number ?? "—"} {g.players?.first_name} {g.players?.last_name}
+                          #{g.jersey_number ?? "—"} {g.players?.first_name}{" "}
+                          {g.players?.last_name}
                         </option>
                       ))}
                     </select>
-                    <Button type="submit" size="sm" variant="secondary" className="h-8">
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="secondary"
+                      className="h-8"
+                    >
                       Set
                     </Button>
                   </form>

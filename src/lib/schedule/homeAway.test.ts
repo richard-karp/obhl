@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { assignHomeAway, homeAwaySpread, type OrientableGame } from "./homeAway";
+import {
+  assignHomeAway,
+  homeAwaySpread,
+  type OrientableGame,
+} from "./homeAway";
 
 /** Every unordered pair of `n` teams, `cycles` times over. */
 function roundRobinPairs(n: number, cycles = 1): [number, number][] {
@@ -45,7 +49,12 @@ describe("assignHomeAway", () => {
       { pair: [1, 2], locked: false, current: [1, 2] },
     ];
     // Every team plays an even number of games, so 0 is reachable.
-    expect(homeAwaySpread(3, games.map((g) => g.current!))).toBe(8);
+    expect(
+      homeAwaySpread(
+        3,
+        games.map((g) => g.current!),
+      ),
+    ).toBe(8);
     // Descent alone is stuck at the starting point...
     const stuck = assignHomeAway({ teamCount: 3, games, restarts: 0 });
     expect(homeAwaySpread(3, stuck)).toBe(8);

@@ -2,7 +2,10 @@ import Link from "next/link";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { discardSchedule } from "@/lib/actions/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
-import { getPublishState, getScheduleConstraints } from "@/lib/queries/schedule";
+import {
+  getPublishState,
+  getScheduleConstraints,
+} from "@/lib/queries/schedule";
 import {
   describeConstraint,
   evaluateConstraints,
@@ -29,7 +32,12 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ScheduleGenerateForm } from "@/components/manage/schedule-generate-form";
 import { PublishControls } from "@/components/manage/publish-controls";
 import { RemoveControls } from "@/components/manage/remove-controls";
-import { formatLongDate, formatGameTime, leagueDateKey, leagueTimeKey } from "@/lib/format";
+import {
+  formatLongDate,
+  formatGameTime,
+  leagueDateKey,
+  leagueTimeKey,
+} from "@/lib/format";
 
 const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -69,7 +77,9 @@ export async function ScheduleBuilderPanel({
 
   const publish = await getPublishState(seasonId, { client: admin });
 
-  const storedConstraints = await getScheduleConstraints(seasonId, { client: admin });
+  const storedConstraints = await getScheduleConstraints(seasonId, {
+    client: admin,
+  });
 
   // This panel's own draft read is part of the same fail-closed contract as
   // getPublishState's six. It errors independently and PostgREST hands back
@@ -107,7 +117,8 @@ export async function ScheduleBuilderPanel({
   const awayC = new Map<string, number>();
   const slot = new Map<string, number[]>();
   let maxSlots = 0;
-  const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
+  const bump = (m: Map<string, number>, k: string) =>
+    m.set(k, (m.get(k) ?? 0) + 1);
 
   const usedWeekdays = [
     ...new Set([...byDate.keys()].filter(Boolean).map(weekdayOf)),
@@ -169,7 +180,10 @@ export async function ScheduleBuilderPanel({
 
   // Spacing checks — reconstruct placement (night order + slot order) from the
   // draft games so managers can verify bye/rematch/ice-time spacing.
-  const spacingNights = draftDates.map((d) => ({ date: d, slots: [] as string[] }));
+  const spacingNights = draftDates.map((d) => ({
+    date: d,
+    slots: [] as string[],
+  }));
   const nightIndexOf = new Map(draftDates.map((d, i) => [d, i]));
   const placed: PlacedGame[] = [];
   for (const [date, arr] of byDate) {
@@ -217,7 +231,9 @@ export async function ScheduleBuilderPanel({
   const teamPlays = constraintTeamIds.map(() =>
     new Array<boolean>(draftDates.length).fill(false),
   );
-  const constraintTeamIndex = new Map(constraintTeamIds.map((id, i) => [id, i]));
+  const constraintTeamIndex = new Map(
+    constraintTeamIds.map((id, i) => [id, i]),
+  );
   for (const g of placed) {
     for (const id of [g.home, g.away]) {
       const ti = constraintTeamIndex.get(id);
@@ -252,7 +268,8 @@ export async function ScheduleBuilderPanel({
           byed: (t, n) => !teamPlays[t][n],
         })
       : null;
-  const spacing = rawSpacing && credits ? presentSpacing(rawSpacing, credits) : rawSpacing;
+  const spacing =
+    rawSpacing && credits ? presentSpacing(rawSpacing, credits) : rawSpacing;
   const constraintNameOf = (id: string) =>
     enrolledTeams.find((t) => t.id === id)?.name ?? "A removed team";
 
@@ -298,8 +315,10 @@ export async function ScheduleBuilderPanel({
               <>
                 <p>
                   {publish.liveCount} games are published
-                  {publish.firstLiveDate ? `, starting ${formatLongDate(publish.firstLiveDate)}` : ""}.
-                  The full schedule can no longer be regenerated or replaced.
+                  {publish.firstLiveDate
+                    ? `, starting ${formatLongDate(publish.firstLiveDate)}`
+                    : ""}
+                  . The full schedule can no longer be regenerated or replaced.
                 </p>
                 <p>
                   To change a single game, use Reschedule, Postpone or Cancel on
@@ -308,7 +327,7 @@ export async function ScheduleBuilderPanel({
                 <p>
                   To slot in a tournament final or semifinals,{" "}
                   <Link
-                    href={`/${league}/manage/schedule-builder/one-off`}
+                    href={`/${league}/schedule-builder/one-off`}
                     className="text-foreground font-medium underline"
                   >
                     schedule a one-off game
@@ -323,7 +342,9 @@ export async function ScheduleBuilderPanel({
         <>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Generate a balanced schedule</CardTitle>
+              <CardTitle className="text-base">
+                Generate a balanced schedule
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <ScheduleGenerateForm
@@ -341,11 +362,11 @@ export async function ScheduleBuilderPanel({
           </Card>
 
           <p className="text-muted-foreground text-sm">
-            Adding a tournament final or semifinals mid-season is a different job
-            — it takes over a game on a night that&apos;s already scheduled and
-            repairs the rest of the season around it.{" "}
+            Adding a tournament final or semifinals mid-season is a different
+            job — it takes over a game on a night that&apos;s already scheduled
+            and repairs the rest of the season around it.{" "}
             <Link
-              href={`/${league}/manage/schedule-builder/one-off`}
+              href={`/${league}/schedule-builder/one-off`}
               className="text-foreground font-medium underline"
             >
               Schedule a one-off game
@@ -379,8 +400,8 @@ export async function ScheduleBuilderPanel({
               {mode === "published" ? (
                 <>
                   <p>
-                    To change the schedule, generate a new one above — you&apos;ll
-                    be asked to confirm before it replaces this one.
+                    To change the schedule, generate a new one above —
+                    you&apos;ll be asked to confirm before it replaces this one.
                   </p>
                   {/*
                     Published mode only, sharing the guidance's branch: both
@@ -485,8 +506,8 @@ export async function ScheduleBuilderPanel({
 
           {overrunsSeason ? (
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-              ⚠ The regular season runs past the season&apos;s end date
-              ({formatLongDate(season!.ends_on!)}), leaving no room for playoffs.
+              ⚠ The regular season runs past the season&apos;s end date (
+              {formatLongDate(season!.ends_on!)}), leaving no room for playoffs.
               Shorten it (fewer games per team or an earlier end date) or extend
               the season.
             </div>
@@ -520,17 +541,31 @@ export async function ScheduleBuilderPanel({
                   <TableBody>
                     {teamRows.map((tid) => (
                       <TableRow key={tid}>
-                        <TableCell className="font-medium">{nameOf.get(tid)}</TableCell>
-                        <TableCell className="text-center">{gp.get(tid) ?? 0}</TableCell>
-                        <TableCell className="text-center">{homeC.get(tid) ?? 0}</TableCell>
-                        <TableCell className="text-center">{awayC.get(tid) ?? 0}</TableCell>
+                        <TableCell className="font-medium">
+                          {nameOf.get(tid)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {gp.get(tid) ?? 0}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {homeC.get(tid) ?? 0}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {awayC.get(tid) ?? 0}
+                        </TableCell>
                         {Array.from({ length: maxSlots }, (_, i) => (
-                          <TableCell key={`slot-${i}`} className="text-muted-foreground text-center">
+                          <TableCell
+                            key={`slot-${i}`}
+                            className="text-muted-foreground text-center"
+                          >
                             {slot.get(tid)?.[i] ?? 0}
                           </TableCell>
                         ))}
                         {usedWeekdays.map((d, i) => (
-                          <TableCell key={`wd-${d}`} className="text-muted-foreground text-center">
+                          <TableCell
+                            key={`wd-${d}`}
+                            className="text-muted-foreground text-center"
+                          >
                             {nightCat.get(tid)?.[i] ?? 0}
                           </TableCell>
                         ))}
@@ -540,21 +575,23 @@ export async function ScheduleBuilderPanel({
                 </Table>
               </div>
               <p className="text-muted-foreground mt-2 text-xs">
-                GP is equal across teams, and each team&apos;s games are spread as
-                evenly as possible across the ice-time (Slot) and night-of-week
-                columns — in tightly-constrained schedules a team may differ by one
-                game. Any uneven ice time is biased toward the earlier (Slot 1)
-                times, so no team gets stuck with the latest slot more than others.
+                GP is equal across teams, and each team&apos;s games are spread
+                as evenly as possible across the ice-time (Slot) and
+                night-of-week columns — in tightly-constrained schedules a team
+                may differ by one game. Any uneven ice time is biased toward the
+                earlier (Slot 1) times, so no team gets stuck with the latest
+                slot more than others.
               </p>
               {shortNights > 0 ? (
                 <p className="text-muted-foreground mt-2 text-xs">
-                  {shortNights} of {draftDates.length} nights run fewer games than
-                  the fullest night, leaving {spareIceSlots} ice slot
-                  {spareIceSlots === 1 ? "" : "s"} unused — so the latest time runs
-                  on fewer nights than the earlier ones. Equal ice-time counts are
-                  only reachable when every night is equally full, so a difference
-                  of one game here is expected rather than a scheduling fault.
-                  Adding or removing a game night is what evens it out.
+                  {shortNights} of {draftDates.length} nights run fewer games
+                  than the fullest night, leaving {spareIceSlots} ice slot
+                  {spareIceSlots === 1 ? "" : "s"} unused — so the latest time
+                  runs on fewer nights than the earlier ones. Equal ice-time
+                  counts are only reachable when every night is equally full, so
+                  a difference of one game here is expected rather than a
+                  scheduling fault. Adding or removing a game night is what
+                  evens it out.
                 </p>
               ) : null}
             </CardContent>
@@ -582,7 +619,10 @@ export async function ScheduleBuilderPanel({
                         </span>
                         <span className="text-muted-foreground">
                           {source
-                            ? describeConstraint(source, constraintNameOf(o.teamId))
+                            ? describeConstraint(
+                                source,
+                                constraintNameOf(o.teamId),
+                              )
                             : o.kind}
                           {o.reason ? ` — ${o.reason}` : ""}
                         </span>
@@ -592,10 +632,10 @@ export async function ScheduleBuilderPanel({
                 </ul>
                 <p className="text-muted-foreground mt-2 text-xs">
                   Checked against the draft on this page, not against what the
-                  generator was asked to do — a request only counts as met if the
-                  games below actually show it. Requests are best effort: an even
-                  schedule comes first, so a request can be declined rather than
-                  bought with an unbalanced season.
+                  generator was asked to do — a request only counts as met if
+                  the games below actually show it. Requests are best effort: an
+                  even schedule comes first, so a request can be declined rather
+                  than bought with an unbalanced season.
                 </p>
               </CardContent>
             </Card>
@@ -610,21 +650,48 @@ export async function ScheduleBuilderPanel({
                 <ul className="grid gap-1.5 text-sm sm:grid-cols-2">
                   {(
                     [
-                      ["Weeks a team misses 2+ game nights", spacing.byesMultiWeek],
-                      ["Teams byeing two weeks in a row", spacing.byesConsecWeek],
+                      [
+                        "Weeks a team misses 2+ game nights",
+                        spacing.byesMultiWeek,
+                      ],
+                      [
+                        "Teams byeing two weeks in a row",
+                        spacing.byesConsecWeek,
+                      ],
                       ["…on the same weekday", spacing.byesConsecWeekSameDay],
                       ["Same opponents in one week", spacing.rematchSameWeek],
-                      ["Same opponents back-to-back nights", spacing.rematchAdjNight],
-                      ["Teams byeing back-to-back game nights", spacing.byesAdjNight],
-                      ["Same opponents in consecutive weeks", spacing.rematchConsecWeek],
+                      [
+                        "Same opponents back-to-back nights",
+                        spacing.rematchAdjNight,
+                      ],
+                      [
+                        "Teams byeing back-to-back game nights",
+                        spacing.byesAdjNight,
+                      ],
+                      [
+                        "Same opponents in consecutive weeks",
+                        spacing.rematchConsecWeek,
+                      ],
                       // The count, not `pairingWeekdayExcess` — that one is a
                       // squared-deviation score for the search to rank on, reads
                       // 8 where 2 matchups are off, and is not always a whole
                       // number. Every other row here is a count of things.
-                      ["Matchups off an even weekday split", spacing.pairingsOffWeekdaySplit],
-                      ["Uneven ice time within a night of the week", spacing.slotWeekdaySpread],
-                      ["Three games in a row in one ice time", spacing.slotStreak3],
-                      ["Back-to-back games in the same ice time", spacing.slotConsecutive],
+                      [
+                        "Matchups off an even weekday split",
+                        spacing.pairingsOffWeekdaySplit,
+                      ],
+                      [
+                        "Uneven ice time within a night of the week",
+                        spacing.slotWeekdaySpread,
+                      ],
+                      [
+                        "Three games in a row in one ice time",
+                        spacing.slotStreak3,
+                      ],
+                      [
+                        "Back-to-back games in the same ice time",
+                        spacing.slotConsecutive,
+                      ],
                     ] as const
                   ).map(([label, count]) => (
                     <li key={label} className="flex items-center gap-2">
@@ -653,10 +720,10 @@ export async function ScheduleBuilderPanel({
                   </p>
                 ) : null}
                 <p className="text-muted-foreground mt-2 text-xs">
-                  Byes and repeated matchups are minimized after an even schedule
-                  is fixed. Some are unavoidable when there are fewer ice slots
-                  than half the teams (so not everyone plays every night) — add ice
-                  times or game nights to drive these to zero.
+                  Byes and repeated matchups are minimized after an even
+                  schedule is fixed. Some are unavoidable when there are fewer
+                  ice slots than half the teams (so not everyone plays every
+                  night) — add ice times or game nights to drive these to zero.
                 </p>
                 {spacing.longestLayoffDays !== null ? (
                   <p className="text-muted-foreground mt-2 text-xs">
@@ -664,11 +731,12 @@ export async function ScheduleBuilderPanel({
                     <span className="font-medium">
                       {spacing.longestLayoffDays} days
                     </span>
-                    . Unlike the checks above, zero is not the goal here — a long
-                    stretch is usually the calendar rather than the schedule, since
-                    a holiday break sets a floor no arrangement of games can go
-                    under. It is measured over draft nights only, so a partly
-                    published season reports a shorter gap than players will see.
+                    . Unlike the checks above, zero is not the goal here — a
+                    long stretch is usually the calendar rather than the
+                    schedule, since a holiday break sets a floor no arrangement
+                    of games can go under. It is measured over draft nights
+                    only, so a partly published season reports a shorter gap
+                    than players will see.
                   </p>
                 ) : null}
               </CardContent>
@@ -691,10 +759,16 @@ export async function ScheduleBuilderPanel({
                         {formatGameTime(g.scheduled_at)}
                       </span>
                       <span className="flex items-center gap-1.5">
-                        <TeamLogo name={g.away?.name ?? ""} color={g.away?.color} />
+                        <TeamLogo
+                          name={g.away?.name ?? ""}
+                          color={g.away?.color}
+                        />
                         {g.away?.name}
                         <span className="text-muted-foreground mx-1">@</span>
-                        <TeamLogo name={g.home?.name ?? ""} color={g.home?.color} />
+                        <TeamLogo
+                          name={g.home?.name ?? ""}
+                          color={g.home?.color}
+                        />
                         {g.home?.name}
                       </span>
                     </div>

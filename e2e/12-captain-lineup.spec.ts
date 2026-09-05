@@ -6,13 +6,16 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
+async function signedInAs(
+  page: Page,
+  role: "Manager" | "Scorekeeper" | "Captain",
+) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
   // any more. Every caller below expects to be inside a league's manage tools.
   await page.waitForURL("/");
-  await page.goto("/obhl/manage/dashboard");
+  await page.goto("/obhl/dashboard");
 }
 
 test.describe("Path 18 — Captain lineup save", () => {
@@ -25,7 +28,7 @@ test.describe("Path 18 — Captain lineup save", () => {
     const gameLink = page.getByRole("link", { name: "Set lineup" }).first();
     await expect(gameLink).toBeVisible();
     await gameLink.click();
-    await expect(page).toHaveURL(/\/score\//);
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     // Captain sees exactly one lineup form (their team only)
     const lineupForm = page
@@ -61,7 +64,7 @@ test.describe("Path 18 — Captain lineup save", () => {
 
     const gameLink = page.getByRole("link", { name: "Set lineup" }).first();
     await gameLink.click();
-    await expect(page).toHaveURL(/\/score\//);
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     const lineupForms = page
       .locator("form")

@@ -58,8 +58,8 @@ export async function getPlayerBio(
     .from("team_players")
     .select(
       "jersey_number, position, is_captain, is_rookie, injury_notes, is_suspended, player_id, " +
-      "players!team_players_player_id_fkey(first_name, last_name), " +
-      "teams!team_players_team_id_fkey(id, name, slug, color, logo_path)",
+        "players!team_players_player_id_fkey(first_name, last_name), " +
+        "teams!team_players_team_id_fkey(id, name, slug, color, logo_path)",
     )
     .eq("player_id", playerId)
     .eq("season_id", seasonId)
@@ -112,7 +112,9 @@ export async function getPlayerBio(
     // played most for is the best single answer this shape can give.
     supabase
       .from("v_skater_stats")
-      .select("team_id, team_name, team_slug, team_color, position, jersey_number")
+      .select(
+        "team_id, team_name, team_slug, team_color, position, jersey_number",
+      )
       .eq("player_id", playerId)
       .eq("season_id", seasonId)
       .order("gp", { ascending: false })
@@ -233,8 +235,8 @@ export async function getPlayerGameLog(
     .from("games")
     .select(
       "id, scheduled_at, home_goals, away_goals, home_team_id, away_team_id, " +
-      "home_team:teams!games_home_team_id_fkey(id, name, slug, color), " +
-      "away_team:teams!games_away_team_id_fkey(id, name, slug, color)",
+        "home_team:teams!games_home_team_id_fkey(id, name, slug, color), " +
+        "away_team:teams!games_away_team_id_fkey(id, name, slug, color)",
     )
     .in("id", gameIds)
     .eq("season_id", seasonId)
@@ -295,8 +297,8 @@ export async function getPlayerStatsByOpponent(
     .from("games")
     .select(
       "id, home_team_id, away_team_id, " +
-      "home_team:teams!games_home_team_id_fkey(id, name, slug, color), " +
-      "away_team:teams!games_away_team_id_fkey(id, name, slug, color)",
+        "home_team:teams!games_home_team_id_fkey(id, name, slug, color), " +
+        "away_team:teams!games_away_team_id_fkey(id, name, slug, color)",
     )
     .in("id", gameIds)
     .eq("season_id", seasonId)

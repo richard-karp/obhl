@@ -1,6 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
+import {
+  useActionState,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
 import type { DateRange, Matcher } from "react-day-picker";
 import { CalendarIcon, Loader2Icon, X } from "lucide-react";
 import { toast } from "sonner";
@@ -167,7 +173,9 @@ function ConstraintsCard({
         // control was just fixed for.
         const digest = (err as { digest?: unknown } | null)?.digest;
         if (typeof digest === "string" && digest.startsWith("NEXT_")) throw err;
-        toast.error("Couldn't remove that request — check your connection and try again.");
+        toast.error(
+          "Couldn't remove that request — check your connection and try again.",
+        );
       } finally {
         setRemovingId(null);
       }
@@ -181,7 +189,8 @@ function ConstraintsCard({
 
   const nameOf = (id: string) =>
     teams.find((t) => t.id === id)?.name ?? "A removed team";
-  const needsDate = kind === "bye_on" || kind === "play_on" || kind === "slot_on";
+  const needsDate =
+    kind === "bye_on" || kind === "play_on" || kind === "slot_on";
   const needsWeek = kind === "bye_week" || kind === "bye_in_week";
 
   return (
@@ -189,10 +198,10 @@ function ConstraintsCard({
       <div className="space-y-0.5">
         <Label>Manager requests (optional)</Label>
         <p className="text-muted-foreground text-xs">
-          Best effort, and never at the cost of an even schedule: every team still
-          plays the same number of games, every night runs the same number, and
-          each pair still meets the same number of times. A forced bye moves one
-          of that team&apos;s byes — it never adds one.
+          Best effort, and never at the cost of an even schedule: every team
+          still plays the same number of games, every night runs the same
+          number, and each pair still meets the same number of times. A forced
+          bye moves one of that team&apos;s byes — it never adds one.
         </p>
       </div>
 
@@ -271,7 +280,11 @@ function ConstraintsCard({
             <Label htmlFor="constraint_week_of" className="text-xs">
               Any date that week
             </Label>
-            <Input id="constraint_week_of" name="constraint_week_of" type="date" />
+            <Input
+              id="constraint_week_of"
+              name="constraint_week_of"
+              type="date"
+            />
           </div>
         ) : null}
 
@@ -387,7 +400,10 @@ function GenerateProgressBar({ expectedMs }: { expectedMs: number }) {
         the one part of the indicator a screen reader can usefully query on
         demand — hence a real name rather than `aria-hidden` alongside the text.
       */}
-      <Progress value={fraction * 100} aria-label="Schedule generation progress" />
+      <Progress
+        value={fraction * 100}
+        aria-label="Schedule generation progress"
+      />
       {/*
         Visual only. The announced copy is the live region in the form below;
         this paragraph would otherwise duplicate it, and it carries the
@@ -459,7 +475,11 @@ export function ScheduleGenerateForm({
   const defaultGames = teams.length > 1 ? (teams.length - 1) * 2 : 14;
   const excludedValue = useMemo(
     () =>
-      [...new Set(skips.flatMap((r) => expandRange(parseKey(r.from), parseKey(r.to))))]
+      [
+        ...new Set(
+          skips.flatMap((r) => expandRange(parseKey(r.from), parseKey(r.to))),
+        ),
+      ]
         .sort()
         .join(", "),
     [skips],
@@ -618,7 +638,9 @@ export function ScheduleGenerateForm({
                 : `${shortLabel(r.from)} – ${shortLabel(r.to)}`}
               <button
                 type="button"
-                onClick={() => setSkips((prev) => prev.filter((_, j) => j !== i))}
+                onClick={() =>
+                  setSkips((prev) => prev.filter((_, j) => j !== i))
+                }
                 className="text-muted-foreground hover:text-foreground"
                 aria-label="Remove"
               >

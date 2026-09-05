@@ -14,19 +14,22 @@ function admin() {
   );
 }
 
-async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
+async function signedInAs(
+  page: Page,
+  role: "Manager" | "Scorekeeper" | "Captain",
+) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
   // any more. Every caller below expects to be inside a league's manage tools.
   await page.waitForURL("/");
-  await page.goto("/obhl/manage/dashboard");
+  await page.goto("/obhl/dashboard");
 }
 
 test.describe("Path 14 — People & Roles", () => {
   test.beforeEach(async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/manage/people");
+    await page.goto("/obhl/people");
   });
 
   test("renders staff table with seeded accounts and role labels", async ({
@@ -69,21 +72,27 @@ test.describe("Path 14 — People & Roles", () => {
     // manager, and removing it would leave the league with nobody able to grant
     // anyone access to it. See 16-league-membership for the case where a league
     // has two and the button appears.
-    await page.goto("/obhl/manage/people");
+    await page.goto("/obhl/people");
 
     const managerRow = page
       .locator("table tbody tr")
       .filter({ hasText: "manager@obhl.test" });
     await expect(managerRow).toHaveCount(1);
-    await expect(managerRow.getByText("Role changed by a commissioner")).toBeVisible();
-    await expect(managerRow.getByRole("button", { name: "Remove" })).toHaveCount(0);
+    await expect(
+      managerRow.getByText("Role changed by a commissioner"),
+    ).toBeVisible();
+    await expect(
+      managerRow.getByRole("button", { name: "Remove" }),
+    ).toHaveCount(0);
     await expect(managerRow.getByLabel("Change role")).toHaveCount(0);
 
     // A non-manager row still has both.
     const otherRow = page
       .locator("table tbody tr")
       .filter({ hasText: "scorekeeper@obhl.test" });
-    await expect(otherRow.getByRole("button", { name: "Remove" })).toBeVisible();
+    await expect(
+      otherRow.getByRole("button", { name: "Remove" }),
+    ).toBeVisible();
     await expect(otherRow.getByLabel("Change role")).toBeVisible();
   });
 
@@ -104,9 +113,11 @@ test.describe("Path 14 — People & Roles", () => {
     await card.getByRole("button", { name: "Add staff account" }).click();
     // By cell, not text: the success message repeats the address, and an
     // unscoped match resolves to both.
-    await expect(page.getByRole("cell", { name: email, exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: email, exact: true }),
+    ).toBeVisible();
 
-    await page.goto("/obhl/manage/audit");
+    await page.goto("/obhl/audit");
     await expect(
       page.getByText("Added Audit Probe as scorekeeper"),
     ).toBeVisible();
@@ -115,10 +126,8 @@ test.describe("Path 14 — People & Roles", () => {
     // depends on it. Captain, deliberately not Manager: promoting it would make
     // the row un-demotable and leave a second manager in a league whose other
     // tests reason about how many it has.
-    await page.goto("/obhl/manage/people");
-    const row = page
-      .locator("table tbody tr")
-      .filter({ hasText: email });
+    await page.goto("/obhl/people");
+    const row = page.locator("table tbody tr").filter({ hasText: email });
     await row.getByLabel("Change role").selectOption("captain");
     // By cell: the row's own select contains an <option>Captain</option> too,
     // so an unscoped text match is ambiguous.
@@ -126,7 +135,7 @@ test.describe("Path 14 — People & Roles", () => {
       row.getByRole("cell", { name: "Captain", exact: true }),
     ).toBeVisible();
 
-    await page.goto("/obhl/manage/audit");
+    await page.goto("/obhl/audit");
     await expect(
       page.getByText("Changed Audit Probe from scorekeeper to captain"),
     ).toBeVisible();
@@ -138,7 +147,7 @@ test.describe("Path 14 — People & Roles", () => {
     // "Add a staff account" reaches existing accounts: a known email fails
     // createUser, and the profile is then upserted with the submitted role.
     // The manager's own address is listed in the table right above this form.
-    await page.goto("/obhl/manage/people");
+    await page.goto("/obhl/people");
 
     // Role defaults to scorekeeper, so submitting as-is is the demotion.
     await page.getByLabel("Email").fill("manager@obhl.test");
@@ -206,7 +215,7 @@ test.describe("Path 14 — People & Roles", () => {
     ).not.toContain(league!.id);
 
     try {
-      await page.goto("/obhl/manage/people");
+      await page.goto("/obhl/people");
       const card = page
         .locator('[data-slot="card"]')
         .filter({ hasText: "Add a staff account" });
@@ -220,7 +229,7 @@ test.describe("Path 14 — People & Roles", () => {
       // test, and the other says "now works this league too".
       await expect(card.getByText(/now manages this league too/)).toBeVisible();
 
-      await page.goto("/obhl/manage/audit");
+      await page.goto("/obhl/audit");
       await expect(page.getByText(`Gave ${guest} this league`)).toBeVisible();
 
       // Visible on the page is the half that matters, but an entry filed under

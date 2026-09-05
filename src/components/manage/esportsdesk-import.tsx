@@ -68,7 +68,9 @@ export function EsportsdeskImport() {
                 className="mt-1"
               />
               <div>
-                <Label htmlFor="mode-rosters">Rosters only (new season setup)</Label>
+                <Label htmlFor="mode-rosters">
+                  Rosters only (new season setup)
+                </Label>
                 <p className="text-muted-foreground text-xs">
                   Teams and players as a starting draft. No games, results, or
                   stats — fix the rosters afterwards in Rosters.
@@ -117,7 +119,11 @@ export function EsportsdeskImport() {
                 : "Pulls teams, rosters, and the schedule with final results (one-time migration)."}
             </p>
             {preview && !preview.ok ? (
-              <p role="alert" aria-live="polite" className="text-destructive text-sm">
+              <p
+                role="alert"
+                aria-live="polite"
+                className="text-destructive text-sm"
+              >
                 {preview.message}
               </p>
             ) : null}
@@ -151,7 +157,10 @@ export function EsportsdeskImport() {
             {/* Season picker — for leagues with multiple seasons, reloads the
                 preview for the chosen season (esportsdesk childSeasonID). */}
             {preview.preview.seasons.length > 1 ? (
-              <form action={previewAction} className="flex flex-wrap items-end gap-2">
+              <form
+                action={previewAction}
+                className="flex flex-wrap items-end gap-2"
+              >
                 <input type="hidden" name="url" value={preview.url} />
                 <div className="space-y-1">
                   <Label htmlFor="season">Season</Label>
@@ -171,7 +180,9 @@ export function EsportsdeskImport() {
                   </select>
                 </div>
                 {previewing ? (
-                  <span className="text-muted-foreground pb-2 text-xs">Loading…</span>
+                  <span className="text-muted-foreground pb-2 text-xs">
+                    Loading…
+                  </span>
                 ) : null}
               </form>
             ) : null}
@@ -180,13 +191,22 @@ export function EsportsdeskImport() {
               {preview.preview.teams.map((t) => {
                 const caps = t.players.filter((p) => p.isCaptain);
                 return (
-                  <div key={t.sourceTeamId} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                  <div
+                    key={t.sourceTeamId}
+                    className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                  >
                     <span className="font-medium">{t.name}</span>
                     <span className="text-muted-foreground">
                       {t.players.length} players
                       {caps.length ? (
-                        <Badge variant="secondary" className="ml-2 px-1.5 py-0 text-[0.65rem]">
-                          C: {caps.map((c) => `${c.firstName} ${c.lastName}`).join(", ")}
+                        <Badge
+                          variant="secondary"
+                          className="ml-2 px-1.5 py-0 text-[0.65rem]"
+                        >
+                          C:{" "}
+                          {caps
+                            .map((c) => `${c.firstName} ${c.lastName}`)
+                            .join(", ")}
                         </Badge>
                       ) : null}
                     </span>
@@ -196,20 +216,40 @@ export function EsportsdeskImport() {
             </div>
 
             {completed ? (
-              <p role="status" aria-live="polite" className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+              <p
+                role="status"
+                aria-live="polite"
+                className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+              >
                 {completed.message}
               </p>
             ) : (
-              <form action={runAction} className="grid gap-3 sm:grid-cols-2 sm:items-end">
+              <form
+                action={runAction}
+                className="grid gap-3 sm:grid-cols-2 sm:items-end"
+              >
                 <input type="hidden" name="url" value={preview.url} />
-                <input type="hidden" name="season" value={preview.preview.season ?? ""} />
+                <input
+                  type="hidden"
+                  name="season"
+                  value={preview.preview.season ?? ""}
+                />
                 <div className="space-y-1">
                   <Label htmlFor="league_name">New league name</Label>
-                  <Input id="league_name" name="league_name" required defaultValue={preview.preview.leagueName} />
+                  <Input
+                    id="league_name"
+                    name="league_name"
+                    required
+                    defaultValue={preview.preview.leagueName}
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="season_name">Season name</Label>
-                  <Input id="season_name" name="season_name" defaultValue="Imported Season" />
+                  <Input
+                    id="season_name"
+                    name="season_name"
+                    defaultValue="Imported Season"
+                  />
                 </div>
                 <div className="flex items-center gap-3 sm:col-span-2">
                   <Button type="submit" disabled={busy}>
@@ -220,7 +260,9 @@ export function EsportsdeskImport() {
                         : "Import into OBHL"}
                   </Button>
                   {run && !run.ok ? (
-                    <p role="alert" className="text-destructive text-sm">{run.message}</p>
+                    <p role="alert" className="text-destructive text-sm">
+                      {run.message}
+                    </p>
                   ) : null}
                   <span className="text-muted-foreground text-xs">
                     {rostersOnly

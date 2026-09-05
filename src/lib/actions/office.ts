@@ -174,7 +174,8 @@ export async function setStaffPassword(
     .toLowerCase();
   const password = String(formData.get("password") ?? "");
 
-  if (!email) return { ok: false, message: "Enter the account's email address." };
+  if (!email)
+    return { ok: false, message: "Enter the account's email address." };
   if (password.length < MIN_PASSWORD) {
     return {
       ok: false,

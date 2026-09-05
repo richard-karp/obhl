@@ -9,7 +9,13 @@
  * in the same slot on back-to-back games.
  */
 
-import { SPACING_W, SLOT_BIAS_W, biasSign, proportionalSplit, type SlotBias } from "./spacing";
+import {
+  SPACING_W,
+  SLOT_BIAS_W,
+  biasSign,
+  proportionalSplit,
+  type SlotBias,
+} from "./spacing";
 
 /**
  * Even-share pull over the *season*, as a sum-of-squares gradient toward a flat
@@ -180,7 +186,8 @@ function bestAssignment(cost: number[][], k: number): number[] {
     const order: [number, number][] = [];
     for (let g = 0; g < k; g++) for (let s = 0; s < k; s++) order.push([g, s]);
     order.sort(
-      (a, b) => cost[a[0]][a[1]] - cost[b[0]][b[1]] || a[0] - b[0] || a[1] - b[1],
+      (a, b) =>
+        cost[a[0]][a[1]] - cost[b[0]][b[1]] || a[0] - b[0] || a[1] - b[1],
     );
     const out = new Array(k).fill(-1);
     const slotTaken = new Array(k).fill(false);
@@ -270,7 +277,9 @@ export function assignSlots(opts: SlotOptions): number[][] {
     });
     return m;
   });
-  const slotSeq: number[][] = nightsOf.map((list) => new Array(list.length).fill(0));
+  const slotSeq: number[][] = nightsOf.map((list) =>
+    new Array(list.length).fill(0),
+  );
 
   // Weekday frame. Compressed to dense indexes so a caller may hand over raw
   // 0=Sun..6=Sat day numbers without paying for five empty weekdays in the
@@ -284,7 +293,9 @@ export function assignSlots(opts: SlotOptions): number[][] {
     ? weekdayOfNight.slice(0, N).map((w) => wdIndex.get(w)!)
     : [];
   /** Each team's game weekdays, index-aligned with `slotSeq[t]`. */
-  const wdOfGame: number[][] = nightsOf.map((list) => list.map((n) => wdOfNight[n]));
+  const wdOfGame: number[][] = nightsOf.map((list) =>
+    list.map((n) => wdOfNight[n]),
+  );
 
   /**
    * `biasOfGame[t][i]` — the signed pull on that team's i-th game, or 0 outside
@@ -338,13 +349,15 @@ export function assignSlots(opts: SlotOptions): number[][] {
       for (const n of nightsOf[t]) {
         if (wdOfNight[n] !== d) continue;
         total++;
-        for (let s = 0; s < Math.min(pairsByNight[n].length, numSlots); s++) avail[s]++;
+        for (let s = 0; s < Math.min(pairsByNight[n].length, numSlots); s++)
+          avail[s]++;
       }
       const sum = avail.reduce((x, y) => x + y, 0);
       const split = proportionalSplit(total, avail);
       for (let s = 0; s < numSlots; s++) {
         ideal[d * numSlots + s] = split[s];
-        cap[d * numSlots + s] = sum === 0 ? 0 : Math.ceil((total * avail[s]) / sum);
+        cap[d * numSlots + s] =
+          sum === 0 ? 0 : Math.ceil((total * avail[s]) / sum);
       }
     }
     idealOf.push(ideal);
@@ -413,9 +426,12 @@ export function assignSlots(opts: SlotOptions): number[][] {
             for (const t of pr) {
               const key = (t * D + d) * numSlots + s;
               // Marginal squared deviation of taking one more of this slot.
-              c += WEEKDAY_SHARE_W * (2 * (seen[key] - capOf[t][d * numSlots + s]) + 1);
+              c +=
+                WEEKDAY_SHARE_W *
+                (2 * (seen[key] - capOf[t][d * numSlots + s]) + 1);
               for (let j = 0; j < recent; j++) {
-                if (hist[t * recent + j] === s) c += (recent - j) * SEED_ROTATE_W;
+                if (hist[t * recent + j] === s)
+                  c += (recent - j) * SEED_ROTATE_W;
               }
             }
             return c;

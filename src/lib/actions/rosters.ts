@@ -33,7 +33,9 @@ const isPosition = (v: string): v is Position =>
  * refusal, so the three outcomes are kept apart rather than collapsed into
  * `Number(x) || null`, which turns 0 into "no number" and "abc" into it too.
  */
-function parseJersey(raw: FormDataEntryValue | null): number | null | "invalid" {
+function parseJersey(
+  raw: FormDataEntryValue | null,
+): number | null | "invalid" {
   if (raw === null) return null;
   const s = String(raw).trim();
   if (s === "") return null;
@@ -65,7 +67,8 @@ export async function addRosterPlayer(
   // the audit entry below both need a real league, and a null one fails open in
   // the first and invisible in the second.
   const league_id = await leagueOfSeason(season_id, admin);
-  if (!league_id) return { ok: false, message: "That season no longer exists." };
+  if (!league_id)
+    return { ok: false, message: "That season no longer exists." };
 
   // ⛔ THE TEAM HAS TO BE PLAYING THIS SEASON — the same check
   // `movePlayerToTeam` makes, and for the same reason: the guard above proves
@@ -90,7 +93,10 @@ export async function addRosterPlayer(
   const last = String(formData.get("last_name") ?? "").trim();
   const jersey = parseJersey(formData.get("jersey_number"));
   if (jersey === "invalid") {
-    return { ok: false, message: "A jersey number has to be a whole number from 0 to 99." };
+    return {
+      ok: false,
+      message: "A jersey number has to be a whole number from 0 to 99.",
+    };
   }
   const positionRaw = String(formData.get("position") ?? "F");
   if (!isPosition(positionRaw)) {
@@ -181,7 +187,10 @@ export async function addRosterPlayer(
     // it — a season only enrols its own league's teams — so this should never
     // fire, which is exactly what makes it cheap to assert instead of assume.
     if ((await leagueOfTeam(activeElsewhere.team_id, admin)) !== league_id) {
-      return { ok: false, message: "That player's current team is in another league." };
+      return {
+        ok: false,
+        message: "That player's current team is in another league.",
+      };
     }
     return movePlayerToTeam({
       admin,
@@ -256,7 +265,7 @@ export async function addRosterPlayer(
     new_data: { player_id, team_id, season_id, position, returned: !!prior },
   });
 
-  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
   return {
     ok: true,
     message: prior
@@ -341,7 +350,7 @@ export async function removeRosterPlayer(formData: FormData) {
     // has to know which one it is undoing.
     new_data: { removal: played ? "departed" : "deleted" },
   });
-  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
 }
 
 /**
@@ -424,7 +433,9 @@ async function movePlayerToTeam(opts: {
   if (wanted != null) {
     const { data: clash } = await admin
       .from("team_players")
-      .select("player_id, players!team_players_player_id_fkey(first_name, last_name)")
+      .select(
+        "player_id, players!team_players_player_id_fkey(first_name, last_name)",
+      )
       .eq("season_id", season_id)
       .eq("team_id", to_team_id)
       .eq("jersey_number", wanted)
@@ -455,7 +466,11 @@ async function movePlayerToTeam(opts: {
     .from("team_players")
     .update({ left_on, is_captain: false, is_default_goalie: false })
     .eq("id", id);
-  if (dErr) return { ok: false, message: `Could not release the player: ${dErr.message}` };
+  if (dErr)
+    return {
+      ok: false,
+      message: `Could not release the player: ${dErr.message}`,
+    };
 
   // 2. The old team's default-goalie days for this player. Unlike the roster
   //    row these say nothing about the past — they are a standing instruction
@@ -488,7 +503,10 @@ async function movePlayerToTeam(opts: {
       .delete()
       .eq("player_id", player_id)
       .eq("team_id", from_team_id)
-      .in("game_id", upcoming.map((g) => g.id))
+      .in(
+        "game_id",
+        upcoming.map((g) => g.id),
+      )
       .select("game_id");
     undressed = (removed ?? []).map((r) => r.game_id);
   }
@@ -576,14 +594,20 @@ async function movePlayerToTeam(opts: {
     // `via` separates the two doors onto one action. Both are a transfer, and
     // the log should not claim otherwise, but "I only meant to add them" is a
     // real question a reader will bring to this entry.
-    new_data: { to_team_id, jersey_number: wanted, left_on, via, name: label ?? null },
+    new_data: {
+      to_team_id,
+      jersey_number: wanted,
+      left_on,
+      via,
+      name: label ?? null,
+    },
   });
 
   // A transfer changes two rosters plus the public team and stats pages, so it
   // needs more revalidation than an add, not the same. Without this the player
   // shows on BOTH rosters until something unrelated invalidates the cache —
   // which looks exactly like the bug this feature exists to prevent.
-  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/stats", "page");
   revalidatePath("/[league]", "layout");
@@ -605,7 +629,8 @@ export async function transferPlayer(
   const admin = createAdminClient();
   const id = String(formData.get("id") ?? "");
   const to_team_id = String(formData.get("to_team_id") ?? "");
-  if (!id || !to_team_id) return { ok: false, message: "Pick a team to transfer to." };
+  if (!id || !to_team_id)
+    return { ok: false, message: "Pick a team to transfer to." };
 
   // The row first, and the season and old team come FROM it, not from the form.
   // A form that names its own `from_team_id` is a form that can lie about which
@@ -616,7 +641,8 @@ export async function transferPlayer(
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (!existing) return { ok: false, message: "That roster row no longer exists." };
+  if (!existing)
+    return { ok: false, message: "That roster row no longer exists." };
   const { season_id, team_id: from_team_id } = existing;
   if (from_team_id === to_team_id) {
     return { ok: false, message: "They are already on that team." };
@@ -640,7 +666,8 @@ export async function transferPlayer(
   // afterwards can land with a null one, which RLS and every league-scoped view
   // then hide — correct and invisible.
   const league_id = await leagueOfSeason(season_id, admin);
-  if (!league_id) return { ok: false, message: "That season no longer exists." };
+  if (!league_id)
+    return { ok: false, message: "That season no longer exists." };
 
   // Present-but-empty and absent mean different things. The form prefills the
   // number they wear now, so clearing it is the operator saying "no number on
@@ -650,7 +677,10 @@ export async function transferPlayer(
   const wanted =
     jerseyRaw === null ? existing.jersey_number : parseJersey(jerseyRaw);
   if (wanted === "invalid") {
-    return { ok: false, message: "A jersey number has to be a whole number from 0 to 99." };
+    return {
+      ok: false,
+      message: "A jersey number has to be a whole number from 0 to 99.",
+    };
   }
 
   return movePlayerToTeam({
@@ -672,7 +702,9 @@ export async function transferPlayer(
 export async function toggleCaptain(formData: FormData) {
   const admin = createAdminClient();
   const id = String(formData.get("id"));
-  const manager = await requireLeagueManager(() => leagueOfTeamPlayer(id, admin));
+  const manager = await requireLeagueManager(() =>
+    leagueOfTeamPlayer(id, admin),
+  );
   const make = formData.get("make") === "1";
   await admin.from("team_players").update({ is_captain: make }).eq("id", id);
   void logAudit({
@@ -682,7 +714,7 @@ export async function toggleCaptain(formData: FormData) {
     entity_id: id,
     new_data: { is_captain: make },
   });
-  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
 }
 
 export async function setDefaultGoalie(formData: FormData) {
@@ -709,7 +741,10 @@ export async function setDefaultGoalie(formData: FormData) {
     .eq("team_id", team_id)
     .eq("season_id", season_id);
   if (make) {
-    await admin.from("team_players").update({ is_default_goalie: true }).eq("id", id);
+    await admin
+      .from("team_players")
+      .update({ is_default_goalie: true })
+      .eq("id", id);
   }
   void logAudit({
     user_id: manager.id,
@@ -718,7 +753,7 @@ export async function setDefaultGoalie(formData: FormData) {
     entity_id: id,
     new_data: { is_default_goalie: make },
   });
-  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
 }
 
 export async function setGoalieDay(formData: FormData) {
@@ -738,7 +773,10 @@ export async function setGoalieDay(formData: FormData) {
   if (player_id) {
     await admin
       .from("team_goalie_days")
-      .upsert({ team_id, season_id, day_of_week, player_id }, { onConflict: "team_id,season_id,day_of_week" });
+      .upsert(
+        { team_id, season_id, day_of_week, player_id },
+        { onConflict: "team_id,season_id,day_of_week" },
+      );
   } else {
     await admin
       .from("team_goalie_days")
@@ -754,13 +792,15 @@ export async function setGoalieDay(formData: FormData) {
     entity_id: team_id,
     new_data: { day_of_week, player_id: player_id || null },
   });
-  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
 }
 
 export async function updatePlayerStatus(formData: FormData) {
   const admin = createAdminClient();
   const id = String(formData.get("id"));
-  const manager = await requireLeagueManager(() => leagueOfTeamPlayer(id, admin));
+  const manager = await requireLeagueManager(() =>
+    leagueOfTeamPlayer(id, admin),
+  );
   const field = String(formData.get("field"));
 
   // Capture current value before update so revert can restore it
@@ -772,7 +812,10 @@ export async function updatePlayerStatus(formData: FormData) {
 
   if (field === "injury_notes") {
     const raw = String(formData.get("value") ?? "").trim();
-    await admin.from("team_players").update({ injury_notes: raw || null }).eq("id", id);
+    await admin
+      .from("team_players")
+      .update({ injury_notes: raw || null })
+      .eq("id", id);
   } else if (field === "is_rookie") {
     const val = formData.get("value") === "1";
     await admin.from("team_players").update({ is_rookie: val }).eq("id", id);
@@ -798,7 +841,7 @@ export async function updatePlayerStatus(formData: FormData) {
     old_data: oldVal !== undefined ? { [field]: oldVal } : null,
     new_data: { field, value: formData.get("value") },
   });
-  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
 }
 
 /**
@@ -827,7 +870,8 @@ export async function updateRosterPlayer(
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (!existing) return { ok: false, message: "That roster row no longer exists." };
+  if (!existing)
+    return { ok: false, message: "That roster row no longer exists." };
 
   const manager = await requireLeagueManagerOf(
     () => leagueOfSeason(existing.season_id, admin),
@@ -836,7 +880,10 @@ export async function updateRosterPlayer(
 
   const jersey = parseJersey(formData.get("jersey_number"));
   if (jersey === "invalid") {
-    return { ok: false, message: "A jersey number has to be a whole number from 0 to 99." };
+    return {
+      ok: false,
+      message: "A jersey number has to be a whole number from 0 to 99.",
+    };
   }
   const positionRaw = String(formData.get("position") ?? existing.position);
   if (!isPosition(positionRaw)) {
@@ -917,7 +964,7 @@ export async function updateRosterPlayer(
 
   // The number and position show on the public team page and in the stats
   // tables, not only on this page.
-  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/stats", "page");
   return { ok: true, message: `Updated ${name ?? "the player"}.` };
@@ -966,7 +1013,8 @@ export async function updatePlayerName(
     () => leagueOfTeam(row.team_id, admin),
   );
   const league_id = await leagueOfSeason(row.season_id, admin);
-  if (!league_id) return { ok: false, message: "That season no longer exists." };
+  if (!league_id)
+    return { ok: false, message: "That season no longer exists." };
 
   const { data: before } = await admin
     .from("players")
@@ -1024,7 +1072,7 @@ export async function updatePlayerName(
   // person plays in, and `revalidatePath` with a route pattern plus a type
   // invalidates every URL matching it — so this clears the other leagues' pages
   // too, which naming one league's concrete paths would not.
-  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/stats", "page");
   revalidatePath("/[league]/players/[playerId]", "page");
@@ -1054,7 +1102,9 @@ export async function archivePlayer(
   leagueId: string,
 ): Promise<RosterActionState> {
   const admin = createAdminClient();
-  const manager = await requireLeagueManager(() => leagueIdIfExists(leagueId, admin));
+  const manager = await requireLeagueManager(() =>
+    leagueIdIfExists(leagueId, admin),
+  );
 
   const { data: person } = await admin
     .from("players")
@@ -1082,7 +1132,9 @@ export async function archivePlayer(
       .is("left_on", null)
       .eq("seasons.league_id", leagueId);
     return [
-      ...new Set((data ?? []).flatMap((a) => (a.teams?.name ? [a.teams.name] : []))),
+      ...new Set(
+        (data ?? []).flatMap((a) => (a.teams?.name ? [a.teams.name] : [])),
+      ),
     ];
   };
   const stillRostered = (teams: string[]) => ({
@@ -1145,8 +1197,8 @@ export async function archivePlayer(
     new_data: { name },
   });
 
-  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
-  revalidatePath("/[league]/manage/people", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
+  revalidatePath("/[league]/people", "page");
   return { ok: true, message: `${name} was archived from this league.` };
 }
 
@@ -1156,14 +1208,18 @@ export async function restorePlayer(
   leagueId: string,
 ): Promise<RosterActionState> {
   const admin = createAdminClient();
-  const manager = await requireLeagueManager(() => leagueIdIfExists(leagueId, admin));
+  const manager = await requireLeagueManager(() =>
+    leagueIdIfExists(leagueId, admin),
+  );
 
   const { data: person } = await admin
     .from("players")
     .select("first_name, last_name")
     .eq("id", playerId)
     .maybeSingle();
-  const name = person ? `${person.first_name} ${person.last_name}` : "That player";
+  const name = person
+    ? `${person.first_name} ${person.last_name}`
+    : "That player";
 
   // Scoped to the one league. A delete missing the `league_id` filter would
   // restore this person into every league that ever archived them.
@@ -1183,7 +1239,7 @@ export async function restorePlayer(
     new_data: { name },
   });
 
-  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
-  revalidatePath("/[league]/manage/people", "page");
+  revalidatePath("/[league]/teams/[slug]", "page");
+  revalidatePath("/[league]/people", "page");
   return { ok: true, message: `${name} is available in this league again.` };
 }

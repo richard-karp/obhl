@@ -32,8 +32,12 @@ export function StandingsTable({
             <TableHead className="text-center">W</TableHead>
             <TableHead className="text-center">L</TableHead>
             <TableHead className="text-center">T</TableHead>
-            <TableHead className="hidden text-center sm:table-cell">GF</TableHead>
-            <TableHead className="hidden text-center sm:table-cell">GA</TableHead>
+            <TableHead className="hidden text-center sm:table-cell">
+              GF
+            </TableHead>
+            <TableHead className="hidden text-center sm:table-cell">
+              GA
+            </TableHead>
             <TableHead className="text-center">DIFF</TableHead>
             <TableHead className="text-center font-semibold">PTS</TableHead>
           </TableRow>

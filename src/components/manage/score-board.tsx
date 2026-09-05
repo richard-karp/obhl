@@ -168,10 +168,18 @@ function LineupEditor({ gameId, board }: { gameId: string; board: TeamBoard }) {
 }
 
 /** Goalie of record + empty-net-goals-against (scorekeeper/manager/captain). */
-function GoalieAndEmptyNet({ data, board }: { data: ScoreBoardData; board: TeamBoard }) {
+function GoalieAndEmptyNet({
+  data,
+  board,
+}: {
+  data: ScoreBoardData;
+  board: TeamBoard;
+}) {
   // Explicit pick takes priority; fall back to the configured suggestion.
   const activeValue = board.goalieId
-    ? (board.goalieIsSub ? "sub" : board.goalieId)
+    ? board.goalieIsSub
+      ? "sub"
+      : board.goalieId
     : (board.suggestedGoalieId ?? "");
   const options: { value: string; label: string }[] = [
     ...board.goalies.map((g) => ({
@@ -222,7 +230,11 @@ function GoalieAndEmptyNet({ data, board }: { data: ScoreBoardData; board: TeamB
         ) : null}
       </div>
       <p className="text-muted-foreground text-xs">
-        Tap a goalie to set who&apos;s in net (W/L credit). &quot;Sub&quot; = substitute goalie, no individual stats.{data.canScore ? " Empty-net GA = goals against an empty net — excluded from the goalie’s GAA." : ""}
+        Tap a goalie to set who&apos;s in net (W/L credit). &quot;Sub&quot; =
+        substitute goalie, no individual stats.
+        {data.canScore
+          ? " Empty-net GA = goals against an empty net — excluded from the goalie’s GAA."
+          : ""}
       </p>
     </div>
   );
@@ -255,7 +267,13 @@ function EmptyNetButton({
   );
 }
 
-function TeamPanel({ data, board }: { data: ScoreBoardData; board: TeamBoard }) {
+function TeamPanel({
+  data,
+  board,
+}: {
+  data: ScoreBoardData;
+  board: TeamBoard;
+}) {
   // Scorekeeper/manager can edit even after the game is completed (to fix
   // mistakes); captains can only set the lineup before it's finalized.
   const editStats = data.canScore;
@@ -277,7 +295,9 @@ function TeamPanel({ data, board }: { data: ScoreBoardData; board: TeamBoard }) 
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
-        {editLineup ? <LineupEditor gameId={data.gameId} board={board} /> : null}
+        {editLineup ? (
+          <LineupEditor gameId={data.gameId} board={board} />
+        ) : null}
 
         {data.canScore ? (
           board.dressed.length === 0 ? (
@@ -298,7 +318,10 @@ function TeamPanel({ data, board }: { data: ScoreBoardData; board: TeamBoard }) 
               </div>
               <div className="divide-y">
                 {board.dressed.map((line) => (
-                  <div key={line.rosterId} className="flex items-center gap-3 py-1.5">
+                  <div
+                    key={line.rosterId}
+                    className="flex items-center gap-3 py-1.5"
+                  >
                     <span className="w-10 shrink-0 text-lg font-bold tabular-nums">
                       {line.isSub ? (
                         <span className="text-xs uppercase">Subs</span>
@@ -339,7 +362,8 @@ export function ScoreBoard({ data }: { data: ScoreBoardData }) {
           <GameStatusBadge status={data.status} />
           {data.canScore ? (
             <span className="text-lg font-semibold tabular-nums">
-              {data.awayName} {data.awayScore} – {data.homeScore} {data.homeName}
+              {data.awayName} {data.awayScore} – {data.homeScore}{" "}
+              {data.homeName}
             </span>
           ) : (
             <span className="text-lg font-semibold">

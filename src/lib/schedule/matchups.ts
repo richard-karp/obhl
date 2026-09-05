@@ -130,7 +130,10 @@ function mulberry32(seed: number): () => number {
 }
 
 /** Every way to pair up `teams` (must be even-sized), capped at `limit`. */
-function perfectMatchings(teams: number[], limit: number): [number, number][][] {
+function perfectMatchings(
+  teams: number[],
+  limit: number,
+): [number, number][][] {
   const out: [number, number][][] = [];
   const cur: [number, number][] = [];
   const used = new Array(teams.length).fill(false);
@@ -362,7 +365,8 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
     let i = 0;
     let j = 0;
     let o = 0;
-    while (i < x.length && j < y.length) out[o++] = x[i] <= y[j] ? x[i++] : y[j++];
+    while (i < x.length && j < y.length)
+      out[o++] = x[i] <= y[j] ? x[i++] : y[j++];
     while (i < x.length) out[o++] = x[i++];
     while (j < y.length) out[o++] = y[j++];
     return o;
@@ -607,7 +611,8 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
             const with2 = withPair[n2].get(k);
             if (!with2 || options[n2].length < 2) continue;
             if (hasPair(options[n2][choice[n2]], [a, b])) continue;
-            if (options[n1].length * with2.length > MAX_JOINT_MATCHINGS) continue;
+            if (options[n1].length * with2.length > MAX_JOINT_MATCHINGS)
+              continue;
             if (Date.now() > deadline) return false;
             // Accepting invalidates every list read above, so hand back to the
             // single-night descent and rescan from the new state next time.

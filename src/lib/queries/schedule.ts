@@ -35,8 +35,18 @@ export type GameWithTeams = {
   result_type: "regulation" | "overtime" | "shootout";
   is_draft: boolean;
   label: string | null;
-  home_team: { id: string; name: string; slug: string; color: string | null } | null;
-  away_team: { id: string; name: string; slug: string; color: string | null } | null;
+  home_team: {
+    id: string;
+    name: string;
+    slug: string;
+    color: string | null;
+  } | null;
+  away_team: {
+    id: string;
+    name: string;
+    slug: string;
+    color: string | null;
+  } | null;
 };
 
 /**
@@ -256,44 +266,52 @@ export async function getPublishState(
   const supabase = opts.client ?? (await createClient());
 
   const liveGames = () =>
-    supabase.from("games").select("scheduled_at").eq("season_id", seasonId).eq("is_draft", false);
+    supabase
+      .from("games")
+      .select("scheduled_at")
+      .eq("season_id", seasonId)
+      .eq("is_draft", false);
 
-  const [live, firstLive, lastLive, drafts, started, lineups] = await Promise.all([
-    // An exact count from the server, not `data.length`. Counting the returned
-    // rows silently capped liveCount at PostgREST's `max_rows` (1000 — see
-    // supabase/config.toml), so a season past that would have told the manager a
-    // replace deletes 1000 games while the RPC deleted every one of them. It is
-    // also the read most likely to time out, being the only one here that
-    // touched every row in the season; `head: true` returns no rows at all.
-    supabase
-      .from("games")
-      .select("*", { count: "exact", head: true })
-      .eq("season_id", seasonId)
-      .eq("is_draft", false),
-    // First and last dated live game, one row each rather than sorting the whole
-    // season in memory. Undated games are excluded here on purpose — they have
-    // no place in a date range — and no longer need to be carried by this query
-    // to be counted, now that the count above is its own request.
-    liveGames()
-      .not("scheduled_at", "is", null)
-      .order("scheduled_at", { ascending: true })
-      .limit(1),
-    liveGames()
-      .not("scheduled_at", "is", null)
-      .order("scheduled_at", { ascending: false })
-      .limit(1),
-    supabase
-      .from("games")
-      .select("*", { count: "exact", head: true })
-      .eq("season_id", seasonId)
-      .eq("is_draft", true),
-    supabase.rpc("season_is_started", { p_season: seasonId }),
-    supabase
-      .from("game_rosters")
-      .select("id, games!inner(season_id, is_draft)", { count: "exact", head: true })
-      .eq("games.season_id", seasonId)
-      .eq("games.is_draft", false),
-  ]);
+  const [live, firstLive, lastLive, drafts, started, lineups] =
+    await Promise.all([
+      // An exact count from the server, not `data.length`. Counting the returned
+      // rows silently capped liveCount at PostgREST's `max_rows` (1000 — see
+      // supabase/config.toml), so a season past that would have told the manager a
+      // replace deletes 1000 games while the RPC deleted every one of them. It is
+      // also the read most likely to time out, being the only one here that
+      // touched every row in the season; `head: true` returns no rows at all.
+      supabase
+        .from("games")
+        .select("*", { count: "exact", head: true })
+        .eq("season_id", seasonId)
+        .eq("is_draft", false),
+      // First and last dated live game, one row each rather than sorting the whole
+      // season in memory. Undated games are excluded here on purpose — they have
+      // no place in a date range — and no longer need to be carried by this query
+      // to be counted, now that the count above is its own request.
+      liveGames()
+        .not("scheduled_at", "is", null)
+        .order("scheduled_at", { ascending: true })
+        .limit(1),
+      liveGames()
+        .not("scheduled_at", "is", null)
+        .order("scheduled_at", { ascending: false })
+        .limit(1),
+      supabase
+        .from("games")
+        .select("*", { count: "exact", head: true })
+        .eq("season_id", seasonId)
+        .eq("is_draft", true),
+      supabase.rpc("season_is_started", { p_season: seasonId }),
+      supabase
+        .from("game_rosters")
+        .select("id, games!inner(season_id, is_draft)", {
+          count: "exact",
+          head: true,
+        })
+        .eq("games.season_id", seasonId)
+        .eq("games.is_draft", false),
+    ]);
 
   // Fail closed on ANY of them, not just the RPC.
   //

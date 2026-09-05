@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { rankStandings, type RankableTeam, type HeadToHeadGame } from "./tiebreakers";
+import {
+  rankStandings,
+  type RankableTeam,
+  type HeadToHeadGame,
+} from "./tiebreakers";
 
 const team = (
   teamId: string,

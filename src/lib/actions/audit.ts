@@ -26,15 +26,16 @@ export async function revertAuditEntries(
   // belonging to another league cannot be reverted from this one.
   const { data: entries } = await admin
     .from("audit_log")
-    .select("id, action, entity_type, entity_id, new_data, old_data, created_at")
+    .select(
+      "id, action, entity_type, entity_id, new_data, old_data, created_at",
+    )
     .in("id", auditIds)
     .eq("league_id", leagueId)
     .order("created_at", { ascending: false });
 
   if ((entries?.length ?? 0) !== auditIds.length) {
     return {
-      error:
-        "Some of those actions are no longer available in this league.",
+      error: "Some of those actions are no longer available in this league.",
     };
   }
 
@@ -84,7 +85,11 @@ export async function revertAuditEntries(
           // columns are read, so there is no absent-id fallback to get wrong —
           // all three are NOT NULL on a row that exists.
           if (!row) break;
-          const { player_id: playerId, team_id: teamId, season_id: seasonId } = row;
+          const {
+            player_id: playerId,
+            team_id: teamId,
+            season_id: seasonId,
+          } = row;
 
           // Scoped to this season through `games`, which is where `season_id`
           // lives — player and team alone count every season this team has
@@ -111,13 +116,15 @@ export async function revertAuditEntries(
                 is_default_goalie: false,
               })
               .eq("id", entry.entity_id);
-            if (error) throw new Error(`Mark player departed failed: ${error.message}`);
+            if (error)
+              throw new Error(`Mark player departed failed: ${error.message}`);
           } else {
             const { error } = await admin
               .from("team_players")
               .delete()
               .eq("id", entry.entity_id);
-            if (error) throw new Error(`Remove player failed: ${error.message}`);
+            if (error)
+              throw new Error(`Remove player failed: ${error.message}`);
           }
           void logAudit({
             user_id: manager.id,
@@ -135,7 +142,9 @@ export async function revertAuditEntries(
 
         case "remove_player": {
           if (!od?.player_id) {
-            throw new Error("Missing player data — cannot restore (entry predates revert support).");
+            throw new Error(
+              "Missing player data — cannot restore (entry predates revert support).",
+            );
           }
           // `removeRosterPlayer` now takes one of two branches: it deletes a row
           // with no games behind it, or marks one that has games departed. The
@@ -164,7 +173,8 @@ export async function revertAuditEntries(
                 is_default_goalie: Boolean(od.is_default_goalie),
               })
               .eq("id", entry.entity_id);
-            if (error) throw new Error(`Restore player failed: ${error.message}`);
+            if (error)
+              throw new Error(`Restore player failed: ${error.message}`);
           } else {
             const { error } = await admin.from("team_players").insert({
               id: entry.entity_id,
@@ -172,14 +182,19 @@ export async function revertAuditEntries(
               team_id: String(od.team_id),
               season_id: String(od.season_id),
               position: (od.position as "F" | "D" | "G") ?? "F",
-              jersey_number: typeof od.jersey_number === "number" ? od.jersey_number : null,
+              jersey_number:
+                typeof od.jersey_number === "number" ? od.jersey_number : null,
               is_captain: Boolean(od.is_captain),
               is_rookie: Boolean(od.is_rookie),
-              injury_notes: typeof od.injury_notes === "string" ? od.injury_notes || null : null,
+              injury_notes:
+                typeof od.injury_notes === "string"
+                  ? od.injury_notes || null
+                  : null,
               is_suspended: Boolean(od.is_suspended),
               left_on: leftOn,
             });
-            if (error) throw new Error(`Restore player failed: ${error.message}`);
+            if (error)
+              throw new Error(`Restore player failed: ${error.message}`);
           }
           void logAudit({
             user_id: manager.id,
@@ -196,7 +211,8 @@ export async function revertAuditEntries(
             .from("team_players")
             .update({ is_captain: prevValue })
             .eq("id", entry.entity_id);
-          if (error) throw new Error(`Restore captain status failed: ${error.message}`);
+          if (error)
+            throw new Error(`Restore captain status failed: ${error.message}`);
           void logAudit({
             user_id: manager.id,
             action: "revert_toggle_captain",
@@ -211,27 +227,35 @@ export async function revertAuditEntries(
           const field = typeof nd?.field === "string" ? nd.field : null;
           if (!field) throw new Error("Missing field info.");
           if (od === null || Object.keys(od).length === 0) {
-            throw new Error("Missing old value — cannot restore (entry predates revert support).");
+            throw new Error(
+              "Missing old value — cannot restore (entry predates revert support).",
+            );
           }
           if (field === "injury_notes") {
-            const val = typeof od[field] === "string" ? (od[field] as string) || null : null;
+            const val =
+              typeof od[field] === "string"
+                ? (od[field] as string) || null
+                : null;
             const { error } = await admin
               .from("team_players")
               .update({ injury_notes: val })
               .eq("id", entry.entity_id);
-            if (error) throw new Error(`Restore status failed: ${error.message}`);
+            if (error)
+              throw new Error(`Restore status failed: ${error.message}`);
           } else if (field === "is_rookie") {
             const { error } = await admin
               .from("team_players")
               .update({ is_rookie: Boolean(od[field]) })
               .eq("id", entry.entity_id);
-            if (error) throw new Error(`Restore status failed: ${error.message}`);
+            if (error)
+              throw new Error(`Restore status failed: ${error.message}`);
           } else if (field === "is_suspended") {
             const { error } = await admin
               .from("team_players")
               .update({ is_suspended: Boolean(od[field]) })
               .eq("id", entry.entity_id);
-            if (error) throw new Error(`Restore status failed: ${error.message}`);
+            if (error)
+              throw new Error(`Restore status failed: ${error.message}`);
           }
           void logAudit({
             user_id: manager.id,
@@ -252,7 +276,7 @@ export async function revertAuditEntries(
     }
   }
 
-  revalidatePath("/[league]/manage/audit", "page");
+  revalidatePath("/[league]/audit", "page");
   revalidatePath("/[league]", "page");
 
   if (errors.length) return { error: errors.join("; ") };

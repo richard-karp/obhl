@@ -3,31 +3,28 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { LeagueSwitcher } from "@/components/shared/league-switcher";
-import { signOut } from "@/lib/actions/auth";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { AccountCluster } from "@/components/shared/account-cluster";
 import type { AppRole } from "@/lib/auth/session";
 import type { LeagueOption } from "@/lib/league/current";
 
-/** Paths relative to `/<league>/manage`. */
+/** Paths relative to `/<league>`. */
 const LINKS: Record<AppRole, { path: string; label: string }[]> = {
   league_manager: [
     { path: "/dashboard", label: "Dashboard" },
     { path: "/people", label: "People & Roles" },
     { path: "/seasons", label: "Seasons" },
-    { path: "/rosters", label: "Rosters" },
-    { path: "/schedule-builder", label: "Schedule" },
-    { path: "/score", label: "Games" },
+    { path: "/teams", label: "Teams" },
+    { path: "/schedule-builder", label: "Schedule Builder" },
+    { path: "/schedule", label: "Games" },
     { path: "/announcements", label: "Announcements" },
-    { path: "/rules/edit", label: "Rules" },
+    { path: "/rules", label: "Rules" },
     { path: "/import", label: "Import" },
     { path: "/audit", label: "Audit Log" },
   ],
   scorekeeper: [
     { path: "/dashboard", label: "Dashboard" },
-    { path: "/score", label: "Score Games" },
+    { path: "/schedule", label: "Score Games" },
   ],
   captain: [{ path: "/dashboard", label: "Dashboard" }],
 };
@@ -54,27 +51,15 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
  */
 const MAX_INLINE_LINKS = 5;
 
-const ROLE_LABEL: Record<AppRole, string> = {
-  league_manager: "Manager",
-  scorekeeper: "Scorekeeper",
-  captain: "Captain",
-};
-
 type NavLink = { path: string; label: string; absolute?: boolean };
 
-function Links({
-  links,
-  base,
-}: {
-  links: NavLink[];
-  base: string;
-}) {
+function Links({ links, base }: { links: NavLink[]; base: string }) {
   const pathname = usePathname();
   return (
     <>
       {links.map((l) => {
         // `absolute` is for links that belong to no league — today only the
-        // League Office. Everything else is relative to `/<league>/manage`.
+        // League Office. Everything else is relative to `/<league>`.
         const href = l.absolute ? l.path : `${base}${l.path}`;
         const active = pathname === href || pathname.startsWith(href + "/");
         return (
@@ -97,6 +82,65 @@ function Links({
   );
 }
 
+/**
+ * The staff link row on its own, for the SHARED pages.
+ *
+ * `/rules`, `/teams/<slug>` and `/schedule` are one URL serving the public and
+ * the people who run the league. They live under `(public)`, so a manager who
+ * followed one lost `ManageNav` and every link in it — three reviews flagged it
+ * independently, as a consequence nobody had decided on.
+ *
+ * ⛔ A ROW BENEATH THE PUBLIC HEADER, NOT A REPLACEMENT FOR IT. Swapping in the
+ * whole `ManageNav` was the obvious move and is wrong: its "View site" link
+ * would then point at a page that renders `ManageNav` again, so the one control
+ * for getting back to the public view becomes a no-op. A shared page is a public
+ * page with more on it, and this is the more.
+ */
+export function StaffLinks({
+  role,
+  currentSlug,
+  officeTier,
+}: {
+  role: AppRole | null;
+  currentSlug: string;
+  officeTier: string | null;
+}) {
+  return (
+    <div className="bg-muted/30 border-b">
+      <nav
+        aria-label="Staff tools"
+        className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 py-1"
+      >
+        <Links links={staffLinks(role, officeTier)} base={`/${currentSlug}`} />
+      </nav>
+    </div>
+  );
+}
+
+/**
+ * The links a role gets, plus the League Office when a tier says so. Shared by
+ * `ManageNav` and `StaffLinks` so the two cannot offer different tools.
+ */
+function staffLinks(
+  role: AppRole | null,
+  officeTier: string | null,
+): NavLink[] {
+  return [
+    ...(role ? LINKS[role] : [{ path: "/dashboard", label: "Dashboard" }]),
+    // Without this the page is reachable only by typing the URL. It is not in
+    // `LINKS` because that map is keyed on role and its paths are
+    // league-relative, and the office is neither.
+    //
+    // Does not disturb the measurement below: 0034 refuses a tier to anyone who
+    // is not a `league_manager`, so the only set this can extend is the
+    // manager's, which is already past MAX_INLINE_LINKS and on its own
+    // full-width row.
+    ...(officeTier
+      ? [{ path: "/manage/office", label: "League Office", absolute: true }]
+      : []),
+  ];
+}
+
 export function ManageNav({
   role,
   leagues,
@@ -113,21 +157,8 @@ export function ManageNav({
    */
   officeTier: string | null;
 }) {
-  const base = `/${currentSlug}/manage`;
-  const links: NavLink[] = [
-    ...(role ? LINKS[role] : [{ path: "/dashboard", label: "Dashboard" }]),
-    // Without this the page is reachable only by typing the URL. It is not in
-    // `LINKS` because that map is keyed on role and its paths are
-    // league-relative, and the office is neither.
-    //
-    // Does not disturb the measurement below: 0034 refuses a tier to anyone who
-    // is not a `league_manager`, so the only set this can extend is the
-    // manager's, which is already past MAX_INLINE_LINKS and on its own
-    // full-width row.
-    ...(officeTier
-      ? [{ path: "/manage/office", label: "League Office", absolute: true }]
-      : []),
-  ];
+  const base = `/${currentSlug}`;
+  const links = staffLinks(role, officeTier);
 
   // The manager's ten links cannot sit beside the account controls at any
   // window size, so they get the full-width row to themselves — the same row
@@ -161,28 +192,21 @@ export function ManageNav({
           on the select, which has its own floor.
         */}
         <div className="ml-auto flex min-w-0 items-center gap-2">
-          <LeagueSwitcher
-            leagues={leagues}
-            currentSlug={currentSlug}
-            rootPath="/manage/dashboard"
-          />
-          {role ? (
-            <Badge variant="secondary" className="hidden sm:inline-flex">
-              {ROLE_LABEL[role]}
-            </Badge>
-          ) : null}
-          <Link
-            href={`/${currentSlug}`}
-            className="text-muted-foreground hidden text-sm hover:underline sm:inline"
+          {/*
+            Same cluster the public header and the picker draw, so the badge,
+            the cross-link and sign-out cannot drift apart across the three.
+            Everyone here is signed in — the layout redirects anyone who is not.
+          */}
+          <AccountCluster
+            user={{ role }}
+            crossLink={{ href: `/${currentSlug}`, label: "View site" }}
           >
-            View site
-          </Link>
-          <ThemeToggle />
-          <form action={signOut}>
-            <Button type="submit" variant="ghost" size="sm">
-              Sign out
-            </Button>
-          </form>
+            <LeagueSwitcher
+              leagues={leagues}
+              currentSlug={currentSlug}
+              rootPath="/dashboard"
+            />
+          </AccountCluster>
         </div>
       </div>
       {/*

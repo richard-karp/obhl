@@ -18,6 +18,7 @@ export function publishMode(state: {
   started: boolean;
 }): PublishMode {
   if (state.started) return "locked";
-  if (state.liveCount === 0) return state.draftCount === 0 ? "empty" : "draft-only";
+  if (state.liveCount === 0)
+    return state.draftCount === 0 ? "empty" : "draft-only";
   return state.draftCount === 0 ? "published" : "replace";
 }

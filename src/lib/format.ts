@@ -110,13 +110,12 @@ export function formatLongDate(iso: string | null): string {
   // Date-only values (e.g. season start/end) are calendar dates — format in UTC
   // to avoid a zone shift; full timestamps format in the league zone.
   const dateOnly = iso.length <= 10 || !iso.includes("T");
-  return new Date(dateOnly ? `${iso.slice(0, 10)}T12:00:00Z` : iso).toLocaleDateString(
-    "en-US",
-    {
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-      timeZone: dateOnly ? "UTC" : LEAGUE_TZ,
-    },
-  );
+  return new Date(
+    dateOnly ? `${iso.slice(0, 10)}T12:00:00Z` : iso,
+  ).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: dateOnly ? "UTC" : LEAGUE_TZ,
+  });
 }

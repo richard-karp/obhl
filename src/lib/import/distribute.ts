@@ -56,7 +56,9 @@ export function distributeStats(
   //    appearance games, decrementing capacity. Any residual (capacity ran out)
   //    is forced into a game so the season total still reconciles exactly.
   const fill = (cap: number[], key: "g" | "a", field: keyof GameStat) => {
-    const order = [...players.keys()].sort((a, b) => players[b][key] - players[a][key]);
+    const order = [...players.keys()].sort(
+      (a, b) => players[b][key] - players[a][key],
+    );
     for (const pi of order) {
       let need = players[pi][key];
       if (need <= 0) continue;
@@ -94,7 +96,8 @@ export function distributeStats(
   // 4. Every appearance is a roster row even with no points (dressed, GP counts).
   appearances.forEach((apps, pi) => {
     apps.forEach((gi) => {
-      if (!result[pi].has(gi)) result[pi].set(gi, { goals: 0, assists: 0, pim: 0 });
+      if (!result[pi].has(gi))
+        result[pi].set(gi, { goals: 0, assists: 0, pim: 0 });
     });
   });
 

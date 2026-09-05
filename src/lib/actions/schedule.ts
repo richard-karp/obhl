@@ -79,7 +79,9 @@ async function targetSeason(admin: Admin, explicit = "") {
 async function targetSeasonForManager(admin: Admin, explicit = "") {
   const seasonId = await targetSeason(admin, explicit);
   if (!seasonId) return null;
-  const manager = await requireLeagueManager(() => leagueOfSeason(seasonId, admin));
+  const manager = await requireLeagueManager(() =>
+    leagueOfSeason(seasonId, admin),
+  );
   return { seasonId, manager };
 }
 
@@ -117,7 +119,8 @@ function readConstraintParams(
     case "bye_on":
     case "play_on": {
       const date = field("constraint_date");
-      if (!DATE_RE.test(date)) return { error: "Pick a date for that request." };
+      if (!DATE_RE.test(date))
+        return { error: "Pick a date for that request." };
       return { params: { date } };
     }
     case "bye_week":
@@ -131,7 +134,8 @@ function readConstraintParams(
     case "slot_on": {
       const date = field("constraint_date");
       const time = normalizeTime(field("constraint_time"));
-      if (!DATE_RE.test(date)) return { error: "Pick a date for that request." };
+      if (!DATE_RE.test(date))
+        return { error: "Pick a date for that request." };
       if (!time) return { error: "Enter the ice time as HH:MM." };
       return { params: { date, time } };
     }
@@ -196,7 +200,10 @@ export async function saveScheduleConstraint(
     .select("id")
     .maybeSingle();
   if (error) {
-    return { ok: false, message: `Couldn't save that request. ${error.message}` };
+    return {
+      ok: false,
+      message: `Couldn't save that request. ${error.message}`,
+    };
   }
 
   if (data?.id) {
@@ -205,11 +212,16 @@ export async function saveScheduleConstraint(
       action: "add_schedule_constraint",
       entity_type: "schedule_constraint",
       entity_id: data.id,
-      new_data: { season_id: seasonId, team_id: teamId, kind, params: read.params },
+      new_data: {
+        season_id: seasonId,
+        team_id: teamId,
+        kind,
+        params: read.params,
+      },
     });
   }
-  revalidatePath("/[league]/manage/schedule-builder", "page");
-  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+  revalidatePath("/[league]/schedule-builder", "page");
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
   return {
     ok: true,
     message: `Added: ${describeConstraint({ kind, params: read.params }, team.name)}.`,
@@ -243,7 +255,10 @@ export async function deleteScheduleConstraint(
     .delete()
     .eq("id", constraintId);
   if (error) {
-    return { ok: false, message: `Couldn't remove that request. ${error.message}` };
+    return {
+      ok: false,
+      message: `Couldn't remove that request. ${error.message}`,
+    };
   }
 
   void logAudit({
@@ -259,8 +274,8 @@ export async function deleteScheduleConstraint(
       params: row.params,
     },
   });
-  revalidatePath("/[league]/manage/schedule-builder", "page");
-  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+  revalidatePath("/[league]/schedule-builder", "page");
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
   return { ok: true, message: "Removed that request." };
 }
 
@@ -283,7 +298,10 @@ export async function generateSchedule(
   formData: FormData,
 ): Promise<GenerateState> {
   const admin = createAdminClient();
-  const target = await targetSeasonForManager(admin, String(formData.get("season_id") ?? ""));
+  const target = await targetSeasonForManager(
+    admin,
+    String(formData.get("season_id") ?? ""),
+  );
   if (!target) return { ok: false, message: "No season selected." };
   const { seasonId } = target;
 
@@ -304,13 +322,15 @@ export async function generateSchedule(
   if (startedError) {
     return {
       ok: false,
-      message: "Couldn't check whether the season has started — nothing was changed.",
+      message:
+        "Couldn't check whether the season has started — nothing was changed.",
     };
   }
   if (startedGuard !== false) {
     return {
       ok: false,
-      message: "The season is under way — a draft schedule can no longer be generated.",
+      message:
+        "The season is under way — a draft schedule can no longer be generated.",
     };
   }
 
@@ -323,7 +343,8 @@ export async function generateSchedule(
   const lengthMode = String(formData.get("length_mode") ?? "games"); // "games" | "date"
   // First game night defaults to the season's start; season end is the outer
   // (playoff-inclusive) bound.
-  const startDate = String(formData.get("start_date") ?? "") || season?.starts_on || "";
+  const startDate =
+    String(formData.get("start_date") ?? "") || season?.starts_on || "";
   const seasonEnd = season?.ends_on ?? "";
   const regSeasonEnd = String(formData.get("reg_season_end") ?? "");
   const gamesPerTeam = Math.max(
@@ -370,7 +391,8 @@ export async function generateSchedule(
   if (teamIds.length < 2) {
     return {
       ok: false,
-      message: "Enrol at least two teams in the season before generating a schedule.",
+      message:
+        "Enrol at least two teams in the season before generating a schedule.",
     };
   }
   const nameById = new Map(enrolledTeams.map((t) => [t.id, t.name]));
@@ -378,7 +400,9 @@ export async function generateSchedule(
   // no team row — so this must not assume the id is in the list.
   const nameOf = (id: string) => nameById.get(id) ?? "A removed team";
 
-  const storedConstraints = await getScheduleConstraints(seasonId, { client: admin });
+  const storedConstraints = await getScheduleConstraints(seasonId, {
+    client: admin,
+  });
 
   /**
    * Resolve the season's constraints against one concrete calendar, and refuse
@@ -427,10 +451,16 @@ export async function generateSchedule(
       gamesPerNight: perNight,
       weekOfNight: buildNightMeta(calendar).week,
     });
-    return { resolved, refusal: problems.length > 0 ? problems.join(" ") : null };
+    return {
+      resolved,
+      refusal: problems.length > 0 ? problems.join(" ") : null,
+    };
   };
 
-  const perNightCap = Math.min(slotTimes.length, Math.floor(teamIds.length / 2));
+  const perNightCap = Math.min(
+    slotTimes.length,
+    Math.floor(teamIds.length / 2),
+  );
   let games;
   let outcomes: ReturnType<typeof assignNights>["report"]["constraints"] = [];
 
@@ -454,7 +484,10 @@ export async function generateSchedule(
           "No game nights fall between those dates — check the weekdays and skip dates.",
       };
     }
-    let g = Math.max(1, Math.floor((2 * nights.length * perNightCap) / teamIds.length));
+    let g = Math.max(
+      1,
+      Math.floor((2 * nights.length * perNightCap) / teamIds.length),
+    );
     // The estimate is an upper bound; step down until everything fits. Capped so
     // a bad estimate can't trigger many expensive placement runs — a remaining
     // shortfall just surfaces the "incomplete" banner.
@@ -480,7 +513,10 @@ export async function generateSchedule(
       g -= 1;
     }
     if (!result) {
-      return { ok: false, message: "Couldn't place any games — nothing was changed." };
+      return {
+        ok: false,
+        message: "Couldn't place any games — nothing was changed.",
+      };
     }
     games = result.games;
     outcomes = result.report.constraints;
@@ -528,7 +564,10 @@ export async function generateSchedule(
     // Unreachable while the loop runs at least once, which it does — kept so a
     // future change to the bounds can't produce silence.
     if (!result) {
-      return { ok: false, message: "Couldn't place any games — nothing was changed." };
+      return {
+        ok: false,
+        message: "Couldn't place any games — nothing was changed.",
+      };
     }
     games = result.games;
     outcomes = result.report.constraints;
@@ -574,16 +613,16 @@ export async function generateSchedule(
       // The delete has already committed, so the old draft is gone and nothing
       // replaced it. Revalidate before returning: the page is showing a draft
       // that no longer exists, and a message alone would leave it there.
-      revalidatePath("/[league]/manage/schedule-builder", "page");
-      revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+      revalidatePath("/[league]/schedule-builder", "page");
+      revalidatePath("/[league]/seasons/[seasonId]", "page");
       return {
         ok: false,
         message: `The previous draft was cleared but the new one couldn't be saved. ${insertError.message}`,
       };
     }
   }
-  revalidatePath("/[league]/manage/schedule-builder", "page");
-  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+  revalidatePath("/[league]/schedule-builder", "page");
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
 
   // A run that places nothing isn't an error — it deleted the old drafts and
   // wrote a valid empty result — but reporting it as a success would be a lie
@@ -591,7 +630,8 @@ export async function generateSchedule(
   if (games.length === 0) {
     return {
       ok: false,
-      message: "No games could be scheduled — try more game nights or fewer games per team.",
+      message:
+        "No games could be scheduled — try more game nights or fewer games per team.",
     };
   }
   // Unmet constraints are stated on the way out, not left to be noticed. The
@@ -604,7 +644,10 @@ export async function generateSchedule(
       message: `Generated a ${games.length}-game draft schedule. ${unmet.length} of ${outcomes.length} manager request${outcomes.length === 1 ? "" : "s"} couldn't be met — see the preview below.`,
     };
   }
-  return { ok: true, message: `Generated a ${games.length}-game draft schedule.` };
+  return {
+    ok: true,
+    message: `Generated a ${games.length}-game draft schedule.`,
+  };
 }
 
 export type PublishState = { ok: boolean; message: string } | null;
@@ -618,13 +661,13 @@ export type PublishState = { ok: boolean; message: string } | null;
  * under a button that will fail the same way again.
  */
 function revalidateAfterPublish() {
-  revalidatePath("/[league]/manage/schedule-builder", "page");
-  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+  revalidatePath("/[league]/schedule-builder", "page");
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
   revalidatePath("/[league]/schedule", "page");
   // The scoring list reads through getSchedule, so a replace changes which games
   // it shows. The old publishSchedule didn't revalidate it either — that gap was
   // invisible while publishing only ever added games.
-  revalidatePath("/[league]/manage/score", "page");
+  revalidatePath("/[league]/schedule", "page");
   revalidatePath("/[league]", "page");
 }
 
@@ -645,7 +688,10 @@ export async function publishSchedule(
   formData: FormData,
 ): Promise<PublishState> {
   const admin = createAdminClient();
-  const target = await targetSeasonForManager(admin, String(formData.get("season_id") ?? ""));
+  const target = await targetSeasonForManager(
+    admin,
+    String(formData.get("season_id") ?? ""),
+  );
   if (!target) return { ok: false, message: "No season selected." };
   const { seasonId, manager: user } = target;
 
@@ -661,7 +707,8 @@ export async function publishSchedule(
     revalidateAfterPublish();
     return {
       ok: false,
-      message: "The season is under way — the schedule can no longer be replaced.",
+      message:
+        "The season is under way — the schedule can no longer be replaced.",
     };
   }
   if (row.refused === "no_draft") {
@@ -713,7 +760,10 @@ export async function removeSchedule(
   formData: FormData,
 ): Promise<RemoveState> {
   const admin = createAdminClient();
-  const target = await targetSeasonForManager(admin, String(formData.get("season_id") ?? ""));
+  const target = await targetSeasonForManager(
+    admin,
+    String(formData.get("season_id") ?? ""),
+  );
   if (!target) return { ok: false, message: "No season selected." };
   const { seasonId, manager: user } = target;
 
@@ -729,7 +779,8 @@ export async function removeSchedule(
     revalidateAfterPublish();
     return {
       ok: false,
-      message: "The season is under way — the schedule can no longer be removed.",
+      message:
+        "The season is under way — the schedule can no longer be removed.",
     };
   }
   if (row.refused === "no_games") {
@@ -767,12 +818,19 @@ export async function removeSchedule(
 /** Discard all draft games for the season. */
 export async function discardSchedule(formData: FormData) {
   const admin = createAdminClient();
-  const target = await targetSeasonForManager(admin, String(formData.get("season_id") ?? ""));
+  const target = await targetSeasonForManager(
+    admin,
+    String(formData.get("season_id") ?? ""),
+  );
   if (!target) return;
   const { seasonId } = target;
-  await admin.from("games").delete().eq("season_id", seasonId).eq("is_draft", true);
-  revalidatePath("/[league]/manage/schedule-builder", "page");
-  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+  await admin
+    .from("games")
+    .delete()
+    .eq("season_id", seasonId)
+    .eq("is_draft", true);
+  revalidatePath("/[league]/schedule-builder", "page");
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
 }
 
 /* ------------------------------------------------------------------ one-off */
@@ -884,7 +942,8 @@ export async function previewOneOffGame(
   if (!plannerNights) {
     return {
       ok: false,
-      message: "The schedule has a game for a team that isn't enrolled this season.",
+      message:
+        "The schedule has a game for a team that isn't enrolled this season.",
     };
   }
 
@@ -900,7 +959,9 @@ export async function previewOneOffGame(
   // instead would shift every later slot index on that night.
   const constraintCalendar = nights.map((n) => ({
     date: n.date,
-    slots: n.games.map((g) => (g.scheduledAt ? leagueTimeKey(g.scheduledAt) : "--:--")),
+    slots: n.games.map((g) =>
+      g.scheduledAt ? leagueTimeKey(g.scheduledAt) : "--:--",
+    ),
   }));
   const resolvedPins = resolveConstraints(
     await getScheduleConstraints(seasonId, { client: admin }),
@@ -915,7 +976,8 @@ export async function previewOneOffGame(
       ([h, a]) => [indexOf.get(h)!, indexOf.get(a)!] as [number, number],
     ),
     featureSlot: input.featureSlot,
-    slotPins: resolvedPins.slotPins.length > 0 ? resolvedPins.slotPins : undefined,
+    slotPins:
+      resolvedPins.slotPins.length > 0 ? resolvedPins.slotPins : undefined,
   });
   if (!result.ok) return { ok: false, message: result.reason };
 
@@ -982,7 +1044,9 @@ export async function applyOneOffGame(
     nights: nights.map((n) => ({
       date: n.date,
       locked: n.locked,
-      games: n.games.map((g) => [g.homeTeamId, g.awayTeamId] as [string, string]),
+      games: n.games.map(
+        (g) => [g.homeTeamId, g.awayTeamId] as [string, string],
+      ),
     })),
     teamIds,
     date: input.date,
@@ -1020,15 +1084,17 @@ export async function applyOneOffGame(
 
   if (rows.length > 0) {
     // One statement, so a plan can't land half-applied.
-    const { error } = await admin.from("games").upsert(rows, { onConflict: "id" });
+    const { error } = await admin
+      .from("games")
+      .upsert(rows, { onConflict: "id" });
     if (error) return { ok: false, message: error.message };
   }
 
-  revalidatePath("/[league]/manage/schedule-builder", "page");
-  revalidatePath("/[league]/manage/schedule-builder/one-off", "page");
-  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+  revalidatePath("/[league]/schedule-builder", "page");
+  revalidatePath("/[league]/schedule-builder/one-off", "page");
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
   revalidatePath("/[league]/schedule", "page");
-  revalidatePath("/[league]/manage/score", "page");
+  revalidatePath("/[league]/schedule", "page");
   revalidatePath("/[league]", "page");
 
   const touched = input.changes.length;

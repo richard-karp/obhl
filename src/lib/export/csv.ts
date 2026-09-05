@@ -1,6 +1,10 @@
 import { leagueDateKey, formatGameTime } from "@/lib/format";
 
-export type CsvGame = { scheduled_at: string | null; home: string; away: string };
+export type CsvGame = {
+  scheduled_at: string | null;
+  home: string;
+  away: string;
+};
 
 /** Leading characters that make Excel and Sheets evaluate a cell as a formula. */
 const FORMULA_LEAD = /^[=+\-@\t\r]/;

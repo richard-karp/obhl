@@ -25,7 +25,10 @@ function nights(count: number, slots = ["19:00", "20:15", "21:30"]): Night[] {
 }
 
 // Two recurring weeknights (e.g. Tue + Thu) for `weeks` weeks, chronological.
-function twoNightsPerWeek(weeks: number, slots = ["19:00", "20:15", "21:30"]): Night[] {
+function twoNightsPerWeek(
+  weeks: number,
+  slots = ["19:00", "20:15", "21:30"],
+): Night[] {
   const ns: Night[] = [];
   const base = Date.UTC(2026, 8, 1); // 2026-09-01
   for (let w = 0; w < weeks; w++) {
@@ -114,12 +117,16 @@ describe("assignNights", () => {
     for (const t of report.gamesPerTeam) expect(t.count).toBe(14);
     for (const w of report.nightShareByTeam) {
       // Weekday balance is priority #1 — stays within one game.
-      expect(Math.max(...w.counts) - Math.min(...w.counts)).toBeLessThanOrEqual(1);
+      expect(Math.max(...w.counts) - Math.min(...w.counts)).toBeLessThanOrEqual(
+        1,
+      );
     }
     for (const s of report.slotShareByTeam) {
       // Ice-time evenness is priority #4; the spacing pass may trade it up to one
       // extra game to reduce byes/rematch clustering.
-      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(2);
+      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(
+        2,
+      );
     }
   });
 
@@ -142,7 +149,9 @@ describe("assignNights", () => {
     const { report } = assignNights(roundRobin(ts, 1), nights(5), ts);
     // Each team's own slot spread stays tight.
     for (const s of report.slotShareByTeam) {
-      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(1);
+      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(
+        1,
+      );
     }
     // The latest (worst) time is shared evenly across teams — no team eats it
     // much more than another.
@@ -164,8 +173,12 @@ describe("assignNights", () => {
     const ns = twoNightsPerWeek(14, ["19:00", "20:15"]);
     const key = (g: { home: string; away: string; scheduledAt: string }) =>
       `${g.home}|${g.away}|${g.scheduledAt}`;
-    const a = assignNights(buildBalancedPairings(ts, 14), ns, ts).games.map(key);
-    const b = assignNights(buildBalancedPairings(ts, 14), ns, ts).games.map(key);
+    const a = assignNights(buildBalancedPairings(ts, 14), ns, ts).games.map(
+      key,
+    );
+    const b = assignNights(buildBalancedPairings(ts, 14), ns, ts).games.map(
+      key,
+    );
     expect(a).toEqual(b);
   });
 });
@@ -217,9 +230,7 @@ describe("assignNights — full-season reference schedule", () => {
       played.get(g.away)!.add(g.nightIndex);
     }
     for (const t of ts) {
-      const byes = ns
-        .map((_, i) => i)
-        .filter((i) => !played.get(t)!.has(i));
+      const byes = ns.map((_, i) => i).filter((i) => !played.get(t)!.has(i));
       expect(byes.length).toBe(12);
       expect(byes.filter((i) => weekdayOf(ns[i].date) === 1).length).toBe(6);
     }
@@ -237,14 +248,17 @@ describe("assignNights — full-season reference schedule", () => {
   it("keeps opponents balanced — 36 games over 7 opponents is 5s and one 6", () => {
     expect(report.pairingCounts.length).toBe(28);
     const sixes = report.pairingCounts.filter((p) => p.count === 6);
-    expect(report.pairingCounts.every((p) => p.count === 5 || p.count === 6)).toBe(true);
+    expect(
+      report.pairingCounts.every((p) => p.count === 5 || p.count === 6),
+    ).toBe(true);
     // One 6 per team, so the 6s form a perfect matching over the 8 teams.
     expect(sixes.length).toBe(4);
     expect(new Set(sixes.flatMap((p) => p.matchup.split("|"))).size).toBe(8);
   });
 
   it("shares the ice times perfectly evenly (12 of each)", () => {
-    for (const s of report.slotShareByTeam) expect(s.counts).toEqual([12, 12, 12]);
+    for (const s of report.slotShareByTeam)
+      expect(s.counts).toEqual([12, 12, 12]);
   });
 
   it("never books a team twice on one night", () => {
@@ -310,7 +324,9 @@ describe("assignNights — full-season reference schedule", () => {
     // Phase M's compound pass that clears them, by re-choosing two nights of
     // opposite weekdays together; `WD_SPLIT_W` is untouched, and all four
     // rematch metrics stay at 0 above.
-    const off = [...counts.values()].filter((v) => weekdayExcessScaled(v, perWd) > 0);
+    const off = [...counts.values()].filter(
+      (v) => weekdayExcessScaled(v, perWd) > 0,
+    );
     expect(off.length).toBe(0);
     expect(report.spacing.pairingWeekdayExcess).toBe(0);
   });

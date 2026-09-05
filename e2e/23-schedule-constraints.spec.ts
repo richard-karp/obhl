@@ -93,7 +93,10 @@ async function clearRequests(page: Page) {
     const rows = requestList(page);
     const before = await rows.count();
     if (before === 0) break;
-    await rows.first().getByRole("button", { name: /^Remove request:/ }).click();
+    await rows
+      .first()
+      .getByRole("button", { name: /^Remove request:/ })
+      .click();
     await expect(rows).toHaveCount(before - 1);
   }
 }
@@ -111,14 +114,20 @@ test.describe("Path 24 — schedule constraints", () => {
     await clearRequests(page);
   });
 
-  test("the constraints card sits inside the generate form", async ({ page }) => {
+  test("the constraints card sits inside the generate form", async ({
+    page,
+  }) => {
     // ⚠️ Inside the form, not beside it: the season's game nights do not exist
     // until the form above is filled in, so a card rendered elsewhere would have
     // no calendar to talk about.
     const form = page.locator("form").filter({ hasText: "Manager requests" });
-    await expect(form.getByRole("button", { name: "Generate schedule" })).toBeVisible();
+    await expect(
+      form.getByRole("button", { name: "Generate schedule" }),
+    ).toBeVisible();
     await expect(form.getByLabel("Request", { exact: true })).toBeVisible();
-    await expect(form.getByRole("button", { name: "Add request" })).toBeVisible();
+    await expect(
+      form.getByRole("button", { name: "Add request" }),
+    ).toBeVisible();
   });
 
   test("the request picker offers all six kinds", async ({ page }) => {
@@ -135,16 +144,25 @@ test.describe("Path 24 — schedule constraints", () => {
     }
   });
 
-  test("adding a request lists it, and removing it takes it away", async ({ page }) => {
+  test("adding a request lists it, and removing it takes it away", async ({
+    page,
+  }) => {
     const name = await firstTeamName(page);
     await page.getByLabel("Request", { exact: true }).selectOption("bye_on");
     await page.getByLabel("Date", { exact: true }).fill(FIRST_NIGHT);
     await page.getByRole("button", { name: "Add request" }).click();
 
-    await expect(requestList(page).filter({ hasText: `${name} byes on ${FIRST_NIGHT}` })).toBeVisible();
+    await expect(
+      requestList(page).filter({ hasText: `${name} byes on ${FIRST_NIGHT}` }),
+    ).toBeVisible();
 
-    await page.getByRole("button", { name: /^Remove request:/ }).first().click();
-    await expect(requestList(page).filter({ hasText: `${name} byes on ${FIRST_NIGHT}` })).toHaveCount(0);
+    await page
+      .getByRole("button", { name: /^Remove request:/ })
+      .first()
+      .click();
+    await expect(
+      requestList(page).filter({ hasText: `${name} byes on ${FIRST_NIGHT}` }),
+    ).toHaveCount(0);
   });
 
   test("a request with nothing filled in is refused, not silently dropped", async ({
@@ -168,13 +186,17 @@ test.describe("Path 24 — schedule constraints", () => {
     await page.getByLabel("Request", { exact: true }).selectOption("bye_on");
     await page.getByLabel("Date", { exact: true }).fill(FIRST_NIGHT);
     await page.getByRole("button", { name: "Add request" }).click();
-    await expect(requestList(page).filter({ hasText: `${name} byes on ${FIRST_NIGHT}` })).toBeVisible();
+    await expect(
+      requestList(page).filter({ hasText: `${name} byes on ${FIRST_NIGHT}` }),
+    ).toBeVisible();
 
     await firstTeamName(page);
     await page.getByLabel("Request", { exact: true }).selectOption("play_on");
     await page.getByLabel("Date", { exact: true }).fill(FIRST_NIGHT);
     await page.getByRole("button", { name: "Add request" }).click();
-    await expect(requestList(page).filter({ hasText: `${name} plays on ${FIRST_NIGHT}` })).toBeVisible();
+    await expect(
+      requestList(page).filter({ hasText: `${name} plays on ${FIRST_NIGHT}` }),
+    ).toBeVisible();
 
     await page.getByLabel("First game night").fill(FIRST_NIGHT);
     await page.getByLabel("Games per team").fill("4");
@@ -212,7 +234,9 @@ test.describe("Path 24 — schedule constraints", () => {
     await page.getByLabel("Ice time").fill("21:30");
     await page.getByRole("button", { name: "Add request" }).click();
     const description = `${name} plays at 21:30 on 2026-09-22`;
-    await expect(requestList(page).filter({ hasText: description })).toBeVisible();
+    await expect(
+      requestList(page).filter({ hasText: description }),
+    ).toBeVisible();
 
     await page.getByLabel("First game night").fill(FIRST_NIGHT);
     await page.getByLabel("Games per team").fill("4");
@@ -225,7 +249,9 @@ test.describe("Path 24 — schedule constraints", () => {
     // ⛔ ASSERT THE TICK, not merely that the request is listed. Listing it
     // proves nothing — an unmet request is listed too, with a ✗ — and this test
     // spent its whole life passing over one.
-    const row = outcomeCard(page).locator("li").filter({ hasText: description });
+    const row = outcomeCard(page)
+      .locator("li")
+      .filter({ hasText: description });
     await expect(row).toBeVisible();
     await expect(row).toContainText("✓");
 

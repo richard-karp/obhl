@@ -58,7 +58,9 @@ describe("resolveConstraints", () => {
   it("makes slot_on imply play_on", () => {
     // ⛔ Without the implied play night, Phase P may hand the team a bye and the
     // pin becomes vacuously unsatisfiable.
-    const r = resolve([c("1", "a", "slot_on", { date: "2026-09-14", time: "20:15" })]);
+    const r = resolve([
+      c("1", "a", "slot_on", { date: "2026-09-14", time: "20:15" }),
+    ]);
     expect(r.forced).toEqual([{ team: 0, night: 2, plays: true }]);
     expect(r.slotPins).toEqual([{ team: 0, night: 2, slot: 1 }]);
   });
@@ -71,10 +73,18 @@ describe("resolveConstraints", () => {
 
   it("builds a night mask and a direction for slot_bias", () => {
     const r = resolve([
-      c("1", "a", "slot_bias", { from: "2026-09-10", to: "2026-09-21", prefer: "late" }),
+      c("1", "a", "slot_bias", {
+        from: "2026-09-10",
+        to: "2026-09-21",
+        prefer: "late",
+      }),
     ]);
     expect(r.biases).toEqual([
-      { team: 0, nights: [false, true, true, true, true, false, false, false], prefer: "late" },
+      {
+        team: 0,
+        nights: [false, true, true, true, true, false, false, false],
+        prefer: "late",
+      },
     ]);
   });
 
@@ -93,7 +103,9 @@ describe("resolveConstraints", () => {
     });
 
     it("skips an ice time that night does not run", () => {
-      const r = resolve([c("1", "a", "slot_on", { date: "2026-09-07", time: "22:45" })]);
+      const r = resolve([
+        c("1", "a", "slot_on", { date: "2026-09-07", time: "22:45" }),
+      ]);
       expect(r.items[0].unresolved).toMatch(/not an ice time/);
       // And it drops the implied play night with it, rather than leaving half a
       // constraint forcing participation for a pin that will never be applied.
@@ -196,7 +208,11 @@ describe("refuteConstraints", () => {
 
   it("refuses more byes than a team's budget, before any search runs", () => {
     const out = refuteConstraints(
-      resolve([0, 2, 4].map((n) => c(`${n}`, "a", "bye_on", { date: NIGHTS[n].date }))),
+      resolve(
+        [0, 2, 4].map((n) =>
+          c(`${n}`, "a", "bye_on", { date: NIGHTS[n].date }),
+        ),
+      ),
       opts,
     );
     expect(out).toHaveLength(1);
@@ -232,7 +248,9 @@ describe("refuteConstraints", () => {
     // One game a night among 4 teams leaves exactly 2 byes.
     const out = refuteConstraints(
       resolve(
-        ["a", "b", "c"].map((t, i) => c(`${i}`, t, "bye_on", { date: NIGHTS[1].date })),
+        ["a", "b", "c"].map((t, i) =>
+          c(`${i}`, t, "bye_on", { date: NIGHTS[1].date }),
+        ),
       ),
       opts,
     );
@@ -242,7 +260,9 @@ describe("refuteConstraints", () => {
   it("refuses more teams pinned to a night than it seats", () => {
     const out = refuteConstraints(
       resolve(
-        ["a", "b", "c"].map((t, i) => c(`${i}`, t, "play_on", { date: NIGHTS[1].date })),
+        ["a", "b", "c"].map((t, i) =>
+          c(`${i}`, t, "play_on", { date: NIGHTS[1].date }),
+        ),
       ),
       opts,
     );
@@ -289,7 +309,9 @@ describe("evaluateConstraints", () => {
   });
 
   it("reports a pin unmet when the game landed on another sheet", () => {
-    const r = resolve([c("1", "a", "slot_on", { date: NIGHTS[1].date, time: "20:15" })]);
+    const r = resolve([
+      c("1", "a", "slot_on", { date: NIGHTS[1].date, time: "20:15" }),
+    ]);
     expect(
       evaluateConstraints(r, {
         plays: plays([]),
@@ -317,11 +339,14 @@ describe("evaluateConstraints", () => {
   describe("slot_bias reads against the ice available, not the ice taken", () => {
     const window = { from: NIGHTS[0].date, to: NIGHTS.at(-1)!.date };
     const evaluate = (prefer: "early" | "late", slot: (n: number) => number) =>
-      evaluateConstraints(resolve([c("1", "a", "slot_bias", { ...window, prefer })]), {
-        plays: plays([]),
-        slotOf: (t, n) => (t === 0 ? slot(n) : 1 - slot(n)),
-        plannerHonours: true,
-      })[0];
+      evaluateConstraints(
+        resolve([c("1", "a", "slot_bias", { ...window, prefer })]),
+        {
+          plays: plays([]),
+          slotOf: (t, n) => (t === 0 ? slot(n) : 1 - slot(n)),
+          plannerHonours: true,
+        },
+      )[0];
 
     it("counts the earliest sheet every night as MET for early", () => {
       expect(evaluate("early", () => 0).satisfied).toBe(true);
@@ -367,7 +392,10 @@ describe("evaluateConstraints", () => {
         slotOf: () => 0,
         plannerHonours: true,
       })[0],
-    ).toMatchObject({ satisfied: false, reason: expect.stringMatching(/no longer enrolled/) });
+    ).toMatchObject({
+      satisfied: false,
+      reason: expect.stringMatching(/no longer enrolled/),
+    });
   });
 });
 
@@ -452,8 +480,16 @@ describe("a constrained generation prefers Phase P", () => {
   const teams = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"];
   const slots = ["19:00", "20:15", "21:30"];
   const dates = [
-    "2026-09-15", "2026-09-17", "2026-09-22", "2026-09-24", "2026-09-29",
-    "2026-10-01", "2026-10-06", "2026-10-08", "2026-10-13", "2026-10-15",
+    "2026-09-15",
+    "2026-09-17",
+    "2026-09-22",
+    "2026-09-24",
+    "2026-09-29",
+    "2026-10-01",
+    "2026-10-06",
+    "2026-10-08",
+    "2026-10-13",
+    "2026-10-15",
     "2026-10-20",
   ];
   const nights: Night[] = dates.map((date) => ({ date, slots }));
@@ -464,7 +500,9 @@ describe("a constrained generation prefers Phase P", () => {
       [c("1", "t1", "bye_on", { date: nights[2].date })],
       { nights, teamIds: teams },
     );
-    const { report } = assignNights(pairings, nights, teams, { constraints: resolved });
+    const { report } = assignNights(pairings, nights, teams, {
+      constraints: resolved,
+    });
     expect(report.constraints[0].satisfied).toBe(true);
     expect(report.unscheduled).toBe(0);
     // The invariant the whole feature rests on is untouched by the swap.
@@ -489,24 +527,36 @@ describe("a constrained generation prefers Phase P", () => {
  * class that ships unnoticed.
  */
 describe("what the manager is told", () => {
-  const NIGHTS4: Night[] = ["2026-09-15", "2026-09-17", "2026-09-22", "2026-09-24"]
-    .map((date) => ({ date, slots: ["19:00", "20:15", "21:30"] }));
+  const NIGHTS4: Night[] = [
+    "2026-09-15",
+    "2026-09-17",
+    "2026-09-22",
+    "2026-09-24",
+  ].map((date) => ({ date, slots: ["19:00", "20:15", "21:30"] }));
   const SIX = ["a", "b", "c", "d", "e", "f"];
 
   it("reports a set whose every constraint failed to resolve", () => {
     // `empty` is true here — nothing reached a solver phase — and gating the
     // report on it meant the likeliest first mistake (a date that is not a game
     // night) produced a cheerful success toast and no verdict at all.
-    const r = resolveConstraints([c("1", "a", "bye_on", { date: "2030-01-01" })], {
-      nights: NIGHTS4,
-      teamIds: SIX,
-    });
+    const r = resolveConstraints(
+      [c("1", "a", "bye_on", { date: "2030-01-01" })],
+      {
+        nights: NIGHTS4,
+        teamIds: SIX,
+      },
+    );
     expect(r.empty).toBe(true);
     expect(r.items).toHaveLength(1);
 
-    const { report } = assignNights(buildBalancedPairings(SIX, 4), NIGHTS4, SIX, {
-      constraints: r,
-    });
+    const { report } = assignNights(
+      buildBalancedPairings(SIX, 4),
+      NIGHTS4,
+      SIX,
+      {
+        constraints: r,
+      },
+    );
     expect(report.constraints).toHaveLength(1);
     expect(report.constraints[0].satisfied).toBe(false);
     expect(report.constraints[0].reason).toMatch(/not a game night/);
@@ -515,9 +565,16 @@ describe("what the manager is told", () => {
   it("does not call two identical pins a contradiction", () => {
     // Nothing stops a manager double-clicking Add, and any conflict at all
     // makes `generateSchedule` refuse outright — so a stutter blocked a season.
-    const dup = { teamId: "a", kind: "slot_on" as const, params: { date: "2026-09-15", time: "20:15" } };
+    const dup = {
+      teamId: "a",
+      kind: "slot_on" as const,
+      params: { date: "2026-09-15", time: "20:15" },
+    };
     const r = resolveConstraints(
-      [{ id: "1", ...dup }, { id: "2", ...dup }],
+      [
+        { id: "1", ...dup },
+        { id: "2", ...dup },
+      ],
       { nights: NIGHTS4, teamIds: SIX },
     );
     expect(constraintConflicts(r, (id) => id.toUpperCase())).toEqual([]);
@@ -538,7 +595,13 @@ describe("what the manager is told", () => {
     // `slot_bias` asks where games LANDED, which is readable from any plan — so
     // the fallback short-circuit must not swallow it and report it unmet.
     const r = resolveConstraints(
-      [c("1", "a", "slot_bias", { from: NIGHTS4[0].date, to: NIGHTS4.at(-1)!.date, prefer: "early" })],
+      [
+        c("1", "a", "slot_bias", {
+          from: NIGHTS4[0].date,
+          to: NIGHTS4.at(-1)!.date,
+          prefer: "early",
+        }),
+      ],
       { nights: NIGHTS4, teamIds: SIX },
     );
     const out = evaluateConstraints(r, {
@@ -561,8 +624,16 @@ describe("what the manager is told", () => {
     // describe body: a failure stays attributed to this test.
     const teams = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"];
     const dates = [
-      "2026-09-15", "2026-09-17", "2026-09-22", "2026-09-24", "2026-09-29",
-      "2026-10-01", "2026-10-06", "2026-10-08", "2026-10-13", "2026-10-15",
+      "2026-09-15",
+      "2026-09-17",
+      "2026-09-22",
+      "2026-09-24",
+      "2026-09-29",
+      "2026-10-01",
+      "2026-10-06",
+      "2026-10-08",
+      "2026-10-13",
+      "2026-10-15",
       "2026-10-20",
     ];
     const nights: Night[] = dates.map((date) => ({
@@ -573,7 +644,13 @@ describe("what the manager is told", () => {
     const bare = assignNights(pairings, nights, teams).report;
     const biased = assignNights(pairings, nights, teams, {
       constraints: resolveConstraints(
-        [c("1", "t1", "slot_bias", { from: dates[0], to: dates[5], prefer: "early" })],
+        [
+          c("1", "t1", "slot_bias", {
+            from: dates[0],
+            to: dates[5],
+            prefer: "early",
+          }),
+        ],
         { nights, teamIds: teams },
       ),
     }).report;
@@ -664,7 +741,9 @@ describe("assignNights with manager constraints", () => {
 
   const pairings = buildBalancedPairings(ts, 12);
   const resolved = resolveConstraints(constraints, { nights: ns, teamIds: ts });
-  const { games, report } = assignNights(pairings, ns, ts, { constraints: resolved });
+  const { games, report } = assignNights(pairings, ns, ts, {
+    constraints: resolved,
+  });
 
   it("places every game", () => {
     expect(report.unscheduled).toBe(0);
@@ -682,7 +761,9 @@ describe("assignNights with manager constraints", () => {
     expect(perNight).toEqual(new Array(ns.length).fill(3));
     // ...and no team is ever booked twice on one night.
     for (let n = 0; n < ns.length; n++) {
-      const on = games.filter((g) => g.nightIndex === n).flatMap((g) => [g.home, g.away]);
+      const on = games
+        .filter((g) => g.nightIndex === n)
+        .flatMap((g) => [g.home, g.away]);
       expect(new Set(on).size).toBe(on.length);
     }
   });
@@ -690,7 +771,8 @@ describe("assignNights with manager constraints", () => {
   it("invariant 3: each pair meets exactly as often as it was asked to", () => {
     const key = (a: string, b: string) => [a, b].sort().join("|");
     const want = new Map<string, number>();
-    for (const p of pairings) want.set(key(p.home, p.away), (want.get(key(p.home, p.away)) ?? 0) + 1);
+    for (const p of pairings)
+      want.set(key(p.home, p.away), (want.get(key(p.home, p.away)) ?? 0) + 1);
     const got = new Map(report.pairingCounts.map((p) => [p.matchup, p.count]));
     expect(got).toEqual(want);
   });
@@ -700,9 +782,11 @@ describe("assignNights with manager constraints", () => {
     const outcome = report.constraints.find((x) => x.id === "k1")!;
     expect(outcome.satisfied).toBe(true);
     for (const n of weekNights) {
-      expect(games.some((g) => g.nightIndex === n && (g.home === ts[t1] || g.away === ts[t1]))).toBe(
-        false,
-      );
+      expect(
+        games.some(
+          (g) => g.nightIndex === n && (g.home === ts[t1] || g.away === ts[t1]),
+        ),
+      ).toBe(false);
     }
   });
 
@@ -732,7 +816,9 @@ describe("assignNights with manager constraints", () => {
   });
 
   it("flags which teams were constrained, so collateral is legible", () => {
-    const constrained = report.teamMetrics.filter((m) => m.constrained).map((m) => m.team);
+    const constrained = report.teamMetrics
+      .filter((m) => m.constrained)
+      .map((m) => m.team);
     expect(constrained.sort()).toEqual(["t1", "t4", "t6"]);
     expect(report.teamMetrics).toHaveLength(8);
   });

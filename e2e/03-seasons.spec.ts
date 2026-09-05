@@ -14,17 +14,20 @@ function admin() {
   );
 }
 
-async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
+async function signedInAs(
+  page: Page,
+  role: "Manager" | "Scorekeeper" | "Captain",
+) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
   // any more. Every caller below expects to be inside a league's manage tools.
   await page.waitForURL("/");
-  await page.goto("/obhl/manage/dashboard");
+  await page.goto("/obhl/dashboard");
 }
 
 async function goToActiveSeasonSetup(page: Page) {
-  await page.goto("/obhl/manage/seasons");
+  await page.goto("/obhl/seasons");
   await page
     .getByRole("row", { name: /Spring 2026/ })
     .getByRole("link", { name: "Setup" })
@@ -35,7 +38,7 @@ async function goToActiveSeasonSetup(page: Page) {
 test.describe("Path 7 — Season setup", () => {
   test("seasons list shows Spring 2026 with Active badge", async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/manage/seasons");
+    await page.goto("/obhl/seasons");
     await expect(page.getByText("Spring 2026")).toBeVisible();
     await expect(page.getByText("Active").first()).toBeVisible();
   });
@@ -73,7 +76,9 @@ test.describe("Path 7 — Season setup", () => {
    * unavoidable exception is "Set active", which is per-league by definition —
    * it is done last and put back in `finally`.
    */
-  test("every season action lands in this league's audit log", async ({ page }) => {
+  test("every season action lands in this league's audit log", async ({
+    page,
+  }) => {
     const stamp = Date.now();
     const seasonName = `Audit Probe Season ${stamp}`;
     const teamName = `Audit Probe Team ${stamp}`;
@@ -96,10 +101,12 @@ test.describe("Path 7 — Season setup", () => {
       await signedInAs(page, "Manager");
 
       // ── create_season ────────────────────────────────────────────────────
-      await page.goto("/obhl/manage/seasons");
+      await page.goto("/obhl/seasons");
       await page.getByLabel("Name").fill(seasonName);
       await page.getByRole("button", { name: "Create season" }).click();
-      await expect(page.getByText(`Season "${seasonName}" created.`)).toBeVisible();
+      await expect(
+        page.getByText(`Season "${seasonName}" created.`),
+      ).toBeVisible();
 
       const { data: made } = await db
         .from("seasons")
@@ -108,11 +115,13 @@ test.describe("Path 7 — Season setup", () => {
         .single();
       seasonId = made!.id as string;
 
-      await page.goto("/obhl/manage/audit");
-      await expect(page.getByText(`Created season ${seasonName}`)).toBeVisible();
+      await page.goto("/obhl/audit");
+      await expect(
+        page.getByText(`Created season ${seasonName}`),
+      ).toBeVisible();
 
       // ── create_team ──────────────────────────────────────────────────────
-      await page.goto(`/obhl/manage/seasons/${seasonId}`);
+      await page.goto(`/obhl/seasons/${seasonId}`);
       await page.getByLabel("Team name").fill(teamName);
       await page.getByRole("button", { name: "Add team" }).click();
       await expect(page.getByText(`Added ${teamName}.`)).toBeVisible();
@@ -123,7 +132,7 @@ test.describe("Path 7 — Season setup", () => {
         .single();
       teamId = madeTeam!.id as string;
 
-      await page.goto("/obhl/manage/audit");
+      await page.goto("/obhl/audit");
       await expect(page.getByText(`Added team ${teamName}`)).toBeVisible();
 
       // ── unenroll_team ────────────────────────────────────────────────────
@@ -131,7 +140,7 @@ test.describe("Path 7 — Season setup", () => {
       // Destructive: the `season_teams` row is gone afterwards. The entry is
       // filed under the SEASON, which outlives it — a row that named the
       // enrollment would resolve to no league and disappear.
-      await page.goto(`/obhl/manage/seasons/${seasonId}`);
+      await page.goto(`/obhl/seasons/${seasonId}`);
       await page
         .locator("table tbody tr")
         .filter({ hasText: teamName })
@@ -139,13 +148,13 @@ test.describe("Path 7 — Season setup", () => {
         .click();
       await page.waitForLoadState("networkidle");
 
-      await page.goto("/obhl/manage/audit");
+      await page.goto("/obhl/audit");
       await expect(
         page.getByText(`Removed ${teamName} from this season`),
       ).toBeVisible();
 
       // ── carry_forward_enrollment ─────────────────────────────────────────
-      await page.goto(`/obhl/manage/seasons/${seasonId}`);
+      await page.goto(`/obhl/seasons/${seasonId}`);
       await page
         .getByRole("button", { name: "Same teams as last season" })
         .click();
@@ -156,16 +165,18 @@ test.describe("Path 7 — Season setup", () => {
       //
       // Last, because it takes the league's active season off whatever the rest
       // of the suite expects. Put back in `finally`.
-      await page.goto("/obhl/manage/seasons");
+      await page.goto("/obhl/seasons");
       await page
         .getByRole("row", { name: new RegExp(seasonName) })
         .getByRole("button", { name: "Set active" })
         .click();
       await page.waitForLoadState("networkidle");
 
-      await page.goto("/obhl/manage/audit");
+      await page.goto("/obhl/audit");
       await expect(
-        page.getByText(`Made ${seasonName} the active season (was ${wasActive!.name})`),
+        page.getByText(
+          `Made ${seasonName} the active season (was ${wasActive!.name})`,
+        ),
       ).toBeVisible();
 
       // …and every one of them named this league. That is the half the page
@@ -180,17 +191,22 @@ test.describe("Path 7 — Season setup", () => {
         .from("audit_log")
         .select("action, league_id")
         .eq("entity_id", seasonId);
-      const byAction = new Map((entries ?? []).map((e) => [e.action, e.league_id]));
+      const byAction = new Map(
+        (entries ?? []).map((e) => [e.action, e.league_id]),
+      );
       for (const action of [
         "create_season",
         "unenroll_team",
         "carry_forward_enrollment",
         "set_active_season",
       ]) {
-        expect(byAction.has(action), `${action} wrote no audit entry`).toBe(true);
-        expect(byAction.get(action), `${action} was filed under no league`).toBe(
-          league!.id,
+        expect(byAction.has(action), `${action} wrote no audit entry`).toBe(
+          true,
         );
+        expect(
+          byAction.get(action),
+          `${action} was filed under no league`,
+        ).toBe(league!.id);
       }
     } finally {
       // The two deletes are order-free — `season_teams` cascades from both
@@ -215,7 +231,9 @@ test.describe("Path 8 — AI league summary", () => {
     await signedInAs(page, "Manager");
     await goToActiveSeasonSetup(page);
     await page.waitForLoadState("networkidle");
-    await expect(page.getByRole("button", { name: "Generate", exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByRole("button", { name: "Generate", exact: true }),
+    ).toBeVisible({ timeout: 10000 });
     await expect(page.getByText("No summary yet")).toBeVisible();
   });
 
@@ -232,9 +250,9 @@ test.describe("Path 8 — AI league summary", () => {
     await goToActiveSeasonSetup(page);
 
     await page.getByRole("button", { name: "Generate" }).click();
-    await expect(
-      page.getByRole("button", { name: "Regenerate" }),
-    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible({
+      timeout: 30_000,
+    });
 
     const summaryText = await page.locator("p.italic").first().innerText();
     expect(summaryText.length).toBeGreaterThan(20);

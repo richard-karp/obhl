@@ -7,9 +7,10 @@
  * never the league. There is no error for this — the league simply never
  * resolves, and the manage tools under it go with it.
  *
- * `manage` is not a top-level route (it sits under `[league]`), so it would in
- * fact work. It is reserved anyway: a league there answers to
- * `/manage/manage/dashboard`, which nobody should have to reason about.
+ * `manage` IS a top-level route: the League Office lives at `/manage/office`,
+ * outside `[league]` because it belongs to no league. So the reservation is
+ * load-bearing for the same reason as the rest — and it stays load-bearing even
+ * though `manage` is no longer a segment inside a league's own URLs.
  *
  * Kept free of server imports so it can be tested directly.
  *
@@ -17,6 +18,11 @@
  * supabase/migrations/0030_league_slug_reserved.sql — leagues are created by
  * hand-written SQL as often as by the importer, so the database is the only
  * place that catches every path. Change both together.
+ *
+ * ⚠️ 0030's own COMMENT predates the flatten and still says `manage` is not a
+ * top-level route. Its constraint is correct and migrations are frozen history,
+ * so it is left alone — but the reasoning above, not that comment, is why
+ * `manage` is reserved today.
  */
 export const RESERVED_LEAGUE_SLUGS = [
   "api",

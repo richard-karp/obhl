@@ -31,8 +31,10 @@ const getActiveSeason = cache(async function getActiveSeason(
  * another round trip — see lib/league/current.ts.
  *
  * The league is non-null: `[league]/layout.tsx` has already 404'd an unknown
- * slug, and `(public)/layout.tsx` an unpublished one. `notFound()` here is the
- * guard that lets callers say `ctx.league` without a null check.
+ * slug, and `(public)/layout.tsx` one this viewer may not see — which since the
+ * pages became shared means unpublished AND not theirs, not unpublished alone.
+ * `notFound()` here is the guard that lets callers say `ctx.league` without a
+ * null check.
  */
 export async function getActiveContext(slug: string): Promise<ActiveContext> {
   const league = await resolveLeagueBySlug(slug);

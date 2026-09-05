@@ -52,7 +52,9 @@ export type Participation = {
 };
 
 /** Bye-rule cost of a solved matrix, on the same scale the search minimises. */
-export function byeRuleCost(p: Omit<Participation, "plays" | "optimal">): number {
+export function byeRuleCost(
+  p: Omit<Participation, "plays" | "optimal">,
+): number {
   return (
     ADJ_NIGHT_W * p.byeAdjNight +
     MULTI_WEEK_W * p.byeMultiWeek +
@@ -91,7 +93,11 @@ function buildWeeks(nights: ParticipationNight[], teamCount: number): Week[] {
   const byWeek = new Map<number, WeekSlot[]>();
   nights.forEach((n, i) => {
     const slots = byWeek.get(n.week) ?? byWeek.set(n.week, []).get(n.week)!;
-    slots.push({ night: i, weekday: n.weekday, quota: teamCount - 2 * n.games });
+    slots.push({
+      night: i,
+      weekday: n.weekday,
+      quota: teamCount - 2 * n.games,
+    });
   });
   const ordered = [...byWeek.keys()].sort((a, b) => a - b);
   return ordered.map((w, i) => ({
@@ -169,7 +175,8 @@ function chooseWeekdayByeTargets(
   // Capacity left on weekdays after d, used to force byes forward when the tail
   // can't absorb them.
   const tailRoom = new Array(D + 1).fill(0);
-  for (let d = D - 1; d >= 0; d--) tailRoom[d] = tailRoom[d + 1] + nightsPerWd[d];
+  for (let d = D - 1; d >= 0; d--)
+    tailRoom[d] = tailRoom[d + 1] + nightsPerWd[d];
 
   const b: number[][] = Array.from({ length: T }, () => new Array(D).fill(0));
   const rem = [...totalByes];
@@ -257,7 +264,8 @@ function chooseWeekdayByeTargets(
           for (let d2 = 0; d2 < D && !improved; d2++) {
             if (d1 === d2) continue;
             if (b[t1][d1] === 0 || b[t2][d2] === 0) continue;
-            if (b[t1][d2] >= nightsPerWd[d2] || b[t2][d1] >= nightsPerWd[d1]) continue;
+            if (b[t1][d2] >= nightsPerWd[d2] || b[t2][d1] >= nightsPerWd[d1])
+              continue;
             if (
               limits &&
               (b[t1][d1] <= limits.min[t1][d1] ||
@@ -405,7 +413,9 @@ export function solveParticipation(
   // by position, so translate once. A week holding no nights cannot be satisfied
   // and refutes the whole matrix.
   const weekPosOf = new Map<number, number>();
-  weeks.forEach((_, i) => weekPosOf.set(nights[weeks[i].slots[0].night].week, i));
+  weeks.forEach((_, i) =>
+    weekPosOf.set(nights[weeks[i].slots[0].night].week, i),
+  );
   let needByeInWeek: number[][] | undefined;
   if (byeInWeek?.length) {
     needByeInWeek = Array.from({ length: W }, () => [] as number[]);
@@ -472,7 +482,9 @@ export function solveParticipation(
     let limits: Parameters<typeof chooseWeekdayByeTargets>[3];
     if (hasForced || needByeInWeek) {
       const constrained = new Array<boolean>(T).fill(false);
-      const minWd = Array.from({ length: T }, () => new Array<number>(D).fill(0));
+      const minWd = Array.from({ length: T }, () =>
+        new Array<number>(D).fill(0),
+      );
       const maxWd = Array.from({ length: T }, () => [...nightsPerWd]);
       // ⛔ COUNTED OFF THE DEDUPED MATRICES, NOT OFF `forced` — these are
       // per-CELL limits, and `forced` is a list of REQUESTS. Two requests can
@@ -518,7 +530,8 @@ export function solveParticipation(
     if (!targets) return null;
     for (let t = 0; t < T; t++) {
       for (let d = 0; d < D; d++) {
-        if (targets[t][d] < wdMin[t][d] || targets[t][d] > wdMax[t][d]) return null;
+        if (targets[t][d] < wdMin[t][d] || targets[t][d] > wdMax[t][d])
+          return null;
         wdMin[t][d] = targets[t][d];
         wdMax[t][d] = targets[t][d];
       }
@@ -542,8 +555,12 @@ export function solveParticipation(
 
   const rnd = mulberry32(seed);
   const rem = [...totalByes];
-  const asgWd: number[][] = Array.from({ length: T }, () => new Array(D).fill(0));
-  const byeAt: boolean[][] = Array.from({ length: T }, () => new Array(N).fill(false));
+  const asgWd: number[][] = Array.from({ length: T }, () =>
+    new Array(D).fill(0),
+  );
+  const byeAt: boolean[][] = Array.from({ length: T }, () =>
+    new Array(N).fill(false),
+  );
 
   let best: boolean[][] | null = null;
   let bestCost = Number.POSITIVE_INFINITY;
@@ -615,7 +632,11 @@ export function solveParticipation(
     return false;
   };
 
-  const dfs = (i: number, cost: number, prevByeWd: (number[] | null)[]): void => {
+  const dfs = (
+    i: number,
+    cost: number,
+    prevByeWd: (number[] | null)[],
+  ): void => {
     if (tick()) return;
     if (cost >= bestCost) return;
     if (i === W) {
@@ -651,7 +672,9 @@ export function solveParticipation(
       if (countThisWeek[t] > 0) return adj + MULTI_WEEK_W;
       if (!week.adjPrev || prevByeWd[t] === null) return adj;
       return (
-        adj + CONSEC_WEEK_W + (prevByeWd[t]!.includes(weekday) ? CONSEC_SAME_DAY_W : 0)
+        adj +
+        CONSEC_WEEK_W +
+        (prevByeWd[t]!.includes(weekday) ? CONSEC_SAME_DAY_W : 0)
       );
     };
 
@@ -781,7 +804,9 @@ export function describeParticipation(
   nights: ParticipationNight[],
 ): Omit<Participation, "plays" | "optimal"> {
   const T = plays.length;
-  const weekList = [...new Set(nights.map((n) => n.week))].sort((a, b) => a - b);
+  const weekList = [...new Set(nights.map((n) => n.week))].sort(
+    (a, b) => a - b,
+  );
   const wdCount = Math.max(0, ...nights.map((n) => n.weekday)) + 1;
   let byeMultiWeek = 0;
   let byeConsecWeek = 0;

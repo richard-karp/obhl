@@ -25,7 +25,8 @@ export const metadata: Metadata = {
   description: "Standings, schedules, stats, teams, and rules for the league.",
   openGraph: {
     title: "OBHL — Recreational Hockey League",
-    description: "Standings, schedules, stats, teams, and rules for the league.",
+    description:
+      "Standings, schedules, stats, teams, and rules for the league.",
     type: "website",
   },
 };

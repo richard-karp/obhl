@@ -19,8 +19,8 @@ function withAuditSession(response: NextResponse): NextResponse {
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   // Only allow same-origin relative paths (block "//evil.com" and absolute URLs).
-  // There is no league-agnostic dashboard any more — the manage tools live at
-  // /<league>/manage — and a magic link cannot know which league was meant, so
+  // There is no league-agnostic dashboard any more — the staff tools live
+  // under /<league> — and a magic link cannot know which league was meant, so
   // both the default and the sanitising fallback land on the league picker.
   //
   // ⛔ DECIDED BY THE PARSER. The older check here was `startsWith("/") &&
@@ -37,7 +37,8 @@ export async function GET(request: NextRequest) {
   if (rawNext.startsWith("/")) {
     try {
       const probe = new URL(rawNext, "http://a.invalid");
-      if (probe.origin === "http://a.invalid") next = probe.pathname + probe.search;
+      if (probe.origin === "http://a.invalid")
+        next = probe.pathname + probe.search;
     } catch {
       // Unparseable — keep the league picker.
     }
@@ -50,10 +51,15 @@ export async function GET(request: NextRequest) {
 
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return withAuditSession(NextResponse.redirect(`${origin}${next}`));
+    if (!error)
+      return withAuditSession(NextResponse.redirect(`${origin}${next}`));
   } else if (tokenHash && type) {
-    const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
-    if (!error) return withAuditSession(NextResponse.redirect(`${origin}${next}`));
+    const { error } = await supabase.auth.verifyOtp({
+      type,
+      token_hash: tokenHash,
+    });
+    if (!error)
+      return withAuditSession(NextResponse.redirect(`${origin}${next}`));
   }
 
   return NextResponse.redirect(`${origin}/login?error=link`);

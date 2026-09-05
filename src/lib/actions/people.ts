@@ -105,10 +105,13 @@ export async function createStaffAccount(
   if (!leagueId) return { ok: false, message: "No league selected." };
   const actor = await requireLeagueManager(leagueId);
 
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const email = String(formData.get("email") ?? "")
+    .trim()
+    .toLowerCase();
   const role = String(formData.get("role") ?? "") as AppRole;
   const playerId = String(formData.get("player_id") ?? "") || null;
-  const displayName = String(formData.get("display_name") ?? "").trim() || email;
+  const displayName =
+    String(formData.get("display_name") ?? "").trim() || email;
 
   if (!email || !ROLES.includes(role)) {
     return { ok: false, message: "Email and a valid role are required." };
@@ -166,7 +169,7 @@ export async function createStaffAccount(
     await logStaffChange(actor.id, leagueId, "grant_league", {
       new_data: { profile_id: userId, email, role: existing.role },
     });
-    revalidatePath("/[league]/manage/people", "page");
+    revalidatePath("/[league]/people", "page");
     return {
       ok: true,
       message:
@@ -212,8 +215,11 @@ export async function createStaffAccount(
     new_data: { profile_id: userId, email, role, display_name: displayName },
   });
 
-  revalidatePath("/[league]/manage/people", "page");
-  return { ok: true, message: `${email} added as ${role.replace("league_", "")}.` };
+  revalidatePath("/[league]/people", "page");
+  return {
+    ok: true,
+    message: `${email} added as ${role.replace("league_", "")}.`,
+  };
 }
 
 /** Manager changes the role of someone already in this league. */
@@ -251,7 +257,8 @@ export async function updateStaffRole(formData: FormData) {
   // The UI renders no role control on a manager's row for a peer, so reaching
   // this means a hand-made request. It returns quietly rather than throwing:
   // there is nowhere to put a message on a form action that returns void.
-  if (before?.role === "league_manager" && !(await officeTierOf(actor.id))) return;
+  if (before?.role === "league_manager" && !(await officeTierOf(actor.id)))
+    return;
 
   // ...and no role write here may reach a league the actor cannot see.
   //
@@ -278,9 +285,13 @@ export async function updateStaffRole(formData: FormData) {
   if (error) return;
   await logStaffChange(actor.id, leagueId, "update_staff_role", {
     old_data: { profile_id: id, role: before?.role ?? null },
-    new_data: { profile_id: id, role, display_name: before?.display_name ?? null },
+    new_data: {
+      profile_id: id,
+      role,
+      display_name: before?.display_name ?? null,
+    },
   });
-  revalidatePath("/[league]/manage/people", "page");
+  revalidatePath("/[league]/people", "page");
 }
 
 /**
@@ -350,5 +361,5 @@ export async function removeStaff(formData: FormData) {
       display_name: before?.display_name ?? null,
     },
   });
-  revalidatePath("/[league]/manage/people", "page");
+  revalidatePath("/[league]/people", "page");
 }

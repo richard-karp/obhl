@@ -55,7 +55,10 @@ export function EditPlayerForm({
       <form action={rosterAction} className="flex flex-wrap items-end gap-2">
         <input type="hidden" name="id" value={rosterId} />
         <div className="space-y-1">
-          <label className="text-muted-foreground block text-xs" htmlFor={`num-${rosterId}`}>
+          <label
+            className="text-muted-foreground block text-xs"
+            htmlFor={`num-${rosterId}`}
+          >
             Number
           </label>
           <input
@@ -70,7 +73,10 @@ export function EditPlayerForm({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-muted-foreground block text-xs" htmlFor={`pos-${rosterId}`}>
+          <label
+            className="text-muted-foreground block text-xs"
+            htmlFor={`pos-${rosterId}`}
+          >
             Position
           </label>
           <select
@@ -102,10 +108,16 @@ export function EditPlayerForm({
         ) : null}
       </form>
 
-      <form action={nameAction} className="flex flex-wrap items-end gap-2 border-t pt-3">
+      <form
+        action={nameAction}
+        className="flex flex-wrap items-end gap-2 border-t pt-3"
+      >
         <input type="hidden" name="id" value={rosterId} />
         <div className="space-y-1">
-          <label className="text-muted-foreground block text-xs" htmlFor={`first-${rosterId}`}>
+          <label
+            className="text-muted-foreground block text-xs"
+            htmlFor={`first-${rosterId}`}
+          >
             First name
           </label>
           <input
@@ -117,7 +129,10 @@ export function EditPlayerForm({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-muted-foreground block text-xs" htmlFor={`last-${rosterId}`}>
+          <label
+            className="text-muted-foreground block text-xs"
+            htmlFor={`last-${rosterId}`}
+          >
             Last name
           </label>
           <input
@@ -128,7 +143,12 @@ export function EditPlayerForm({
             className="h-8 w-28 rounded-md border px-2 text-xs"
           />
         </div>
-        <Button type="submit" size="sm" variant="secondary" disabled={namePending}>
+        <Button
+          type="submit"
+          size="sm"
+          variant="secondary"
+          disabled={namePending}
+        >
           {namePending ? "Renaming…" : "Rename everywhere"}
         </Button>
         {/* Said before the button is pressed, not after. A person is one record
@@ -136,8 +156,9 @@ export function EditPlayerForm({
             this page that the player also skates somewhere else. */}
         <p className="text-muted-foreground basis-full text-xs">
           A player is one record shared by every league they play in, so this
-          renames them everywhere — not just here. If they also play a league you
-          do not manage, the change is refused and the League Office can make it.
+          renames them everywhere — not just here. If they also play a league
+          you do not manage, the change is refused and the League Office can
+          make it.
         </p>
         {nameState ? (
           <p
@@ -153,7 +174,12 @@ export function EditPlayerForm({
         ) : null}
       </form>
 
-      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen(false)}
+      >
         Done
       </Button>
     </div>

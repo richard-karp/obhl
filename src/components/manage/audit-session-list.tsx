@@ -22,7 +22,10 @@ export type AuditSession = {
 };
 
 type RevertResult = { error: string } | { ok: true } | null;
-type RevertAction = (_prev: RevertResult, formData: FormData) => Promise<RevertResult>;
+type RevertAction = (
+  _prev: RevertResult,
+  formData: FormData,
+) => Promise<RevertResult>;
 
 function fmt(iso: string) {
   return new Date(iso).toLocaleString("en-US", {
@@ -51,12 +54,11 @@ function SessionCard({
 
   const oldest = session.entries[session.entries.length - 1];
   const newest = session.entries[0];
-  const timeLabel =
-    oldest?.created_at
-      ? oldest === newest
-        ? fmt(oldest.created_at)
-        : `${fmt(oldest.created_at)} – ${newest?.created_at ? fmt(newest.created_at) : ""}`
-      : "Unknown time";
+  const timeLabel = oldest?.created_at
+    ? oldest === newest
+      ? fmt(oldest.created_at)
+      : `${fmt(oldest.created_at)} – ${newest?.created_at ? fmt(newest.created_at) : ""}`
+    : "Unknown time";
 
   return (
     <Card>
@@ -72,14 +74,17 @@ function SessionCard({
         )}
         <span className="font-medium text-sm">{session.user_name}</span>
         <span className="text-muted-foreground text-sm">
-          {session.entries.length} action{session.entries.length !== 1 ? "s" : ""}
+          {session.entries.length} action
+          {session.entries.length !== 1 ? "s" : ""}
         </span>
         {session.isCurrentSession && (
           <span className="text-xs bg-primary/10 text-primary rounded px-1.5 py-0.5 font-medium">
             current session
           </span>
         )}
-        <span className="text-muted-foreground text-xs ml-auto">{timeLabel}</span>
+        <span className="text-muted-foreground text-xs ml-auto">
+          {timeLabel}
+        </span>
       </button>
 
       {isOpen && (

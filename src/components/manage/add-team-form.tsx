@@ -37,7 +37,11 @@ export function AddTeamForm({ seasonId }: { seasonId: string }) {
       <div className="grid gap-3 sm:grid-cols-4 sm:items-end">
         <div className="space-y-1 sm:col-span-2">
           <Label htmlFor="captain_name">Captain name (optional)</Label>
-          <Input id="captain_name" name="captain_name" placeholder="Sam Rivera" />
+          <Input
+            id="captain_name"
+            name="captain_name"
+            placeholder="Sam Rivera"
+          />
         </div>
         <div className="space-y-1 sm:col-span-2">
           <Label htmlFor="captain_email">Captain email (optional)</Label>
@@ -50,9 +54,9 @@ export function AddTeamForm({ seasonId }: { seasonId: string }) {
         </div>
       </div>
       <p className="text-muted-foreground text-xs">
-        Adding a captain name makes them the team captain. Add their email too and
-        a captain login is created so they can sign in and set lineups. The rest
-        of the roster can be added later — it&apos;s not required here.
+        Adding a captain name makes them the team captain. Add their email too
+        and a captain login is created so they can sign in and set lineups. The
+        rest of the roster can be added later — it&apos;s not required here.
       </p>
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>

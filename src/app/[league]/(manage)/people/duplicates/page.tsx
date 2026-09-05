@@ -123,7 +123,10 @@ export default async function DuplicatesPage({
     .select("id, first_name, last_name")
     .in("id", dismissedIds);
   const nameOf = new Map(
-    (dismissedPlayers ?? []).map((p) => [p.id, `${p.first_name} ${p.last_name}`.trim()]),
+    (dismissedPlayers ?? []).map((p) => [
+      p.id,
+      `${p.first_name} ${p.last_name}`.trim(),
+    ]),
   );
   const dismissed: DismissedPair[] = (pairs ?? []).map((p) => ({
     id: p.id,

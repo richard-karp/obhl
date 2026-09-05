@@ -61,15 +61,23 @@ function season(opts: { teams: number; weeks: number; gamesPerTeam: number }) {
     const row = byNight.get(n);
     if (!row || row.length === 0) continue;
     row.sort((a, b) => a.slot - b.slot);
-    nights.push({ date: cal[n].date, games: row.map((r) => r.pair), locked: false });
+    nights.push({
+      date: cal[n].date,
+      games: row.map((r) => r.pair),
+      locked: false,
+    });
   }
   return { nights, teamCount: opts.teams };
 }
 
 /** The state a plan produces, in the planner's own input shape. */
 function applyPlan(nights: OneOffNight[], plan: OneOffPlan): OneOffNight[] {
-  const out = nights.map((n) => ({ ...n, games: n.games.map((g) => [...g] as [number, number]) }));
-  for (const c of plan.changes) out[c.night].games = c.to.map((g) => [...g] as [number, number]);
+  const out = nights.map((n) => ({
+    ...n,
+    games: n.games.map((g) => [...g] as [number, number]),
+  }));
+  for (const c of plan.changes)
+    out[c.night].games = c.to.map((g) => [...g] as [number, number]);
   return out;
 }
 
@@ -107,7 +115,9 @@ function pickTarget(
 ): Target {
   for (let n = from; n < nights.length; n++) {
     const playing = [...new Set(nights[n].games.flat())];
-    const meeting = new Set(nights[n].games.map((g) => [...g].sort().join("-")));
+    const meeting = new Set(
+      nights[n].games.map((g) => [...g].sort().join("-")),
+    );
     for (const a of playing) {
       for (const b of playing) {
         if (a >= b) continue;
@@ -161,7 +171,9 @@ describe("planOneOff", () => {
     const want = [...target.pair].sort().join("-");
     for (const plan of plans) {
       const after = applyPlan(nights, plan);
-      const keys = after[target.night].games.map((g) => [...g].sort().join("-"));
+      const keys = after[target.night].games.map((g) =>
+        [...g].sort().join("-"),
+      );
       expect(keys).toContain(want);
     }
   });
@@ -186,37 +198,46 @@ describe("planOneOff", () => {
    */
   // Finding a repairable target means planning each candidate until one lands,
   // and a plan is a full Phase M + Phase S run — seconds, not milliseconds.
-  it("restores opponent balance where exact repair is reachable", { timeout: 60_000 }, () => {
-    const repairable = pickTarget(nights, 6, (t) => {
-      const r = planOneOff({
+  it(
+    "restores opponent balance where exact repair is reachable",
+    { timeout: 60_000 },
+    () => {
+      const repairable = pickTarget(nights, 6, (t) => {
+        const r = planOneOff({
+          teamCount: T,
+          nights,
+          oneOffNight: t.night,
+          forcedPairs: [t.pair],
+        });
+        return (
+          r.ok &&
+          r.plans.some((p) => p.id !== "no-repair" && p.drift.length === 0)
+        );
+      });
+      const result = planOneOff({
         teamCount: T,
         nights,
-        oneOffNight: t.night,
-        forcedPairs: [t.pair],
+        oneOffNight: repairable.night,
+        forcedPairs: [repairable.pair],
       });
-      return r.ok && r.plans.some((p) => p.id !== "no-repair" && p.drift.length === 0);
-    });
-    const result = planOneOff({
-      teamCount: T,
-      nights,
-      oneOffNight: repairable.night,
-      forcedPairs: [repairable.pair],
-    });
-    if (!result.ok) throw new Error(result.reason);
-    const repairs = result.plans.filter((p) => p.id !== "no-repair");
-    expect(repairs.length).toBeGreaterThan(0);
-    expect(repairs.some((p) => p.drift.length === 0)).toBe(true);
-  });
+      if (!result.ok) throw new Error(result.reason);
+      const repairs = result.plans.filter((p) => p.id !== "no-repair");
+      expect(repairs.length).toBeGreaterThan(0);
+      expect(repairs.some((p) => p.drift.length === 0)).toBe(true);
+    },
+  );
 
   it("never leaves opponent balance worse than leaving the season alone", () => {
     // The invariant that does hold everywhere: meeting counts are weighted far
     // above churn, so a repair may fail to close the gap but must never widen
     // it. This is what catches a weight that lets something outrank balance.
     const baseline = plans.find((p) => p.id === "no-repair")!;
-    const off = (p: OneOffPlan) => p.drift.reduce((s, d) => s + Math.abs(d.delta), 0);
+    const off = (p: OneOffPlan) =>
+      p.drift.reduce((s, d) => s + Math.abs(d.delta), 0);
     const repairs = plans.filter((p) => p.id !== "no-repair");
     expect(repairs.length).toBeGreaterThan(0);
-    for (const plan of repairs) expect(off(plan)).toBeLessThanOrEqual(off(baseline));
+    for (const plan of repairs)
+      expect(off(plan)).toBeLessThanOrEqual(off(baseline));
   });
 
   it("never leaves home/away worse than it found it", () => {
@@ -277,14 +298,18 @@ describe("planOneOff", () => {
         regressed.push("seasonSpread");
       }
       if (
-        plan.spacingAfter.slotWeekdaySpread > baseline.spacingAfter.slotWeekdaySpread
+        plan.spacingAfter.slotWeekdaySpread >
+        baseline.spacingAfter.slotWeekdaySpread
       ) {
         regressed.push("weekdaySpread");
       }
       if (plan.spacingAfter.slotStreak3 > baseline.spacingAfter.slotStreak3) {
         regressed.push("streak3");
       }
-      if (plan.spacingAfter.slotConsecutive > baseline.spacingAfter.slotConsecutive) {
+      if (
+        plan.spacingAfter.slotConsecutive >
+        baseline.spacingAfter.slotConsecutive
+      ) {
         regressed.push("consecutive");
       }
       expect(plan.worseThan).toEqual(regressed);
@@ -302,7 +327,9 @@ describe("planOneOff", () => {
 
   it("splits new-opponent nights from same-opponent ones", () => {
     for (const plan of plans) {
-      const nightsChanged = plan.changes.map((c) => c.night).sort((a, b) => a - b);
+      const nightsChanged = plan.changes
+        .map((c) => c.night)
+        .sort((a, b) => a - b);
       const split = [...plan.matchupNights, ...plan.sameOpponentNights].sort(
         (a, b) => a - b,
       );
@@ -315,7 +342,10 @@ describe("planOneOff", () => {
       // orientation pass can flip home/away on a night whose matchups it never
       // touched, so describing these as "ice time only" would be a lie.
       const key = (ps: [number, number][]) =>
-        ps.map((g) => [...g].sort().join("-")).sort().join(",");
+        ps
+          .map((g) => [...g].sort().join("-"))
+          .sort()
+          .join(",");
       for (const n of plan.sameOpponentNights) {
         const c = plan.changes.find((x) => x.night === n)!;
         expect(key(c.to)).toBe(key(c.from));
@@ -325,7 +355,9 @@ describe("planOneOff", () => {
 
   it("returns no two plans with the same edit", () => {
     const sigs = plans.map((p) =>
-      p.changes.map((c) => `${c.night}:${c.to.map((g) => g.join(">")).join("|")}`).join(";"),
+      p.changes
+        .map((c) => `${c.night}:${c.to.map((g) => g.join(">")).join("|")}`)
+        .join(";"),
     );
     expect(new Set(sigs).size).toBe(sigs.length);
   });
@@ -349,8 +381,22 @@ describe("planOneOff", () => {
 
 describe("planOneOff preconditions", () => {
   const nights: OneOffNight[] = [
-    { date: "2026-09-01", games: [[0, 1], [2, 3]], locked: false },
-    { date: "2026-09-03", games: [[0, 2], [1, 3]], locked: false },
+    {
+      date: "2026-09-01",
+      games: [
+        [0, 1],
+        [2, 3],
+      ],
+      locked: false,
+    },
+    {
+      date: "2026-09-03",
+      games: [
+        [0, 2],
+        [1, 3],
+      ],
+      locked: false,
+    },
   ];
 
   const reject = (o: Partial<Parameters<typeof planOneOff>[0]>) => {
@@ -369,16 +415,23 @@ describe("planOneOff preconditions", () => {
     expect(
       reject({
         nights: [
-          { date: "2026-09-01", games: [[0, 1], [0, 2]], locked: false },
+          {
+            date: "2026-09-01",
+            games: [
+              [0, 1],
+              [0, 2],
+            ],
+            locked: false,
+          },
         ],
       }),
     ).toMatch(/twice/);
   });
 
   it("rejects a locked night", () => {
-    expect(reject({ nights: nights.map((n) => ({ ...n, locked: true })) })).toMatch(
-      /already been played/,
-    );
+    expect(
+      reject({ nights: nights.map((n) => ({ ...n, locked: true })) }),
+    ).toMatch(/already been played/);
   });
 
   it("rejects a team that isn't scheduled that night", () => {
@@ -431,8 +484,20 @@ describe("checkOneOffWrite", () => {
     // Force A–C onto the 7th, leaving B and D to each other; swap the 5th to
     // give back the A–B and C–D meetings that displaces.
     changes: [
-      { date: "2027-01-07", to: [[0, 2], [1, 3]] },
-      { date: "2027-01-05", to: [[0, 3], [1, 2]] },
+      {
+        date: "2027-01-07",
+        to: [
+          [0, 2],
+          [1, 3],
+        ],
+      },
+      {
+        date: "2027-01-05",
+        to: [
+          [0, 3],
+          [1, 2],
+        ],
+      },
     ],
   });
 
@@ -474,7 +539,13 @@ describe("checkOneOffWrite", () => {
 
   it("rejects a night listed twice", () => {
     const o = base();
-    o.changes.push({ date: "2027-01-05", to: [[0, 1], [2, 3]] });
+    o.changes.push({
+      date: "2027-01-05",
+      to: [
+        [0, 1],
+        [2, 3],
+      ],
+    });
     expect(checkOneOffWrite(o)).toMatch(/lists a night twice/);
   });
 
@@ -486,19 +557,28 @@ describe("checkOneOffWrite", () => {
 
   it("rejects an out-of-range team index", () => {
     const o = base();
-    o.changes[0].to = [[0, 9], [1, 3]];
+    o.changes[0].to = [
+      [0, 9],
+      [1, 3],
+    ];
     expect(checkOneOffWrite(o)).toMatch(/isn't a valid set of games/);
   });
 
   it("rejects a team playing itself", () => {
     const o = base();
-    o.changes[0].to = [[0, 0], [1, 3]];
+    o.changes[0].to = [
+      [0, 0],
+      [1, 3],
+    ];
     expect(checkOneOffWrite(o)).toMatch(/isn't a valid set of games/);
   });
 
   it("rejects a team playing twice in a night", () => {
     const o = base();
-    o.changes[0].to = [[0, 2], [0, 3]];
+    o.changes[0].to = [
+      [0, 2],
+      [0, 3],
+    ];
     expect(checkOneOffWrite(o)).toMatch(/twice in a night/);
   });
 
@@ -517,7 +597,10 @@ describe("checkOneOffWrite", () => {
 
   it("rejects a plan that drops the game being scheduled", () => {
     const o = base();
-    o.changes[0].to = [[0, 3], [1, 2]]; // back to the original pairing, no A–C
+    o.changes[0].to = [
+      [0, 3],
+      [1, 2],
+    ]; // back to the original pairing, no A–C
     expect(checkOneOffWrite(o)).toMatch(/doesn't include the game/);
   });
 
@@ -593,7 +676,15 @@ describe("buildOneOffRows", () => {
       },
     ],
     // A–C onto the 7th, leaving B and D to each other.
-    changes: [{ date: "2027-01-07", to: [[0, 2], [1, 3]] }],
+    changes: [
+      {
+        date: "2027-01-07",
+        to: [
+          [0, 2],
+          [1, 3],
+        ],
+      },
+    ],
   });
 
   const byId = (rows: OneOffRow[]) => new Map(rows.map((r) => [r.id, r]));
@@ -621,7 +712,15 @@ describe("buildOneOffRows", () => {
   it("takes the i-th planned game onto the i-th ice time", () => {
     const o = base();
     // The same two games, ordered the other way round.
-    o.changes = [{ date: "2027-01-07", to: [[1, 3], [0, 2]] }];
+    o.changes = [
+      {
+        date: "2027-01-07",
+        to: [
+          [1, 3],
+          [0, 2],
+        ],
+      },
+    ];
     const rows = byId(buildOneOffRows(o));
     expect(rows.get("g3")).toMatchObject({ homeTeamId: "B", awayTeamId: "D" });
     expect(rows.get("g4")).toMatchObject({ homeTeamId: "A", awayTeamId: "C" });
@@ -631,8 +730,20 @@ describe("buildOneOffRows", () => {
     const o = base();
     o.nights[1].games[1].label = "Consolation";
     o.changes = [
-      { date: "2027-01-07", to: [[0, 2], [1, 3]] },
-      { date: "2027-01-05", to: [[0, 3], [1, 2]] },
+      {
+        date: "2027-01-07",
+        to: [
+          [0, 2],
+          [1, 3],
+        ],
+      },
+      {
+        date: "2027-01-05",
+        to: [
+          [0, 3],
+          [1, 2],
+        ],
+      },
     ];
     const rows = byId(buildOneOffRows(o));
     expect(rows.get("g4")?.label).toBeNull(); // B–C became B–D
@@ -642,7 +753,13 @@ describe("buildOneOffRows", () => {
 
   it("keeps a label when only home and away swap", () => {
     const o = base();
-    o.changes.push({ date: "2027-01-05", to: [[1, 0], [2, 3]] });
+    o.changes.push({
+      date: "2027-01-05",
+      to: [
+        [1, 0],
+        [2, 3],
+      ],
+    });
     const rows = byId(buildOneOffRows(o));
     expect(rows.get("g1")).toMatchObject({
       homeTeamId: "B",
@@ -653,7 +770,13 @@ describe("buildOneOffRows", () => {
 
   it("writes no row for a game the plan leaves exactly as it was", () => {
     const o = base();
-    o.changes.push({ date: "2027-01-05", to: [[1, 0], [2, 3]] });
+    o.changes.push({
+      date: "2027-01-05",
+      to: [
+        [1, 0],
+        [2, 3],
+      ],
+    });
     // C–D on the 5th is untouched, home side and all.
     expect(byId(buildOneOffRows(o)).has("g2")).toBe(false);
   });
@@ -662,9 +785,21 @@ describe("buildOneOffRows", () => {
     const o = base();
     o.forcedPairs = [["A", "B"]];
     o.changes = [
-      { date: "2027-01-07", to: [[0, 1], [2, 3]] },
+      {
+        date: "2027-01-07",
+        to: [
+          [0, 1],
+          [2, 3],
+        ],
+      },
       // A and B still meet on the 5th, with the sides swapped.
-      { date: "2027-01-05", to: [[1, 0], [2, 3]] },
+      {
+        date: "2027-01-05",
+        to: [
+          [1, 0],
+          [2, 3],
+        ],
+      },
     ];
     const rows = byId(buildOneOffRows(o));
     expect(rows.get("g3")?.label).toBe("Championship");
@@ -675,7 +810,10 @@ describe("buildOneOffRows", () => {
     const o = base();
     o.round = "semifinals";
     o.label = "";
-    o.forcedPairs = [["B", "D"], ["A", "C"]];
+    o.forcedPairs = [
+      ["B", "D"],
+      ["A", "C"],
+    ];
     const rows = byId(buildOneOffRows(o));
     expect(rows.get("g4")?.label).toBe("Semifinal 1"); // B–D, given first
     expect(rows.get("g3")?.label).toBe("Semifinal 2"); // A–C, given second
@@ -719,9 +857,27 @@ describe("buildOneOffRows", () => {
           {
             date: "2027-02-04",
             games: [
-              { id: "s1", homeTeamId: "A", awayTeamId: "B", scheduledAt: at("2027-02-04", "19:00"), label: "Semifinal 1" },
-              { id: "s2", homeTeamId: "C", awayTeamId: "D", scheduledAt: at("2027-02-04", "20:15"), label: "Semifinal 2" },
-              { id: "f1", homeTeamId: "E", awayTeamId: "F", scheduledAt: at("2027-02-04", "21:30"), label: null },
+              {
+                id: "s1",
+                homeTeamId: "A",
+                awayTeamId: "B",
+                scheduledAt: at("2027-02-04", "19:00"),
+                label: "Semifinal 1",
+              },
+              {
+                id: "s2",
+                homeTeamId: "C",
+                awayTeamId: "D",
+                scheduledAt: at("2027-02-04", "20:15"),
+                label: "Semifinal 2",
+              },
+              {
+                id: "f1",
+                homeTeamId: "E",
+                awayTeamId: "F",
+                scheduledAt: at("2027-02-04", "21:30"),
+                label: null,
+              },
             ],
           },
         ],
@@ -741,16 +897,43 @@ describe("buildOneOffRows", () => {
         date: "2027-02-04",
         round: "semifinals",
         label: "",
-        forcedPairs: [["E", "F"], ["G", "H"]],
+        forcedPairs: [
+          ["E", "F"],
+          ["G", "H"],
+        ],
         changes: [],
         nights: [
           {
             date: "2027-02-04",
             games: [
-              { id: "x1", homeTeamId: "A", awayTeamId: "B", scheduledAt: at("2027-02-04", "18:00"), label: "Semifinal 1" },
-              { id: "x2", homeTeamId: "C", awayTeamId: "D", scheduledAt: at("2027-02-04", "19:00"), label: "Championship" },
-              { id: "x3", homeTeamId: "E", awayTeamId: "F", scheduledAt: at("2027-02-04", "20:15"), label: null },
-              { id: "x4", homeTeamId: "G", awayTeamId: "H", scheduledAt: at("2027-02-04", "21:30"), label: null },
+              {
+                id: "x1",
+                homeTeamId: "A",
+                awayTeamId: "B",
+                scheduledAt: at("2027-02-04", "18:00"),
+                label: "Semifinal 1",
+              },
+              {
+                id: "x2",
+                homeTeamId: "C",
+                awayTeamId: "D",
+                scheduledAt: at("2027-02-04", "19:00"),
+                label: "Championship",
+              },
+              {
+                id: "x3",
+                homeTeamId: "E",
+                awayTeamId: "F",
+                scheduledAt: at("2027-02-04", "20:15"),
+                label: null,
+              },
+              {
+                id: "x4",
+                homeTeamId: "G",
+                awayTeamId: "H",
+                scheduledAt: at("2027-02-04", "21:30"),
+                label: null,
+              },
             ],
           },
         ],

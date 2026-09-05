@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { assignSlots } from "./slots";
-import { compareIceOutcome, iceOutcome, SLOT_BIAS_W, type IceOutcome } from "./spacing";
+import {
+  compareIceOutcome,
+  iceOutcome,
+  SLOT_BIAS_W,
+  type IceOutcome,
+} from "./spacing";
 
 /**
  * Phase S under manager constraints.
@@ -185,6 +190,8 @@ describe("compareIceOutcome bias ranking", () => {
     expect(
       compareIceOutcome({ ...base, consecutive: 11, biasCost: -100 }, base),
     ).toBeGreaterThan(0);
-    expect(compareIceOutcome({ ...base, streak3: 1, biasCost: -100 }, base)).toBeGreaterThan(0);
+    expect(
+      compareIceOutcome({ ...base, streak3: 1, biasCost: -100 }, base),
+    ).toBeGreaterThan(0);
   });
 });

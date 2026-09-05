@@ -32,9 +32,9 @@ export async function getEnrolledTeams(
       "team:teams!season_teams_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)",
     )
     .eq("season_id", seasonId);
-  const teams = ((data ?? [])
+  const teams = (data ?? [])
     .map((r) => r.team)
-    .filter(Boolean) as unknown) as TeamSummary[];
+    .filter(Boolean) as unknown as TeamSummary[];
   return teams.sort((a, b) => a.name.localeCompare(b.name));
 }
 

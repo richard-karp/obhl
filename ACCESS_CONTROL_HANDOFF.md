@@ -33,7 +33,7 @@ shipped in PR #13. The three items that sat open under it — no CI, no
 `feat/ci-and-rules-audit`. Migrations 0029–0032 are applied to
 `bipxqfszjwncjquymhon` and verified: all four in the **Remote** column of `npx
 supabase migration list --linked`, and `0032`'s backfill confirmed by
-`/manage/people` listing all three staff profiles for a manager on
+`/<league>/people` listing all three staff profiles for a manager on
 `obhl.vercel.app`, which resolves only through `shares_league_with()`.
 
 ## Next action
@@ -95,9 +95,16 @@ copy of the previous rules after an overwrite; it is `await`ed rather than
 `src/lib/actions/schedule.ts`.
 
 Two conditions gate the write, both on purpose. The upsert `.select("id")`s and
-the entry is written only if a **row comes back** — not merely if `error` is
-unset, because a policy-level refusal here need not set `error` (see *Traps*).
-And it is skipped when the document is **unchanged**, compared with a
+the entry is written only if a **row comes back**, not merely if `error` is
+unset. ⚠️ **Measured, this one is defence in depth and not an observed bug.**
+This paragraph used to say a policy-level refusal here need not set `error`;
+issuing exactly this upsert from a session that fails the policy raises `new row
+violates row-level security policy for table "league_rules"` — on both the
+insert and the `ON CONFLICT DO UPDATE` path — so `saved === null && error ===
+null` is not a state this call reaches. The *Traps* entry it pointed at is about
+a refused `UPDATE`, which filters rows rather than raising; an upsert is not
+that case. The branch is worth keeping; the claim under it was wrong.
+And the write is skipped when the document is **unchanged**, compared with a
 key-sorted serialisation: `previous.content` arrives from a `jsonb` column,
 which normalises key order, so a plain `JSON.stringify` comparison would call
 every save a change and quietly do nothing.
@@ -121,7 +128,7 @@ appears**. Add the type to that switch in the same change; the per-entity
 resolvers are in `src/lib/league/of-entity.ts`.
 
 `e2e/10-rules.spec.ts` guards exactly this: it saves rules and then asserts the
-entry is visible on `/obhl/manage/audit`, which reads with `.eq("league_id",
+entry is visible on `/obhl/audit`, which reads with `.eq("league_id",
 …)`. Watched fail with the `"league_rules"` case removed from the switch —
 the save still succeeded and the entry still landed; it was simply invisible.
 
@@ -166,6 +173,21 @@ Each of these cost a review round or a wrong fix in the session that built it.
   (`requireLeagueManagerOf`). Separate per-id membership checks both pass for
   someone who manages both leagues while binding one league's team into the
   other's season.
+- **`canManageLeague` and `canScoreLeague` are QUESTIONS, NOT GUARDS**, and they
+  read exactly like guards at a call site. They return a boolean and refuse
+  nobody. They exist because the manage pages merged into the public ones: a
+  page that everybody may open has to *ask* whether this viewer gets the editing
+  surface, where the old `/manage/…` page could simply refuse at the top. The
+  refusal still has to happen somewhere, and that somewhere is the server action
+  — `src/lib/actions/*` guards itself, as it always did, plus RLS beneath. ⛔ Do
+  not read "the page checks `canManageLeague`" as "this write is guarded"; the
+  page check decides what is *drawn*. A control that is not drawn is not a
+  control that cannot be submitted.
+- **A page shared between the public and the staff has two audiences and one
+  render.** Radix unmounts inactive tab content on the client, but the server
+  renders every branch it is handed — so a staff-only panel behind a tab still
+  runs its queries and ships its data to whoever opened the page. Gate on the
+  entitlement, not on a tab.
 
 ## Testing this area
 

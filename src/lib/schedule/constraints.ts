@@ -285,7 +285,9 @@ export function resolveConstraints(
   const slotPins = items.flatMap((i) =>
     !i.unresolved && i.slotPin ? [i.slotPin] : [],
   );
-  const biases = items.flatMap((i) => (!i.unresolved && i.bias ? [i.bias] : []));
+  const biases = items.flatMap((i) =>
+    !i.unresolved && i.bias ? [i.bias] : [],
+  );
   return {
     items,
     forced,
@@ -566,9 +568,17 @@ export function evaluateConstraints(
     const played = (n: number) => plays[t]?.[n] === true;
     switch (item.source.kind) {
       case "bye_on":
-        return verdict(base, !played(item.nights[0]), "the team plays that night");
+        return verdict(
+          base,
+          !played(item.nights[0]),
+          "the team plays that night",
+        );
       case "play_on":
-        return verdict(base, played(item.nights[0]), "the team byes that night");
+        return verdict(
+          base,
+          played(item.nights[0]),
+          "the team byes that night",
+        );
       case "bye_week":
         return verdict(
           base,
@@ -703,7 +713,8 @@ export function forcedByeCredits(
   if (resolved.empty) return ZERO_CREDITS;
   const { nights, teamIds, byed } = opts;
   const forcedBye = new Set<string>();
-  for (const f of resolved.forced) if (!f.plays) forcedBye.add(`${f.team}:${f.night}`);
+  for (const f of resolved.forced)
+    if (!f.plays) forcedBye.add(`${f.team}:${f.night}`);
   if (forcedBye.size === 0) return ZERO_CREDITS;
 
   const meta = buildNightMeta(nights);
@@ -741,7 +752,10 @@ export function forcedByeCredits(
 }
 
 /** Per-team bye metrics, so a reader can see which breaches sit on which team. */
-export type TeamByeMetrics = ByeCredits & { team: string; constrained: boolean };
+export type TeamByeMetrics = ByeCredits & {
+  team: string;
+  constrained: boolean;
+};
 
 export function perTeamByeMetrics(opts: {
   nights: Night[];
@@ -800,7 +814,10 @@ export function constrainedTeams(resolved: ResolvedConstraints): Set<number> {
  * drift. The solver's `byeRuleCost` still counts every breach, by design — see
  * `forcedByeCredits`.
  */
-export function presentSpacing<T extends ByeCredits>(raw: T, credits: ByeCredits): T {
+export function presentSpacing<T extends ByeCredits>(
+  raw: T,
+  credits: ByeCredits,
+): T {
   // ⚠️ FLOORED AT ZERO, because the two sides are not always counted over the
   // same teams. `spacingReport` counts teams that have games; the credits are
   // counted over every enrolled team. A constrained team the generator could

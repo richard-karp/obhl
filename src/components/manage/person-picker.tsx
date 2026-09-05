@@ -4,7 +4,11 @@ import { useId, useMemo, useRef, useState, useTransition } from "react";
 import { archivePlayer, restorePlayer } from "@/lib/actions/rosters";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 
 export type PersonOption = {
@@ -59,7 +63,9 @@ export function PersonPicker({
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<PersonOption | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [notice, setNotice] = useState<{ ok: boolean; message: string } | null>(null);
+  const [notice, setNotice] = useState<{ ok: boolean; message: string } | null>(
+    null,
+  );
   const [active, setActive] = useState(0);
   const [, startTransition] = useTransition();
   // ⚠️ WHICH person is in flight, not a boolean — the same correction
@@ -70,7 +76,9 @@ export function PersonPicker({
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     return people.filter(
-      (p) => (showArchived || !p.archived) && (!q || p.name.toLowerCase().includes(q)),
+      (p) =>
+        (showArchived || !p.archived) &&
+        (!q || p.name.toLowerCase().includes(q)),
     );
   }, [people, query, showArchived]);
   const visible = matches.slice(0, MAX_VISIBLE);
@@ -104,7 +112,8 @@ export function PersonPicker({
         if (typeof digest === "string" && digest.startsWith("NEXT_")) throw err;
         setNotice({
           ok: false,
-          message: "That didn't go through — check your connection and try again.",
+          message:
+            "That didn't go through — check your connection and try again.",
         });
       } finally {
         setBusyId(null);
@@ -209,7 +218,11 @@ export function PersonPicker({
             </span>
           </div>
 
-          <div id={listId} role="listbox" className="max-h-64 overflow-y-auto py-1">
+          <div
+            id={listId}
+            role="listbox"
+            className="max-h-64 overflow-y-auto py-1"
+          >
             {visible.length === 0 ? (
               <p className="text-muted-foreground px-3 py-2 text-xs">
                 {archivedCount > 0 && !showArchived
@@ -235,7 +248,10 @@ export function PersonPicker({
                   <span className="flex-1 truncate">
                     {p.name}
                     {p.archived ? (
-                      <Badge variant="outline" className="ml-2 px-1.5 py-0 text-[0.65rem]">
+                      <Badge
+                        variant="outline"
+                        className="ml-2 px-1.5 py-0 text-[0.65rem]"
+                      >
                         Archived
                       </Badge>
                     ) : null}
@@ -277,21 +293,22 @@ export function PersonPicker({
             )}
             {matches.length > visible.length ? (
               <p className="text-muted-foreground px-3 py-2 text-xs">
-                {matches.length - visible.length} more — keep typing to narrow it down.
+                {matches.length - visible.length} more — keep typing to narrow
+                it down.
               </p>
             ) : null}
           </div>
 
           <p className="text-muted-foreground border-t px-3 py-2 text-xs">
-            Archiving takes someone out of <strong>this league&rsquo;s</strong> lists only.
-            Their games, stats and other leagues are untouched.
+            Archiving takes someone out of <strong>this league&rsquo;s</strong>{" "}
+            lists only. Their games, stats and other leagues are untouched.
           </p>
         </PopoverContent>
       </Popover>
 
       <p className="text-muted-foreground text-xs">
-        Pick someone who already plays in another league to reuse their profile, or
-        leave this blank and enter a name below.
+        Pick someone who already plays in another league to reuse their profile,
+        or leave this blank and enter a name below.
       </p>
       {notice ? (
         <p

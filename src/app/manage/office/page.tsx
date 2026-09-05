@@ -70,9 +70,14 @@ export default async function OfficePage() {
   // grows enough for this to bite, the fix is a typeahead that looks up on
   // demand, not a shorter list.
   const candidates = isCommissioner
-    ? ((
-        await admin.from("profiles").select("id, display_name").eq("role", "league_manager")
-      ).data ?? []).filter((m) => !tiers.has(m.id))
+    ? (
+        (
+          await admin
+            .from("profiles")
+            .select("id, display_name")
+            .eq("role", "league_manager")
+        ).data ?? []
+      ).filter((m) => !tiers.has(m.id))
     : [];
 
   const emails = await emailsByProfileId(admin, [
@@ -98,8 +103,7 @@ export default async function OfficePage() {
     // Commissioners first, then deputies, then by address so the order is stable
     // across renders rather than following whatever the table returned.
     .sort(
-      (a, b) =>
-        a.tier.localeCompare(b.tier) || a.email.localeCompare(b.email),
+      (a, b) => a.tier.localeCompare(b.tier) || a.email.localeCompare(b.email),
     );
 
   return (

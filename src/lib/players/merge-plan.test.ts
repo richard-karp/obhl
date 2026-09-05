@@ -1,46 +1,82 @@
 import { describe, it, expect } from "vitest";
 import { planMerge, type RosterRow, type GameRow } from "./merge-plan";
 
-const g = (o: Partial<GameRow> & { id: string; playerId: string }): GameRow => ({
-  gameId: "g1", teamId: "t1", goals: 0, assists: 0, pim: 0, ...o,
+const g = (
+  o: Partial<GameRow> & { id: string; playerId: string },
+): GameRow => ({
+  gameId: "g1",
+  teamId: "t1",
+  goals: 0,
+  assists: 0,
+  pim: 0,
+  ...o,
 });
 
-const r = (o: Partial<RosterRow> & { id: string; playerId: string }): RosterRow => ({
-  seasonId: "s", teamId: "t", jerseyNumber: null, isCaptain: false, leftOn: null, ...o,
+const r = (
+  o: Partial<RosterRow> & { id: string; playerId: string },
+): RosterRow => ({
+  seasonId: "s",
+  teamId: "t",
+  jerseyNumber: null,
+  isCaptain: false,
+  leftOn: null,
+  ...o,
 });
 
 describe("planMerge", () => {
   it("sums three records dressed for the same game into one row", () => {
-    const plan = planMerge("keep", [], [
-      g({ id: "r1", playerId: "keep", goals: 1, assists: 2 }),
-      g({ id: "r2", playerId: "dupe1", goals: 2, assists: 1, pim: 4 }),
-      g({ id: "r3", playerId: "dupe2", goals: 0, assists: 3 }),
-    ]);
+    const plan = planMerge(
+      "keep",
+      [],
+      [
+        g({ id: "r1", playerId: "keep", goals: 1, assists: 2 }),
+        g({ id: "r2", playerId: "dupe1", goals: 2, assists: 1, pim: 4 }),
+        g({ id: "r3", playerId: "dupe2", goals: 0, assists: 3 }),
+      ],
+    );
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
-    expect(plan.games).toEqual([{
-      gameId: "g1", survivorId: "r1", deleteIds: ["r2", "r3"],
-      goals: 3, assists: 6, pim: 4, repoint: false,
-    }]);
+    expect(plan.games).toEqual([
+      {
+        gameId: "g1",
+        survivorId: "r1",
+        deleteIds: ["r2", "r3"],
+        goals: 3,
+        assists: 6,
+        pim: 4,
+        repoint: false,
+      },
+    ]);
   });
 
   it("elects a survivor and repoints when the kept player did not dress", () => {
-    const plan = planMerge("keep", [], [
-      g({ id: "r2", playerId: "dupe1", goals: 1 }),
-      g({ id: "r3", playerId: "dupe2", goals: 2 }),
-    ]);
+    const plan = planMerge(
+      "keep",
+      [],
+      [
+        g({ id: "r2", playerId: "dupe1", goals: 1 }),
+        g({ id: "r3", playerId: "dupe2", goals: 2 }),
+      ],
+    );
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
     expect(plan.games[0]).toMatchObject({
-      survivorId: "r2", deleteIds: ["r3"], goals: 3, repoint: true,
+      survivorId: "r2",
+      deleteIds: ["r3"],
+      goals: 3,
+      repoint: true,
     });
   });
 
   it("refuses when two records played the same game on opposite teams", () => {
-    const plan = planMerge("keep", [], [
-      g({ id: "r1", playerId: "keep", teamId: "t1" }),
-      g({ id: "r2", playerId: "dupe1", teamId: "t2" }),
-    ]);
+    const plan = planMerge(
+      "keep",
+      [],
+      [
+        g({ id: "r1", playerId: "keep", teamId: "t1" }),
+        g({ id: "r2", playerId: "dupe1", teamId: "t2" }),
+      ],
+    );
     expect(plan).toEqual({ ok: false, reason: "opposing-teams", gameId: "g1" });
   });
 
@@ -72,7 +108,13 @@ describe("planMerge", () => {
     // richer would otherwise pick the departed row on its jersey and file the
     // merged player as gone from a team they are currently on.
     const rosters: RosterRow[] = [
-      r({ id: "gone", playerId: "keep", jerseyNumber: 17, isCaptain: true, leftOn: "2026-02-01" }),
+      r({
+        id: "gone",
+        playerId: "keep",
+        jerseyNumber: 17,
+        isCaptain: true,
+        leftOn: "2026-02-01",
+      }),
       r({ id: "here", playerId: "dupe1" }),
     ];
     const plan = planMerge("keep", rosters, []);

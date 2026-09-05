@@ -87,7 +87,7 @@ test.describe("Path 20 — League Office", () => {
     // Driven, not asserted: the office branch of `memberLeagueIds` is what makes
     // these pages answer at all.
     for (const slug of ["obhl", "harbor"]) {
-      await page.goto(`/${slug}/manage/people`);
+      await page.goto(`/${slug}/people`);
       await expect(
         page.getByRole("heading", { name: "People & Roles" }),
         `the office should reach /${slug}`,
@@ -95,7 +95,7 @@ test.describe("Path 20 — League Office", () => {
     }
 
     // ...and the switcher offers every league, not none.
-    await page.goto("/obhl/manage/dashboard");
+    await page.goto("/obhl/dashboard");
     await expect(page.getByLabel("Select league")).toBeVisible();
   });
 
@@ -108,29 +108,35 @@ test.describe("Path 20 — League Office", () => {
     page,
   }) => {
     await signInAs(page, "Commissioner");
-    await page.goto("/obhl/manage/dashboard");
+    await page.goto("/obhl/dashboard");
 
     const link = page.getByRole("link", { name: "League Office" });
     await expect(link).toBeVisible();
     await link.click();
     await expect(page).toHaveURL("/manage/office");
-    await expect(page.getByRole("heading", { name: "League Office" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "League Office" }),
+    ).toBeVisible();
 
     // Control: an ordinary manager holds the same ROLE and must not see it —
     // the link is gated on the tier, and a role-keyed nav would leak it to
     // every manager.
     await signInAs(page, "Manager");
-    await page.goto("/obhl/manage/dashboard");
-    await expect(page.getByRole("link", { name: "League Office" })).toHaveCount(0);
+    await page.goto("/obhl/dashboard");
+    await expect(page.getByRole("link", { name: "League Office" })).toHaveCount(
+      0,
+    );
   });
 
   test("office members are listed in a league's staff, read-only", async ({
     page,
   }) => {
     await signInAs(page, "Manager");
-    await page.goto("/obhl/manage/people");
+    await page.goto("/obhl/people");
 
-    const row = page.locator("table tbody tr").filter({ hasText: COMMISSIONER });
+    const row = page
+      .locator("table tbody tr")
+      .filter({ hasText: COMMISSIONER });
     await expect(row).toHaveCount(1);
     await expect(row).toContainText("Commissioner");
     await expect(row.getByText("Managed in League Office")).toBeVisible();
@@ -152,29 +158,39 @@ test.describe("Path 20 — League Office", () => {
     // A throwaway target, so demoting it cannot perturb a shared fixture.
     const email = `demote-me-${Date.now()}@obhl.test`;
     const { data: created } = await db.auth.admin.createUser({
-      email, password: "hockey123", email_confirm: true,
+      email,
+      password: "hockey123",
+      email_confirm: true,
     });
     const targetId = created!.user!.id;
     await db.from("profiles").upsert({
-      id: targetId, role: "league_manager", display_name: "Demote Me",
+      id: targetId,
+      role: "league_manager",
+      display_name: "Demote Me",
     });
     const { data: league } = await db
-      .from("leagues").select("id").eq("slug", "obhl").single();
-    await db.from("profile_leagues")
+      .from("leagues")
+      .select("id")
+      .eq("slug", "obhl")
+      .single();
+    await db
+      .from("profile_leagues")
       .insert({ profile_id: targetId, league_id: league!.id });
 
     try {
       // First: an ordinary manager is offered nothing on that row. This is the
       // half that must NOT change.
       await signInAs(page, "Manager");
-      await page.goto("/obhl/manage/people");
-      const asManager = page.locator("table tbody tr").filter({ hasText: email });
+      await page.goto("/obhl/people");
+      const asManager = page
+        .locator("table tbody tr")
+        .filter({ hasText: email });
       await expect(asManager).toHaveCount(1);
       await expect(asManager.getByLabel("Change role")).toHaveCount(0);
 
       // Then the same row as a commissioner: the control is there, and it works.
       await signInAs(page, "Commissioner");
-      await page.goto("/obhl/manage/people");
+      await page.goto("/obhl/people");
       const asCommissioner = page
         .locator("table tbody tr")
         .filter({ hasText: email });
@@ -183,12 +199,19 @@ test.describe("Path 20 — League Office", () => {
         "a commissioner outranks a manager and the row must offer the control",
       ).toHaveCount(1);
 
-      await asCommissioner.getByLabel("Change role").selectOption("scorekeeper");
+      await asCommissioner
+        .getByLabel("Change role")
+        .selectOption("scorekeeper");
       await page.waitForLoadState("networkidle");
 
       const { data: after } = await db
-        .from("profiles").select("role").eq("id", targetId).single();
-      expect(after?.role, "the demotion must actually land").toBe("scorekeeper");
+        .from("profiles")
+        .select("role")
+        .eq("id", targetId)
+        .single();
+      expect(after?.role, "the demotion must actually land").toBe(
+        "scorekeeper",
+      );
     } finally {
       await db.auth.admin.deleteUser(targetId);
     }
@@ -217,10 +240,13 @@ test.describe("Path 20 — League Office", () => {
     const db = admin();
     const commissionerId = await profileIdFor(COMMISSIONER);
     const { data: before } = await db
-      .from("profiles").select("role").eq("id", commissionerId).single();
+      .from("profiles")
+      .select("role")
+      .eq("id", commissionerId)
+      .single();
 
     await signInAs(page, "Manager");
-    await page.goto("/obhl/manage/people");
+    await page.goto("/obhl/people");
 
     // Borrow a row that legitimately HAS the control, then point it at the
     // commissioner. Their own row offers nothing to tamper with, which is the
@@ -238,7 +264,10 @@ test.describe("Path 20 — League Office", () => {
     await page.waitForLoadState("networkidle");
 
     const { data: after } = await db
-      .from("profiles").select("role").eq("id", commissionerId).single();
+      .from("profiles")
+      .select("role")
+      .eq("id", commissionerId)
+      .single();
     expect(after?.role, "the forged write must not land").toBe(before!.role);
     expect(after?.role).toBe("league_manager");
   });
@@ -250,12 +279,14 @@ test.describe("Path 20 — League Office", () => {
     const commissionerId = await profileIdFor(COMMISSIONER);
 
     await signInAs(page, "Manager");
-    await page.goto("/obhl/manage/people");
+    await page.goto("/obhl/people");
 
     const donor = page
       .locator("table tbody tr")
       .filter({ hasText: "scorekeeper@obhl.test" });
-    const removeForm = donor.locator("form").filter({ has: page.getByRole("button", { name: "Remove" }) });
+    const removeForm = donor
+      .locator("form")
+      .filter({ has: page.getByRole("button", { name: "Remove" }) });
     await tamper(page, removeForm.locator('input[name="id"]'), commissionerId);
     await removeForm.getByRole("button", { name: "Remove" }).click();
     await page.waitForLoadState("networkidle");
@@ -263,21 +294,35 @@ test.describe("Path 20 — League Office", () => {
     // Still in the office, and still a manager: `removeStaff` refused rather
     // than reporting success having deleted nothing.
     const { data: tier } = await db
-      .from("league_office").select("tier").eq("profile_id", commissionerId).single();
+      .from("league_office")
+      .select("tier")
+      .eq("profile_id", commissionerId)
+      .single();
     expect(tier?.tier).toBe("commissioner");
     const { data: prof } = await db
-      .from("profiles").select("role").eq("id", commissionerId).single();
+      .from("profiles")
+      .select("role")
+      .eq("id", commissionerId)
+      .single();
     expect(prof?.role).toBe("league_manager");
   });
 
-  test("a deputy sees the office roster and can change nothing", async ({ page }) => {
+  test("a deputy sees the office roster and can change nothing", async ({
+    page,
+  }) => {
     await signInAs(page, "Deputy");
     await page.goto("/manage/office");
 
-    await expect(page.getByRole("heading", { name: "League Office" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "League Office" }),
+    ).toBeVisible();
     // The roster is visible...
-    await expect(page.getByRole("cell", { name: COMMISSIONER, exact: true })).toBeVisible();
-    await expect(page.getByRole("cell", { name: DEPUTY, exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: COMMISSIONER, exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: DEPUTY, exact: true }),
+    ).toBeVisible();
     // ...and nothing on it is actionable, including their own row.
     await expect(page.getByRole("button", { name: "Remove" })).toHaveCount(0);
     await expect(page.getByLabel("Manager account")).toHaveCount(0);
@@ -295,19 +340,28 @@ test.describe("Path 20 — League Office", () => {
 
     const row = page.locator("table tbody tr").filter({ hasText: DEPUTY });
     await row.getByRole("button", { name: "Remove" }).click();
-    await expect(page.locator("table tbody tr").filter({ hasText: DEPUTY })).toHaveCount(0);
+    await expect(
+      page.locator("table tbody tr").filter({ hasText: DEPUTY }),
+    ).toHaveCount(0);
 
     const { data: gone } = await db
-      .from("league_office").select("tier").eq("profile_id", deputyId);
+      .from("league_office")
+      .select("tier")
+      .eq("profile_id", deputyId);
     expect(gone ?? [], "the tier must actually be revoked").toHaveLength(0);
 
     // Restore through the UI, which is also the appoint path.
     await page.getByLabel("Manager account").selectOption(deputyId);
     await page.getByRole("button", { name: "Appoint as deputy" }).click();
-    await expect(page.locator("table tbody tr").filter({ hasText: DEPUTY })).toHaveCount(1);
+    await expect(
+      page.locator("table tbody tr").filter({ hasText: DEPUTY }),
+    ).toHaveCount(1);
 
     const { data: back } = await db
-      .from("league_office").select("tier").eq("profile_id", deputyId).single();
+      .from("league_office")
+      .select("tier")
+      .eq("profile_id", deputyId)
+      .single();
     expect(back?.tier).toBe("deputy");
   });
 
@@ -317,17 +371,21 @@ test.describe("Path 20 — League Office", () => {
     const db = admin();
     const deputyId = await profileIdFor(DEPUTY);
     const { data: league } = await db
-      .from("leagues").select("id").eq("slug", "obhl").single();
+      .from("leagues")
+      .select("id")
+      .eq("slug", "obhl")
+      .single();
 
     // A deputy WITH a membership row — the shape a promoted manager leaves, and
     // the only one where `removeStaff` reaches its office check rather than
     // bouncing off the membership check first.
-    await db.from("profile_leagues")
+    await db
+      .from("profile_leagues")
       .insert({ profile_id: deputyId, league_id: league!.id });
 
     try {
       await signInAs(page, "Manager");
-      await page.goto("/obhl/manage/people");
+      await page.goto("/obhl/people");
 
       const row = page.locator("table tbody tr").filter({ hasText: DEPUTY });
       await expect(row).toHaveCount(1);
@@ -356,8 +414,11 @@ test.describe("Path 20 — League Office", () => {
         "the membership must survive: a no-op that logged a removal is the bug",
       ).toHaveLength(1);
     } finally {
-      await db.from("profile_leagues")
-        .delete().eq("profile_id", deputyId).eq("league_id", league!.id);
+      await db
+        .from("profile_leagues")
+        .delete()
+        .eq("profile_id", deputyId)
+        .eq("league_id", league!.id);
     }
   });
 
@@ -375,11 +436,15 @@ test.describe("Path 20 — League Office", () => {
     const db = admin();
     const email = `pw-target-${Date.now()}@obhl.test`;
     const { data: created } = await db.auth.admin.createUser({
-      email, password: "old-password-000", email_confirm: true,
+      email,
+      password: "old-password-000",
+      email_confirm: true,
     });
     const targetId = created!.user!.id;
     await db.from("profiles").upsert({
-      id: targetId, role: "scorekeeper", display_name: "Password Target",
+      id: targetId,
+      role: "scorekeeper",
+      display_name: "Password Target",
     });
 
     try {
@@ -425,9 +490,13 @@ test.describe("Path 20 — League Office", () => {
     await signInAs(page, "Deputy");
     await page.goto("/manage/office");
     // On the page, so this is "not offered" rather than "not there at all".
-    await expect(page.getByRole("heading", { name: "League Office" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "League Office" }),
+    ).toBeVisible();
     await expect(page.getByLabel("Staff email")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Set password" })).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Set password" }),
+    ).toHaveCount(0);
   });
 
   /**
@@ -451,11 +520,15 @@ test.describe("Path 20 — League Office", () => {
     const db = admin();
     const email = `pw-forge-${Date.now()}@obhl.test`;
     const { data: created } = await db.auth.admin.createUser({
-      email, password: "old-password-000", email_confirm: true,
+      email,
+      password: "old-password-000",
+      email_confirm: true,
     });
     const targetId = created!.user!.id;
     await db.from("profiles").upsert({
-      id: targetId, role: "scorekeeper", display_name: "Forge Target",
+      id: targetId,
+      role: "scorekeeper",
+      display_name: "Forge Target",
     });
 
     try {
@@ -481,7 +554,9 @@ test.describe("Path 20 — League Office", () => {
 
       // Same 17 characters, so the multipart body's lengths are untouched.
       const forged = Buffer.from(
-        body!.toString("binary").replace("commissioner-pw-1", "forged-by-them-01"),
+        body!
+          .toString("binary")
+          .replace("commissioner-pw-1", "forged-by-them-01"),
         "binary",
       );
       expect(
@@ -493,7 +568,8 @@ test.describe("Path 20 — League Office", () => {
         "content-type": headers["content-type"],
         origin: new URL(page.url()).origin,
       };
-      if (headers["next-action"]) replayHeaders["next-action"] = headers["next-action"];
+      if (headers["next-action"])
+        replayHeaders["next-action"] = headers["next-action"];
 
       for (const who of ["Deputy", "Manager"] as const) {
         // A fresh session per attacker; `page.request` uses the context's cookies.
@@ -532,15 +608,23 @@ test.describe("Path 20 — League Office", () => {
     const db = admin();
     const email = `peer-commissioner-${Date.now()}@obhl.test`;
     const { data: created } = await db.auth.admin.createUser({
-      email, password: "peer-old-pw-000", email_confirm: true,
+      email,
+      password: "peer-old-pw-000",
+      email_confirm: true,
     });
     const peerId = created!.user!.id;
     // `league_manager` first — 0034's trigger refuses a tier for any other role.
     await db.from("profiles").upsert({
-      id: peerId, role: "league_manager", display_name: "Peer Commissioner",
+      id: peerId,
+      role: "league_manager",
+      display_name: "Peer Commissioner",
     });
-    await db.from("league_office")
-      .upsert({ profile_id: peerId, tier: "commissioner" }, { onConflict: "profile_id" });
+    await db
+      .from("league_office")
+      .upsert(
+        { profile_id: peerId, tier: "commissioner" },
+        { onConflict: "profile_id" },
+      );
 
     try {
       await signInAs(page, "Commissioner");
@@ -569,7 +653,9 @@ test.describe("Path 20 — League Office", () => {
       // panel, which posts `hockey123` and nothing else — leaving this changed
       // would break the whole suite from here on, in whatever order it runs.
       const commissionerId = await profileIdFor(COMMISSIONER);
-      await db.auth.admin.updateUserById(commissionerId, { password: "hockey123" });
+      await db.auth.admin.updateUserById(commissionerId, {
+        password: "hockey123",
+      });
       await db.from("audit_log").delete().eq("entity_id", commissionerId);
       await db.from("audit_log").delete().eq("entity_id", peerId);
       await db.from("league_office").delete().eq("profile_id", peerId);

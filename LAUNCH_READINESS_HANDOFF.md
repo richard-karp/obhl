@@ -199,8 +199,8 @@ entry breaks sign-in one step earlier, at the magic link — before any of this
 runs. With the dev-login panel removed and the seeded accounts deleted, either
 one still leaves no way in but SQL. And whether a real magic-link sign-in works
 has **still never been confirmed**. Doing that — on `obhl.vercel.app`, as a real
-(non-`@obhl.test`) manager, checking `/manage/dashboard` shows the Manager badge
-— remains the single highest-value action left in this file.
+(non-`@obhl.test`) manager, checking `/<league>/dashboard` shows the Manager
+badge — remains the single highest-value action left in this file.
 
 **`LAUNCH.md` Phases 2-6 are unverified from here.** This file speaks only to
 Phase 1 (the test doors). The site is live with two leagues, so most of the rest
