@@ -568,6 +568,35 @@ test.describe("Path 16 — Per-league routing", () => {
     }
   });
 
+  /**
+   * ⚠️ A ROUTE HANDLER CAN SET A STATUS, AND THESE ARE THE PLACES THAT SHOULD.
+   * The public PAGES cannot — a `notFound()` after an `await` answers 200,
+   * because the response has begun streaming (issue #30, and Next documents it
+   * under `loading.tsx`'s *Status Codes*). That limitation is not shared by
+   * `route.ts`, so an export asked for an id that resolves to nothing must say
+   * so properly rather than hand back an empty-but-valid file.
+   *
+   * A well-formed uuid is the case that matters. A MALFORMED one was already
+   * refused — both routes have carried an `isUuid` guard and a comment about a
+   * "header-only file that looks like a real but empty season" — but the same
+   * file came back, with a 200 on it, for a uuid that simply named nothing.
+   */
+  test("an export for a season that does not exist is a 404, not an empty file", async ({
+    request,
+  }) => {
+    const missing = "00000000-0000-0000-0000-000000000000";
+
+    const ics = await request.get(`/api/schedule/${missing}`);
+    expect(ics.status()).toBe(404);
+    const csv = await request.get(`/api/schedule/${missing}/schedule.csv`);
+    expect(csv.status()).toBe(404);
+
+    // Malformed, the case that always worked — kept so a refactor cannot close
+    // one door while opening the other.
+    const junk = await request.get("/api/schedule/not-a-uuid");
+    expect(junk.status()).toBe(404);
+  });
+
   test("a section stays marked on its detail pages", async ({ page }) => {
     await page.goto("/obhl/teams/sharks");
     const nav = page.getByRole("navigation").first();
