@@ -175,4 +175,54 @@ test.describe("Path 9 — Roster editor", () => {
       page.getByRole("button", { name: /upload|change/i }),
     ).toBeVisible();
   });
+
+  /**
+   * The two ways the Manage tab went blank, neither visible to a test that only
+   * clicks: an uncontrolled `Tabs` kept its own state across a same-route search
+   * param change, and Radix changes the value on FOCUS by default. The tabs are
+   * URL-controlled now, so there is no second copy of the state to disagree.
+   */
+  test("switching back off the Manage tab shows the roster, not a blank panel", async ({
+    page,
+  }) => {
+    await expect(page).toHaveURL(/\?tab=manage$/);
+    await page.getByRole("tab", { name: "Roster & Stats" }).click();
+    // The tab drives the URL, so leaving Manage drops the param and the server
+    // sends the public panel back. Uncontrolled, the retained state said
+    // "manage" while the payload no longer had that panel: blank.
+    await page.waitForURL((u) => !u.search.includes("tab=manage"));
+    await expect(
+      page.getByRole("tab", { name: "Roster & Stats" }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("table tbody tr").first()).toBeVisible();
+
+    // `replace`, not `push`: a tab switch is not a history entry, so Back leaves
+    // the page rather than stepping through tab states.
+    await page.goBack();
+    await expect(page).toHaveURL(/\/teams$/);
+  });
+
+  test("arrow-keying onto the Manage tab does not blank the page", async ({
+    page,
+  }) => {
+    await page.getByRole("tab", { name: "Roster & Stats" }).click();
+    await page.waitForURL((u) => !u.search.includes("tab=manage"));
+
+    await page.getByRole("tab", { name: "Roster & Stats" }).focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByRole("tab", { name: "Schedule" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await page.keyboard.press("ArrowRight");
+
+    // Radix activates on FOCUS by default, so arrowing onto Manage changes the
+    // value — which is exactly what blanked the page when the value and the URL
+    // were separate copies. Controlled, the change goes through the router and
+    // the server sends the panel, so the keyboard lands on the editor instead.
+    await page.waitForURL(/\?tab=manage$/);
+    await expect(
+      page.getByRole("button", { name: "Remove" }).first(),
+    ).toBeVisible();
+  });
 });

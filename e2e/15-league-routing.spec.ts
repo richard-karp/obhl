@@ -370,12 +370,15 @@ test.describe("Path 16 — Per-league routing", () => {
       .eq("slug", slug)
       .maybeSingle();
     if (!existing) {
-      await db.from("teams").insert({
+      // ⚠️ Asserted, not assumed: a silently failed insert returns a slug that
+      // does not exist in Harbor, and the test degrades back to vacuous.
+      const { error } = await db.from("teams").insert({
         league_id: harbor!.id,
         name: "Harbor Sharks",
         slug,
         color: "#0ea5e9",
       });
+      expect(error).toBeNull();
     }
     return slug;
   }
@@ -431,12 +434,15 @@ test.describe("Path 16 — Per-league routing", () => {
     await expect(page.getByText("That page couldn't be found.")).toBeVisible();
     await expect(page.getByText(ownName, { exact: true })).toHaveCount(0);
 
+    // ⚠️ The NAMES, not merely that they differ. Two 404 headings also satisfy
+    // inequality-of-nothing, so `not.toBe` caught the dropped-`league_id`
+    // mutation only by accident: `.maybeSingle()` errors on two rows, making
+    // both sides 404 and compare EQUAL.
     const shared = await sharedSlug();
     await page.goto(`/harbor/teams/${shared}`);
-    const harborName = await page.locator("h1").first().innerText();
+    await expect(page.locator("h1").first()).toHaveText("Harbor Sharks");
     await page.goto(`/obhl/teams/${shared}`);
-    const obhlName = await page.locator("h1").first().innerText();
-    expect(obhlName).not.toBe(harborName);
+    await expect(page.locator("h1").first()).toHaveText("Sharks");
   });
 
   test("the old /rosters/<id> URL redirects, and only under its own league", async ({

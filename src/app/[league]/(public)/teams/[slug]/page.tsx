@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getActiveContext } from "@/lib/queries/season";
 import { getTeamBySlug } from "@/lib/queries/teams";
@@ -11,7 +10,8 @@ import {
 import { GoalieStatsTable } from "@/components/public/goalie-stats-table";
 import { GameRow } from "@/components/public/game-row";
 import { TeamLogo } from "@/components/shared/team-logo";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TeamTabs } from "@/components/manage/team-tabs";
 import { EmptyState } from "@/components/shared/empty-state";
 import { NoSeason } from "@/components/public/no-season";
 
@@ -31,7 +31,9 @@ export default async function TeamPage({
   searchParams,
 }: {
   params: Promise<{ league: string; slug: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  // Next's own type is `string | string[] | undefined`; a repeated `?tab=` gives
+  // the array. Narrowed at the comparison rather than lied about here.
+  searchParams: Promise<{ tab?: string | string[] }>;
 }) {
   const { league: leagueParam, slug } = await params;
   const ctx = await getActiveContext(leagueParam);
@@ -134,7 +136,10 @@ export default async function TeamPage({
         the way they always have. Only Manage goes through the URL, because only
         Manage has server work behind it.
       */}
-      <Tabs defaultValue={editing ? "manage" : "roster"} className="space-y-4">
+      <TeamTabs
+        tab={editing ? "manage" : "roster"}
+        baseHref={`/${league}/teams/${slug}`}
+      >
         <TabsList>
           <TabsTrigger value="roster">Roster &amp; Stats</TabsTrigger>
           <TabsTrigger value="schedule">Schedule</TabsTrigger>
@@ -145,11 +150,7 @@ export default async function TeamPage({
             the page from becoming the 500-line hybrid the design warned about —
             everything behind it lives in one component.
           */}
-          {canEdit ? (
-            <TabsTrigger value="manage" asChild>
-              <Link href={`/${league}/teams/${slug}?tab=manage`}>Manage</Link>
-            </TabsTrigger>
-          ) : null}
+          {canEdit ? <TabsTrigger value="manage">Manage</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="roster" className="space-y-6">
@@ -189,7 +190,7 @@ export default async function TeamPage({
             <RosterEditor team={detail.team} season={ctx.season} />
           </TabsContent>
         ) : null}
-      </Tabs>
+      </TeamTabs>
     </div>
   );
 }

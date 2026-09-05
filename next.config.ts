@@ -43,7 +43,9 @@ const nextConfig: NextConfig = {
       // `/rosters` merged into `/teams`. Only the INDEX is a path rewrite:
       // `/rosters/<uuid>` names a team by an id the new URL replaces with a
       // slug, so it needs a lookup and lives at
-      // `(manage)/rosters/[teamId]/page.tsx` instead. A source of
+      // `src/app/[league]/rosters/[teamId]/page.tsx` — in NEITHER route group,
+      // deliberately; that file's docblock says why, and putting it under
+      // `(manage)` is the trap it warns about. A source of
       // `/:league/rosters` matches that one segment only, so the two do not
       // overlap.
       {
