@@ -15,12 +15,26 @@
      exposed instead is the failure BELOW those legs — a session with no
      `profiles` row signs in fine and is offered nothing. Recovery is still
      SQL. See *Getting locked out*.
+   - ⛔ **A SCHEDULE PUBLISHED WITH A PAST DATE LOCKS THE SEASON INSTANTLY AND
+     FOR GOOD.** `season_is_started` (`0026`) counts only `not is_draft`, so a
+     past-dated DRAFT is invisible to the gate and looks completely fine — until
+     it is published, at which point generate, replace and remove all refuse
+     permanently. The builder's "First game night" pre-fills from the season's
+     `starts_on`, is `required`, and has **no `min`**; `generateSchedule` never
+     checks it either. *Verified in the code 2026-09-05, not reproduced against
+     production.* **Read that date before publishing.** PR #23 designs the fix;
+     nothing is implemented.
    - **Mutating** `gh` (`pr create`, `pr merge`) and `vercel env` are denied to
      an agent under the auto-mode classifier — ask a human, do not work around
      it. **Read-only `gh` works**: `run list`, `run view`, `run download`. On a
      red CI run, pull the artifact and read `error-context.md` yourself; its
      page snapshot has twice settled in seconds what guessing got wrong.
-3. Every number here was **watched appear**. Where a claim is a reading of the
+3. ⛔ **The hot tier — everything above *The items* — is capped at 130 lines.**
+   Adding to it means evicting something to a section below, in the same edit.
+   Count first (`awk '/^## The rule item 6/{print NR; exit}'`), decide what
+   leaves, then write to the space you freed. Raise the number deliberately and
+   say why, or it drifts two lines at a time and the file stops being cheap.
+4. Every number here was **watched appear**. Where a claim is a reading of the
    code rather than a measurement, it says so in those words.
    ⚠️ Production was read again on **2026-09-05**, after #31 merged:
    `migration list --linked` shows `0001`-`0043` on Local, Remote **and**
@@ -38,7 +52,7 @@
    checkout pushes whatever is on `main` and silently skips the migrations that
    exist only on your branch. Copy those two files into the worktree's
    `supabase/.temp/` instead, or re-run `supabase link` there.
-4. Verify code changes with `npm test && npm run test:e2e`. Measured on CI at
+5. Verify code changes with `npm test && npm run test:e2e`. Measured on CI at
    `f131d6c` (`main`, the #31 merge), 2026-09-05: **28 unit files / 365 tests;
    183 e2e passed / 1 skipped / 0 failed** in 7.5m, across 23 spec files. The
    skip is the AI-summary test, gated on an API key — not a regression.
@@ -59,6 +73,12 @@ which fixed GAA being inflated by empty-net goals on live pages; `0039`-`0041`,
 which #24's manage tools read; and `0042`/`0043`, which let a league's own
 scorekeepers and captains read it before it is public (*Member reads*, below).
 
+⚠️ **THIS FILE IS NOT ON `main` YET.** It lives on `docs/readiness-and-url-space`
+(PR #33, CI green). `main`'s copy still says migrations are unpushed and a
+sign-in is unverified — both false. Merging #33 is what stops the next reader
+being misled. PR #34 (export 404s, CI green) and PR #23 (future-only scheduling
+docs, unmerged and far behind) are the other two open.
+
 **What remains is item 4: the `LAUNCH.md` phases — and it now has a date on
 it.** The published season's first game night is **2026-09-10**, after which its
 schedule is locked for good. Item 5 is deferred odds and ends, item 7 is the
@@ -66,60 +86,35 @@ half of the auth work that a checkout cannot do.
 
 ## Next action
 
-⛔ **THE PHASE 6 DEADLINE IS RUNNING. First published game night is
-2026-09-10 23:00 UTC — five days from 2026-09-05.**
+⛔ **THE MANAGER IS REBUILDING THE SCHEDULE, AND THE WINDOW SHUTS
+THURSDAY 2026-09-10 23:00 UTC.** Stated intent (2026-09-05): discard the current
+draft and generate a new one. 144 games are published, first one that Thursday,
+all still in the future — so nothing is locked yet.
 
-Measured, not read: the public feed at
-`/api/schedule/d1a2cf64-a507-4edb-b945-69c75a38522a` carries **144 published
-games**, the earliest `DTSTART` is `20260910T230000Z` (Yellow @ Black), the
-latest is 2027-03-12, and **every one of the 144 is still in the future**. So
-the season is published and not yet locked, and the window in which its shape
-can still be changed closes on the 10th.
+**The safe sequence, and it is not the obvious one.** Publishing IS the replace:
+`publishSchedule` calls `replace_published_schedule`, which deletes the live
+games and promotes the draft in ONE transaction. So generate and review while the
+old schedule stays up, then publish.
 
-**What locks.** Once that night passes, `season_is_started`
-(`0026_replace_published_schedule.sql`) returns true for good and generate,
-replace and remove all refuse. No UI undoes it. Individual games can still be
-rescheduled, scored and postponed afterwards — what is lost is the ability to
-regenerate or withdraw the SCHEDULE. So the question to put to the league before
-the 10th is not "is anything wrong tonight" but **"is this the schedule you want
-for the whole season"**.
+1. `/lcc-old-boys-hockey-league/schedule-builder` → **Discard** (drafts only —
+   `discardSchedule` filters `is_draft = true`, has no lock gate, and cannot
+   touch a published game). Repeatable, costs nothing.
+2. **Generate**, review, regenerate as often as wanted.
+3. **Publish** — the one-way door. ⛔ Check the date field first; see the lock
+   hazard in the protocol above.
 
-⚠️ This was derived from the public ICS feed, which by definition shows only
-PUBLISHED games — it cannot see drafts. If a draft schedule is also sitting in
-that season, this reading will not have found it. The authoritative version
-needs the database:
+⛔ **Do not press Remove first.** `0027`'s own comment says why the delete and
+the promotion are one transaction: run as two, "a failure between them leaves the
+season with ZERO games" — schedule page, both feeds and the CSV all empty. Remove
+is for abandoning a season's schedule, not for rebuilding one.
 
-    select l.slug, s.name as season, s.is_active,
-           count(*) filter (where not g.is_draft) as published_games,
-           count(*) filter (where g.is_draft)     as draft_games,
-           min(g.scheduled_at) filter (where not g.is_draft) as first_night,
-           public.season_is_started(s.id) as already_locked
-    from seasons s
-    join leagues l on l.id = s.league_id
-    left join games g on g.season_id = s.id
-    group by l.slug, s.id, s.name, s.is_active
-    order by l.slug, s.starts_on desc nulls last;
+⚠️ The lock also trips on `status <> 'scheduled'` or any goals, so a scorekeeper
+touching a game closes the window early. And every regenerated game gets a new
+id, so all 144 calendar UIDs change and subscribers see their events replaced.
 
-**Then the rest of `LAUNCH.md` Phases 2-6.** Nothing else outstanding can be
-done from a checkout.
-
-### Verified anonymously against production, 2026-09-05
-
-The half of `LAUNCH.md`'s *Verification* list that needs no session. Measured
-with curl against `https://obhl.vercel.app`:
-
-| Check | Result |
-|---|---|
-| `/` lists the leagues | ✅ 200 — but **one** league, `lcc-old-boys-hockey-league`, not two |
-| `/<league>/standings` | ✅ 200 |
-| An unknown slug 404s | ✅ `/nosuchleague-zzz` → 404 |
-| `/api/schedule/team/<id>/feed.ics` resolves | ✅ 200, 36 events, calendar named for the league |
-| `/api/schedule/<season>` and `.../schedule.csv` | ✅ 200 |
-
-⚠️ **Verification steps 1 and 2 cannot pass as written.** They assume two
-leagues; production has one. Steps 4, 5 and 6 (the badge, the league switcher,
-an announcement) need a session and remain for a human — step 4 was separately
-confirmed on 2026-09-05, below.
+**Then the rest of `LAUNCH.md` Phases 2-6** — steps 4, 5 and 6 of its
+*Verification* list, which need a session. Nothing else outstanding can be done
+from a checkout.
 
 ✅ **Sign-in, the app guard and RLS were all verified on production 2026-09-05**
 — see *Verified on production* under item 4. ⛔ **Test `/<slug>/dashboard`, never
@@ -175,6 +170,7 @@ design, so assume the gap and check the list rather than the flag.
 | 6 | `0039`-`0043` not pushed | `supabase db push` | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides |
 | 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard + `vercel env` | **OPEN** — needs a human; *The other half of auth* |
 | 8 | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code | ✅ **closed 2026-09-05** — steps 1-6 shipped as #31 (which collapsed #25-#29); step 7, the prose, is this commit. Spec: `docs/superpowers/specs/2026-09-05-unified-url-space-design.md` |
+| 9 | **A past first-game-night locks the season on publish** | code | ⛔ **OPEN** — no `min` on the input, no check in `generateSchedule`; the one irreversible mistake available in the builder. Fix designed in PR #23, unimplemented. See the hazard in the protocol |
 
 ⛔ **Do not re-file 1-3.** They are kept as rows, rather than deleted, because a
 reader who knows this file by its old shape will otherwise assume they were
@@ -375,6 +371,42 @@ step two is what makes keeping it safe. And the manage dashboard checks
 membership only for a *roled* account, because the page that explains "you have
 no role yet" would otherwise be unreachable; it renders no league data.
 
+### Verified anonymously against production, 2026-09-05
+
+The half of `LAUNCH.md`'s *Verification* list that needs no session. Measured
+with curl against `https://obhl.vercel.app`:
+
+| Check | Result |
+|---|---|
+| `/` lists the leagues | ✅ 200 — but **one** league, `lcc-old-boys-hockey-league`, not two |
+| `/<league>/standings` | ✅ 200 |
+| An unknown slug 404s | ✅ `/nosuchleague-zzz` → 404 |
+| `/api/schedule/team/<id>/feed.ics` resolves | ✅ 200, 36 events, calendar named for the league |
+| `/api/schedule/<season>` and `.../schedule.csv` | ✅ 200 |
+
+⚠️ **Verification steps 1 and 2 cannot pass as written.** They assume two
+leagues; production has one. Steps 4, 5 and 6 (the badge, the league switcher,
+an announcement) need a session and remain for a human — step 4 was separately
+confirmed on 2026-09-05, below.
+
+### The deadline reading, and what it could not see
+
+⚠️ The Phase 6 date in *Next action* was derived from the public ICS feed, which by definition shows only
+PUBLISHED games — it cannot see drafts. If a draft schedule is also sitting in
+that season, this reading will not have found it. The authoritative version
+needs the database:
+
+    select l.slug, s.name as season, s.is_active,
+           count(*) filter (where not g.is_draft) as published_games,
+           count(*) filter (where g.is_draft)     as draft_games,
+           min(g.scheduled_at) filter (where not g.is_draft) as first_night,
+           public.season_is_started(s.id) as already_locked
+    from seasons s
+    join leagues l on l.id = s.league_id
+    left join games g on g.season_id = s.id
+    group by l.slug, s.id, s.name, s.is_active
+    order by l.slug, s.starts_on desc nulls last;
+
 ### Verified on production — sign-in, the app guard, and RLS (2026-09-05)
 
 ⚠️ **A completed sign-in lands on `/`, which shows no badge to anybody.** That
@@ -542,9 +574,23 @@ explicit go-ahead before any code changes.
    only where a forced bye caused the breach.
 4. `slot_on` resolves against **two different slot lists** depending on the path in.
    The likeliest of these to be a real bug.
+   ⚠️ **Confirmed 2026-09-05, and the divergence is deliberate on one side.**
+   `generateSchedule` matches pins against the FORM's `slot_times`;
+   `planOneOff`'s caller builds its list from the season AS PUBLISHED
+   (`leagueTimeKey(g.scheduledAt)`, with `--:--` standing in for a postponed
+   game), and says so in a comment. So a pin honoured at generation can fail to
+   match during a one-off repair. Real, documented, low severity — not the
+   silent-corruption shape the review's wording suggests.
 5. The `add_player` revert **deletes a row** that the "returning player" branch only
    un-departed — so reverting an add can destroy history the add did not create.
    ⚠️ Same shape as the `0036` goalie-stats class.
+   ✅ **CHECKED 2026-09-05 AND NOT REPRODUCED.** `revertAuditEntries`
+   (`src/lib/actions/audit.ts`, `case "add_player"`) reads the row rather than
+   the entry, counts `game_rosters` scoped to this season through `games`, and
+   marks the player departed instead of deleting when that count is non-zero —
+   with a comment naming the `0036` destruction explicitly. A hard delete
+   happens only where nothing was played. Left in the list with this note rather
+   than removed, because the next reader will otherwise re-derive it.
 6. `refuteConstraints` misses `bye_in_week` on an all-zero-quota week.
 7. The unbounded `players` select — **pre-existing**, not introduced by #24.
    ⚠️ Re-read 2026-09-05: it survived #31 and now carries a docstring arguing it
@@ -563,6 +609,17 @@ explicit go-ahead before any code changes.
 - **`save_rules` entries are not revertible.** `old_data` holds what a revert
   needs, but `revertAuditEntries` (`src/lib/actions/audit.ts`) has no case and
   `isRevertible` in the audit page returns false.
+- **Public detail pages answer 200 for `notFound()`** — issue #30, investigated
+  2026-09-05 and **deliberately not fixed**. Measured on a production build, with
+  controls: it is not dev-only, `loading.tsx` is not the cause (removed it, still
+  200), and a `(public)` page throwing before any `await` returns a clean 404 —
+  so the cause is that awaiting suspends and starts the stream, which Next 16
+  documents under `loading.tsx`'s *Status Codes*. Next emits
+  `<meta name="robots" content="noindex">` on every such body, so the soft-404
+  concern is handled; what is left is monitors reading the status line. The
+  documented remedy is a check in `proxy`, i.e. a database round trip on every
+  page view. Full evidence, including the two failed fixes, is on the issue —
+  ⛔ do not re-run those experiments.
 - **CI does not run `npm run lint`**, though the script exists.
 - **No `.nvmrc` or `engines`** — `.github/workflows/ci.yml` is the de-facto
   source of truth for the Node version (22).
