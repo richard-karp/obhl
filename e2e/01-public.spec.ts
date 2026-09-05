@@ -53,6 +53,39 @@ test.describe("Path 1 — Homepage widgets", () => {
 // ── Path 2: Stats — sorting ─────────────────────────────────────────────────
 
 test.describe("Path 2 — Stats tables and sorting", () => {
+  /**
+   * THE SELECTED TAB HAS TO LOOK SELECTED, and nothing else in this suite says
+   * so. Every other assertion here reads `aria-selected`, which is the state and
+   * not the appearance — so the whole file would stay green if the active
+   * styling stopped applying and both tabs rendered identically.
+   *
+   * That is not a hypothetical: `ui/tabs.tsx` styles the active trigger with
+   * `data-active:` while `radix-ui` emits only `data-state="active"`, and the
+   * two are connected by a Tailwind alias rather than by anything in this
+   * repository. Measured, the alias holds. This test is what would notice if a
+   * Tailwind or Radix upgrade quietly broke it.
+   *
+   * Comparing the two triggers rather than pinning a colour: the claim is "these
+   * differ", which survives a theme change and still catches the failure.
+   */
+  test("the selected tab is visually distinguishable from the unselected one", async ({
+    page,
+  }) => {
+    await page.goto("/obhl/stats");
+    const skaters = page.getByRole("tab", { name: "Skaters" });
+    const goalies = page.getByRole("tab", { name: "Goalies" });
+    await expect(skaters).toHaveAttribute("aria-selected", "true");
+
+    const bg = (l: typeof skaters) =>
+      l.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(await bg(skaters)).not.toBe(await bg(goalies));
+
+    // And it follows the selection rather than being stuck on the first tab.
+    await goalies.click();
+    await expect(goalies).toHaveAttribute("aria-selected", "true");
+    expect(await bg(goalies)).not.toBe(await bg(skaters));
+  });
+
   test("skater stats load and rows are sortable by clicking column headers", async ({
     page,
   }) => {
