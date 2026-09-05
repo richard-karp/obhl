@@ -3,11 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { LeagueSwitcher } from "@/components/shared/league-switcher";
-import { signOut } from "@/lib/actions/auth";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { AccountCluster } from "@/components/shared/account-cluster";
 import type { AppRole } from "@/lib/auth/session";
 import type { LeagueOption } from "@/lib/league/current";
 
@@ -54,21 +51,9 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
  */
 const MAX_INLINE_LINKS = 5;
 
-const ROLE_LABEL: Record<AppRole, string> = {
-  league_manager: "Manager",
-  scorekeeper: "Scorekeeper",
-  captain: "Captain",
-};
-
 type NavLink = { path: string; label: string; absolute?: boolean };
 
-function Links({
-  links,
-  base,
-}: {
-  links: NavLink[];
-  base: string;
-}) {
+function Links({ links, base }: { links: NavLink[]; base: string }) {
   const pathname = usePathname();
   return (
     <>
@@ -161,28 +146,22 @@ export function ManageNav({
           on the select, which has its own floor.
         */}
         <div className="ml-auto flex min-w-0 items-center gap-2">
-          <LeagueSwitcher
-            leagues={leagues}
-            currentSlug={currentSlug}
-            rootPath="/manage/dashboard"
-          />
-          {role ? (
-            <Badge variant="secondary" className="hidden sm:inline-flex">
-              {ROLE_LABEL[role]}
-            </Badge>
-          ) : null}
-          <Link
-            href={`/${currentSlug}`}
-            className="text-muted-foreground hidden text-sm hover:underline sm:inline"
+          {/*
+            Same cluster the public header and the picker draw, so the badge,
+            the cross-link and sign-out cannot drift apart across the three.
+            Everyone here is signed in — the layout redirects anyone who is not.
+          */}
+          <AccountCluster
+            signedIn
+            role={role}
+            crossLink={{ href: `/${currentSlug}`, label: "View site" }}
           >
-            View site
-          </Link>
-          <ThemeToggle />
-          <form action={signOut}>
-            <Button type="submit" variant="ghost" size="sm">
-              Sign out
-            </Button>
-          </form>
+            <LeagueSwitcher
+              leagues={leagues}
+              currentSlug={currentSlug}
+              rootPath="/manage/dashboard"
+            />
+          </AccountCluster>
         </div>
       </div>
       {/*
