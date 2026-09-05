@@ -28,13 +28,22 @@
    another branch's dev server. Worktrees share ONE Supabase database, so serialize
    e2e. CI runs the full suite, so run only the specs covering your step locally.
 
-**Status: approved, nothing implemented.** No branch exists for it yet. Branch off
-`main`. Run `git log --oneline origin/main..origin/docs/close-migration-push` — if
-non-empty, those are **docs-only** commits awaiting a fast-forward to `main` and
-cannot conflict with this work.
+**Status: steps 1–6 implemented and reviewed; step 7 outstanding.** The code ships
+as a stack of six PRs, each branched on the one below it and each reviewed by its
+own agent:
 
-**Start at step 1.** It is small, self-contained, depends on nothing else here, and
-is the only step that fixes something broken rather than something awkward.
+| Step | Branch | PR |
+|---|---|---|
+| 1 | `feat/auth-aware-chrome` | #25 |
+| 2 | `feat/flatten-manage-prefix` | #26 |
+| 3 | `feat/staged-league-gate` | #27 |
+| 4 | `feat/merge-rules` | #28 |
+| 5 | `feat/merge-team-pages` | #29 |
+| 6 | `feat/merge-schedule-score` | #31 |
+
+Merge bottom-up; GitHub retargets each child as its parent lands. **Only step 7 is
+left** — and read *What the implementation changed about this plan* below before
+starting it, because three things in the pages above are now false.
 
 ## The ask, in the user's words
 
@@ -155,9 +164,19 @@ naive implementation of a transfer destroyed goalie records through `v_goalie_st
 inner join while the games stayed on the schedule, reporting no error.
 
 ⚠️ **5. `getSessionUser()` on public pages costs nothing new.** Those pages already read
-cookies through the Supabase server client and there is no middleware or `revalidate`
-anywhere, so they are already dynamically rendered. The added cost is one `getClaims()`
-per render, short-circuiting immediately for anonymous visitors.
+cookies through the Supabase server client, so they are already dynamically rendered.
+The added cost is one `getClaims()` per render, short-circuiting immediately for
+anonymous visitors.
+
+⛔ **This hazard said "there is no middleware anywhere". THAT IS WRONG** — `src/proxy.ts`
+exists (Next 16 renamed the `middleware` convention to `proxy`) and refreshes the
+Supabase session on every matched request. It does not change the conclusion, which is
+why the sentence survived review this long, but do not carry the claim into a step that
+reasons about request handling.
+
+⚠️ **`getSessionUser` was NOT memoized when this was written**, so "one `getClaims()` per
+render" was false: the layout, the header and the page each asked independently. It is
+`cache()`-wrapped as of step 1, which is what makes the sentence true.
 
 ## Steps
 
@@ -221,10 +240,71 @@ policies and is explicitly out of scope here — see *Deferred* below.
 `/schedule` absorbs `/manage/score`'s list, gaining a Score button per game for a
 scorekeeper or manager. The scoresheet moves to `/games/<id>/score`.
 
-### 7. Sweep
+### 7. Sweep — THE ONLY STEP LEFT
 
 e2e specs, `LAUNCH.md`, `ACCESS_CONTROL_HANDOFF.md` and `LAUNCH_READINESS_HANDOFF.md` all
 name `/manage/...` paths in prose. Update them in the same change, not later.
+
+The e2e half is done — it moved with each step. What remains is prose, and it is
+wider than the prefix now:
+
+- `LAUNCH.md` (5), `EXPORTS_HANDOFF.md` (2), `ACCESS_CONTROL_HANDOFF.md` (2),
+  `LAUNCH_READINESS_HANDOFF.md` (1) name `/manage/...` paths;
+- they also name `/rules/edit`, `/rosters/<uuid>` and `/score`, which steps 4–6
+  merged away, and the team editor now needs `?tab=manage`;
+- `ACCESS_CONTROL_HANDOFF.md` needs more than a path rewrite. Steps 4 and 6 added
+  `canManageLeague` and `canScoreLeague`, which are QUESTIONS AND NOT GUARDS — they
+  decide whether to draw an editing surface and protect nothing. That distinction
+  belongs in the file whose *Traps* section exists to stop someone confusing the two.
+
+⚠️ Leave `docs/worklists/` and the older `docs/superpowers/specs/` alone. They are
+historical records of what was true when written.
+
+## What the implementation changed about this plan
+
+Three things above are now out of date. Each was found by the review pass over the
+six branches, and each is worth knowing before step 7.
+
+⛔ **1. Hazard 1's rule needed an RLS half, and now has one (migration `0039`).**
+The conditional `is_public` check landed as written — and it was unreachable for
+anyone but a manager. `leagues` had exactly two select paths, `"public read leagues"`
+(`using (is_public)`) and `"manager write leagues"` (`manages_league(id)`, i.e. the
+role AND membership), so a scorekeeper or captain who genuinely belonged to a staged
+league got `null` from `resolveLeagueBySlug` and a 404 one layer above the new rule —
+on the league they were staffing.
+
+`0039_member_read_leagues` adds `for select using is_league_member(id)`. SELECT only:
+membership is not permission to write a league row. The app half and the RLS half now
+say the same thing, and `src/lib/league/visibility.ts` documents them as a pair that
+must be widened or narrowed together.
+
+⚠️ **The test that should have caught this could not.** Both staged-league tests used
+accounts that were not members of the staged league, so they pinned "non-member 404s"
+and would have stayed green if membership had stopped counting entirely. There is now
+a third that uses a member who is not a manager.
+
+⚠️ **2. Merging a page into `(public)` costs the manager their nav, and the fix is
+additive.** Three of the six reviews raised this independently: `/rules`,
+`/teams/<slug>` and `/schedule` live under `(public)`, so a manager who follows one
+loses `ManageNav` and every link in it.
+
+⛔ **Do not fix it by swapping in `ManageNav`.** Its "View site" link would then point
+at a page that renders `ManageNav` again, so the one control for getting back to the
+public view becomes a no-op. A shared page is a public page with more on it. The
+implementation adds a `StaffLinks` row *beneath* `SiteHeader`, built from the same
+`staffLinks(role, officeTier)` the manage header uses so the two cannot drift.
+
+⚠️ **3. The merged team page carries its tab in the URL (`?tab=manage`), and had to.**
+Radix unmounts inactive tab content on the CLIENT; the server renders every branch it
+is given. A `<TabsContent>` holding the roster editor therefore ran four admin queries
+— one an unbounded read of the whole `players` table — on every manager's casual look
+at a team page. Any future "show the editing surface in a tab" follows this shape.
+
+**Also worth knowing, and not this plan's to fix:** `notFound()` thrown by a page
+inside `(public)` answers **HTTP 200**, not 404, because the layout above it has begun
+streaming by the time the page throws. It predates this work — reproduced on `main` —
+and is tracked as issue #30. Two tests in `15-league-routing.spec.ts` assert on
+not-found CONTENT rather than status because of it; both say so.
 
 ## Deferred — raised, deliberately not in this plan
 
