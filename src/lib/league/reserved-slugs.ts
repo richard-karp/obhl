@@ -18,6 +18,11 @@
  * supabase/migrations/0030_league_slug_reserved.sql — leagues are created by
  * hand-written SQL as often as by the importer, so the database is the only
  * place that catches every path. Change both together.
+ *
+ * ⚠️ 0030's own COMMENT predates the flatten and still says `manage` is not a
+ * top-level route. Its constraint is correct and migrations are frozen history,
+ * so it is left alone — but the reasoning above, not that comment, is why
+ * `manage` is reserved today.
  */
 export const RESERVED_LEAGUE_SLUGS = [
   "api",

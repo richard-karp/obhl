@@ -31,7 +31,8 @@ function revalidateCalls(): Call[] {
     if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
     const src = readFileSync(join(ACTIONS_DIR, file), "utf8");
     // First argument only: a string literal or a template literal.
-    const re = /revalidatePath\(\s*(?:"([^"]*)"|`([^`]*)`)\s*(?:,\s*"(page|layout)")?/g;
+    const re =
+      /revalidatePath\(\s*(?:"([^"]*)"|`([^`]*)`)\s*(?:,\s*"(page|layout)")?/g;
     for (const m of src.matchAll(re)) {
       calls.push({ file, path: m[1] ?? m[2], type: m[3] ?? null });
     }
@@ -53,8 +54,20 @@ describe("revalidatePath conventions", () => {
     expect(stray).toEqual([]);
   });
 
+  it("names no route under the removed /manage/ prefix", () => {
+    // The failure mode this file exists to catch, made catchable. The prefix was
+    // flattened away in one sweep of ~240 strings; a `revalidatePath` the sweep
+    // missed still starts with "/[league]" and so satisfied every other
+    // assertion here, while silently revalidating nothing — which is exactly how
+    // a stale path fails. There are none today; this is what keeps that true.
+    const stale = calls.filter((c) => c.path.startsWith("/[league]/manage"));
+    expect(stale).toEqual([]);
+  });
+
   it("passes a type alongside every path with a dynamic segment", () => {
-    const untyped = calls.filter((c) => c.path.includes("[") && c.type === null);
+    const untyped = calls.filter(
+      (c) => c.path.includes("[") && c.type === null,
+    );
     expect(untyped).toEqual([]);
   });
 

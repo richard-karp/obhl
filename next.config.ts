@@ -20,7 +20,9 @@ const nextConfig: NextConfig = {
    * that ambiguous either. Removing the reservation would.
    *
    * `:rest*` is zero-or-more, so a bare `/<league>/manage` lands on the league
-   * home rather than 404ing, which is what it did before.
+   * home rather than 404ing as it used to — there was never a page at that path.
+   * Still a 404 for a league that is not published, since the home page it lands
+   * on applies the visibility gate like any other public page.
    */
   async redirects() {
     return [

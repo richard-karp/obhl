@@ -115,7 +115,7 @@ async function leagueIdsBySlug() {
  * office account carries a real player link.
  *
  * It must not be a CAPTAIN's player. Both consumers of `player_id`
- * (`manage/score/[gameId]` and `games.ts`) join `team_players` on
+ * (`(manage)/score/[gameId]` and `games.ts`) join `team_players` on
  * `is_captain = true`, so pointing two profiles at one captain's player would
  * hand the commissioner that team's captain surface and change what the captain
  * fixtures mean. A non-captain link is inert to both.
