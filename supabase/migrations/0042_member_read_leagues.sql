@@ -43,9 +43,9 @@
 --
 -- Making that true means widening the gate on every child table at once. That is
 -- a materially bigger decision and wants its own migration and its own review,
--- not an edit to this one. IT NOW HAS ONE: `0040_member_read_children.sql`, which
+-- not an edit to this one. IT NOW HAS ONE: `0043_member_read_children.sql`, which
 -- adds a second SELECT policy per child table rather than redefining the
--- `_is_public` helpers — read the two together, and read 0040's header for why
+-- `_is_public` helpers — read the two together, and read 0043's header for why
 -- the helpers were left alone.
 --
 -- `is_league_member` fails closed on a null argument (0032's invariant, restated

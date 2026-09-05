@@ -170,13 +170,13 @@ on it.
 
 **Staging a league privately.** Create it with `is_public = false` and it is
 manageable at its ordinary URLs while 404ing for the public. **Its own staff can
-see it**: migrations 0039 and 0040 expose a non-public league and its content to
+see it**: migrations 0042 and 0043 expose a non-public league and its content to
 anyone with a `profile_leagues` row for it, so scorekeepers and captains can
 work in a staged league rather than getting a 404 on the league they are
 staffing. Everyone else still gets nothing. Flip `is_public` to `true` to go
 live.
 
-⚠️ This changed. Before 0039 the manager policy was the only way in, and this
+⚠️ This changed. Before 0042 the manager policy was the only way in, and this
 paragraph used to say scorekeepers and captains could not see a staged league at
 all. If you are reading an older copy of that sentence somewhere, it is stale.
 

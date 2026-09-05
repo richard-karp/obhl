@@ -23,10 +23,10 @@ export type LeagueOption = { id: string; name: string; slug: string };
  * applies that. A league can therefore be staged — manageable before it is
  * visible. RLS narrows this for us: "public read leagues" exposes only
  * `is_public` rows, "manager write leagues" is `for all` for a manager of it, and
- * 0039's "member read leagues" adds any member — so a staged league resolves for
+ * 0042's "member read leagues" adds any member — so a staged league resolves for
  * its own people and 404s for everyone else. What those people then SEE is
  * another question: the child tables are still gated on `is_public`, so a
- * non-manager member gets the league and an empty page. See 0039.
+ * non-manager member gets the league and an empty page. See 0042.
  */
 export const resolveLeagueBySlug = cache(async function resolveLeagueBySlug(
   slug: string,

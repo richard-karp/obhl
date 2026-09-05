@@ -1,6 +1,6 @@
--- The other half of 0039: make a staged league WORK for the people who staff it.
+-- The other half of 0042: make a staged league WORK for the people who staff it.
 --
--- 0039 widened the `leagues` ROW to any member, and said in its own header what
+-- 0042 widened the `leagues` ROW to any member, and said in its own header what
 -- it deliberately did not do:
 --
 --     So a scorekeeper or captain member of a staged league now gets a 200
@@ -19,7 +19,7 @@
 -- the lie would propagate into two more predicates that other policies compose
 -- with. Postgres ORs the policies of a table together, so a SECOND policy per
 -- table buys the same widening with each half still saying what it means —
--- exactly the shape 0039 used, for the same reason.
+-- exactly the shape 0042 used, for the same reason.
 --
 -- SELECT ONLY, every one of them. Membership is not permission to write; 0009
 -- and 0032's role policies still govern that, untouched.

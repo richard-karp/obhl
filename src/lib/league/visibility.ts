@@ -24,7 +24,7 @@
  * asserted directly.
  *
  * ⚠️ THIS IS THE APP HALF OF A PAIR, AND THE HALVES NOW SAY THE SAME THING.
- * `resolveLeagueBySlug` reads through RLS. Until 0039 the only select paths on
+ * `resolveLeagueBySlug` reads through RLS. Until 0042 the only select paths on
  * `leagues` were "public read leagues" (`using (is_public)`, 0008) and "manager
  * write leagues" (`manages_league(id)`, 0032) — so a staged league resolved for
  * its MANAGERS and the office only, and a scorekeeper or captain who genuinely
@@ -32,14 +32,14 @@
  * were staffing. The `isMember` term here was unreachable: a ceiling, not a
  * floor.
  *
- * 0039 adds "member read leagues" — `for select using is_league_member(id)` —
+ * 0042 adds "member read leagues" — `for select using is_league_member(id)` —
  * so both halves are now the same rule written twice, which is what this
  * codebase does with a rule that matters (`may_write_profile` /
  * `mayWriteProfileOf`).
  *
- * 0040 then widened the child tables the same way — a second `member read`
+ * 0043 then widened the child tables the same way — a second `member read`
  * policy per table rather than a redefined `_is_public` helper — so a member of
- * a staged league now reaches the league AND finds it populated. Before 0040
+ * a staged league now reaches the league AND finds it populated. Before 0043
  * they passed this check and got an empty page, which is why the two migrations
  * are one decision split across two files.
  *
