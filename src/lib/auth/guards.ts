@@ -140,11 +140,12 @@ export async function requireCommissioner(): Promise<SessionUser> {
  * picker would confirm the league exists to anyone who typed its name.
  *
  * The rule itself is `decideLeagueVisible`, where the four cells are asserted
- * directly and where the asymmetry with RLS is written down. This is only the
- * lookups: `getSessionUser` short-circuits for an anonymous visitor, and
- * `isLeagueMember` is memoized per request, so a published league costs one
- * `getClaims()` and a staged one costs a membership read that some guard on the
- * page was going to make anyway.
+ * directly and where its relationship to the RLS half is written down. This is
+ * only the lookups, and both are memoized per request — `getSessionUser` since
+ * the review that found this docblock claiming a cost it did not pay, and
+ * `isLeagueMember` all along. So a published league costs one `getClaims()` for
+ * the whole render, and a staged one costs a membership read that some guard on
+ * the page was going to make anyway.
  *
  * Used by the layout over every page that is, or is about to become, SHARED —
  * one URL that serves the public and the people who run the league. The staff

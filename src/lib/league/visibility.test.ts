@@ -5,6 +5,12 @@ import { decideLeagueVisible } from "./visibility";
  * Four cells, and the two that matter are the diagonal: a staged league must be
  * invisible to a stranger and visible to its own people. The other two are the
  * published cases, where identity is irrelevant.
+ *
+ * This is a COMPLETE truth table over the two-boolean domain, so it pins the
+ * intended function rather than merely agreeing with the implementation: every
+ * other boolean function of two booleans fails at least one row, both term-drops
+ * included. A separate pair of knock-out assertions used to sit below it and was
+ * removed as duplicate coverage — the table already catches what they caught.
  */
 describe("decideLeagueVisible — the four cells", () => {
   const cases: [boolean, boolean, boolean, string][] = [
@@ -29,18 +35,4 @@ describe("decideLeagueVisible — the four cells", () => {
       expect(decideLeagueVisible(isPublic, isMember)).toBe(expected);
     });
   }
-});
-
-describe("decideLeagueVisible — each half is load-bearing", () => {
-  // These are the two knock-outs the design asks for, written as assertions
-  // rather than as a manual experiment: drop either term from the rule and one
-  // of them goes red. Dropping `isPublic` breaks the first; dropping `isMember`
-  // breaks the second.
-  it("without the published term, an anonymous visitor loses a live league", () => {
-    expect(decideLeagueVisible(true, false)).toBe(true);
-  });
-
-  it("without the membership term, a member loses their staged league", () => {
-    expect(decideLeagueVisible(false, true)).toBe(true);
-  });
 });

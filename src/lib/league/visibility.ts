@@ -23,16 +23,22 @@
  * `requireVisibleLeague`; the decision lives here where all four cells can be
  * asserted directly.
  *
- * ⚠️ THIS IS THE APP HALF OF A PAIR, AND THE RLS HALF IS STRICTER TODAY.
- * `resolveLeagueBySlug` reads through RLS, where "public read leagues" exposes
- * only `is_public` rows and "manager write leagues" (0032) is
- * `manages_league(id)` — the league_manager role AND membership. So a staged
- * league resolves for its MANAGERS and the office, and a scorekeeper or captain
- * who is a member of it gets `null` and a 404 one layer above this, never
- * reaching the rule below. `isMember` here is therefore the ceiling, not the
- * floor: widening this function alone widens nothing. That asymmetry is safe —
- * both halves must say yes — but do not read a `true` from here as proof that
- * someone can see the page.
+ * ⚠️ THIS IS THE APP HALF OF A PAIR, AND THE HALVES NOW SAY THE SAME THING.
+ * `resolveLeagueBySlug` reads through RLS. Until 0039 the only select paths on
+ * `leagues` were "public read leagues" (`using (is_public)`, 0008) and "manager
+ * write leagues" (`manages_league(id)`, 0032) — so a staged league resolved for
+ * its MANAGERS and the office only, and a scorekeeper or captain who genuinely
+ * belonged to it got `null` and a 404 one layer above this, on the league they
+ * were staffing. The `isMember` term here was unreachable: a ceiling, not a
+ * floor.
+ *
+ * 0039 adds "member read leagues" — `for select using is_league_member(id)` —
+ * so both halves are now the same rule written twice, which is what this
+ * codebase does with a rule that matters (`may_write_profile` /
+ * `mayWriteProfileOf`). ⛔ REVIEW THEM AS A PAIR. Widening this function alone
+ * no longer widens nothing; it widens the app half of a rule whose RLS half has
+ * to be widened with it, or the two disagree in the direction that locks people
+ * out silently. Narrowing either half alone is the same mistake mirrored.
  */
 export function decideLeagueVisible(
   isPublic: boolean,

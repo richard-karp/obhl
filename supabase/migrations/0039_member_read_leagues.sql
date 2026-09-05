@@ -1,0 +1,32 @@
+-- A staged league was invisible to its own scorekeepers and captains.
+--
+-- `leagues` has exactly two select paths: "public read leagues" (0008), which is
+-- `using (is_public)`, and "manager write leagues" (0032), which is `for all`
+-- using `manages_league(id)` — the league_manager role AND membership. Nothing
+-- else selects from the table.
+--
+-- So while `is_public` is false, only managers and the office resolve the league
+-- at all. A scorekeeper or captain who genuinely belongs to it got null from
+-- `resolveLeagueBySlug` and a 404 from `[league]/layout.tsx` — on the league they
+-- are staffing, with nothing to explain it. That was tolerable while the staff
+-- pages sat behind their own `/manage/` prefix and the public pages were public.
+-- It stops being tolerable now that the pages are SHARED: one URL serving the
+-- public a page and the league's own people the same page with more on it.
+--
+-- ⚠️ THIS IS THE RLS HALF OF A PAIR, AND IT EXISTS TO MAKE THE PAIR AGREE.
+-- `decideLeagueVisible(is_public, isMember)` in `src/lib/league/visibility.ts` is
+-- the app half and already said yes to any member. RLS said yes only to managers,
+-- so the composition was stricter than either half alone and the app half's
+-- `isMember` term was unreachable — documented there, before this, as "a ceiling,
+-- not a floor". Read the two together: after this migration they are the same
+-- rule twice, which is what the rest of this codebase does with a rule that
+-- matters (`may_write_profile` / `mayWriteProfileOf`).
+--
+-- SELECT ONLY. Membership is not permission to write a league row; `manages_league`
+-- still governs that, and this policy is deliberately not `for all`.
+--
+-- `is_league_member` fails closed on a null argument (0032's invariant, restated
+-- and made load-bearing by 0034), and its office branch means a commissioner
+-- keeps reading every league. Both are inherited rather than restated here.
+create policy "member read leagues" on leagues
+  for select to authenticated using (public.is_league_member(id));

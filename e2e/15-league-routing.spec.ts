@@ -199,6 +199,40 @@ test.describe("Path 16 — Per-league routing", () => {
     expect(restored?.status()).toBe(200);
   });
 
+  test("a staged league opens for a member who is not a manager", async ({
+    page,
+  }) => {
+    // The case the other staged-league tests could not distinguish. Both of them
+    // use accounts that are NOT members of harbor, so they pin "non-member 404s"
+    // and would stay green if membership stopped counting at all.
+    //
+    // This scorekeeper IS a member of harbor. Before 0039 they got a 404 on the
+    // league they staff: `leagues` had no select policy covering a non-manager
+    // member, so the row never resolved and the app's own rule — which has always
+    // said yes to any member — was never reached. This is the assertion that
+    // keeps the app half and the RLS half saying the same thing.
+    await setHarborPublic(false);
+    try {
+      await page.goto("/login");
+      await page.getByRole("button", { name: "Scorekeeper" }).click();
+      await page.waitForURL("/");
+
+      const res = await page.goto("/harbor");
+      expect(res?.status()).toBe(200);
+      await expect(
+        page.getByRole("link", { name: "All leagues" }),
+      ).toBeVisible();
+
+      // ...and they are still only a scorekeeper there: no manager affordances.
+      await page.goto("/harbor/rules");
+      await expect(
+        page.getByRole("button", { name: "Edit rules" }),
+      ).toHaveCount(0);
+    } finally {
+      await setHarborPublic(true);
+    }
+  });
+
   test("a staged league stays 404 for a signed-in stranger to it", async ({
     page,
   }) => {
