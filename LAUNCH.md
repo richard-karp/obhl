@@ -79,10 +79,29 @@ redeploy.
       Access Token (JWT) Claims → Postgres function, schema `public`, function
       `custom_access_token_hook`.
 
-The hook is not optional. `getSessionUser` (`src/lib/auth/session.ts`) reads the
-role **only** from the JWT claim, with no database fallback, so with the hook off
-every signed-in user has `role: null` and nobody reaches the manage tools. Sign-in
-still appears to work, which is what makes it confusing.
+⚠️ **The hook stopped being a lockout on 2026-09-05. Check it anyway.** It used
+to be one: `getSessionUser` (`src/lib/auth/session.ts`) read the role **only**
+from the JWT claim, so with the hook off every signed-in user held `role: null`
+and nobody reached the manage tools — while sign-in still appeared to work,
+which is what made it confusing. Since #24 the claim is only the fast path: when
+it is absent, `roleFromProfile` reads `profiles.role` through the normal RLS
+client, memoized with `cache()`. A hook that never fires now costs a round trip
+per render instead of locking the league out of its own tools.
+
+⛔ **Two things that fallback does NOT do.**
+
+- It repairs a missing **claim**, not a missing **row**. An account with no
+  `profiles` row, or one whose `role` is null, is exactly as locked out as
+  before — the fallback has nothing to find.
+- A claim that is **present but stale still wins**. The resolution is
+  `claimed ?? profileRole`, so changing someone's role while the hook is on has
+  no effect until their next sign-in mints a new token.
+
+⛔ **The two settings above this one have no fallback of any kind.** A missing
+SMTP config or a missing redirect-allow-list entry breaks sign-in one step
+earlier, at the link itself, before any application code runs — and with
+dev-login removed and the seeded accounts deleted, either one leaves no way in
+but SQL against production.
 
 Verify the function and its grants landed:
 
@@ -125,8 +144,12 @@ on conflict (id) do update set role = 'league_manager';
 ```
 
 3. Sign out, sign in via magic link, and confirm the manage nav shows the
-   **Manager** badge. A stale session carries a JWT issued before the hook was
-   enabled and will still show no role — sign in again.
+   **Manager** badge.
+   ⚠️ If the badge is missing, re-read the hook note in Phase 2 before touching
+   anything. A token carrying **no** role claim now resolves from `profiles` on
+   the very next request, so that case needs no re-sign-in at all. A token
+   carrying a **stale** claim is not repaired by the fallback, and only a fresh
+   sign-in replaces it.
 
 Everyone else is created from `/<league>/manage/people`. Note it **sends no
 email**: the account is created without a password, so tell the person to go to

@@ -8,14 +8,13 @@
    (383 lines); nothing outstanding depends on it.
 2. ⛔ **Hazards, before any instruction:**
    - `supabase db reset --linked` **wipes production**. Use `db push`.
-   - ⚠️ **The lockout risk is still real, but it lost a leg on 2026-09-05.**
-     Items 1 and 2 are closed, so dev-login and the seeded accounts are both
-     gone — and with them every verified way into production's manage tools.
-     Of the three ways in that could break, **the JWT hook is no longer one**:
-     `getSessionUser` now falls back to `profiles.role` (#24, workstream D1).
-     SMTP and the redirect allow-list are untouched and still break sign-in one
-     step earlier, at the link itself. Recovery is still SQL. See
-     *Getting locked out*.
+   - ✅ **The lockout risk is closed as of 2026-09-05.** All three legs are
+     accounted for: the JWT hook degrades to a `profiles.role` lookup (#24,
+     workstream D1), and SMTP and the redirect allow-list were both exercised
+     end to end by a real magic-link sign-in that day. What that sign-in
+     exposed instead is the failure BELOW those legs — a session with no
+     `profiles` row signs in fine and is offered nothing. Recovery is still
+     SQL. See *Getting locked out*.
    - **Mutating** `gh` (`pr create`, `pr merge`) and `vercel env` are denied to
      an agent under the auto-mode classifier — ask a human, do not work around
      it. **Read-only `gh` works**: `run list`, `run view`, `run download`. On a
@@ -65,17 +64,28 @@ odds and ends, item 7 is the half of the auth work that a checkout cannot do.
 
 ## Next action
 
-**Sign in to production with a real magic link.** On `obhl.vercel.app`, as a
-real (non-`@obhl.test`) manager: request the link, follow it, and check that
-`/manage/dashboard` shows the Manager badge.
+**Give the signed-in account a `profiles` row and its league memberships.**
+The magic-link sign-in was done on 2026-09-05 and the link half worked — the
+email arrived and `/auth/confirm` accepted it, so SMTP and the redirect
+allow-list are both confirmed good. **The Manager badge did not appear**, which
+is the one case #24's fallback cannot repair: no `profiles` row means no role to
+fall back to, and `profile_leagues` cascades off `profiles`, so the memberships
+are missing with it. See *Getting locked out* for why an account that "used to
+work" can arrive in this state.
 
-⛔ **It has never been done, and two of the three ways it can fail have no
-fallback.** #24 closed the third — a missing role claim now falls back to
-`profiles.role` — but a missing SMTP config or a redirect-allow-list entry
-breaks sign-in one step earlier, before any application code runs. With
-dev-login removed and the seeded accounts deleted, either one leaves no way in
-but SQL against production. Ten minutes, and it is the highest-value unverified
-thing in the project.
+    -- Who exists, who has a role, who has leagues.
+    select u.email, u.id as auth_user_id, u.created_at as account_created,
+           p.role, p.display_name, count(pl.league_id) as leagues
+    from auth.users u
+    left join profiles p on p.id = u.id
+    left join profile_leagues pl on pl.profile_id = p.id
+    group by u.email, u.id, u.created_at, p.role, p.display_name
+    order by u.created_at;
+
+⚠️ **Grant the role AND the membership.** A role alone still refuses every
+manage page: `requireLeagueManagerOf` resolves the league from the URL and
+checks `profile_leagues` as well. Fixing only the role produces the same blank
+tools and looks like the fix did not work.
 
 **Then walk `LAUNCH.md` Phases 2-6 on production.** Nothing else outstanding can
 be done from a checkout.
@@ -221,13 +231,32 @@ segments call it per render. A working session still costs no extra query.
 before — the fallback has nothing to find. The hook and the `app_role` enum were
 deliberately not touched.
 
-⛔ **Two legs are still standing.** A missing SMTP config or redirect-allow-list
-entry breaks sign-in one step earlier, at the magic link — before any of this
-runs. With the dev-login panel removed and the seeded accounts deleted, either
-one still leaves no way in but SQL. And whether a real magic-link sign-in works
-has **still never been confirmed**. Doing that — on `obhl.vercel.app`, as a real
-(non-`@obhl.test`) manager, checking `/manage/dashboard` shows the Manager badge
-— remains the single highest-value action left in this file.
+⛔ **That is not a hypothetical, it is the live failure mode.** Nothing creates
+a `profiles` row on sign-up — there is no trigger on `auth.users` in any
+migration — and `profiles.id` is `references auth.users(id) on delete cascade`,
+with `profile_leagues.profile_id` cascading off `profiles` in turn. So deleting
+an auth user takes its role AND its league memberships with it, and the next
+magic link for that same address mints a **new** user id with neither. The hook
+then adds no claim at all (`0010` writes one only `if v_role is not null`), the
+fallback finds no row, and the person signs in successfully to an app that
+offers them nothing. Restoring the row is *The first manager* in `LAUNCH.md`
+Phase 4, plus a `profile_leagues` row per league.
+
+⚠️ **A claim that is PRESENT but stale is not repaired either.** The resolution
+is `claimed ?? profileRole`, so the claim short-circuits the lookup whenever it
+exists. Change someone's role while the hook is on and it does not take effect
+until their next sign-in mints a new token.
+
+✅ **Both of those legs are now confirmed good, 2026-09-05.** A real magic-link
+sign-in on `obhl.vercel.app`, to a real (non-`@obhl.test`) address, was
+requested, delivered and accepted — which exercises SMTP and the redirect
+allow-list end to end, the two settings that had no fallback and had never been
+tested. Reported by the human who ran it; not measured from here.
+
+⚠️ **What that sign-in did NOT get was the Manager badge**, which is the
+missing-`profiles`-row case above rather than any of the three legs. The link
+working and the tools opening are two different tests, and only the first has
+passed.
 
 **`LAUNCH.md` Phases 2-6 are unverified from here.** This file speaks only to
 Phase 1 (the test doors). The site is live with two leagues, so most of the rest
