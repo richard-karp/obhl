@@ -199,45 +199,46 @@ test.describe("Path 17 — Per-league membership", () => {
     const client = await signedInClient("single-league-lead@obhl.test");
     const db = admin();
     const foreignLeague = await leagueId(LEAD_OUT);
+    const ownLeague = await leagueId(LEAD_IN);
 
+    // ⚠️ EVERYTHING THAT WRITES IS INSIDE THE `try`, including the foreign-league
+    // attempt below. A first pass wrapped only the control, which left the more
+    // consequential half unprotected: if `expect(written).toHaveLength(0)` fails —
+    // the very regression this test exists to catch — the foreign league's rules
+    // stay `{ hijacked: true }` for every later spec in a suite that shares one
+    // database, and the session is never signed out. A red test that also
+    // corrupts the fixtures costs more than the one it was reporting.
     const { data: before } = await db
       .from("league_rules")
       .select("content")
       .eq("league_id", foreignLeague)
       .maybeSingle();
-
-    const { data: written } = await client
-      .from("league_rules")
-      .upsert(
-        { league_id: foreignLeague, content: { hijacked: true } },
-        { onConflict: "league_id" },
-      )
-      .select("league_id");
-    expect(written ?? []).toHaveLength(0);
-
-    const { data: after } = await db
-      .from("league_rules")
-      .select("content")
-      .eq("league_id", foreignLeague)
-      .maybeSingle();
-    expect(after?.content ?? null).toEqual(before?.content ?? null);
-
-    // The control. Without it, an upsert that is broken for EVERYONE — a
-    // missing grant, a typo'd column — reads as a policy refusing an attacker.
-    // The same session, the same statement, its own league: it lands.
-    //
-    // ⚠️ In `try/finally` because it MUTATES and the suite shares one database.
-    // Without it a failure in the assertion leaves this league's rules as
-    // `{ control: true }` for every later spec — and a red test that also
-    // corrupts the fixtures costs far more than the one it was reporting. Every
-    // other mutating test in this file is written the same way.
-    const ownLeague = await leagueId(LEAD_IN);
     const { data: own } = await db
       .from("league_rules")
       .select("content")
       .eq("league_id", ownLeague)
       .maybeSingle();
+
     try {
+      const { data: written } = await client
+        .from("league_rules")
+        .upsert(
+          { league_id: foreignLeague, content: { hijacked: true } },
+          { onConflict: "league_id" },
+        )
+        .select("league_id");
+      expect(written ?? []).toHaveLength(0);
+
+      const { data: after } = await db
+        .from("league_rules")
+        .select("content")
+        .eq("league_id", foreignLeague)
+        .maybeSingle();
+      expect(after?.content ?? null).toEqual(before?.content ?? null);
+
+      // The control. Without it, an upsert that is broken for EVERYONE — a
+      // missing grant, a typo'd column — reads as a policy refusing an attacker.
+      // The same session, the same statement, its own league: it lands.
       const { data: allowed } = await client
         .from("league_rules")
         .upsert(
@@ -247,15 +248,20 @@ test.describe("Path 17 — Per-league membership", () => {
         .select("league_id");
       expect(allowed ?? []).toHaveLength(1);
     } finally {
-      // Put it back — including the no-row case, which an upsert of null content
-      // would leave behind as a spurious row rather than restore.
-      if (own) {
-        await db
-          .from("league_rules")
-          .update({ content: own.content })
-          .eq("league_id", ownLeague);
-      } else {
-        await db.from("league_rules").delete().eq("league_id", ownLeague);
+      // Both leagues, and the no-row case for each — which an upsert of null
+      // content would leave behind as a spurious row rather than restore.
+      for (const [id, prev] of [
+        [ownLeague, own],
+        [foreignLeague, before],
+      ] as const) {
+        if (prev) {
+          await db
+            .from("league_rules")
+            .update({ content: prev.content })
+            .eq("league_id", id);
+        } else {
+          await db.from("league_rules").delete().eq("league_id", id);
+        }
       }
       await client.auth.signOut();
     }

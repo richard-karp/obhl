@@ -25,7 +25,9 @@ function ToolbarButton({
       disabled={!editor}
       className={cn(
         "rounded px-2 py-1 text-sm",
-        active ? "bg-secondary text-secondary-foreground" : "hover:bg-secondary/60",
+        active
+          ? "bg-secondary text-secondary-foreground"
+          : "hover:bg-secondary/60",
       )}
     >
       {children}
@@ -65,7 +67,7 @@ export function RulesEditor({
     setMessage("");
     const res = await saveRules(leagueId, editor.getJSON());
     setSaving(false);
-    setMessage(res?.ok ? "Saved." : res?.message ?? "Error saving.");
+    setMessage(res?.ok ? "Saved." : (res?.message ?? "Error saving."));
   }
 
   return (
@@ -88,14 +90,18 @@ export function RulesEditor({
         <ToolbarButton
           editor={editor}
           active={!!editor?.isActive("heading", { level: 2 })}
-          onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+          onClick={() =>
+            editor?.chain().focus().toggleHeading({ level: 2 }).run()
+          }
         >
           H2
         </ToolbarButton>
         <ToolbarButton
           editor={editor}
           active={!!editor?.isActive("heading", { level: 3 })}
-          onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
+          onClick={() =>
+            editor?.chain().focus().toggleHeading({ level: 3 }).run()
+          }
         >
           H3
         </ToolbarButton>
@@ -118,7 +124,14 @@ export function RulesEditor({
       <EditorContent editor={editor} />
 
       <div className="flex items-center gap-3">
-        <Button onClick={onSave} disabled={saving}>
+        {/*
+          `!editor` as well as `saving`. Tiptap's `immediatelyRender: false`
+          defers the mount by a tick, and lazy-loading this component widened
+          that window — inside it `onSave` returns silently, so a fast click did
+          nothing with no feedback at all. `10-rules.spec.ts` clicks Save
+          immediately after opening the editor and would sit on its timeout.
+        */}
+        <Button onClick={onSave} disabled={saving || !editor}>
           {saving ? "Saving…" : "Save rules"}
         </Button>
         {message ? (
