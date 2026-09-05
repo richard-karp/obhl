@@ -237,6 +237,14 @@ export default async function AuditLogPage({
         const who = typeof nd?.name === "string" ? nd.name : "a player";
         return `Restored ${who} to this league`;
       }
+      // ⚠️ The half-failed transfer, and the entry `movePlayerToTeam` calls "the
+      // only way anyone finds out what reached the database". It fell through to
+      // `default` and rendered as the bare string "transfer player partial".
+      case "transfer_player_partial": {
+        const pid = typeof od?.player_id === "string" ? od.player_id : null;
+        const who = (pid ? playerNameMap.get(pid) : undefined) ?? "a player";
+        return `Transfer of ${who} FAILED part-way — they were released from their old team but not added to the new one`;
+      }
       case "transfer_player": {
         // `new_data.name` is only written on the add-form path; `transferPlayer`
         // passes no label.

@@ -1730,7 +1730,8 @@ export function assignNights(
   // disjunction, so Phase P's MATRIX is byte-identical with and without it —
   // but `resolved.biases` is consumed INSIDE `planByParticipation`, into
   // `assignSlots` and into `iceOutcome` (see `slotArgs` and `outcomeFor`
-  // below). `planByWeeks` takes no constraints at all. So forcing Phase P for a
+  // ABOVE, in `planByParticipation`). `planByWeeks` takes no constraints at
+  // all. So forcing Phase P for a
   // bias-only set was buying the only plan whose Phase S had ever seen the
   // bias.
   //
