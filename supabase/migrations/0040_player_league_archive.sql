@@ -24,13 +24,23 @@
 -- archived person is never in the roster table should know it is a rule and not
 -- a coincidence.
 --
--- ⚠️ IT IS A RULE TWO WRITERS APPLY, NOT AN INVARIANT THIS SCHEMA HOLDS.
--- `archivePlayer` and `addRosterPlayer` each read what the other writes, so a
--- sufficiently unlucky interleaving lands an archived person on a roster with
--- no error. `archivePlayer` re-reads the roster after its write and undoes
--- itself, which closes the order where the add arrives mid-archive; the reverse
--- order is still open. Making it actually hold needs the trigger. Recorded so
--- nobody reads the paragraph above as a guarantee and builds on it.
+-- ⚠️ IT IS A RULE ITS WRITERS APPLY, NOT AN INVARIANT THIS SCHEMA HOLDS.
+-- THREE writers, and counting them wrong is how the gap opened the first time:
+-- this paragraph said "two" until a review found `mergePlayers` repointing
+-- `team_players.player_id` with no archive check at all — archive someone whose
+-- rows here are all departed, then merge an actively-rostered duplicate into
+-- them, and no interleaving is needed for the bad state, just the two steps in
+-- order. Now guarded in `planMerge` (reason `keep-archived`).
+--
+-- So: `archivePlayer`, `addRosterPlayer` and `mergePlayers`, each reading what
+-- the others write. The remaining hole is a race, not a sequence —
+-- `archivePlayer` re-reads the roster after its write and undoes itself, which
+-- closes the order where an add arrives mid-archive; the reverse order is still
+-- open. Making it actually hold needs the trigger.
+--
+-- ⛔ ANY FUTURE WRITER OF `team_players.player_id` OR OF THIS TABLE JOINS THAT
+-- LIST. There is nothing in the schema to stop one, which is the whole point of
+-- this paragraph — count the writers before trusting the one above it.
 
 create table player_league_archive (
   player_id   uuid not null references players(id)  on delete cascade,
