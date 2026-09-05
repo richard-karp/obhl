@@ -474,12 +474,37 @@ export function solveParticipation(
       const constrained = new Array<boolean>(T).fill(false);
       const minWd = Array.from({ length: T }, () => new Array<number>(D).fill(0));
       const maxWd = Array.from({ length: T }, () => [...nightsPerWd]);
-      for (const f of forced ?? []) {
-        constrained[f.team] = true;
-        const d = nights[f.night].weekday;
-        // A forced play is a night that weekday can no longer spend a bye on.
-        if (f.plays) maxWd[f.team][d]--;
-        else minWd[f.team][d]++;
+      // ⛔ COUNTED OFF THE DEDUPED MATRICES, NOT OFF `forced` — these are
+      // per-CELL limits, and `forced` is a list of REQUESTS. Two requests can
+      // name one cell without anybody making a mistake: `saveScheduleConstraint`
+      // is a plain insert with no unique index and the team picker keeps its
+      // value after a successful add (see `constraints.ts`), so a double-click
+      // is enough, and a `bye_week` plus a `bye_on` inside that same week
+      // resolves to two entries for one night on its own. Iterating requests
+      // then charged the same night twice, pinning a per-weekday target the
+      // season could not meet: at 8 teams on 8 nights, one duplicated `bye_on`
+      // took `solveParticipation` from a plan to null. The rung ladder hid the
+      // refusal — rungs 4-6 run with `exact: false` and never reach here — so
+      // the visible cost was a quietly worse schedule and no message anywhere.
+      //
+      // `mustBye`/`mustPlay` are booleans, so they deduped it thirty lines
+      // above. Reading them here is what keeps the two loops from disagreeing.
+      if (hasForced) {
+        for (let t = 0; t < T; t++) {
+          for (let n = 0; n < N; n++) {
+            const d = nights[n].weekday;
+            // A forced play is a night that weekday can no longer spend a bye
+            // on. Never both for one cell — that pair returns null above.
+            if (mustPlay![t][n]) {
+              constrained[t] = true;
+              maxWd[t][d]--;
+            }
+            if (mustBye![t][n]) {
+              constrained[t] = true;
+              minWd[t][d]++;
+            }
+          }
+        }
       }
       for (const b of byeInWeek ?? []) constrained[b.team] = true;
       limits = { constrained, min: minWd, max: maxWd };

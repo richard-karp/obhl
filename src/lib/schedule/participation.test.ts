@@ -369,3 +369,58 @@ describe("solveParticipation with manager constraints", () => {
     expect(others.filter((s) => s !== 0).length).toBeLessThanOrEqual(1);
   });
 });
+
+/**
+ * Two requests naming ONE cell.
+ *
+ * The per-weekday bye limits are per-cell, `forced` is a list of requests, and
+ * the two are not the same length. Neither route in requires the manager to do
+ * anything wrong: `saveScheduleConstraint` is a plain insert with no unique
+ * index and the picker keeps its team after a successful add, so a double-click
+ * duplicates a request; and a `bye_week` plus a `bye_on` inside that same week
+ * resolves to two entries for one night with no duplicate request at all.
+ *
+ * ⚠️ `exactWeekdayTargets: true` — the bug lives in the exact-target pinning,
+ * and the generator's rung ladder drops to `exact: false` at rung 4, which is
+ * why this never surfaced as a refusal end-to-end. It surfaced as a worse
+ * schedule and no message, so it is asserted here at the solver.
+ */
+describe("solveParticipation with duplicate forced cells", () => {
+  // Tighter than `base()` above on purpose: 8 nights leaves 2 byes a team, so
+  // a single duplicated request is already enough to over-count a weekday.
+  const tight = () => ({
+    teamCount: 8,
+    nights: twoNightWeeks(4, 3),
+    gamesPerTeam: new Array(8).fill(6),
+    weekdayCount: 2,
+    exactWeekdayTargets: true,
+  });
+  const bye = { team: 0, night: 0, plays: false };
+
+  it("plans on one request, which is the control", () => {
+    const res = solveParticipation({ ...tight(), forced: [bye] });
+    expect(res).not.toBeNull();
+    expect(res!.plays[0][0]).toBe(false);
+  });
+
+  it("plans on the same request twice", () => {
+    const res = solveParticipation({ ...tight(), forced: [bye, bye] });
+    expect(res).not.toBeNull();
+    expect(res!.plays[0][0]).toBe(false);
+  });
+
+  it("plans on a bye_week overlapping a bye_on", () => {
+    // Week 0 is nights 0 and 1. `bye_week` forces both; `bye_on` re-forces one.
+    const res = solveParticipation({
+      ...tight(),
+      forced: [
+        { team: 1, night: 0, plays: false },
+        { team: 1, night: 1, plays: false },
+        { team: 1, night: 0, plays: false },
+      ],
+    });
+    expect(res).not.toBeNull();
+    expect(res!.plays[1][0]).toBe(false);
+    expect(res!.plays[1][1]).toBe(false);
+  });
+});
