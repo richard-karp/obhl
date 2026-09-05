@@ -225,31 +225,50 @@ test.describe("Path 17 — Per-league membership", () => {
     // The control. Without it, an upsert that is broken for EVERYONE — a
     // missing grant, a typo'd column — reads as a policy refusing an attacker.
     // The same session, the same statement, its own league: it lands.
+    //
+    // ⚠️ In `try/finally` because it MUTATES and the suite shares one database.
+    // Without it a failure in the assertion leaves this league's rules as
+    // `{ control: true }` for every later spec — and a red test that also
+    // corrupts the fixtures costs far more than the one it was reporting. Every
+    // other mutating test in this file is written the same way.
     const ownLeague = await leagueId(LEAD_IN);
     const { data: own } = await db
       .from("league_rules")
       .select("content")
       .eq("league_id", ownLeague)
       .maybeSingle();
-    const { data: allowed } = await client
-      .from("league_rules")
-      .upsert(
-        { league_id: ownLeague, content: { control: true } },
-        { onConflict: "league_id" },
-      )
-      .select("league_id");
-    expect(allowed ?? []).toHaveLength(1);
-
-    // Put it back: the suite shares one database and later specs read these.
-    await db
-      .from("league_rules")
-      .upsert(
-        { league_id: ownLeague, content: own?.content ?? null },
-        { onConflict: "league_id" },
-      );
-
-    await client.auth.signOut();
+    try {
+      const { data: allowed } = await client
+        .from("league_rules")
+        .upsert(
+          { league_id: ownLeague, content: { control: true } },
+          { onConflict: "league_id" },
+        )
+        .select("league_id");
+      expect(allowed ?? []).toHaveLength(1);
+    } finally {
+      // Put it back — including the no-row case, which an upsert of null content
+      // would leave behind as a spurious row rather than restore.
+      if (own) {
+        await db
+          .from("league_rules")
+          .update({ content: own.content })
+          .eq("league_id", ownLeague);
+      } else {
+        await db.from("league_rules").delete().eq("league_id", ownLeague);
+      }
+      await client.auth.signOut();
+    }
   });
+
+  // ⚠️ The SERVER path — a manager of another league reaching `saveRules` itself
+  // — is not tested here, and deliberately so. It is covered by
+  // `src/lib/actions/league-guards.test.ts`, which asserts every exported action
+  // reaches a league guard; removing `requireLeagueManager` from `saveRules`
+  // turns that test red (watched, 2026-09-05). A review read this file alone,
+  // saw the two tests above cover only the affordance and the RLS half, and
+  // concluded the guard was unprotected. It is not — but it is protected
+  // somewhere else, which is worth saying here rather than re-deriving.
 
   test("a scorekeeper cannot score another league's games", async ({
     page,
