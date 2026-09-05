@@ -115,13 +115,40 @@ test.describe("Path 11 — Game management", () => {
     );
   });
 
-  test("a visitor is not shown cancelled games", async ({ page }) => {
-    // The section exists so somebody can act on those games. To a visitor a
-    // cancelled game is noise, and the public page did not list them before.
+  test("a visitor is not shown cancelled games", async ({ page, browser }) => {
+    // ⚠️ CONTROLLED. A first version asserted the heading was absent on a fresh
+    // context — and the seed has no cancelled game, so it passed whether or not
+    // the gate worked. There has to BE one for the absence to mean anything.
+    await signedInAs(page, "Manager");
     await page.goto("/obhl/schedule");
-    await expect(page.getByRole("heading", { name: "Cancelled" })).toHaveCount(
-      0,
-    );
+    await page.getByRole("link", { name: "Score", exact: true }).last().click();
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
+    // Held so the restore below does not have to find a link named "Manage" on a
+    // page whose header also has one.
+    const scoresheet = page.url();
+    await page.getByRole("button", { name: "Cancel game" }).click();
+    await page.waitForLoadState("networkidle");
+
+    try {
+      // The manager sees it...
+      await page.goto("/obhl/schedule");
+      await expect(
+        page.getByRole("heading", { name: "Cancelled" }),
+      ).toBeVisible();
+
+      // ...and an anonymous visitor, on the same schedule, does not.
+      const anon = await browser.newContext();
+      const anonPage = await anon.newPage();
+      await anonPage.goto("/obhl/schedule");
+      await expect(
+        anonPage.getByRole("heading", { name: "Cancelled" }),
+      ).toHaveCount(0);
+      await anon.close();
+    } finally {
+      await page.goto(scoresheet);
+      await page.getByRole("button", { name: "Restore to scheduled" }).click();
+      await page.waitForLoadState("networkidle");
+    }
   });
 
   test("postpone a game and restore it", async ({ page }) => {

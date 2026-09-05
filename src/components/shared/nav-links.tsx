@@ -25,7 +25,13 @@ export function NavLinks({ league }: { league: string }) {
   const base = `/${league}`;
 
   return (
-    <nav className="flex items-center gap-1 overflow-x-auto">
+    // Named, because the staff row beside it is a second `navigation` landmark
+    // and an unnamed one leaves a screen-reader user with "navigation" and
+    // "Staff tools navigation" to tell apart.
+    <nav
+      aria-label="League"
+      className="flex items-center gap-1 overflow-x-auto"
+    >
       {LINKS.map((link) => {
         const href = `${base}${link.path}`;
         // Exact match for the home link; elsewhere the section stays lit on its

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { SiteHeader } from "@/components/shared/site-header";
 import { SiteFooter } from "@/components/shared/site-footer";
 import { resolveLeagueBySlug } from "@/lib/league/current";
-import { requireVisibleLeague, canManageLeague } from "@/lib/auth/guards";
+import { requireVisibleLeague, canScoreLeague } from "@/lib/auth/guards";
 import { getSessionUser } from "@/lib/auth/session";
 import { officeTierOf } from "@/lib/auth/office";
 import { StaffLinks } from "@/components/manage/manage-nav";
@@ -28,13 +28,24 @@ export default async function PublicLayout({
   // to cost a manager every link in `ManageNav`, because the manage chrome lives
   // in the other route group — a consequence of the merges that nobody chose.
   //
+  // ⚠️ It renders on EVERY public page, not only the merged ones, because it is
+  // in this layout. That is wider than the problem it fixes and is the simple
+  // shape; the cost is that a manager sees "Games" beside the public nav's
+  // "Schedule" and duplicate Teams and Rules entries, both pointing at the same
+  // URLs under different names.
+  //
   // The row is additive: `SiteHeader` stays, so "All leagues", the badge and the
   // link on to the tools all still work, and the page still reads as the public
   // page it is. `getSessionUser` and `isLeagueMember` are both memoized, so for a
   // manager this is one extra membership read the header already paid for, and
   // for everyone else — including every anonymous visitor — it is one short-
   // circuit on a missing cookie.
-  const user = (await canManageLeague(league.id))
+  // ⚠️ `canScoreLeague`, NOT `canManageLeague`. The page this change deleted was
+  // `/manage/score` — the SCOREKEEPER's — so gating the replacement nav on
+  // managers left the one role that actually lost a page with no staff nav at
+  // all, and `LINKS.scorekeeper` dead on every public page. Same two roles the
+  // deleted page's own guard admitted.
+  const user = (await canScoreLeague(league.id))
     ? await getSessionUser()
     : null;
   const officeTier = user ? await officeTierOf(user.id) : null;

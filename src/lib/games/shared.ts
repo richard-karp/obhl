@@ -23,6 +23,5 @@ export function check(error: { message: string } | null, what: string) {
 
 export function revalidateAfterScore(gameId: string, alsoPublic = false) {
   revalidatePath("/[league]/games/[gameId]/score", "page");
-  revalidatePath("/[league]/schedule", "page");
   if (alsoPublic) for (const p of PUBLIC_PATHS) revalidatePath(p, "page");
 }
