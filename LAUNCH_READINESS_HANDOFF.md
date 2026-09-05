@@ -76,8 +76,9 @@ scorekeepers and captains read it before it is public (*Member reads*, below).
 ⚠️ **THIS FILE IS NOT ON `main` YET.** It lives on `docs/readiness-and-url-space`
 (PR #33, CI green). `main`'s copy still says migrations are unpushed and a
 sign-in is unverified — both false. Merging #33 is what stops the next reader
-being misled. PR #34 (export 404s, CI green) and PR #23 (future-only scheduling
-docs, unmerged and far behind) are the other two open.
+being misled. Everything else waiting on a person rather than on work — the
+other open PRs, two decisions, a stale branch — is listed under *Open — waiting
+on a person* below. Nothing outstanding from 2026-09-05 is anywhere else.
 
 **What remains is item 4: the `LAUNCH.md` phases — and it now has a date on
 it.** The published season's first game night is **2026-09-10**, after which its
@@ -184,6 +185,23 @@ leaves behind* above.
 constraints, roster editing, team branding, staff auth, season gating), merged
 2026-09-05 as `b244f65`. Item 7 is the one still open: a standing limitation
 that needs an account created outside this repo.
+
+## Open — waiting on a person, not on work
+
+⚠️ **This is the completeness list.** Everything left outstanding as of
+2026-09-05 appears here or in the items table above; if something is in neither,
+it was finished, and the commit that finished it says so.
+
+| What | State | Who |
+|---|---|---|
+| **PR #33** — this file, the URL spec, the production verification | CI green, mergeable | merge it; `main` is misleading until then |
+| **PR #34** — exports 404 an unknown id instead of an empty file | CI green, mergeable | merge it |
+| **PR #23** — future-only scheduling brief/design/plan | Docs only, 2,282 lines, 3 new files, merges cleanly but is far behind | ⚠️ **a decision, not a task.** Merging puts an UNBUILT plan in `docs/superpowers/plans/`, where it reads as scheduled work. Closing it keeps the branch. ⛔ Item 9's guard does NOT depend on it |
+| **Issue #30** — public pages answer 200 for `notFound()` | Investigated, deliberately unfixed, evidence on the issue | a decision: close as working-as-documented (recommended), or accept a database round trip in `proxy` on every page view |
+| **Item 9** — the past-date guard | Specced above, unbuilt | ~20 minutes; offered 2026-09-05 and not taken up |
+| **`LAUNCH.md` Verification steps 4, 5, 6** | The manager badge, the league switcher, an announcement in one league only | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written |
+| **Item 7** — custom SMTP, then a set/reset flow, then a password field | Sequence written, nothing started | Supabase dashboard + `vercel env` writes; ⛔ not doable from a checkout |
+| **`docs/close-migration-push`** | Its seven commits are all in PR #33 | deletable once #33 lands; ⚠️ it is CHECKED OUT in the `manager-tools` worktree, so remove the worktree's checkout first |
 
 ---
 
