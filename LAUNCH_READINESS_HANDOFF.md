@@ -192,13 +192,18 @@ that needs an account created outside this repo.
 2026-09-05 appears here or in the items table above; if something is in neither,
 it was finished, and the commit that finished it says so.
 
+⚠️ **No CI verdict is recorded here on purpose.** It goes stale on the next push
+and a stale green is worse than none — `gh run list --branch <branch> --limit 1`
+is one command and is always right.
+
 | What | State | Who |
 |---|---|---|
-| **PR #33** — this file, the URL spec, the production verification | CI green, mergeable | merge it; `main` is misleading until then |
-| **PR #34** — exports 404 an unknown id instead of an empty file | CI green, mergeable | merge it |
+| ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in *Next action* |
+| **PR #33** — this file, the URL spec, the production verification | Mergeable; docs only | merge it; `main` is misleading until then |
+| **PR #34** — exports 404 an unknown id instead of an empty file | Mergeable; one test, watched failing then passing | merge it |
 | **PR #23** — future-only scheduling brief/design/plan | Docs only, 2,282 lines, 3 new files, merges cleanly but is far behind | ⚠️ **a decision, not a task.** Merging puts an UNBUILT plan in `docs/superpowers/plans/`, where it reads as scheduled work. Closing it keeps the branch. ⛔ Item 9's guard does NOT depend on it |
 | **Issue #30** — public pages answer 200 for `notFound()` | Investigated, deliberately unfixed, evidence on the issue | a decision: close as working-as-documented (recommended), or accept a database round trip in `proxy` on every page view |
-| **Item 9** — the past-date guard | Specced above, unbuilt | ~20 minutes; offered 2026-09-05 and not taken up |
+| **Item 9** — the past-date guard | Specced in *Item 9 — the cheap guard*, below; unbuilt | ~20 minutes; offered 2026-09-05 and not taken up |
 | **`LAUNCH.md` Verification steps 4, 5, 6** | The manager badge, the league switcher, an announcement in one league only | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written |
 | **Item 7** — custom SMTP, then a set/reset flow, then a password field | Sequence written, nothing started | Supabase dashboard + `vercel env` writes; ⛔ not doable from a checkout |
 | **`docs/close-migration-push`** | Its seven commits are all in PR #33 | deletable once #33 lands; ⚠️ it is CHECKED OUT in the `manager-tools` worktree, so remove the worktree's checkout first |
