@@ -296,7 +296,7 @@ export async function runEsportsdeskImport(
   } catch (e) {
     // Rosters already imported successfully; surface the schedule failure but
     // don't roll back the (useful) teams + players.
-    revalidatePath("/[league]/manage/seasons", "page");
+    revalidatePath("/[league]/seasons", "page");
     revalidatePath("/[league]", "layout");
     // This import creates a league; the root landing page lists them.
     revalidatePath("/");
@@ -388,7 +388,7 @@ export async function runEsportsdeskImport(
     }
     statRowCount = rosterRows.length;
   } catch (e) {
-    revalidatePath("/[league]/manage/seasons", "page");
+    revalidatePath("/[league]/seasons", "page");
     revalidatePath("/[league]", "layout");
     // This import creates a league; the root landing page lists them.
     revalidatePath("/");
@@ -398,7 +398,7 @@ export async function runEsportsdeskImport(
     };
   }
 
-  revalidatePath("/[league]/manage/seasons", "page");
+  revalidatePath("/[league]/seasons", "page");
   revalidatePath("/[league]", "layout");
   // This import creates a league; the root landing page lists them.
   revalidatePath("/");

@@ -13,8 +13,8 @@ export default async function PublicLayout({
   const { league: slug } = await params;
   const league = await resolveLeagueBySlug(slug);
   // `[league]/layout.tsx` has already 404'd an unknown slug. What is left is a
-  // league that exists but isn't published: visible to its manager under
-  // `/manage`, absent from the public site until it goes live.
+  // league that exists but isn't published: visible to its manager on the
+  // staff pages, absent from the public site until it goes live.
   if (!league || !league.is_public) notFound();
 
   return (

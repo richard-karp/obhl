@@ -166,7 +166,7 @@ export async function createStaffAccount(
     await logStaffChange(actor.id, leagueId, "grant_league", {
       new_data: { profile_id: userId, email, role: existing.role },
     });
-    revalidatePath("/[league]/manage/people", "page");
+    revalidatePath("/[league]/people", "page");
     return {
       ok: true,
       message:
@@ -212,7 +212,7 @@ export async function createStaffAccount(
     new_data: { profile_id: userId, email, role, display_name: displayName },
   });
 
-  revalidatePath("/[league]/manage/people", "page");
+  revalidatePath("/[league]/people", "page");
   return { ok: true, message: `${email} added as ${role.replace("league_", "")}.` };
 }
 
@@ -280,7 +280,7 @@ export async function updateStaffRole(formData: FormData) {
     old_data: { profile_id: id, role: before?.role ?? null },
     new_data: { profile_id: id, role, display_name: before?.display_name ?? null },
   });
-  revalidatePath("/[league]/manage/people", "page");
+  revalidatePath("/[league]/people", "page");
 }
 
 /**
@@ -350,5 +350,5 @@ export async function removeStaff(formData: FormData) {
       display_name: before?.display_name ?? null,
     },
   });
-  revalidatePath("/[league]/manage/people", "page");
+  revalidatePath("/[league]/people", "page");
 }

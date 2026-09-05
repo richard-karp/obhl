@@ -20,7 +20,7 @@ async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
   // any more. Every caller below expects to be inside a league's manage tools.
   await page.waitForURL("/");
-  await page.goto("/obhl/manage/dashboard");
+  await page.goto("/obhl/dashboard");
 }
 
 const TEST_TITLE = `E2E Test Announcement ${Date.now()}`;
@@ -31,7 +31,7 @@ test.describe("Path 13 — Announcements", () => {
     page,
   }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/manage/announcements");
+    await page.goto("/obhl/announcements");
 
     await page
       .getByLabel("Title")
@@ -51,7 +51,7 @@ test.describe("Path 13 — Announcements", () => {
     await expect(page.getByText(TEST_TITLE)).toBeVisible();
 
     // Delete from manage page
-    await page.goto("/obhl/manage/announcements");
+    await page.goto("/obhl/announcements");
     await page
       .locator('[data-slot="card"]')
       .filter({ hasText: TEST_TITLE })
@@ -88,7 +88,7 @@ test.describe("Path 13 — Announcements", () => {
       .single();
 
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/manage/announcements");
+    await page.goto("/obhl/announcements");
     await page
       .getByLabel("Title")
       .or(page.getByPlaceholder("Title"))
@@ -109,10 +109,10 @@ test.describe("Path 13 — Announcements", () => {
       .eq("title", title)
       .single();
 
-    await page.goto("/obhl/manage/audit");
+    await page.goto("/obhl/audit");
     await expect(page.getByText(`Posted "${title}"`)).toBeVisible();
 
-    await page.goto("/obhl/manage/announcements");
+    await page.goto("/obhl/announcements");
     await page
       .locator('[data-slot="card"]')
       .filter({ hasText: title })
@@ -120,7 +120,7 @@ test.describe("Path 13 — Announcements", () => {
       .click();
     await page.waitForLoadState("networkidle");
 
-    await page.goto("/obhl/manage/audit");
+    await page.goto("/obhl/audit");
     await expect(page.getByText(`Deleted "${title}"`)).toBeVisible();
 
     // …and neither entry was filed under a null league, which is the state the

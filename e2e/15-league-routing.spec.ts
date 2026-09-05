@@ -23,7 +23,8 @@ async function setHarborPublic(is_public: boolean) {
     .from("leagues")
     .update({ is_public })
     .eq("slug", "harbor");
-  if (error) throw new Error(`could not set harbor is_public: ${error.message}`);
+  if (error)
+    throw new Error(`could not set harbor is_public: ${error.message}`);
 }
 
 test.describe("Path 16 — Per-league routing", () => {
@@ -50,7 +51,9 @@ test.describe("Path 16 — Per-league routing", () => {
     await expect(page.getByRole("link", { name: "Sharks" })).toHaveCount(0);
   });
 
-  test("a game cannot be viewed under another league's URL", async ({ page }) => {
+  test("a game cannot be viewed under another league's URL", async ({
+    page,
+  }) => {
     // Games are addressed by id alone, so the URL's league is the only thing
     // asserting ownership — and nothing about the id enforces it.
     //
@@ -130,10 +133,9 @@ test.describe("Path 16 — Per-league routing", () => {
     await page.goto("/obhl/standings");
     const nav = page.getByRole("navigation").first();
 
-    await expect(nav.getByRole("link", { name: "Schedule" }).first()).toHaveAttribute(
-      "href",
-      "/obhl/schedule",
-    );
+    await expect(
+      nav.getByRole("link", { name: "Schedule" }).first(),
+    ).toHaveAttribute("href", "/obhl/schedule");
     await expect(
       nav.getByRole("link", { name: "Standings" }).first(),
     ).toHaveAttribute("aria-current", "page");
@@ -149,10 +151,10 @@ test.describe("Path 16 — Per-league routing", () => {
     await page.goto("/login");
     await page.getByRole("button", { name: "Manager" }).click();
     await page.waitForURL("/");
-    await page.goto("/obhl/manage/seasons");
+    await page.goto("/obhl/seasons");
 
     await page.getByLabel("Select league").selectOption("harbor");
-    await page.waitForURL("/harbor/manage/dashboard");
+    await page.waitForURL("/harbor/dashboard");
   });
 
   test("a league can be managed before it is public", async ({ page }) => {
@@ -168,8 +170,8 @@ test.describe("Path 16 — Per-league routing", () => {
       const publicPage = await page.goto("/harbor");
       expect(publicPage?.status()).toBe(404);
 
-      await page.goto("/harbor/manage/dashboard");
-      await expect(page).toHaveURL("/harbor/manage/dashboard");
+      await page.goto("/harbor/dashboard");
+      await expect(page).toHaveURL("/harbor/dashboard");
       await expect(page.getByRole("heading", { name: "Manage" })).toBeVisible();
     } finally {
       await setHarborPublic(true);
@@ -195,7 +197,7 @@ test.describe("Path 16 — Per-league routing", () => {
     await page.getByRole("button", { name: "Manager" }).click();
     await page.waitForURL("/");
 
-    await page.goto("/harbor/manage/announcements");
+    await page.goto("/harbor/announcements");
     await page.getByLabel("Title").fill(title);
     await page.getByLabel("Message").fill("Posted by a test against Harbor.");
     await page.getByRole("button", { name: "Post announcement" }).click();
@@ -217,16 +219,16 @@ test.describe("Path 16 — Per-league routing", () => {
     await page.getByRole("button", { name: "Manager" }).click();
     await page.waitForURL("/");
 
-    await page.goto("/harbor/manage/seasons");
+    await page.goto("/harbor/seasons");
     await page.getByLabel("Name").fill(name);
     await page.getByRole("button", { name: "Create season" }).click();
     // Creating continues to the new season's setup page.
-    await page.waitForURL(/\/harbor\/manage\/seasons\//);
+    await page.waitForURL(/\/harbor\/seasons\//);
 
-    await page.goto("/harbor/manage/seasons");
+    await page.goto("/harbor/seasons");
     await expect(page.getByText(name)).toBeVisible();
 
-    await page.goto("/obhl/manage/seasons");
+    await page.goto("/obhl/seasons");
     await expect(page.getByText(name)).toHaveCount(0);
   });
 
@@ -260,16 +262,12 @@ test.describe("Path 16 — Per-league routing", () => {
     page,
   }) => {
     await signInAsManager(page);
-    const id = await harborId(
-      page,
-      "/harbor/manage/seasons",
-      "/harbor/manage/seasons/",
-    );
+    const id = await harborId(page, "/harbor/seasons", "/harbor/seasons/");
 
-    const own = await page.goto(`/harbor/manage/seasons/${id}`);
+    const own = await page.goto(`/harbor/seasons/${id}`);
     expect(own?.status()).toBe(200);
 
-    const foreign = await page.goto(`/obhl/manage/seasons/${id}`);
+    const foreign = await page.goto(`/obhl/seasons/${id}`);
     expect(foreign?.status()).toBe(404);
     await expect(page.getByText("That page couldn't be found.")).toBeVisible();
   });
@@ -278,16 +276,12 @@ test.describe("Path 16 — Per-league routing", () => {
     page,
   }) => {
     await signInAsManager(page);
-    const id = await harborId(
-      page,
-      "/harbor/manage/rosters",
-      "/harbor/manage/rosters/",
-    );
+    const id = await harborId(page, "/harbor/rosters", "/harbor/rosters/");
 
-    const own = await page.goto(`/harbor/manage/rosters/${id}`);
+    const own = await page.goto(`/harbor/rosters/${id}`);
     expect(own?.status()).toBe(200);
 
-    const foreign = await page.goto(`/obhl/manage/rosters/${id}`);
+    const foreign = await page.goto(`/obhl/rosters/${id}`);
     expect(foreign?.status()).toBe(404);
     await expect(page.getByText("That page couldn't be found.")).toBeVisible();
   });
@@ -296,16 +290,12 @@ test.describe("Path 16 — Per-league routing", () => {
     page,
   }) => {
     await signInAsManager(page);
-    const id = await harborId(
-      page,
-      "/harbor/manage/score",
-      "/harbor/manage/score/",
-    );
+    const id = await harborId(page, "/harbor/score", "/harbor/score/");
 
-    const own = await page.goto(`/harbor/manage/score/${id}`);
+    const own = await page.goto(`/harbor/score/${id}`);
     expect(own?.status()).toBe(200);
 
-    const foreign = await page.goto(`/obhl/manage/score/${id}`);
+    const foreign = await page.goto(`/obhl/score/${id}`);
     expect(foreign?.status()).toBe(404);
     await expect(page.getByText("That page couldn't be found.")).toBeVisible();
   });
@@ -317,16 +307,12 @@ test.describe("Path 16 — Per-league routing", () => {
     const SUSPENSION = /Updated is suspended for/;
     await signInAsManager(page);
 
-    await page.goto("/obhl/manage/audit");
+    await page.goto("/obhl/audit");
     const oceanviewBefore = await page.getByText(SUSPENSION).count();
 
     // Suspend a Harbor player: one audit entry, against Harbor.
-    const teamId = await harborId(
-      page,
-      "/harbor/manage/rosters",
-      "/harbor/manage/rosters/",
-    );
-    await page.goto(`/harbor/manage/rosters/${teamId}`);
+    const teamId = await harborId(page, "/harbor/rosters", "/harbor/rosters/");
+    await page.goto(`/harbor/rosters/${teamId}`);
     const row = page.locator("table tbody tr").nth(2);
     await row.getByRole("button", { name: "Suspend" }).click();
     await expect(
@@ -335,11 +321,11 @@ test.describe("Path 16 — Per-league routing", () => {
 
     // Harbor's log has it — which also proves logAudit resolved the league,
     // since an entry with no league_id is filtered out of every scoped view.
-    await page.goto("/harbor/manage/audit");
+    await page.goto("/harbor/audit");
     expect(await page.getByText(SUSPENSION).count()).toBeGreaterThan(0);
 
     // Oceanview's is untouched.
-    await page.goto("/obhl/manage/audit");
+    await page.goto("/obhl/audit");
     expect(await page.getByText(SUSPENSION).count()).toBe(oceanviewBefore);
   });
 
@@ -385,5 +371,59 @@ test.describe("Path 16 — Per-league routing", () => {
     await expect(
       nav.getByRole("link", { name: "Teams" }).first(),
     ).toHaveAttribute("aria-current", "page");
+  });
+
+  /**
+   * The staff tools lost their `/manage/` prefix, so every link a manager has
+   * bookmarked or pasted into an email names a URL that no longer resolves. The
+   * redirect in `next.config.ts` is the only thing keeping those alive, and
+   * nothing else in the suite would notice if it were deleted.
+   */
+  test("every old /manage/ URL still lands on its page", async ({
+    request,
+  }) => {
+    const moved = [
+      ["/obhl/manage/dashboard", "/obhl/dashboard"],
+      ["/obhl/manage/people/duplicates", "/obhl/people/duplicates"],
+      [
+        "/obhl/manage/schedule-builder/one-off",
+        "/obhl/schedule-builder/one-off",
+      ],
+      ["/obhl/manage/rules/edit", "/obhl/rules/edit"],
+      // A dynamic segment rides along rather than being swallowed.
+      ["/harbor/manage/seasons/abc-123", "/harbor/seasons/abc-123"],
+      // Zero trailing segments: the bare prefix lands on the league home.
+      ["/obhl/manage", "/obhl"],
+    ];
+    // `location` may be relative, so resolve it against a base before reading
+    // the parts off it rather than assuming either shape.
+    const locationOf = (res: { headers(): Record<string, string> }) =>
+      new URL(res.headers()["location"], "http://localhost");
+
+    for (const [from, to] of moved) {
+      const res = await request.get(from, { maxRedirects: 0 });
+      expect(res.status(), `${from} should be a permanent redirect`).toBe(308);
+      expect(locationOf(res).pathname, `${from} should move to ${to}`).toBe(to);
+    }
+
+    // A query string survives the move; a manager's filtered link keeps working.
+    const withQuery = await request.get("/obhl/manage/people?q=smith", {
+      maxRedirects: 0,
+    });
+    expect(locationOf(withQuery).pathname).toBe("/obhl/people");
+    expect(locationOf(withQuery).search).toBe("?q=smith");
+  });
+
+  test("the League Office keeps its prefix, which is not a league", async ({
+    request,
+  }) => {
+    // `/manage/office` lives outside `[league]` and must not be swallowed by the
+    // redirect above: its first segment is `manage`, so a careless source
+    // pattern eats it. Anonymous, the office's own guard sends it to /login —
+    // which is the point: it reached the route rather than being rewritten.
+    const res = await request.get("/manage/office", { maxRedirects: 0 });
+    expect(
+      new URL(res.headers()["location"], "http://localhost").pathname,
+    ).toBe("/login");
   });
 });

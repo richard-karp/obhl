@@ -10,13 +10,13 @@ async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
   // any more. Every caller below expects to be inside a league's manage tools.
   await page.waitForURL("/");
-  await page.goto("/obhl/manage/dashboard");
+  await page.goto("/obhl/dashboard");
 }
 
 test.describe("Path 9 — Roster editor", () => {
   test.beforeEach(async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/manage/rosters");
+    await page.goto("/obhl/rosters");
     await page.getByText("Sharks").click();
     await expect(page).toHaveURL(/\/rosters\//);
   });
@@ -77,7 +77,7 @@ test.describe("Path 9 — Roster editor", () => {
       page.getByRole("cell", { name: `${first} Player` }),
     ).toHaveCount(0);
 
-    await page.goto("/obhl/manage/audit");
+    await page.goto("/obhl/audit");
     await expect(
       page.getByText(`Removed ${first} Player from roster`),
     ).toBeVisible();

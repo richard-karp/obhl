@@ -10,7 +10,7 @@ async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
   // any more. Every caller below expects to be inside a league's manage tools.
   await page.waitForURL("/");
-  await page.goto("/obhl/manage/dashboard");
+  await page.goto("/obhl/dashboard");
 }
 
 const RULES_TEXT = `E2E test rule: no high-sticking at ${Date.now()}`;
@@ -18,7 +18,7 @@ const RULES_TEXT = `E2E test rule: no high-sticking at ${Date.now()}`;
 test.describe("Path 16 — League Rules", () => {
   test("rules editor page loads with toolbar and save button", async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/manage/rules/edit");
+    await page.goto("/obhl/rules/edit");
 
     await expect(page.locator("h1").filter({ hasText: "League Rules" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Save rules" })).toBeVisible();
@@ -31,7 +31,7 @@ test.describe("Path 16 — League Rules", () => {
 
   test("manager saves rules and they appear on the public rules page", async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/manage/rules/edit");
+    await page.goto("/obhl/rules/edit");
 
     // Type into the Tiptap contenteditable editor
     const editor = page.locator('[contenteditable="true"]');
@@ -53,7 +53,7 @@ test.describe("Path 16 — League Rules", () => {
   // league-scoped view a manager actually reads.
   test("saving rules appears in this league's audit log", async ({ page }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/manage/rules/edit");
+    await page.goto("/obhl/rules/edit");
 
     const editor = page.locator('[contenteditable="true"]');
     await editor.click();
@@ -61,18 +61,18 @@ test.describe("Path 16 — League Rules", () => {
     await page.getByRole("button", { name: "Save rules" }).click();
     await expect(page.getByText("Saved.")).toBeVisible({ timeout: 10000 });
 
-    await page.goto("/obhl/manage/audit");
+    await page.goto("/obhl/audit");
     await expect(page.getByText("Updated league rules").first()).toBeVisible();
 
     // Saving again without editing must not add a second entry: these entries
     // carry two whole documents, and re-saving an untouched page changed
     // nothing. Only the current session's card is expanded, so a count here is
     // a count of this test's own entries.
-    await page.goto("/obhl/manage/rules/edit");
+    await page.goto("/obhl/rules/edit");
     await page.getByRole("button", { name: "Save rules" }).click();
     await expect(page.getByText("Saved.")).toBeVisible({ timeout: 10000 });
 
-    await page.goto("/obhl/manage/audit");
+    await page.goto("/obhl/audit");
     await expect(page.getByText("Updated league rules")).toHaveCount(1);
   });
 

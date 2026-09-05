@@ -98,6 +98,6 @@ export async function saveRules(leagueId: string, content: unknown) {
   }
 
   revalidatePath("/[league]/rules", "page");
-  revalidatePath("/[league]/manage/rules/edit", "page");
+  revalidatePath("/[league]/rules/edit", "page");
   return error ? { ok: false, message: error.message } : { ok: true };
 }

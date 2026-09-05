@@ -41,7 +41,7 @@ export default async function RostersPage({
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {teams.map((t) => (
-            <Link key={t.id} href={`/${leagueSlug}/manage/rosters/${t.id}`}>
+            <Link key={t.id} href={`/${leagueSlug}/rosters/${t.id}`}>
               <Card className="hover:border-primary transition-colors">
                 <CardContent className="flex items-center gap-3 p-4">
                   <TeamLogo name={t.name} color={t.color} className="size-10 text-sm" />

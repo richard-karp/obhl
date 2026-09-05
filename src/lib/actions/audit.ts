@@ -252,7 +252,7 @@ export async function revertAuditEntries(
     }
   }
 
-  revalidatePath("/[league]/manage/audit", "page");
+  revalidatePath("/[league]/audit", "page");
   revalidatePath("/[league]", "page");
 
   if (errors.length) return { error: errors.join("; ") };

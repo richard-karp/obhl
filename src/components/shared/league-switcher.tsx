@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  * used to write a cookie, which nothing reads any more.
  *
  * A switch always lands on the chosen league's root (`rootPath`), never the
- * equivalent sub-path: `/harbor/manage/seasons/<uuid>` names a season that
+ * equivalent sub-path: `/harbor/seasons/<uuid>` names a season that
  * belongs to Harbor, so carrying that path across to Oceanview would only 404.
  *
  * Renders nothing when there's only one league. Requires JS: a bare select
@@ -24,7 +24,7 @@ export function LeagueSwitcher({
 }: {
   leagues: LeagueOption[];
   currentSlug: string;
-  /** Appended to `/<slug>` — e.g. `/manage/dashboard` for the staff tools. */
+  /** Appended to `/<slug>` — e.g. `/dashboard` for the staff tools. */
   rootPath?: string;
   className?: string;
 }) {

@@ -17,7 +17,7 @@ import { join } from "node:path";
  * guards is a test failure rather than a silent hole.
  */
 const ACTIONS_DIR = join(process.cwd(), "src/lib/actions");
-const MANAGE_DIR = join(process.cwd(), "src/app/[league]/manage");
+const MANAGE_DIR = join(process.cwd(), "src/app/[league]/(manage)");
 
 /**
  * Files allowed to use the role-only guards, with the count they may use, so

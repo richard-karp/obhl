@@ -405,8 +405,8 @@ export async function mergePlayers(
     },
   });
 
-  revalidatePath("/[league]/manage/people/duplicates", "page");
-  revalidatePath("/[league]/manage/rosters/[teamId]", "page");
+  revalidatePath("/[league]/people/duplicates", "page");
+  revalidatePath("/[league]/rosters/[teamId]", "page");
   revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]", "layout");
 
@@ -458,7 +458,7 @@ export async function dismissDuplicatePair(
     return { ok: false, message: `Could not save that: ${error.message}` };
   }
 
-  revalidatePath("/[league]/manage/people/duplicates", "page");
+  revalidatePath("/[league]/people/duplicates", "page");
   return { ok: true, message: "Marked as two different people." };
 }
 
@@ -492,6 +492,6 @@ export async function restoreDuplicatePair(
     .eq("league_id", leagueId);
   if (error) return { ok: false, message: `Could not undo that: ${error.message}` };
 
-  revalidatePath("/[league]/manage/people/duplicates", "page");
+  revalidatePath("/[league]/people/duplicates", "page");
   return { ok: true, message: "Dismissal undone — the pair is a candidate again." };
 }

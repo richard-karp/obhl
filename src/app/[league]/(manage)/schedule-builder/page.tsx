@@ -26,7 +26,7 @@ export default async function ScheduleBuilderPage({
         />
         <div className="text-center">
           <Button asChild size="sm">
-            <Link href={`/${leagueSlug}/manage/seasons`}>Go to Seasons</Link>
+            <Link href={`/${leagueSlug}/seasons`}>Go to Seasons</Link>
           </Button>
         </div>
       </div>

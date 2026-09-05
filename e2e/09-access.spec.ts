@@ -10,31 +10,31 @@ async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
   // any more. Every caller below expects to be inside a league's manage tools.
   await page.waitForURL("/");
-  await page.goto("/obhl/manage/dashboard");
+  await page.goto("/obhl/dashboard");
 }
 
 test.describe("Path 15 — Role-based access control", () => {
   test("scorekeeper cannot reach /seasons", async ({ page }) => {
     await signedInAs(page, "Scorekeeper");
-    await page.goto("/obhl/manage/seasons");
+    await page.goto("/obhl/seasons");
     await expect(page).toHaveURL("/");
   });
 
   test("scorekeeper cannot reach /audit", async ({ page }) => {
     await signedInAs(page, "Scorekeeper");
-    await page.goto("/obhl/manage/audit");
+    await page.goto("/obhl/audit");
     await expect(page).toHaveURL("/");
   });
 
   test("scorekeeper cannot reach /people", async ({ page }) => {
     await signedInAs(page, "Scorekeeper");
-    await page.goto("/obhl/manage/people");
+    await page.goto("/obhl/people");
     await expect(page).toHaveURL("/");
   });
 
   test("scorekeeper CAN reach /score", async ({ page }) => {
     await signedInAs(page, "Scorekeeper");
-    await page.goto("/obhl/manage/score");
+    await page.goto("/obhl/score");
     await expect(page.getByRole("heading", { name: "Games" })).toBeVisible();
   });
 
@@ -43,7 +43,7 @@ test.describe("Path 15 — Role-based access control", () => {
   }) => {
     await signedInAs(page, "Captain");
     // Captain lands on dashboard which shows upcoming games with "Set lineup" links
-    await expect(page).toHaveURL("/obhl/manage/dashboard");
+    await expect(page).toHaveURL("/obhl/dashboard");
 
     const gameLink = page.getByRole("link", { name: "Set lineup" }).first();
     await expect(gameLink).toBeVisible();
@@ -58,7 +58,7 @@ test.describe("Path 15 — Role-based access control", () => {
   });
 
   test("unauthenticated user cannot reach /dashboard", async ({ page }) => {
-    await page.goto("/obhl/manage/dashboard");
+    await page.goto("/obhl/dashboard");
     await expect(page).toHaveURL(/\/login/);
   });
 });

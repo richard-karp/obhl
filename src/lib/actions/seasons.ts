@@ -69,7 +69,7 @@ export async function createSeason(
     entity_id: data.id,
     new_data: { name, starts_on: starts, ends_on: ends },
   });
-  revalidatePath("/[league]/manage/seasons", "page");
+  revalidatePath("/[league]/seasons", "page");
   return { ok: true, message: `Season "${name}" created.`, seasonId: data.id };
 }
 
@@ -156,7 +156,7 @@ export async function createTeamForSeason(
       .select("id")
       .single();
     if (pErr || !player) {
-      revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+      revalidatePath("/[league]/seasons/[seasonId]", "page");
       return { ok: false, message: `Added ${name}, but couldn't create the captain (${pErr?.message ?? "unknown"}). Add them under Rosters.` };
     }
 
@@ -169,7 +169,7 @@ export async function createTeamForSeason(
     });
     if (tpErr) {
       await admin.from("players").delete().eq("id", player.id);
-      revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+      revalidatePath("/[league]/seasons/[seasonId]", "page");
       return { ok: false, message: `Added ${name}, but couldn't set the captain (${tpErr.message}).` };
     }
 
@@ -197,7 +197,7 @@ export async function createTeamForSeason(
           display_name: captainName,
         });
         if (profErr) {
-          revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+          revalidatePath("/[league]/seasons/[seasonId]", "page");
           return { ok: false, message: `Added ${name} with captain ${captainName}, but couldn't create their login (${profErr.message}).` };
         }
         // A role without a league reaches nothing: every manage page now asks
@@ -207,7 +207,7 @@ export async function createTeamForSeason(
     }
   }
 
-  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
   return {
     ok: true,
     message: `Added ${name}${captainName ? ` (captain ${captainName})` : ""}.`,
@@ -257,7 +257,7 @@ export async function setActiveSeason(formData: FormData) {
     old_data: was ? { season_id: was.id, name: was.name } : null,
     new_data: { season_id: id, name: now?.name ?? null },
   });
-  revalidatePath("/[league]/manage/seasons", "page");
+  revalidatePath("/[league]/seasons", "page");
   revalidatePath("/[league]", "layout");
 }
 
@@ -291,7 +291,7 @@ export async function unenrollTeam(formData: FormData) {
     entity_id: season_id,
     old_data: { team_id, name: team?.name ?? null },
   });
-  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
 }
 
 /**
@@ -383,7 +383,7 @@ export async function generateLeagueSummary(formData: FormData) {
   });
 
   revalidatePath("/[league]", "page");
-  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
 }
 
 /** Copies enrollment from the most recent prior season that had any. */
@@ -443,5 +443,5 @@ export async function carryForwardEnrollment(formData: FormData) {
     entity_id: season_id,
     new_data: { from_season_id: sourceId, teams: carried },
   });
-  revalidatePath("/[league]/manage/seasons/[seasonId]", "page");
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
 }

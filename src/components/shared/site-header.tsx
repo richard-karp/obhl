@@ -80,7 +80,7 @@ export async function SiteHeader({ league }: { league: Tables<"leagues"> }) {
             user={user && { role: member ? user.role : null }}
             crossLink={
               member
-                ? { href: `/${league.slug}/manage/dashboard`, label: "Manage" }
+                ? { href: `/${league.slug}/dashboard`, label: "Manage" }
                 : null
             }
           >

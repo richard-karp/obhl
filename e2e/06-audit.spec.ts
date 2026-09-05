@@ -10,14 +10,14 @@ async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
   // any more. Every caller below expects to be inside a league's manage tools.
   await page.waitForURL("/");
-  await page.goto("/obhl/manage/dashboard");
+  await page.goto("/obhl/dashboard");
 }
 
 test.describe("Path 12 — Audit log", () => {
   test("suspension action appears in the audit log", async ({ page }) => {
     await signedInAs(page, "Manager");
 
-    await page.goto("/obhl/manage/rosters");
+    await page.goto("/obhl/rosters");
     await page.getByText("Bears").click();
     await expect(page).toHaveURL(/\/rosters\//);
 
@@ -26,7 +26,7 @@ test.describe("Path 12 — Audit log", () => {
       .click();
     await page.waitForLoadState("networkidle");
 
-    await page.goto("/obhl/manage/audit");
+    await page.goto("/obhl/audit");
     // Accept any visible mention of the action — the UI shows either a formatted
     // label ("Updated is suspended for [Name]") in session cards or the raw
     // action string ("update_player_status") in a table view.
@@ -38,7 +38,7 @@ test.describe("Path 12 — Audit log", () => {
   test("captain toggle appears in audit log", async ({ page }) => {
     await signedInAs(page, "Manager");
 
-    await page.goto("/obhl/manage/rosters");
+    await page.goto("/obhl/rosters");
     await page.getByText("Bears").click();
     await expect(page).toHaveURL(/\/rosters\//);
 
@@ -54,7 +54,7 @@ test.describe("Path 12 — Audit log", () => {
     }
     await page.waitForLoadState("networkidle");
 
-    await page.goto("/obhl/manage/audit");
+    await page.goto("/obhl/audit");
     await expect(
       page.getByText(/toggle_captain|Made.*captain|Removed captain/i).first(),
     ).toBeVisible();
@@ -64,7 +64,7 @@ test.describe("Path 12 — Audit log", () => {
     await signedInAs(page, "Manager");
 
     // Create a revertible action
-    await page.goto("/obhl/manage/rosters");
+    await page.goto("/obhl/rosters");
     await page.getByText("Wolves").click();
     await expect(page).toHaveURL(/\/rosters\//);
     await page.locator("table tbody tr").nth(2)
@@ -72,7 +72,7 @@ test.describe("Path 12 — Audit log", () => {
       .click();
     await page.waitForLoadState("networkidle");
 
-    await page.goto("/obhl/manage/audit");
+    await page.goto("/obhl/audit");
     const revertBtn = page.getByRole("button", { name: /revert selected/i }).first();
     await expect(revertBtn).toBeVisible();
     await revertBtn.click();

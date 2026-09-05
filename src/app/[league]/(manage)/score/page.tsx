@@ -39,7 +39,7 @@ export default async function ScoreGamesPage({
         description="Open a game to set rosters, record scoring, and finalize."
       >
         <Button asChild size="sm" variant="outline">
-          <Link href={`/${leagueSlug}/manage/schedule-builder/one-off`}>
+          <Link href={`/${leagueSlug}/schedule-builder/one-off`}>
             Schedule a one-off game
           </Link>
         </Button>
@@ -85,7 +85,7 @@ export default async function ScoreGamesPage({
                       size="sm"
                       variant={g.status === "scheduled" || g.status === "in_progress" ? "default" : "outline"}
                     >
-                      <Link href={`/${leagueSlug}/manage/score/${g.id}`}>
+                      <Link href={`/${leagueSlug}/score/${g.id}`}>
                         {g.status === "final"
                           ? "Edit"
                           : g.status === "cancelled" || g.status === "postponed"

@@ -9,7 +9,7 @@ export type LeagueOption = { id: string; name: string; slug: string };
 
 /**
  * Multi-league resolution. The league lives in the URL — `/harbor/standings`,
- * `/harbor/manage/seasons` — so a link to one league is a link to that league
+ * `/harbor/seasons` — so a link to one league is a link to that league
  * for whoever opens it.
  *
  * Memoized with `cache` because App Router layouts cannot hand data to the

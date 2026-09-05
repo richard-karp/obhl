@@ -9,7 +9,7 @@ async function signInAsManager(page: Page) {
 }
 
 async function openRoster(page: Page, team: string) {
-  await page.goto("/obhl/manage/rosters");
+  await page.goto("/obhl/rosters");
   await page.getByText(team).click();
   await expect(page).toHaveURL(/\/rosters\//);
 }

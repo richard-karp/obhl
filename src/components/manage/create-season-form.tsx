@@ -23,7 +23,7 @@ export function CreateSeasonForm({
   // On success, continue to the new season's setup (add teams next).
   useEffect(() => {
     if (state?.ok && state.seasonId)
-      router.push(`/${leagueSlug}/manage/seasons/${state.seasonId}`);
+      router.push(`/${leagueSlug}/seasons/${state.seasonId}`);
   }, [state, router, leagueSlug]);
 
   return (

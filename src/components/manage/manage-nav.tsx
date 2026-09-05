@@ -8,7 +8,7 @@ import { AccountCluster } from "@/components/shared/account-cluster";
 import type { AppRole } from "@/lib/auth/session";
 import type { LeagueOption } from "@/lib/league/current";
 
-/** Paths relative to `/<league>/manage`. */
+/** Paths relative to `/<league>`. */
 const LINKS: Record<AppRole, { path: string; label: string }[]> = {
   league_manager: [
     { path: "/dashboard", label: "Dashboard" },
@@ -59,7 +59,7 @@ function Links({ links, base }: { links: NavLink[]; base: string }) {
     <>
       {links.map((l) => {
         // `absolute` is for links that belong to no league — today only the
-        // League Office. Everything else is relative to `/<league>/manage`.
+        // League Office. Everything else is relative to `/<league>`.
         const href = l.absolute ? l.path : `${base}${l.path}`;
         const active = pathname === href || pathname.startsWith(href + "/");
         return (
@@ -98,7 +98,7 @@ export function ManageNav({
    */
   officeTier: string | null;
 }) {
-  const base = `/${currentSlug}/manage`;
+  const base = `/${currentSlug}`;
   const links: NavLink[] = [
     ...(role ? LINKS[role] : [{ path: "/dashboard", label: "Dashboard" }]),
     // Without this the page is reachable only by typing the URL. It is not in
@@ -158,7 +158,7 @@ export function ManageNav({
             <LeagueSwitcher
               leagues={leagues}
               currentSlug={currentSlug}
-              rootPath="/manage/dashboard"
+              rootPath="/dashboard"
             />
           </AccountCluster>
         </div>

@@ -13,7 +13,7 @@ async function signedInAs(
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
   // any more. Every caller below expects to be inside a league's manage tools.
   await page.waitForURL("/");
-  await page.goto("/obhl/manage/dashboard");
+  await page.goto("/obhl/dashboard");
 }
 
 async function signOut(page: Page) {
@@ -52,7 +52,7 @@ test.describe("Path 6 — Auth / Login / Session", () => {
   test("unauthenticated access to a manage route redirects to /login", async ({
     page,
   }) => {
-    await page.goto("/obhl/manage/seasons");
+    await page.goto("/obhl/seasons");
     await expect(page).toHaveURL(/\/login/);
   });
 
@@ -101,14 +101,14 @@ test.describe("Path 6b — Auth-aware chrome", () => {
     await expect(badge(page)).toBeVisible();
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
     await page.getByRole("link", { name: "Manage" }).click();
-    await expect(page).toHaveURL(/\/manage\/dashboard$/);
+    await expect(page).toHaveURL(/\/dashboard$/);
 
     // And a public league page, which has its own header.
     await page.goto("/obhl/standings");
     await expect(badge(page)).toBeVisible();
     await expect(page.getByRole("link", { name: "Manage" })).toHaveAttribute(
       "href",
-      "/obhl/manage/dashboard",
+      "/obhl/dashboard",
     );
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   });

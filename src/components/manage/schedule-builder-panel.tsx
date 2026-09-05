@@ -229,7 +229,7 @@ export async function ScheduleBuilderPanel({
                 <p>
                   To slot in a tournament final or semifinals,{" "}
                   <Link
-                    href={`/${league}/manage/schedule-builder/one-off`}
+                    href={`/${league}/schedule-builder/one-off`}
                     className="text-foreground font-medium underline"
                   >
                     schedule a one-off game
@@ -265,7 +265,7 @@ export async function ScheduleBuilderPanel({
             — it takes over a game on a night that&apos;s already scheduled and
             repairs the rest of the season around it.{" "}
             <Link
-              href={`/${league}/manage/schedule-builder/one-off`}
+              href={`/${league}/schedule-builder/one-off`}
               className="text-foreground font-medium underline"
             >
               Schedule a one-off game

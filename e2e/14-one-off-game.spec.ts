@@ -33,12 +33,12 @@ async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
   // any more. Every caller below expects to be inside a league's manage tools.
   await page.waitForURL("/");
-  await page.goto("/obhl/manage/dashboard");
+  await page.goto("/obhl/dashboard");
 }
 
 /** A live season with future game nights, published. Idempotent across runs. */
 async function seedFutureSeason(page: Page) {
-  await page.goto("/obhl/manage/seasons");
+  await page.goto("/obhl/seasons");
   // Match the table row, not the success banner, which also carries the name.
   const row = page.getByRole("row", { name: new RegExp(SEASON) });
   if ((await row.count()) === 0) {
@@ -53,14 +53,14 @@ async function seedFutureSeason(page: Page) {
     // that navigation and the revalidation — the row assertion that used to be
     // here won it most of the time and lost it in a full run. The success toast
     // is no better: it renders on the page being navigated away from.
-    await expect(page).toHaveURL(/\/manage\/seasons\/[0-9a-f-]{36}/);
-    await page.goto("/obhl/manage/seasons");
+    await expect(page).toHaveURL(/\/seasons\/[0-9a-f-]{36}/);
+    await page.goto("/obhl/seasons");
     await expect(row).toBeVisible();
   }
 
   // Re-navigate before clicking through: creating the season revalidates
   // /seasons, and clicking into a table that's mid-re-render detaches the link.
-  await page.goto("/obhl/manage/seasons");
+  await page.goto("/obhl/seasons");
   await row.getByRole("link", { name: "Setup" }).click();
   await expect(page).toHaveURL(/\/seasons\//);
 
@@ -73,7 +73,7 @@ async function seedFutureSeason(page: Page) {
   // Make it the live season from the list, where the row scopes the button, and
   // confirm it took — the builder works on whichever season is active, so
   // getting this wrong silently generates against the wrong one.
-  await page.goto("/obhl/manage/seasons");
+  await page.goto("/obhl/seasons");
   const setActive = row.getByRole("button", { name: "Set active" });
   if ((await setActive.count()) > 0) await setActive.click();
   // The list only renders that button for inactive seasons, so its absence is
@@ -83,7 +83,7 @@ async function seedFutureSeason(page: Page) {
   // season before setting one, so racing it lands on "No active season".
   await expect(setActive).toHaveCount(0);
 
-  await page.goto("/obhl/manage/schedule-builder");
+  await page.goto("/obhl/schedule-builder");
   await expect(page.getByText(`${SEASON} (active)`)).toBeVisible();
   if ((await page.getByText("No draft schedule").count()) > 0) {
     await page.getByLabel("First game night").fill("2027-01-05");
@@ -140,7 +140,7 @@ test.describe("Path 22 — one-off games", () => {
     await signedInAs(page, "Manager");
     await seedFutureSeason(page);
 
-    await page.goto("/obhl/manage/schedule-builder/one-off");
+    await page.goto("/obhl/schedule-builder/one-off");
     await expect(page.getByText("Schedule a one-off game")).toBeVisible();
 
     // The date field stays shut until the teams are known — eligibility is a
@@ -187,7 +187,7 @@ test.describe("Path 22 — one-off games", () => {
 
   test("scorekeeper cannot reach the one-off page", async ({ page }) => {
     await signedInAs(page, "Scorekeeper");
-    await page.goto("/obhl/manage/schedule-builder/one-off");
+    await page.goto("/obhl/schedule-builder/one-off");
     await expect(page).toHaveURL("/");
   });
 });

@@ -34,7 +34,7 @@ export default async function OneOffGamePage({
         />
         <div className="text-center">
           <Button asChild size="sm">
-            <Link href={`/${leagueSlug}/manage/seasons`}>Go to Seasons</Link>
+            <Link href={`/${leagueSlug}/seasons`}>Go to Seasons</Link>
           </Button>
         </div>
       </div>
@@ -59,7 +59,7 @@ export default async function OneOffGamePage({
         description={`${ctx.season.name} · tournament final or semifinals, mid-season`}
       >
         <Button asChild size="sm" variant="outline">
-          <Link href={`/${leagueSlug}/manage/schedule-builder`}>Schedule Builder</Link>
+          <Link href={`/${leagueSlug}/schedule-builder`}>Schedule Builder</Link>
         </Button>
       </PageHeader>
 

@@ -123,12 +123,12 @@ test.describe("Path 17 — Per-league membership", () => {
     // league it belongs to. Without this a guard that refused everything would
     // look like a guard that works.
     await signInAs(page, "One-league mgr");
-    await page.goto(`/${LEAD_IN}/manage/dashboard`);
-    await expect(page).toHaveURL(`/${LEAD_IN}/manage/dashboard`);
+    await page.goto(`/${LEAD_IN}/dashboard`);
+    await expect(page).toHaveURL(`/${LEAD_IN}/dashboard`);
     await expect(page.getByRole("heading", { name: "Manage" })).toBeVisible();
 
-    await page.goto(`/${LEAD_IN}/manage/seasons`);
-    await expect(page).toHaveURL(`/${LEAD_IN}/manage/seasons`);
+    await page.goto(`/${LEAD_IN}/seasons`);
+    await expect(page).toHaveURL(`/${LEAD_IN}/seasons`);
     await expect(page.getByRole("heading", { name: "Seasons" })).toBeVisible();
   });
 
@@ -136,17 +136,17 @@ test.describe("Path 17 — Per-league membership", () => {
   // these tests are generated before `beforeAll` has resolved which league to
   // aim at.
   const MANAGE_PATHS = [
-    "/manage/dashboard",
-    "/manage/people",
-    "/manage/seasons",
-    "/manage/rosters",
-    "/manage/schedule-builder",
-    "/manage/schedule-builder/one-off",
-    "/manage/score",
-    "/manage/announcements",
-    "/manage/rules/edit",
-    "/manage/import",
-    "/manage/audit",
+    "/dashboard",
+    "/people",
+    "/seasons",
+    "/rosters",
+    "/schedule-builder",
+    "/schedule-builder/one-off",
+    "/score",
+    "/announcements",
+    "/rules/edit",
+    "/import",
+    "/audit",
   ];
 
   for (const path of MANAGE_PATHS) {
@@ -165,16 +165,16 @@ test.describe("Path 17 — Per-league membership", () => {
     // score its games. `/score` is one of only two guards that ever admitted a
     // non-manager role, which is why it gets its own test.
     await signInAs(page, "One-league scorer");
-    await page.goto(`/${SCORER_IN}/manage/score`);
+    await page.goto(`/${SCORER_IN}/score`);
     await expect(page.getByRole("heading", { name: "Games" })).toBeVisible();
     const href = await page
-      .locator(`a[href^="/${SCORER_IN}/manage/score/"]`)
+      .locator(`a[href^="/${SCORER_IN}/score/"]`)
       .first()
       .getAttribute("href");
     await page.goto(href!);
-    await expect(page).toHaveURL(new RegExp(`/${SCORER_IN}/manage/score/`));
+    await expect(page).toHaveURL(new RegExp(`/${SCORER_IN}/score/`));
 
-    await page.goto(`/${SCORER_OUT}/manage/score`);
+    await page.goto(`/${SCORER_OUT}/score`);
     await expect(page).toHaveURL("/");
     // The same game id under a league they are not in — which is what proves
     // the refusal is about the league and not about the page being broken.
@@ -186,9 +186,9 @@ test.describe("Path 17 — Per-league membership", () => {
     // Detail pages take an id, and the id says nothing about its league; the
     // slug in the URL is the claim, and the guard is what checks it.
     await signInAs(page, "Manager");
-    await page.goto(`/${LEAD_OUT}/manage/score`);
+    await page.goto(`/${LEAD_OUT}/score`);
     const href = await page
-      .locator(`a[href^="/${LEAD_OUT}/manage/score/"]`)
+      .locator(`a[href^="/${LEAD_OUT}/score/"]`)
       .first()
       .getAttribute("href");
 
@@ -204,11 +204,11 @@ test.describe("Path 17 — Per-league membership", () => {
     // because it renders nothing below two options. Offering a league whose
     // pages then bounce you back to the picker is worse than not offering it.
     await signInAs(page, "Manager");
-    await page.goto(`/${LEAD_OUT}/manage/dashboard`);
+    await page.goto(`/${LEAD_OUT}/dashboard`);
     await expect(page.getByLabel("Select league")).toHaveCount(1);
 
     await signInAs(page, "One-league mgr");
-    await page.goto(`/${LEAD_IN}/manage/dashboard`);
+    await page.goto(`/${LEAD_IN}/dashboard`);
     await expect(page.getByLabel("Select league")).toHaveCount(0);
   });
 
@@ -223,19 +223,19 @@ test.describe("Path 17 — Per-league membership", () => {
     const cell = (p: Page, email: string) =>
       p.getByRole("cell", { name: email, exact: true });
 
-    await page.goto(`/${LEAD_IN}/manage/people`);
+    await page.goto(`/${LEAD_IN}/people`);
     await expect(cell(page, "single-league-lead@obhl.test")).toBeVisible();
     await expect(cell(page, "manager@obhl.test")).toBeVisible();
 
     // The same page under a league they are not staff of: not listed there,
     // and so not editable or removable there either.
-    await page.goto(`/${SCORER_IN}/manage/people`);
+    await page.goto(`/${SCORER_IN}/people`);
     await expect(cell(page, "manager@obhl.test")).toBeVisible();
     await expect(cell(page, "single-league-scorer@obhl.test")).toBeVisible();
     await expect(cell(page, "single-league-lead@obhl.test")).toHaveCount(0);
 
     // …and the mirror image, so neither list is merely the whole table.
-    await page.goto(`/${LEAD_IN}/manage/people`);
+    await page.goto(`/${LEAD_IN}/people`);
     await expect(cell(page, "single-league-scorer@obhl.test")).toHaveCount(0);
   });
 
@@ -263,7 +263,7 @@ test.describe("Path 17 — Per-league membership", () => {
 
     try {
       await signInAs(page, "Manager");
-      await page.goto(`/${LEAD_OUT}/manage/people`);
+      await page.goto(`/${LEAD_OUT}/people`);
       await page
         .locator("table tbody tr")
         .filter({ hasText: scorekeeper })
@@ -278,7 +278,7 @@ test.describe("Path 17 — Per-league membership", () => {
       expect(after.leagues).not.toContain(from);
       expect(after.leagues.length).toBe(before.leagues.length - 1);
 
-      await page.goto(`/${LEAD_IN}/manage/people`);
+      await page.goto(`/${LEAD_IN}/people`);
       await expect(page.getByText(scorekeeper)).toBeVisible();
     } finally {
       await db
@@ -331,7 +331,7 @@ test.describe("Path 17 — Per-league membership", () => {
 
     try {
       await signInAs(page, "One-league mgr");
-      await page.goto(`/${LEAD_IN}/manage/people`);
+      await page.goto(`/${LEAD_IN}/people`);
 
       const card = page
         .locator('[data-slot="card"]')
@@ -437,7 +437,7 @@ test.describe("Path 17 — Per-league membership", () => {
 
     /** The add form, filled and submitted, on a page fresh enough to fill. */
     async function addStaff(email: string, name: string, roleLabel: string) {
-      await page.goto(`/${LEAD_IN}/manage/people`);
+      await page.goto(`/${LEAD_IN}/people`);
       const card = page
         .locator('[data-slot="card"]')
         .filter({ hasText: "Add a staff account" });
@@ -491,7 +491,7 @@ test.describe("Path 17 — Per-league membership", () => {
       decoyId = decoy!.id as string;
 
       for (const forged of ["league_manager", "captain"] as const) {
-        await page.goto(`/${LEAD_IN}/manage/people`);
+        await page.goto(`/${LEAD_IN}/people`);
         const decoyRow = page
           .locator("table tbody tr")
           .filter({ hasText: decoyEmail });
@@ -579,7 +579,7 @@ test.describe("Path 17 — Per-league membership", () => {
 
     try {
       await signInAs(page, "Manager");
-      await page.goto(`/${LEAD_IN}/manage/people`);
+      await page.goto(`/${LEAD_IN}/people`);
 
       const row = page.locator("table tbody tr").filter({ hasText: subject });
       const select = row.getByLabel("Change role");
@@ -848,9 +848,9 @@ test.describe("Path 17 — Per-league membership", () => {
 
   /** A roster page in the league whose form the test will tamper with. */
   async function teamRosterUrl(page: Page, slug: string) {
-    await page.goto(`/${slug}/manage/rosters`);
+    await page.goto(`/${slug}/rosters`);
     const href = await page
-      .locator(`a[href^="/${slug}/manage/rosters/"]`)
+      .locator(`a[href^="/${slug}/rosters/"]`)
       .first()
       .getAttribute("href");
     return href!;
@@ -1013,7 +1013,7 @@ test.describe("Path 17 — Per-league membership", () => {
 
     try {
       await signInAs(page, "Manager");
-      await page.goto(`/${LEAD_IN}/manage/people`);
+      await page.goto(`/${LEAD_IN}/people`);
 
       // Your own row offers no Remove — it could drop you out of a league you
       // are the only way back into, and for a league's sole manager that row is
@@ -1057,7 +1057,7 @@ test.describe("Path 17 — Per-league membership", () => {
 
       // The co-manager's row IS removable — that is how a second manager
       // account gets taken back.
-      await page.goto(`/${LEAD_IN}/manage/people`);
+      await page.goto(`/${LEAD_IN}/people`);
       const row = page
         .locator("table tbody tr")
         .filter({ hasText: "single-league-lead@obhl.test" });

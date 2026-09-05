@@ -213,7 +213,7 @@ export async function runRosterOnlyImport(
     playerCount += t.players.length;
   }
 
-  revalidatePath("/[league]/manage/seasons", "page");
+  revalidatePath("/[league]/seasons", "page");
   revalidatePath("/[league]", "layout");
   // This import creates a league; the root landing page lists them.
   revalidatePath("/");

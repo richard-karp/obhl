@@ -145,7 +145,7 @@ export default async function PeoplePage({
           section of the site.
         */}
         <Button asChild variant="outline" size="sm">
-          <Link href={`/${leagueSlug}/manage/people/duplicates`}>
+          <Link href={`/${leagueSlug}/people/duplicates`}>
             Possible duplicates
           </Link>
         </Button>

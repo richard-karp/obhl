@@ -5,7 +5,7 @@ test("duplicates page loads and is scoped to this league", async ({ page }) => {
   await page.goto("/login");
   await page.getByRole("button", { name: "Manager" }).click();
   await page.waitForURL("/");
-  await page.goto("/obhl/manage/people/duplicates");
+  await page.goto("/obhl/people/duplicates");
 
   await expect(
     page.getByRole("heading", { name: /possible duplicates/i }),
@@ -30,10 +30,10 @@ test("the review list renders, and People & Roles links to it", async ({ page })
   await page.goto("/login");
   await page.getByRole("button", { name: "Manager" }).click();
   await page.waitForURL("/");
-  await page.goto("/obhl/manage/people");
+  await page.goto("/obhl/people");
 
   await page.getByRole("link", { name: /possible duplicates/i }).click();
-  await expect(page).toHaveURL(/\/manage\/people\/duplicates$/);
+  await expect(page).toHaveURL(/\/people\/duplicates$/);
 
   // Either clusters to review or the empty state — both are the component.
   const clusters = page.getByRole("button", { name: /merge \d+ into this record/i });

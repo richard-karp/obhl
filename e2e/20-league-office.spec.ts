@@ -76,7 +76,7 @@ test.describe("Path 20 — League Office", () => {
     // Driven, not asserted: the office branch of `memberLeagueIds` is what makes
     // these pages answer at all.
     for (const slug of ["obhl", "harbor"]) {
-      await page.goto(`/${slug}/manage/people`);
+      await page.goto(`/${slug}/people`);
       await expect(
         page.getByRole("heading", { name: "People & Roles" }),
         `the office should reach /${slug}`,
@@ -84,7 +84,7 @@ test.describe("Path 20 — League Office", () => {
     }
 
     // ...and the switcher offers every league, not none.
-    await page.goto("/obhl/manage/dashboard");
+    await page.goto("/obhl/dashboard");
     await expect(page.getByLabel("Select league")).toBeVisible();
   });
 
@@ -97,7 +97,7 @@ test.describe("Path 20 — League Office", () => {
     page,
   }) => {
     await signInAs(page, "Commissioner");
-    await page.goto("/obhl/manage/dashboard");
+    await page.goto("/obhl/dashboard");
 
     const link = page.getByRole("link", { name: "League Office" });
     await expect(link).toBeVisible();
@@ -109,7 +109,7 @@ test.describe("Path 20 — League Office", () => {
     // the link is gated on the tier, and a role-keyed nav would leak it to
     // every manager.
     await signInAs(page, "Manager");
-    await page.goto("/obhl/manage/dashboard");
+    await page.goto("/obhl/dashboard");
     await expect(page.getByRole("link", { name: "League Office" })).toHaveCount(0);
   });
 
@@ -117,7 +117,7 @@ test.describe("Path 20 — League Office", () => {
     page,
   }) => {
     await signInAs(page, "Manager");
-    await page.goto("/obhl/manage/people");
+    await page.goto("/obhl/people");
 
     const row = page.locator("table tbody tr").filter({ hasText: COMMISSIONER });
     await expect(row).toHaveCount(1);
@@ -156,14 +156,14 @@ test.describe("Path 20 — League Office", () => {
       // First: an ordinary manager is offered nothing on that row. This is the
       // half that must NOT change.
       await signInAs(page, "Manager");
-      await page.goto("/obhl/manage/people");
+      await page.goto("/obhl/people");
       const asManager = page.locator("table tbody tr").filter({ hasText: email });
       await expect(asManager).toHaveCount(1);
       await expect(asManager.getByLabel("Change role")).toHaveCount(0);
 
       // Then the same row as a commissioner: the control is there, and it works.
       await signInAs(page, "Commissioner");
-      await page.goto("/obhl/manage/people");
+      await page.goto("/obhl/people");
       const asCommissioner = page
         .locator("table tbody tr")
         .filter({ hasText: email });
@@ -209,7 +209,7 @@ test.describe("Path 20 — League Office", () => {
       .from("profiles").select("role").eq("id", commissionerId).single();
 
     await signInAs(page, "Manager");
-    await page.goto("/obhl/manage/people");
+    await page.goto("/obhl/people");
 
     // Borrow a row that legitimately HAS the control, then point it at the
     // commissioner. Their own row offers nothing to tamper with, which is the
@@ -239,7 +239,7 @@ test.describe("Path 20 — League Office", () => {
     const commissionerId = await profileIdFor(COMMISSIONER);
 
     await signInAs(page, "Manager");
-    await page.goto("/obhl/manage/people");
+    await page.goto("/obhl/people");
 
     const donor = page
       .locator("table tbody tr")
@@ -316,7 +316,7 @@ test.describe("Path 20 — League Office", () => {
 
     try {
       await signInAs(page, "Manager");
-      await page.goto("/obhl/manage/people");
+      await page.goto("/obhl/people");
 
       const row = page.locator("table tbody tr").filter({ hasText: DEPUTY });
       await expect(row).toHaveCount(1);

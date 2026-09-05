@@ -54,7 +54,7 @@ export default async function LandingPage() {
       user={user && { role: user.role }}
       crossLink={
         mine.length > 0
-          ? { href: `/${mine[0].slug}/manage/dashboard`, label: "Manage" }
+          ? { href: `/${mine[0].slug}/dashboard`, label: "Manage" }
           : null
       }
     />

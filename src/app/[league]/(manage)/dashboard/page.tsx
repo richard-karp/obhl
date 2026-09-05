@@ -79,22 +79,22 @@ export default async function DashboardPage({
       {user.role === "league_manager" ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <ActionCard
-            href={`/${leagueSlug}/manage/people`}
+            href={`/${leagueSlug}/people`}
             title="People & Roles"
             description="Create staff accounts and assign manager, captain, or scorekeeper roles."
           />
           <ActionCard
-            href={`/${leagueSlug}/manage/seasons`}
+            href={`/${leagueSlug}/seasons`}
             title="Seasons"
             description="Create seasons, set the active one, and enroll teams (carry forward)."
           />
           <ActionCard
-            href={`/${leagueSlug}/manage/rosters`}
+            href={`/${leagueSlug}/rosters`}
             title="Rosters"
             description="Add players to teams and set numbers, positions, and captains."
           />
           <ActionCard
-            href={`/${leagueSlug}/manage/score`}
+            href={`/${leagueSlug}/score`}
             title="Games"
             description="Browse the schedule and open the scoresheet for any game."
           />
@@ -104,7 +104,7 @@ export default async function DashboardPage({
       {user.role === "scorekeeper" ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <ActionCard
-            href={`/${leagueSlug}/manage/score`}
+            href={`/${leagueSlug}/score`}
             title="Score Games"
             description="Open a game to set rosters, record goals and penalties, and finalize."
           />
@@ -231,7 +231,7 @@ async function CaptainPanel({
                     <span className="font-medium">{opp?.name ?? "TBD"}</span>
                   </span>
                   <Button asChild size="sm">
-                    <Link href={`/${leagueSlug}/manage/score/${g.id}`}>Set lineup</Link>
+                    <Link href={`/${leagueSlug}/score/${g.id}`}>Set lineup</Link>
                   </Button>
                 </div>
               );
