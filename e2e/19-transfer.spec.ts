@@ -12,10 +12,23 @@ async function openRoster(page: Page, team: string) {
   await page.goto("/obhl/teams");
   await page.getByText(team).click();
   await expect(page).toHaveURL(/\/teams\//);
-  // The roster editor is a tab on the team page now, not a page of
-  // its own behind a uuid.
-  await page.getByRole("tab", { name: "Manage" }).click();
-  await page.waitForURL(/\?tab=manage$/);
+  // The editing forms are simply on the page for a manager now — no tab to open
+  // and no `?tab=` to wait for.
+  await expect(rosterRows(page).first()).toBeVisible();
+}
+
+/**
+ * The EDITABLE roster table, scoped to its region. The team page renders the
+ * public roster first and the editor below it, so a bare `table tbody tr` picks
+ * up the public table — same players, no buttons, and a failure that reads as if
+ * the controls had vanished.
+ */
+function manageRoster(page: Page) {
+  return page.getByRole("region", { name: "Manage roster" });
+}
+
+function rosterRows(page: Page) {
+  return manageRoster(page).locator("table tbody tr");
 }
 
 /**
@@ -24,7 +37,7 @@ async function openRoster(page: Page, team: string) {
  * number on the page.
  */
 async function firstRowName(page: Page) {
-  const row = page.locator("table tbody tr").first();
+  const row = rosterRows(page).first();
   return (await row.locator("td").nth(1).innerText()).split("\n")[0].trim();
 }
 
@@ -38,18 +51,13 @@ test("a clashing jersey number is refused, and nothing moves", async ({
   // passes alone and fails in the run — which is how this one first failed.
   await openRoster(page, "Bears");
   const taken = (
-    await page
-      .locator("table tbody tr")
-      .first()
-      .locator("td")
-      .first()
-      .innerText()
+    await rosterRows(page).first().locator("td").first().innerText()
   ).trim();
   expect(taken).toMatch(/^\d+$/);
 
   await openRoster(page, "Sharks");
   const name = await firstRowName(page);
-  const row = page.locator("table tbody tr").first();
+  const row = rosterRows(page).first();
 
   await row.getByRole("button", { name: /^transfer$/i }).click();
   await page.getByLabel(/to team/i).selectOption({ label: "Bears" });
@@ -59,7 +67,7 @@ test("a clashing jersey number is refused, and nothing moves", async ({
   // Named, not generic: the operator has to know which number and whose.
   await expect(page.getByRole("status")).toContainText(/already worn by/i);
   // And the refusal happened before any write — they are still here.
-  await expect(page.getByRole("cell", { name })).toBeVisible();
+  await expect(manageRoster(page).getByRole("cell", { name })).toBeVisible();
 });
 
 test("a transferred player leaves one roster and joins the other", async ({
@@ -68,7 +76,7 @@ test("a transferred player leaves one roster and joins the other", async ({
   await signInAsManager(page);
   await openRoster(page, "Sharks");
   const name = await firstRowName(page);
-  const row = page.locator("table tbody tr").first();
+  const row = rosterRows(page).first();
 
   await row.getByRole("button", { name: /^transfer$/i }).click();
   await page.getByLabel(/to team/i).selectOption({ label: "Bears" });
@@ -78,8 +86,13 @@ test("a transferred player leaves one roster and joins the other", async ({
   await page.getByRole("button", { name: /confirm transfer/i }).click();
   await page.waitForLoadState("networkidle");
 
-  await expect(page.getByRole("cell", { name })).toHaveCount(0);
+  // ⚠️ Scoped to the EDITOR, and it has to be. The public table above it lists
+  // anyone with stats for this team whether or not they are still on the roster
+  // — which is the whole point of 0036's soft departures — so the transferred
+  // player is legitimately still named up there. The claim being tested is that
+  // they left the ROSTER, and only the editor's table answers that.
+  await expect(manageRoster(page).getByRole("cell", { name })).toHaveCount(0);
 
   await openRoster(page, "Bears");
-  await expect(page.getByRole("cell", { name })).toBeVisible();
+  await expect(manageRoster(page).getByRole("cell", { name })).toBeVisible();
 });

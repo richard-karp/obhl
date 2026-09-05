@@ -5,6 +5,17 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+/**
+ * The EDITABLE roster table, scoped to its region. The team page renders the
+ * public roster first and the editor below it, so a bare `table tbody tr` picks
+ * up the public table — same players, no buttons.
+ */
+function rosterRows(page: Page) {
+  return page
+    .getByRole("region", { name: "Manage roster" })
+    .locator("table tbody tr");
+}
+
 async function signedInAs(
   page: Page,
   role: "Manager" | "Scorekeeper" | "Captain",
@@ -79,16 +90,11 @@ test.describe("Path 20 — Default goalie on roster page", () => {
     await page.goto("/obhl/teams");
     await page.getByText("Sharks").click();
     await expect(page).toHaveURL(/\/teams\//);
-    // The roster editor is a tab on the team page now, not a page of
-    // its own behind a uuid.
-    await page.getByRole("tab", { name: "Manage" }).click();
-    await page.waitForURL(/\?tab=manage$/);
+    // The editing forms are simply on the page for a manager now — no tab to
+    // open and no `?tab=` to wait for.
 
     // Goalie row has a "Set Default" button
-    const goalieRow = page
-      .locator("table tbody tr")
-      .filter({ hasText: "Goalie" })
-      .first();
+    const goalieRow = rosterRows(page).filter({ hasText: "Goalie" }).first();
     await expect(
       goalieRow.getByRole("button", { name: /Set Default|Default ✓/ }),
     ).toBeVisible();
@@ -115,10 +121,8 @@ test.describe("Path 20 — Default goalie on roster page", () => {
     await page.goto("/obhl/teams");
     await page.getByText("Sharks").click();
     await expect(page).toHaveURL(/\/teams\//);
-    // The roster editor is a tab on the team page now, not a page of
-    // its own behind a uuid.
-    await page.getByRole("tab", { name: "Manage" }).click();
-    await page.waitForURL(/\?tab=manage$/);
+    // The editing forms are simply on the page for a manager now — no tab to
+    // open and no `?tab=` to wait for.
 
     await expect(page.getByText("Goalie Schedule")).toBeVisible();
     // Mon and Thu rows should be present
@@ -131,10 +135,8 @@ test.describe("Path 20 — Default goalie on roster page", () => {
     await page.goto("/obhl/teams");
     await page.getByText("Sharks").click();
     await expect(page).toHaveURL(/\/teams\//);
-    // The roster editor is a tab on the team page now, not a page of
-    // its own behind a uuid.
-    await page.getByRole("tab", { name: "Manage" }).click();
-    await page.waitForURL(/\?tab=manage$/);
+    // The editing forms are simply on the page for a manager now — no tab to
+    // open and no `?tab=` to wait for.
 
     // Find the Mon row select and pick the first non-default option
     const monForm = page

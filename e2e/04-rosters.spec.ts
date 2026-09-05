@@ -4,6 +4,22 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+/**
+ * The editor's own region, and its roster table.
+ *
+ * The team page shows the PUBLIC roster table first and the editable one inside
+ * "Manage roster" below it, so an unscoped `table tbody tr` — or an unscoped
+ * `getByRole("cell")` — reads the wrong table, or matches both and trips strict
+ * mode. Scoping is what the Manage tab used to do for free.
+ */
+function manageRoster(page: Page) {
+  return page.getByRole("region", { name: "Manage roster" });
+}
+
+function rosterRows(page: Page) {
+  return manageRoster(page).locator("table tbody tr");
+}
+
 async function signedInAs(
   page: Page,
   role: "Manager" | "Scorekeeper" | "Captain",
@@ -22,17 +38,14 @@ test.describe("Path 9 — Roster editor", () => {
     await page.goto("/obhl/teams");
     await page.getByText("Sharks").click();
     await expect(page).toHaveURL(/\/teams\//);
-    // The roster editor is a tab on the team page now, not a page of
-    // its own behind a uuid.
-    await page.getByRole("tab", { name: "Manage" }).click();
-    await page.waitForURL(/\?tab=manage$/);
+    // A manager just sees the editor. Waiting on its first row is the settle
+    // signal every test below used to get from the tab click.
+    await expect(rosterRows(page).first()).toBeVisible();
   });
 
   test("roster page shows 14 players with jersey numbers", async ({ page }) => {
-    await expect(page.locator("table tbody tr")).toHaveCount(14);
-    await expect(
-      page.locator("table tbody tr").first().getByText("Goalie"),
-    ).toBeVisible();
+    await expect(rosterRows(page)).toHaveCount(14);
+    await expect(rosterRows(page).first().getByText("Goalie")).toBeVisible();
   });
 
   test("add a new player and they appear in the roster", async ({ page }) => {
@@ -49,7 +62,7 @@ test.describe("Path 9 — Roster editor", () => {
     await page.waitForLoadState("networkidle");
 
     await expect(
-      page.getByRole("cell", { name: "Testy McTestface" }),
+      manageRoster(page).getByRole("cell", { name: "Testy McTestface" }),
     ).toBeVisible();
   });
 
@@ -72,18 +85,17 @@ test.describe("Path 9 — Roster editor", () => {
       .fill("Player");
     await page.getByRole("button", { name: /add/i }).click();
     await expect(
-      page.getByRole("cell", { name: `${first} Player` }),
+      manageRoster(page).getByRole("cell", { name: `${first} Player` }),
     ).toBeVisible();
 
-    await page
-      .locator("table tbody tr")
+    await rosterRows(page)
       .filter({ hasText: first })
       .getByRole("button", { name: "Remove" })
       .click();
     // Waits, and is the settle signal for the POST: the audit read below must
     // not fire while the delete is still in flight.
     await expect(
-      page.getByRole("cell", { name: `${first} Player` }),
+      manageRoster(page).getByRole("cell", { name: `${first} Player` }),
     ).toHaveCount(0);
 
     await page.goto("/obhl/audit");
@@ -105,7 +117,7 @@ test.describe("Path 9 — Roster editor", () => {
   test("a removed player can be added back to the same team", async ({
     page,
   }) => {
-    const row = page.locator("table tbody tr").first();
+    const row = rosterRows(page).first();
     // The second cell: the table is #, Player, Position, Status, Manage.
     const name = (await row.locator("td").nth(1).innerText())
       .split("\n")[0]
@@ -126,7 +138,7 @@ test.describe("Path 9 — Roster editor", () => {
 
     await row.getByRole("button", { name: "Remove" }).click();
     await page.waitForLoadState("networkidle");
-    await expect(page.getByRole("cell", { name })).toHaveCount(0);
+    await expect(manageRoster(page).getByRole("cell", { name })).toHaveCount(0);
 
     await page
       .getByLabel("Existing person (optional)")
@@ -135,14 +147,12 @@ test.describe("Path 9 — Roster editor", () => {
     await page.getByRole("button", { name: /add/i }).click();
     await page.waitForLoadState("networkidle");
 
-    await expect(page.getByRole("cell", { name })).toBeVisible();
-    await expect(
-      page.locator("table tbody tr").filter({ hasText: name }),
-    ).toHaveCount(1);
+    await expect(manageRoster(page).getByRole("cell", { name })).toBeVisible();
+    await expect(rosterRows(page).filter({ hasText: name })).toHaveCount(1);
   });
 
   test("toggle captain sets and removes C badge", async ({ page }) => {
-    const row = page.locator("table tbody tr").nth(1);
+    const row = rosterRows(page).nth(1);
     await row.getByRole("button", { name: "Make C" }).click();
     await page.waitForLoadState("networkidle");
     await expect(row.getByText("C").first()).toBeVisible();
@@ -155,7 +165,7 @@ test.describe("Path 9 — Roster editor", () => {
   test("suspend a player shows SUSP badge, lift removes it", async ({
     page,
   }) => {
-    const row = page.locator("table tbody tr").nth(2);
+    const row = rosterRows(page).nth(2);
     await row.getByRole("button", { name: "Suspend" }).click();
     await page.waitForLoadState("networkidle");
     await expect(
@@ -177,52 +187,34 @@ test.describe("Path 9 — Roster editor", () => {
   });
 
   /**
-   * The two ways the Manage tab went blank, neither visible to a test that only
-   * clicks: an uncontrolled `Tabs` kept its own state across a same-route search
-   * param change, and Radix changes the value on FOCUS by default. The tabs are
-   * URL-controlled now, so there is no second copy of the state to disagree.
+   * ⛔ THE GUARD ON THE DECISION THIS PAGE IS BUILT ON. There was a Manage tab
+   * and a `?tab=manage` here, and both were removed on the call that a manager
+   * should see their page and be able to edit it rather than navigate to a
+   * second view of the team they are already looking at.
+   *
+   * They are worth a test because the two of them together caused three
+   * separate bugs — a blank panel on the way back out, a blank panel on
+   * arrow-key focus, and an editor that rendered its four admin queries whether
+   * or not anyone opened it. Anything that reintroduces a mode here turns this
+   * red.
    */
-  test("switching back off the Manage tab shows the roster, not a blank panel", async ({
+  test("the editor is on the page, behind no tab and no query parameter", async ({
     page,
   }) => {
-    await expect(page).toHaveURL(/\?tab=manage$/);
-    await page.getByRole("tab", { name: "Roster & Stats" }).click();
-    // The tab drives the URL, so leaving Manage drops the param and the server
-    // sends the public panel back. Uncontrolled, the retained state said
-    // "manage" while the payload no longer had that panel: blank.
-    await page.waitForURL((u) => !u.search.includes("tab=manage"));
-    await expect(
-      page.getByRole("tab", { name: "Roster & Stats" }),
-    ).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator("table tbody tr").first()).toBeVisible();
-
-    // `replace`, not `push`: a tab switch is not a history entry, so Back leaves
-    // the page rather than stepping through tab states.
-    await page.goBack();
-    await expect(page).toHaveURL(/\/teams$/);
-  });
-
-  test("arrow-keying onto the Manage tab does not blank the page", async ({
-    page,
-  }) => {
-    await page.getByRole("tab", { name: "Roster & Stats" }).click();
-    await page.waitForURL((u) => !u.search.includes("tab=manage"));
-
-    await page.getByRole("tab", { name: "Roster & Stats" }).focus();
-    await page.keyboard.press("ArrowRight");
-    await expect(page.getByRole("tab", { name: "Schedule" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    await page.keyboard.press("ArrowRight");
-
-    // Radix activates on FOCUS by default, so arrowing onto Manage changes the
-    // value — which is exactly what blanked the page when the value and the URL
-    // were separate copies. Controlled, the change goes through the router and
-    // the server sends the panel, so the keyboard lands on the editor instead.
-    await page.waitForURL(/\?tab=manage$/);
+    await expect(page.getByRole("tab", { name: "Manage" })).toHaveCount(0);
+    expect(new URL(page.url()).search).toBe("");
+    await expect(manageRoster(page)).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Remove" }).first(),
     ).toBeVisible();
+
+    // The two remaining tabs are ordinary client-side tabs over public content:
+    // switching away unmounts the editor with the rest of the panel, switching
+    // back brings it straight home, and the URL never moves.
+    await page.getByRole("tab", { name: "Schedule" }).click();
+    await expect(manageRoster(page)).toHaveCount(0);
+    await page.getByRole("tab", { name: "Roster & Stats" }).click();
+    await expect(manageRoster(page)).toBeVisible();
+    expect(new URL(page.url()).search).toBe("");
   });
 });

@@ -280,7 +280,7 @@ test.describe("Path 17 — Per-league membership", () => {
   // concluded the guard was unprotected. It is not — but it is protected
   // somewhere else, which is worth saying here rather than re-deriving.
 
-  test("a manager of another league sees a team page with no Manage tab", async ({
+  test("a manager of another league sees a team page with no editor", async ({
     page,
   }) => {
     // `/teams/<slug>` is shared now: public content, plus the roster editor for
@@ -289,10 +289,17 @@ test.describe("Path 17 — Per-league membership", () => {
     // from the role alone.
     await signInAs(page, "One-league mgr");
     await page.goto(await teamRosterUrl(page, LEAD_OUT));
+    // The public page, in full...
     await expect(
       page.getByRole("tab", { name: "Roster & Stats" }),
     ).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Manage" })).toHaveCount(0);
+    // ...and nothing of the manager's. Asserting the region rather than a tab:
+    // the editor has no affordance of its own to be absent any more, so its
+    // absence has to be measured on the editor itself.
+    await expect(
+      page.getByRole("region", { name: "Manage roster" }),
+    ).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Remove" })).toHaveCount(0);
   });
 
   test("a scorekeeper cannot score another league's games", async ({
@@ -1019,11 +1026,16 @@ test.describe("Path 17 — Per-league membership", () => {
     return href!;
   }
 
-  /** ...and the tab the editing forms now live behind. */
+  /**
+   * ...which for a manager IS the editor: the forms are on the page, with no
+   * tab to open. Waits for the region so the tampering below cannot race the
+   * server render.
+   */
   async function openRosterEditor(page: Page, slug: string) {
     await page.goto(await teamRosterUrl(page, slug));
-    await page.getByRole("tab", { name: "Manage" }).click();
-    await page.waitForURL(/\?tab=manage$/);
+    await expect(
+      page.getByRole("region", { name: "Manage roster" }),
+    ).toBeVisible();
   }
 
   test("a roster add cannot name another league's team", async ({ page }) => {

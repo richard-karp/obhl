@@ -510,9 +510,13 @@ test.describe("Path 16 — Per-league routing", () => {
     // Suspend a Harbor player: one audit entry, against Harbor.
     const teamSlug = await harborId(page, "/harbor/teams", "/harbor/teams/");
     await page.goto(`/harbor/teams/${teamSlug}`);
-    await page.getByRole("tab", { name: "Manage" }).click();
-    await page.waitForURL(/\?tab=manage$/);
-    const row = page.locator("table tbody tr").nth(2);
+    // No tab to open: the editor is on the page for a manager. Scoped to its
+    // region, because the public roster table sits above it with the same rows
+    // and none of the buttons.
+    const row = page
+      .getByRole("region", { name: "Manage roster" })
+      .locator("table tbody tr")
+      .nth(2);
     await row.getByRole("button", { name: "Suspend" }).click();
     await expect(
       row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" }),

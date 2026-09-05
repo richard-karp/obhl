@@ -10,17 +10,32 @@ import {
 import { GoalieStatsTable } from "@/components/public/goalie-stats-table";
 import { GameRow } from "@/components/public/game-row";
 import { TeamLogo } from "@/components/shared/team-logo";
-import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TeamTabs } from "@/components/manage/team-tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/shared/empty-state";
 import { NoSeason } from "@/components/public/no-season";
 
 /**
- * A team — one URL, for everybody.
+ * A team — one URL, one page, for everybody.
  *
  * This absorbed `/manage/rosters/<uuid>`, which showed the same team to its
  * manager behind an id nobody could read or share. The public content is
- * unchanged and unconditional; a manager of THIS league gets one more tab.
+ * unchanged and unconditional; a manager of THIS league sees that same page with
+ * the roster editable underneath it.
+ *
+ * ⚠️ THERE IS NO MANAGE TAB AND NO `?tab=manage`, AND THAT IS THE POINT. Both
+ * existed briefly and were removed on the product decision that a manager should
+ * simply see their page and be able to edit it — not navigate to a second view
+ * of the team they are already looking at. Anything that reintroduces a mode
+ * here (a tab, a query parameter, an "edit" toggle) is reintroducing what was
+ * deliberately taken out.
+ *
+ * ⚠️ The cost that mode was buying is real and is now paid: `RosterEditor` runs
+ * four admin queries — one of them the whole `players` table, for the "add
+ * someone who already plays elsewhere" picker — on every manager's view of any
+ * team page in their league. It is bounded by the number of people in the
+ * instance, not by the league, so it is the query to watch if that table grows.
+ * Nobody else pays it: the block is behind `canManageLeague`, so an anonymous
+ * visitor triggers none of it.
  *
  * ⚠️ The team is resolved by SLUG WITHIN THE LEAGUE, which is what makes the old
  * page's ownership check unnecessary rather than merely absent — see the note on
@@ -28,12 +43,8 @@ import { NoSeason } from "@/components/public/no-season";
  */
 export default async function TeamPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ league: string; slug: string }>;
-  // Next's own type is `string | string[] | undefined`; a repeated `?tab=` gives
-  // the array. Narrowed at the comparison rather than lied about here.
-  searchParams: Promise<{ tab?: string | string[] }>;
 }) {
   const { league: leagueParam, slug } = await params;
   const ctx = await getActiveContext(leagueParam);
@@ -43,20 +54,6 @@ export default async function TeamPage({
   const detail = await getTeamBySlug(ctx.league.id, ctx.season.id, slug);
   if (!detail) notFound();
   const canEdit = await canManageLeague(ctx.league.id);
-
-  // ⛔ The tab has to be in the URL, and this is why: Radix unmounts inactive tab
-  // content on the CLIENT, but the server renders every branch it is given. So a
-  // `<TabsContent>` holding `RosterEditor` runs its four admin queries — one of
-  // them over the whole `players` table — on every manager's casual look at a
-  // team page, and serialises the result into the payload, whether or not anyone
-  // opens the tab. Before the merge that cost was paid only by someone who
-  // deliberately navigated to the editor's own URL.
-  //
-  // Deep-linking is the same mechanism seen from the other side: `?tab=manage`
-  // is now a shareable address for the editor, which the uncontrolled Radix
-  // state never was.
-  const { tab } = await searchParams;
-  const editing = canEdit && tab === "manage";
 
   let w = 0;
   let l = 0;
@@ -132,25 +129,14 @@ export default async function TeamPage({
       </div>
 
       {/*
-        Uncontrolled, so the two public tabs still switch instantly on the client
-        the way they always have. Only Manage goes through the URL, because only
-        Manage has server work behind it.
+        Uncontrolled: both tabs are public content that switches instantly on the
+        client, with no server work behind either. Nothing here reads the URL,
+        which is what removing the Manage tab bought back.
       */}
-      <TeamTabs
-        tab={editing ? "manage" : "roster"}
-        baseHref={`/${league}/teams/${slug}`}
-      >
+      <Tabs defaultValue="roster" className="space-y-4">
         <TabsList>
           <TabsTrigger value="roster">Roster &amp; Stats</TabsTrigger>
           <TabsTrigger value="schedule">Schedule</TabsTrigger>
-          {/*
-            A tab rather than a section below the roster: the public content is
-            what this page is, and the editing surface is a place a manager goes
-            rather than a thing every visitor scrolls past. It is also what keeps
-            the page from becoming the 500-line hybrid the design warned about —
-            everything behind it lives in one component.
-          */}
-          {canEdit ? <TabsTrigger value="manage">Manage</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="roster" className="space-y-6">
@@ -166,6 +152,33 @@ export default async function TeamPage({
               </h2>
               <GoalieStatsTable rows={detail.goalies} league={league} />
             </div>
+          ) : null}
+
+          {/*
+            The same tab, below the same tables a visitor sees — a manager reads
+            their team's stats and then edits the roster without going anywhere.
+            The roster appears twice on purpose: the table above is the season's
+            scoring, the one below is who is on the team and what can be done to
+            them, and they answer different questions.
+          */}
+          {canEdit ? (
+            // A named landmark, not a bare div: it is the only thing separating
+            // the editor's roster table from the public one directly above it,
+            // for a screen-reader user and for the e2e suite alike — several
+            // specs scope `table tbody tr` to this region, which they got for
+            // free while the editor had a tab to itself.
+            <section
+              aria-labelledby="manage-roster"
+              className="space-y-4 border-t pt-6"
+            >
+              <h2
+                id="manage-roster"
+                className="text-muted-foreground text-sm font-semibold"
+              >
+                Manage roster
+              </h2>
+              <RosterEditor team={detail.team} season={ctx.season} />
+            </section>
           ) : null}
         </TabsContent>
 
@@ -184,13 +197,7 @@ export default async function TeamPage({
             ))
           )}
         </TabsContent>
-
-        {editing ? (
-          <TabsContent value="manage">
-            <RosterEditor team={detail.team} season={ctx.season} />
-          </TabsContent>
-        ) : null}
-      </TeamTabs>
+      </Tabs>
     </div>
   );
 }

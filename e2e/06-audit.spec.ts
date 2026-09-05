@@ -4,6 +4,17 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+/**
+ * The EDITABLE roster table, scoped to its region. The team page renders the
+ * public roster first and the editor below it, so a bare `table tbody tr` picks
+ * up the public table — same players, no buttons.
+ */
+function rosterRows(page: Page) {
+  return page
+    .getByRole("region", { name: "Manage roster" })
+    .locator("table tbody tr");
+}
+
 async function signedInAs(
   page: Page,
   role: "Manager" | "Scorekeeper" | "Captain",
@@ -23,13 +34,10 @@ test.describe("Path 12 — Audit log", () => {
     await page.goto("/obhl/teams");
     await page.getByText("Bears").click();
     await expect(page).toHaveURL(/\/teams\//);
-    // The roster editor is a tab on the team page now, not a page of
-    // its own behind a uuid.
-    await page.getByRole("tab", { name: "Manage" }).click();
-    await page.waitForURL(/\?tab=manage$/);
+    // The editing forms are simply on the page for a manager now — no tab to
+    // open and no `?tab=` to wait for.
 
-    await page
-      .locator("table tbody tr")
+    await rosterRows(page)
       .nth(2)
       .getByRole("button", { name: "Suspend" })
       .click();
@@ -50,13 +58,11 @@ test.describe("Path 12 — Audit log", () => {
     await page.goto("/obhl/teams");
     await page.getByText("Bears").click();
     await expect(page).toHaveURL(/\/teams\//);
-    // The roster editor is a tab on the team page now, not a page of
-    // its own behind a uuid.
-    await page.getByRole("tab", { name: "Manage" }).click();
-    await page.waitForURL(/\?tab=manage$/);
+    // The editing forms are simply on the page for a manager now — no tab to
+    // open and no `?tab=` to wait for.
 
     // Toggle captain status on the first skater row (nth(1) skips goalie)
-    const row = page.locator("table tbody tr").nth(1);
+    const row = rosterRows(page).nth(1);
     const makeC = row.getByRole("button", { name: "Make C" });
     const unsetC = row.getByRole("button", { name: "Unset C" });
     const hasMakeC = await makeC.isVisible().catch(() => false);
@@ -82,12 +88,9 @@ test.describe("Path 12 — Audit log", () => {
     await page.goto("/obhl/teams");
     await page.getByText("Wolves").click();
     await expect(page).toHaveURL(/\/teams\//);
-    // The roster editor is a tab on the team page now, not a page of
-    // its own behind a uuid.
-    await page.getByRole("tab", { name: "Manage" }).click();
-    await page.waitForURL(/\?tab=manage$/);
-    await page
-      .locator("table tbody tr")
+    // The editing forms are simply on the page for a manager now — no tab to
+    // open and no `?tab=` to wait for.
+    await rosterRows(page)
       .nth(2)
       .getByRole("button", { name: "Suspend" })
       .click();
