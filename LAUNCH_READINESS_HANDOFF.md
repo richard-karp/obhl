@@ -59,16 +59,35 @@ which fixed GAA being inflated by empty-net goals on live pages; `0039`-`0041`,
 which #24's manage tools read; and `0042`/`0043`, which let a league's own
 scorekeepers and captains read it before it is public (*Member reads*, below).
 
-**What remains is item 4: the `LAUNCH.md` phases, never verified.** It needs a
-human on production and is the whole of the launch gap again. Item 5 is deferred
-odds and ends, item 7 is the half of the auth work that a checkout cannot do.
+**What remains is item 4: the `LAUNCH.md` phases — and it now has a date on
+it.** The published season's first game night is **2026-09-10**, after which its
+schedule is locked for good. Item 5 is deferred odds and ends, item 7 is the
+half of the auth work that a checkout cannot do.
 
 ## Next action
 
-**Check whether Phase 6 has a deadline running.** A published season locks
-permanently once its first game night passes (`season_is_started`,
-`0026_replace_published_schedule.sql`) — no UI undoes it — so this outranks
-everything else outstanding the moment the answer is "soon".
+⛔ **THE PHASE 6 DEADLINE IS RUNNING. First published game night is
+2026-09-10 23:00 UTC — five days from 2026-09-05.**
+
+Measured, not read: the public feed at
+`/api/schedule/d1a2cf64-a507-4edb-b945-69c75a38522a` carries **144 published
+games**, the earliest `DTSTART` is `20260910T230000Z` (Yellow @ Black), the
+latest is 2027-03-12, and **every one of the 144 is still in the future**. So
+the season is published and not yet locked, and the window in which its shape
+can still be changed closes on the 10th.
+
+**What locks.** Once that night passes, `season_is_started`
+(`0026_replace_published_schedule.sql`) returns true for good and generate,
+replace and remove all refuse. No UI undoes it. Individual games can still be
+rescheduled, scored and postponed afterwards — what is lost is the ability to
+regenerate or withdraw the SCHEDULE. So the question to put to the league before
+the 10th is not "is anything wrong tonight" but **"is this the schedule you want
+for the whole season"**.
+
+⚠️ This was derived from the public ICS feed, which by definition shows only
+PUBLISHED games — it cannot see drafts. If a draft schedule is also sitting in
+that season, this reading will not have found it. The authoritative version
+needs the database:
 
     select l.slug, s.name as season, s.is_active,
            count(*) filter (where not g.is_draft) as published_games,
@@ -83,6 +102,24 @@ everything else outstanding the moment the answer is "soon".
 
 **Then the rest of `LAUNCH.md` Phases 2-6.** Nothing else outstanding can be
 done from a checkout.
+
+### Verified anonymously against production, 2026-09-05
+
+The half of `LAUNCH.md`'s *Verification* list that needs no session. Measured
+with curl against `https://obhl.vercel.app`:
+
+| Check | Result |
+|---|---|
+| `/` lists the leagues | ✅ 200 — but **one** league, `lcc-old-boys-hockey-league`, not two |
+| `/<league>/standings` | ✅ 200 |
+| An unknown slug 404s | ✅ `/nosuchleague-zzz` → 404 |
+| `/api/schedule/team/<id>/feed.ics` resolves | ✅ 200, 36 events, calendar named for the league |
+| `/api/schedule/<season>` and `.../schedule.csv` | ✅ 200 |
+
+⚠️ **Verification steps 1 and 2 cannot pass as written.** They assume two
+leagues; production has one. Steps 4, 5 and 6 (the badge, the league switcher,
+an announcement) need a session and remain for a human — step 4 was separately
+confirmed on 2026-09-05, below.
 
 ✅ **Sign-in, the app guard and RLS were all verified on production 2026-09-05**
 — see *Verified on production* under item 4. ⛔ **Test `/<slug>/dashboard`, never
@@ -133,7 +170,7 @@ design, so assume the gap and check the list rather than the flag.
 | 1 | `ENABLE_DEV_LOGIN` set on production | Vercel env | ✅ **closed 2026-09-04** — absent from every environment (`vercel env ls`) |
 | 2 | Seeded test accounts live, password in git | Supabase dashboard | ✅ **closed 2026-09-04** — done by a human; not verifiable from a checkout |
 | 3 | `0033` not pushed — the RLS half of the escalation | `supabase db push` | ✅ **closed** — and `0034`-`0038` with it |
-| 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | **PARTLY OPEN** — sign-in and access control verified 2026-09-05; Phases 3-6 still unwalked |
+| 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | ⛔ **OPEN, AND ON A CLOCK** — Phase 6's first game night is 2026-09-10; sign-in, access control and the anonymous half of *Verification* are done; steps 4-6 of that list need a session |
 | 5 | Smaller deferred items | below | open |
 | 6 | `0039`-`0043` not pushed | `supabase db push` | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides |
 | 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard + `vercel env` | **OPEN** — needs a human; *The other half of auth* |
