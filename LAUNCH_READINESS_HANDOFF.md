@@ -22,8 +22,8 @@
      permanently. The builder's "First game night" pre-fills from the season's
      `starts_on`, is `required`, and has **no `min`**; `generateSchedule` never
      checks it either. *Verified in the code 2026-09-05, not reproduced against
-     production.* **Read that date before publishing.** PR #23 designs the fix;
-     nothing is implemented.
+     production.* **Read that date before publishing.** ⚠️ A ~20-minute guard
+     closes it without waiting for PR #23 — see *Item 9* below.
    - **Mutating** `gh` (`pr create`, `pr merge`) and `vercel env` are denied to
      an agent under the auto-mode classifier — ask a human, do not work around
      it. **Read-only `gh` works**: `run list`, `run view`, `run download`. On a
@@ -170,7 +170,7 @@ design, so assume the gap and check the list rather than the flag.
 | 6 | `0039`-`0043` not pushed | `supabase db push` | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides |
 | 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard + `vercel env` | **OPEN** — needs a human; *The other half of auth* |
 | 8 | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code | ✅ **closed 2026-09-05** — steps 1-6 shipped as #31 (which collapsed #25-#29); step 7, the prose, is this commit. Spec: `docs/superpowers/specs/2026-09-05-unified-url-space-design.md` |
-| 9 | **A past first-game-night locks the season on publish** | code | ⛔ **OPEN** — no `min` on the input, no check in `generateSchedule`; the one irreversible mistake available in the builder. Fix designed in PR #23, unimplemented. See the hazard in the protocol |
+| 9 | **A past first-game-night locks the season on publish** | code | ⛔ **OPEN** — no `min` on the input, no check in `generateSchedule`; the one irreversible mistake available in the builder. a ~20-minute guard is specced in *Item 9 — the cheap guard*; PR #23 is the larger answer and is NOT needed for this |
 
 ⛔ **Do not re-file 1-3.** They are kept as rows, rather than deleted, because a
 reader who knows this file by its old shape will otherwise assume they were
@@ -557,6 +557,31 @@ is a bootstrap for the flow that has not shipped. What closes it, in order:
 
 Until 1 lands, 2 and 3 cannot be verified, so none of it should ship. That is
 why the sequence is written down rather than left to whoever picks it up.
+
+## Item 9 — the cheap guard, offered and unbuilt
+
+⚠️ **PR #23 is not the only way to close this, and reaching for it first is the
+mistake this section exists to prevent.** That PR is a 1,708-line plan for
+future-only scheduling as a whole — the right long answer, and far more than is
+needed to stop the irreversible case. Do **not** read it to fix this.
+
+The mitigation is two edits and a test, offered on 2026-09-05 and not taken up:
+
+1. `min` on the date input — `schedule-generate-form.tsx`, the `start_date`
+   `<Input>` around line 510, which today carries only
+   `defaultValue={seasonStart}` and `required`. Browser-side only, so it is the
+   half that cannot be trusted.
+2. The half that can: refuse a past `start_date` in `generateSchedule`
+   (`src/lib/actions/schedule.ts`, near the existing
+   `if (!startDate) return { ok: false, message: "Pick a first game night." }`
+   around line 379). Same shape, one condition later.
+
+⚠️ **Guard the GENERATE, not the publish.** Refusing at publish would be the
+obvious place and is worse: by then the manager has a draft they have reviewed
+and can do nothing with, and the useful message — "this date is in the past" —
+arrives too late to act on cheaply.
+
+*Line numbers read 2026-09-05; re-check the symbols before trusting them.*
 
 ## 5 — Smaller, deliberately deferred
 
