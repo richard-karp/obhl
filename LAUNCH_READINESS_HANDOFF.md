@@ -64,28 +64,30 @@ odds and ends, item 7 is the half of the auth work that a checkout cannot do.
 
 ## Next action
 
-**Give the signed-in account a `profiles` row and its league memberships.**
-The magic-link sign-in was done on 2026-09-05 and the link half worked — the
-email arrived and `/auth/confirm` accepted it, so SMTP and the redirect
-allow-list are both confirmed good. **The Manager badge did not appear**, which
-is the one case #24's fallback cannot repair: no `profiles` row means no role to
-fall back to, and `profile_leagues` cascades off `profiles`, so the memberships
-are missing with it. See *Getting locked out* for why an account that "used to
-work" can arrive in this state.
+**Open `/<slug>/manage/dashboard` on production and see whether the badge is
+there.** The 2026-09-05 magic-link sign-in worked — the email arrived and
+`/auth/confirm` accepted it — so SMTP and the redirect allow-list are both
+confirmed. What is NOT yet established is whether the manage tools open, and the
+sign-in did not test that: it lands on `/`, which has no nav for anyone.
 
-    -- Who exists, who has a role, who has leagues.
-    select u.email, u.id as auth_user_id, u.created_at as account_created,
-           p.role, p.display_name, count(pl.league_id) as leagues
-    from auth.users u
-    left join profiles p on p.id = u.id
-    left join profile_leagues pl on pl.profile_id = p.id
-    group by u.email, u.id, u.created_at, p.role, p.display_name
-    order by u.created_at;
+⚠️ **Check the slug against the membership first.** The account holds exactly
+one `profile_leagues` row, and a manage URL for any OTHER league redirects to
+`/` — the same blank result, from a completely different cause.
 
-⚠️ **Grant the role AND the membership.** A role alone still refuses every
-manage page: `requireLeagueManagerOf` resolves the league from the URL and
-checks `profile_leagues` as well. Fixing only the role produces the same blank
-tools and looks like the fix did not work.
+    select l.slug, l.name, l.is_public,
+           exists (select 1 from profile_leagues pl
+                    where pl.league_id = l.id and pl.profile_id = p.id)
+             as is_member
+    from leagues l
+    cross join profiles p
+    where p.id = (select id from auth.users where email = 'REPLACE@example.com')
+    order by l.slug;
+
+⛔ **A role alone is not enough, if it does turn out to be a membership gap.**
+`requireLeagueManagerOf` (`src/lib/auth/guards.ts:92`) checks `isLeagueMember`
+after the role and redirects to `/` when it fails, so granting the role without
+the `profile_leagues` row produces empty tools that look like the fix did not
+work.
 
 **Then walk `LAUNCH.md` Phases 2-6 on production.** Nothing else outstanding can
 be done from a checkout.
@@ -253,10 +255,19 @@ requested, delivered and accepted — which exercises SMTP and the redirect
 allow-list end to end, the two settings that had no fallback and had never been
 tested. Reported by the human who ran it; not measured from here.
 
-⚠️ **What that sign-in did NOT get was the Manager badge**, which is the
-missing-`profiles`-row case above rather than any of the three legs. The link
-working and the tools opening are two different tests, and only the first has
-passed.
+⚠️ **What that sign-in did NOT show was the Manager badge — and the row was
+fine.** Measured the same day: `profiles` carries `role = 'league_manager'` and
+`display_name`, created 2026-09-03, with one `profile_leagues` row. So this was
+NOT the missing-row case above, and not any of the three legs.
+
+⛔ **The likeliest reading is that nothing was broken at all.** `src/app/page.tsx`
+says it in its own docstring: `/` is "what a bare domain, a role-denied
+redirect, and a completed sign-in all land on" — and `/` renders no `ManageNav`,
+because the nav and its badge live in `src/app/[league]/manage/layout.tsx`. A
+successful sign-in therefore lands on a page that shows no badge to anybody.
+The distinguishing test is to open `/<slug>/manage/dashboard` directly: the
+badge there means the whole chain works, and a bounce back to `/` means the
+membership is for a different league than the slug tried.
 
 **`LAUNCH.md` Phases 2-6 are unverified from here.** This file speaks only to
 Phase 1 (the test doors). The site is live with two leagues, so most of the rest
