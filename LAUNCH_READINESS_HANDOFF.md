@@ -64,33 +64,66 @@ odds and ends, item 7 is the half of the auth work that a checkout cannot do.
 
 ## Next action
 
-**Open `/<slug>/manage/dashboard` on production and see whether the badge is
-there.** The 2026-09-05 magic-link sign-in worked — the email arrived and
-`/auth/confirm` accepted it — so SMTP and the redirect allow-list are both
-confirmed. What is NOT yet established is whether the manage tools open, and the
-sign-in did not test that: it lands on `/`, which has no nav for anyone.
+**Check whether Phase 6 has a deadline running.** A published season locks
+permanently once its first game night passes (`season_is_started`,
+`0026_replace_published_schedule.sql`) — no UI undoes it — so this outranks
+everything else outstanding the moment the answer is "soon".
 
-⚠️ **Check the slug against the membership first.** The account holds exactly
-one `profile_leagues` row, and a manage URL for any OTHER league redirects to
-`/` — the same blank result, from a completely different cause.
+    select l.slug, s.name as season, s.is_active,
+           count(*) filter (where not g.is_draft) as published_games,
+           count(*) filter (where g.is_draft)     as draft_games,
+           min(g.scheduled_at) filter (where not g.is_draft) as first_night,
+           public.season_is_started(s.id) as already_locked
+    from seasons s
+    join leagues l on l.id = s.league_id
+    left join games g on g.season_id = s.id
+    group by l.slug, s.id, s.name, s.is_active
+    order by l.slug, s.starts_on desc nulls last;
 
-    select l.slug, l.name, l.is_public,
-           exists (select 1 from profile_leagues pl
-                    where pl.league_id = l.id and pl.profile_id = p.id)
-             as is_member
-    from leagues l
-    cross join profiles p
-    where p.id = (select id from auth.users where email = 'REPLACE@example.com')
-    order by l.slug;
+**Then the rest of `LAUNCH.md` Phases 2-6.** Nothing else outstanding can be
+done from a checkout.
 
-⛔ **A role alone is not enough, if it does turn out to be a membership gap.**
-`requireLeagueManagerOf` (`src/lib/auth/guards.ts:92`) checks `isLeagueMember`
-after the role and redirects to `/` when it fails, so granting the role without
-the `profile_leagues` row produces empty tools that look like the fix did not
-work.
+### ✅ Sign-in and access control: verified end to end, 2026-09-05
 
-**Then walk `LAUNCH.md` Phases 2-6 on production.** Nothing else outstanding can
-be done from a checkout.
+⚠️ **A completed sign-in lands on `/`, which shows no badge to anybody.** That
+is what `src/app/page.tsx` documents ("a bare domain, a role-denied redirect,
+and a completed sign-in all land on" it), and it cost a round of misdiagnosis
+here: the nav and its badge live only in `src/app/[league]/manage/layout.tsx`.
+**The test is `/<slug>/manage/dashboard`, never `/`.** Confirmed working at
+`/lcc-old-boys-hockey-league/manage/dashboard`, Manager badge shown.
+
+**The app guard.** Every manage route answers `307 -> /login` with no session
+cookie — `dashboard`, `people`, `rosters`, `schedule-builder`, `audit`, and
+`/manage/office` — while `/lcc-old-boys-hockey-league/standings` serves `200`.
+Measured with curl, which carries no cookies, so that is the true anonymous
+case.
+
+**RLS, which is the half that matters.** Probed directly against PostgREST with
+the publishable key, bypassing the app entirely:
+
+| Probe | Result |
+|---|---|
+| `select` on `profiles`, `profile_leagues`, `audit_log`, `league_office` | `[]` each |
+| `select` on `leagues`, `seasons`, `team_players` | rows — public, as designed |
+| `insert` into `announcements` | `401`, `42501 new row violates row-level security policy` |
+| `update` on `leagues`, `profiles`, `team_players` | `200` with `[]` — zero rows matched |
+
+⛔ **The public reads are the load-bearing part of that table, not filler.** Had
+everything returned `[]`, a wrong key or a wrong URL would look exactly like
+working RLS. Public data coming back is what proves the probe reached the
+database as an anonymous caller and *then* got refused. Every write was a
+deliberate no-op (setting a column to the value it already held) except the
+`announcements` insert, which was refused; a follow-up read confirmed no probe
+row landed.
+
+⚠️ **Only the ANONYMOUS dimension is proven on production.** Signed-in-but-wrong-
+role and signed-in-but-wrong-league are proven in the fixture only
+(`e2e/09-access.spec.ts`, and the five API-level tests in
+`16-league-membership.spec.ts` — four refusals plus the own-league positive
+control that stops them passing vacuously). Production has one account and one
+league, so there is nothing there to refuse yet. **Re-probe when a second staff
+member exists**, especially a scorekeeper or captain, whose dashboard should be
+visibly smaller.
 
 ## The rule item 6 leaves behind — push migrations BEFORE merging their code
 
@@ -133,7 +166,7 @@ design, so assume the gap and check the list rather than the flag.
 | 1 | `ENABLE_DEV_LOGIN` set on production | Vercel env | ✅ **closed 2026-09-04** — absent from every environment (`vercel env ls`) |
 | 2 | Seeded test accounts live, password in git | Supabase dashboard | ✅ **closed 2026-09-04** — done by a human; not verifiable from a checkout |
 | 3 | `0033` not pushed — the RLS half of the escalation | `supabase db push` | ✅ **closed** — and `0034`-`0038` with it |
-| 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | **OPEN** — below |
+| 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | **PARTLY OPEN** — sign-in and access control verified 2026-09-05; Phases 3-6 still unwalked |
 | 5 | Smaller deferred items | below | open |
 | 6 | `0039`-`0041` not pushed — #24's three tables | `supabase db push` | ✅ **closed 2026-09-05** — pushed before #24 merged; `migration list --linked` shows all three on both sides |
 | 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard + `vercel env` | **OPEN** — needs a human; *The other half of auth* |
@@ -260,16 +293,19 @@ fine.** Measured the same day: `profiles` carries `role = 'league_manager'` and
 `display_name`, created 2026-09-03, with one `profile_leagues` row. So this was
 NOT the missing-row case above, and not any of the three legs.
 
-⛔ **The likeliest reading is that nothing was broken at all.** `src/app/page.tsx`
-says it in its own docstring: `/` is "what a bare domain, a role-denied
-redirect, and a completed sign-in all land on" — and `/` renders no `ManageNav`,
-because the nav and its badge live in `src/app/[league]/manage/layout.tsx`. A
-successful sign-in therefore lands on a page that shows no badge to anybody.
-The distinguishing test is to open `/<slug>/manage/dashboard` directly: the
-badge there means the whole chain works, and a bounce back to `/` means the
-membership is for a different league than the slug tried.
+✅ **Nothing was broken. It was the URL.** `src/app/page.tsx` says so in its own
+docstring: `/` is "what a bare domain, a role-denied redirect, and a completed
+sign-in all land on" — and `/` renders no `ManageNav`, because the nav and its
+badge live in `src/app/[league]/manage/layout.tsx`. A successful sign-in
+therefore lands on a page that shows no badge to anybody.
+`/lcc-old-boys-hockey-league/manage/dashboard` shows it. ⛔ **Test the manage
+URL, never `/`** — this cost a full round of misdiagnosis on 2026-09-05, and the
+symptom of "signed in, no badge, no tools" is identical to a real lockout.
 
-**`LAUNCH.md` Phases 2-6 are unverified from here.** This file speaks only to
+**`LAUNCH.md` Phase 2 is now verified; Phases 3-6 are not.** SMTP, the redirect
+allow-list, the role resolution and the manage tools were all exercised end to
+end on 2026-09-05 (see *Next action*), which is the whole of Phase 2's
+Supabase-dashboard column bar the hook itself. This file otherwise speaks only to
 Phase 1 (the test doors). ⚠️ **Production has ONE league, not two** — measured
 2026-09-05: `lcc-old-boys-hockey-league` ("LCC Old Boys Hockey League"),
 `is_public = true`, and it is the only row in `leagues`. Two is the goal this
