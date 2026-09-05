@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getActiveContext } from "@/lib/queries/season";
 import { getTeamBySlug } from "@/lib/queries/teams";
@@ -27,8 +28,10 @@ import { NoSeason } from "@/components/public/no-season";
  */
 export default async function TeamPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ league: string; slug: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const { league: leagueParam, slug } = await params;
   const ctx = await getActiveContext(leagueParam);
@@ -38,6 +41,20 @@ export default async function TeamPage({
   const detail = await getTeamBySlug(ctx.league.id, ctx.season.id, slug);
   if (!detail) notFound();
   const canEdit = await canManageLeague(ctx.league.id);
+
+  // ⛔ The tab has to be in the URL, and this is why: Radix unmounts inactive tab
+  // content on the CLIENT, but the server renders every branch it is given. So a
+  // `<TabsContent>` holding `RosterEditor` runs its four admin queries — one of
+  // them over the whole `players` table — on every manager's casual look at a
+  // team page, and serialises the result into the payload, whether or not anyone
+  // opens the tab. Before the merge that cost was paid only by someone who
+  // deliberately navigated to the editor's own URL.
+  //
+  // Deep-linking is the same mechanism seen from the other side: `?tab=manage`
+  // is now a shareable address for the editor, which the uncontrolled Radix
+  // state never was.
+  const { tab } = await searchParams;
+  const editing = canEdit && tab === "manage";
 
   let w = 0;
   let l = 0;
@@ -112,7 +129,12 @@ export default async function TeamPage({
         </div>
       </div>
 
-      <Tabs defaultValue="roster" className="space-y-4">
+      {/*
+        Uncontrolled, so the two public tabs still switch instantly on the client
+        the way they always have. Only Manage goes through the URL, because only
+        Manage has server work behind it.
+      */}
+      <Tabs defaultValue={editing ? "manage" : "roster"} className="space-y-4">
         <TabsList>
           <TabsTrigger value="roster">Roster &amp; Stats</TabsTrigger>
           <TabsTrigger value="schedule">Schedule</TabsTrigger>
@@ -123,7 +145,11 @@ export default async function TeamPage({
             the page from becoming the 500-line hybrid the design warned about —
             everything behind it lives in one component.
           */}
-          {canEdit ? <TabsTrigger value="manage">Manage</TabsTrigger> : null}
+          {canEdit ? (
+            <TabsTrigger value="manage" asChild>
+              <Link href={`/${league}/teams/${slug}?tab=manage`}>Manage</Link>
+            </TabsTrigger>
+          ) : null}
         </TabsList>
 
         <TabsContent value="roster" className="space-y-6">
@@ -158,7 +184,7 @@ export default async function TeamPage({
           )}
         </TabsContent>
 
-        {canEdit ? (
+        {editing ? (
           <TabsContent value="manage">
             <RosterEditor team={detail.team} season={ctx.season} />
           </TabsContent>

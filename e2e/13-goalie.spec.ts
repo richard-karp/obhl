@@ -82,6 +82,7 @@ test.describe("Path 20 — Default goalie on roster page", () => {
     // The roster editor is a tab on the team page now, not a page of
     // its own behind a uuid.
     await page.getByRole("tab", { name: "Manage" }).click();
+    await page.waitForURL(/\?tab=manage$/);
 
     // Goalie row has a "Set Default" button
     const goalieRow = page
@@ -117,6 +118,7 @@ test.describe("Path 20 — Default goalie on roster page", () => {
     // The roster editor is a tab on the team page now, not a page of
     // its own behind a uuid.
     await page.getByRole("tab", { name: "Manage" }).click();
+    await page.waitForURL(/\?tab=manage$/);
 
     await expect(page.getByText("Goalie Schedule")).toBeVisible();
     // Mon and Thu rows should be present
@@ -132,6 +134,7 @@ test.describe("Path 20 — Default goalie on roster page", () => {
     // The roster editor is a tab on the team page now, not a page of
     // its own behind a uuid.
     await page.getByRole("tab", { name: "Manage" }).click();
+    await page.waitForURL(/\?tab=manage$/);
 
     // Find the Mon row select and pick the first non-default option
     const monForm = page

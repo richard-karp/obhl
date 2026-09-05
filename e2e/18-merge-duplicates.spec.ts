@@ -26,7 +26,9 @@ test("duplicates page loads and is scoped to this league", async ({ page }) => {
  * seeds `obhl` and `harbor`, but the e2e manager belongs to both, so a browser
  * cannot reach it — that is the gap `league-guards.test.ts` covers.
  */
-test("the review list renders, and People & Roles links to it", async ({ page }) => {
+test("the review list renders, and People & Roles links to it", async ({
+  page,
+}) => {
   await page.goto("/login");
   await page.getByRole("button", { name: "Manager" }).click();
   await page.waitForURL("/");
@@ -36,7 +38,9 @@ test("the review list renders, and People & Roles links to it", async ({ page })
   await expect(page).toHaveURL(/\/people\/duplicates$/);
 
   // Either clusters to review or the empty state — both are the component.
-  const clusters = page.getByRole("button", { name: /merge \d+ into this record/i });
+  const clusters = page.getByRole("button", {
+    name: /merge \d+ into this record/i,
+  });
   const empty = page.getByText(/no same-name records to review/i);
   await expect(clusters.or(empty).first()).toBeVisible();
 });

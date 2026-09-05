@@ -25,6 +25,7 @@ test.describe("Path 9 — Roster editor", () => {
     // The roster editor is a tab on the team page now, not a page of
     // its own behind a uuid.
     await page.getByRole("tab", { name: "Manage" }).click();
+    await page.waitForURL(/\?tab=manage$/);
   });
 
   test("roster page shows 14 players with jersey numbers", async ({ page }) => {

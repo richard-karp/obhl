@@ -350,6 +350,36 @@ test.describe("Path 16 — Per-league routing", () => {
   }
 
   /** First id in the hrefs of a Harbor manage list page. */
+  /**
+   * A team slug that exists in BOTH leagues, created on demand. The seeded teams
+   * deliberately share no names, which is what makes a cross-league slug test
+   * vacuous without this.
+   */
+  async function sharedSlug() {
+    const db = admin();
+    const slug = "sharks";
+    const { data: harbor } = await db
+      .from("leagues")
+      .select("id")
+      .eq("slug", "harbor")
+      .single();
+    const { data: existing } = await db
+      .from("teams")
+      .select("id")
+      .eq("league_id", harbor!.id)
+      .eq("slug", slug)
+      .maybeSingle();
+    if (!existing) {
+      await db.from("teams").insert({
+        league_id: harbor!.id,
+        name: "Harbor Sharks",
+        slug,
+        color: "#0ea5e9",
+      });
+    }
+    return slug;
+  }
+
   async function harborId(
     page: import("@playwright/test").Page,
     listPath: string,
@@ -391,15 +421,22 @@ test.describe("Path 16 — Per-league routing", () => {
     expect(own?.status()).toBe(200);
     const ownName = await page.locator("h1").first().innerText();
 
-    // The assertion is the CONTENT, not the status. A `notFound()` thrown by a
-    // page inside `(public)` answers 200 in dev, because the layout above it has
-    // already begun streaming by the time the page throws — watched on `main`
-    // too, for `/obhl/teams/nosuchteam` and `/obhl/players/<bogus>`, so it is
-    // neither new here nor caused by the merge. What matters for THIS test is
-    // that the other league's team does not appear.
+    // ⚠️ The foreign slug is not enough on its own. Harbor and Oceanview share no
+    // team names, so `/obhl/teams/anchors` resolves to nothing whether or not
+    // `getTeamBySlug` scopes by league — the test would pass with the
+    // `league_id` filter deleted. So it also uses a slug that EXISTS IN BOTH and
+    // asserts the page shows the LOCAL team, which is the property that actually
+    // needs holding: a slug names a team within its league, never across.
     await page.goto(`/obhl/teams/${slug}`);
     await expect(page.getByText("That page couldn't be found.")).toBeVisible();
     await expect(page.getByText(ownName, { exact: true })).toHaveCount(0);
+
+    const shared = await sharedSlug();
+    await page.goto(`/harbor/teams/${shared}`);
+    const harborName = await page.locator("h1").first().innerText();
+    await page.goto(`/obhl/teams/${shared}`);
+    const obhlName = await page.locator("h1").first().innerText();
+    expect(obhlName).not.toBe(harborName);
   });
 
   test("the old /rosters/<id> URL redirects, and only under its own league", async ({
@@ -426,8 +463,14 @@ test.describe("Path 16 — Per-league routing", () => {
       new URL(moved.headers()["location"], "http://localhost").pathname,
     ).toBe(`/harbor/teams/${slug}`);
 
-    const foreign = await page.goto(`/obhl/rosters/${team!.id}`);
-    expect(foreign?.status()).toBe(404);
+    // `request.get` with no redirects, not `page.goto`: a page navigation FOLLOWS
+    // a 308, so a route that wrongly redirected to a URL that then 404s would
+    // look identical to one that refused — and a wrong redirect is exactly the
+    // leak this asserts against.
+    const foreign = await request.get(`/obhl/rosters/${team!.id}`, {
+      maxRedirects: 0,
+    });
+    expect(foreign.status()).toBe(404);
   });
 
   test("a game from another league is not scoreable under this one", async ({
@@ -458,6 +501,7 @@ test.describe("Path 16 — Per-league routing", () => {
     const teamSlug = await harborId(page, "/harbor/teams", "/harbor/teams/");
     await page.goto(`/harbor/teams/${teamSlug}`);
     await page.getByRole("tab", { name: "Manage" }).click();
+    await page.waitForURL(/\?tab=manage$/);
     const row = page.locator("table tbody tr").nth(2);
     await row.getByRole("button", { name: "Suspend" }).click();
     await expect(

@@ -14,7 +14,10 @@ function admin() {
   );
 }
 
-async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
+async function signedInAs(
+  page: Page,
+  role: "Manager" | "Scorekeeper" | "Captain",
+) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
@@ -129,7 +132,9 @@ test.describe("Path 13 — Announcements", () => {
       .from("audit_log")
       .select("action, league_id")
       .eq("entity_id", posted!.id);
-    const byAction = new Map((entries ?? []).map((e) => [e.action, e.league_id]));
+    const byAction = new Map(
+      (entries ?? []).map((e) => [e.action, e.league_id]),
+    );
     for (const action of ["create_announcement", "delete_announcement"]) {
       expect(byAction.has(action), `${action} wrote no audit entry`).toBe(true);
       expect(byAction.get(action), `${action} was filed under no league`).toBe(

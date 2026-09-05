@@ -1,6 +1,7 @@
 import { notFound, permanentRedirect } from "next/navigation";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { resolveLeagueBySlug } from "@/lib/league/current";
+import { requireVisibleLeague } from "@/lib/auth/guards";
 
 /**
  * `/rosters/<uuid>` moved to `/teams/<slug>`, and this is the only redirect in
@@ -27,7 +28,16 @@ export default async function RosterRedirectPage({
   const { league: slug, teamId } = await params;
   const league = await resolveLeagueBySlug(slug);
   if (!league) notFound();
+  // The destination applies this, so this must too — otherwise a 308 from here
+  // confirms a staged league's team exists and hands out its slug, to a visitor
+  // the page it points at would have 404'd. A plain guard call: it brings no
+  // chrome and no login redirect, which is the whole reason this route sits
+  // outside both groups.
+  await requireVisibleLeague(league);
 
+  // `error` is discarded on purpose: a malformed uuid is a Postgres 22P02, and
+  // "that team does not exist here" is the right answer to it — the same answer
+  // a well-formed id for another league gets.
   const { data: team } = await createAdminClient()
     .from("teams")
     .select("slug, league_id")

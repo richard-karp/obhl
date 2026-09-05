@@ -5,7 +5,10 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
+async function signedInAs(
+  page: Page,
+  role: "Manager" | "Scorekeeper" | "Captain",
+) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
@@ -28,7 +31,9 @@ async function goToFallSeasonSetup(page: Page) {
   await page.waitForURL(/\/seasons\//);
 }
 
-test("page loads with heading and active season description", async ({ page }) => {
+test("page loads with heading and active season description", async ({
+  page,
+}) => {
   await signedInAs(page, "Manager");
   await page.goto("/obhl/schedule-builder");
   await expect(page.getByText("Schedule Builder")).toBeVisible();
@@ -70,17 +75,27 @@ test.describe("Path 17 — Schedule Builder", () => {
     await goToFallSeasonSetup(page);
   });
 
-  test("generate form has the length toggle and core fields", async ({ page }) => {
+  test("generate form has the length toggle and core fields", async ({
+    page,
+  }) => {
     await expect(page.getByText("Generate a balanced schedule")).toBeVisible();
     await expect(page.getByLabel("First game night")).toBeVisible();
-    await expect(page.getByRole("button", { name: "By games per team" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "By end date" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "By games per team" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "By end date" }),
+    ).toBeVisible();
     await expect(page.getByLabel("Games per team")).toBeVisible();
     await expect(page.getByLabel(/Ice-time slots/).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Generate schedule" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Generate schedule" }),
+    ).toBeVisible();
   });
 
-  test("length toggle swaps games-per-team for an end date", async ({ page }) => {
+  test("length toggle swaps games-per-team for an end date", async ({
+    page,
+  }) => {
     await expect(page.getByLabel("Games per team")).toBeVisible();
     await page.getByRole("button", { name: "By end date" }).click();
     await expect(page.getByLabel("Last regular-season night")).toBeVisible();
@@ -106,11 +121,15 @@ test.describe("Path 17 — Schedule Builder", () => {
     ).toBeVisible();
   });
 
-  test("empty draft state shows before a draft is generated", async ({ page }) => {
+  test("empty draft state shows before a draft is generated", async ({
+    page,
+  }) => {
     await expect(page.getByText("No draft schedule")).toBeVisible();
   });
 
-  test("generates a balanced draft with equal games per team", async ({ page }) => {
+  test("generates a balanced draft with equal games per team", async ({
+    page,
+  }) => {
     // These tests drive Fall 2026 (Sep 15 2026 – Mar 31 2027), not the active
     // season — start on its first night. A date outside the window still
     // generates (drafts aren't bounded by the season start), so this reads as
@@ -125,7 +144,9 @@ test.describe("Path 17 — Schedule Builder", () => {
 
     // Draft preview appears: balance report and a Publish button.
     await expect(page.getByText("Balance report")).toBeVisible(AFTER_GENERATE);
-    await expect(page.getByRole("button", { name: /Publish \d+ games/ })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Publish \d+ games/ }),
+    ).toBeVisible();
 
     // Every team's GP cell should read 4 (equal games per team). Scoped to the
     // Balance report card: the season setup page also has a team roster table
@@ -187,7 +208,9 @@ test.describe("Path 17 — Schedule Builder", () => {
     await expect(page.getByText("No draft schedule")).toBeVisible();
   });
 
-  test("spacing checks report every goal the generator models", async ({ page }) => {
+  test("spacing checks report every goal the generator models", async ({
+    page,
+  }) => {
     // The generator models four goals the panel is the only place a manager can
     // see. They are computed server-side per draft, so nothing below asserts a
     // *value* — a four-game fixture is not the reference season and its numbers
@@ -222,7 +245,9 @@ test.describe("Path 17 — Schedule Builder", () => {
 
     // Informational, and deliberately not a check: it has no zero to reach, so
     // it sits outside the tick list with its own explanation.
-    await expect(page.getByText(/Longest stretch without a game/)).toBeVisible();
+    await expect(
+      page.getByText(/Longest stretch without a game/),
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Discard draft" }).click();
     await expect(page.getByText("No draft schedule")).toBeVisible();
@@ -236,15 +261,23 @@ test.describe("Path 17 — Schedule Builder", () => {
     const generate = async () => {
       await page.getByLabel("First game night").fill("2026-09-15");
       await page.getByLabel("Games per team").fill("4");
-      await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
-      await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
+      await page
+        .locator('label:has-text("Tue") input[name="weekdays"]')
+        .check();
+      await page
+        .locator('label:has-text("Thu") input[name="weekdays"]')
+        .check();
       await page.getByRole("button", { name: "Generate schedule" }).click();
     };
 
     await generate();
-    const publishButton = page.getByRole("button", { name: /Publish \d+ games/ });
+    const publishButton = page.getByRole("button", {
+      name: /Publish \d+ games/,
+    });
     await expect(publishButton).toBeVisible(AFTER_GENERATE);
-    const published = Number((await publishButton.textContent())!.match(/\d+/)![0]);
+    const published = Number(
+      (await publishButton.textContent())!.match(/\d+/)![0],
+    );
     await publishButton.click();
 
     // Rendered state, not the toast — the toast auto-dismisses.
@@ -263,16 +296,24 @@ test.describe("Path 17 — Schedule Builder", () => {
     await expect(
       page.getByRole("button", { name: "Replace published schedule" }),
     ).toBeVisible(AFTER_GENERATE);
-    await expect(page.getByRole("button", { name: /Publish \d+ games/ })).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: /Publish \d+ games/ }),
+    ).toHaveCount(0);
 
     // The live schedule stays visible in replace mode. It used to be suppressed
     // here, leaving the button label as the only evidence on the page that a
     // published schedule existed at all — on the screen that deletes it.
     await expect(page.getByText(`Published: ${published} games`)).toBeVisible();
 
-    await page.getByRole("button", { name: "Replace published schedule" }).click();
-    await expect(page.getByText("Replace the published schedule?")).toBeVisible();
-    await expect(page.getByText(`This deletes ${published} live games`)).toBeVisible();
+    await page
+      .getByRole("button", { name: "Replace published schedule" })
+      .click();
+    await expect(
+      page.getByText("Replace the published schedule?"),
+    ).toBeVisible();
+    await expect(
+      page.getByText(`This deletes ${published} live games`),
+    ).toBeVisible();
     // The range is how a manager verifies *which* schedule is about to go, so
     // it's in the same long form as the rest of the panel rather than the raw
     // ISO dates this dialog used to show. Asserted by shape, and always
@@ -329,8 +370,12 @@ test.describe("Path 17 — Schedule Builder", () => {
     if ((await removeButton.count()) === 0) {
       await page.getByLabel("First game night").fill("2026-09-15");
       await page.getByLabel("Games per team").fill("4");
-      await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
-      await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
+      await page
+        .locator('label:has-text("Tue") input[name="weekdays"]')
+        .check();
+      await page
+        .locator('label:has-text("Thu") input[name="weekdays"]')
+        .check();
       await page.getByRole("button", { name: "Generate schedule" }).click();
       await page.getByRole("button", { name: /Publish \d+ games/ }).click();
     }
@@ -338,7 +383,9 @@ test.describe("Path 17 — Schedule Builder", () => {
     await expect(removeButton).toBeVisible();
 
     await removeButton.click();
-    await expect(page.getByText("Remove the published schedule?")).toBeVisible();
+    await expect(
+      page.getByText("Remove the published schedule?"),
+    ).toBeVisible();
     // Asserted by shape. The dialog deliberately carries no game count — a
     // pre-start removal destroys nothing that can't be regenerated — so there
     // is no number here to pin the test to.

@@ -103,14 +103,18 @@ test.describe("Path 20 — League Office", () => {
     await expect(link).toBeVisible();
     await link.click();
     await expect(page).toHaveURL("/manage/office");
-    await expect(page.getByRole("heading", { name: "League Office" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "League Office" }),
+    ).toBeVisible();
 
     // Control: an ordinary manager holds the same ROLE and must not see it —
     // the link is gated on the tier, and a role-keyed nav would leak it to
     // every manager.
     await signInAs(page, "Manager");
     await page.goto("/obhl/dashboard");
-    await expect(page.getByRole("link", { name: "League Office" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "League Office" })).toHaveCount(
+      0,
+    );
   });
 
   test("office members are listed in a league's staff, read-only", async ({
@@ -119,7 +123,9 @@ test.describe("Path 20 — League Office", () => {
     await signInAs(page, "Manager");
     await page.goto("/obhl/people");
 
-    const row = page.locator("table tbody tr").filter({ hasText: COMMISSIONER });
+    const row = page
+      .locator("table tbody tr")
+      .filter({ hasText: COMMISSIONER });
     await expect(row).toHaveCount(1);
     await expect(row).toContainText("Commissioner");
     await expect(row.getByText("Managed in League Office")).toBeVisible();
@@ -141,15 +147,23 @@ test.describe("Path 20 — League Office", () => {
     // A throwaway target, so demoting it cannot perturb a shared fixture.
     const email = `demote-me-${Date.now()}@obhl.test`;
     const { data: created } = await db.auth.admin.createUser({
-      email, password: "hockey123", email_confirm: true,
+      email,
+      password: "hockey123",
+      email_confirm: true,
     });
     const targetId = created!.user!.id;
     await db.from("profiles").upsert({
-      id: targetId, role: "league_manager", display_name: "Demote Me",
+      id: targetId,
+      role: "league_manager",
+      display_name: "Demote Me",
     });
     const { data: league } = await db
-      .from("leagues").select("id").eq("slug", "obhl").single();
-    await db.from("profile_leagues")
+      .from("leagues")
+      .select("id")
+      .eq("slug", "obhl")
+      .single();
+    await db
+      .from("profile_leagues")
       .insert({ profile_id: targetId, league_id: league!.id });
 
     try {
@@ -157,7 +171,9 @@ test.describe("Path 20 — League Office", () => {
       // half that must NOT change.
       await signInAs(page, "Manager");
       await page.goto("/obhl/people");
-      const asManager = page.locator("table tbody tr").filter({ hasText: email });
+      const asManager = page
+        .locator("table tbody tr")
+        .filter({ hasText: email });
       await expect(asManager).toHaveCount(1);
       await expect(asManager.getByLabel("Change role")).toHaveCount(0);
 
@@ -172,12 +188,19 @@ test.describe("Path 20 — League Office", () => {
         "a commissioner outranks a manager and the row must offer the control",
       ).toHaveCount(1);
 
-      await asCommissioner.getByLabel("Change role").selectOption("scorekeeper");
+      await asCommissioner
+        .getByLabel("Change role")
+        .selectOption("scorekeeper");
       await page.waitForLoadState("networkidle");
 
       const { data: after } = await db
-        .from("profiles").select("role").eq("id", targetId).single();
-      expect(after?.role, "the demotion must actually land").toBe("scorekeeper");
+        .from("profiles")
+        .select("role")
+        .eq("id", targetId)
+        .single();
+      expect(after?.role, "the demotion must actually land").toBe(
+        "scorekeeper",
+      );
     } finally {
       await db.auth.admin.deleteUser(targetId);
     }
@@ -206,7 +229,10 @@ test.describe("Path 20 — League Office", () => {
     const db = admin();
     const commissionerId = await profileIdFor(COMMISSIONER);
     const { data: before } = await db
-      .from("profiles").select("role").eq("id", commissionerId).single();
+      .from("profiles")
+      .select("role")
+      .eq("id", commissionerId)
+      .single();
 
     await signInAs(page, "Manager");
     await page.goto("/obhl/people");
@@ -227,7 +253,10 @@ test.describe("Path 20 — League Office", () => {
     await page.waitForLoadState("networkidle");
 
     const { data: after } = await db
-      .from("profiles").select("role").eq("id", commissionerId).single();
+      .from("profiles")
+      .select("role")
+      .eq("id", commissionerId)
+      .single();
     expect(after?.role, "the forged write must not land").toBe(before!.role);
     expect(after?.role).toBe("league_manager");
   });
@@ -244,7 +273,9 @@ test.describe("Path 20 — League Office", () => {
     const donor = page
       .locator("table tbody tr")
       .filter({ hasText: "scorekeeper@obhl.test" });
-    const removeForm = donor.locator("form").filter({ has: page.getByRole("button", { name: "Remove" }) });
+    const removeForm = donor
+      .locator("form")
+      .filter({ has: page.getByRole("button", { name: "Remove" }) });
     await tamper(page, removeForm.locator('input[name="id"]'), commissionerId);
     await removeForm.getByRole("button", { name: "Remove" }).click();
     await page.waitForLoadState("networkidle");
@@ -252,21 +283,35 @@ test.describe("Path 20 — League Office", () => {
     // Still in the office, and still a manager: `removeStaff` refused rather
     // than reporting success having deleted nothing.
     const { data: tier } = await db
-      .from("league_office").select("tier").eq("profile_id", commissionerId).single();
+      .from("league_office")
+      .select("tier")
+      .eq("profile_id", commissionerId)
+      .single();
     expect(tier?.tier).toBe("commissioner");
     const { data: prof } = await db
-      .from("profiles").select("role").eq("id", commissionerId).single();
+      .from("profiles")
+      .select("role")
+      .eq("id", commissionerId)
+      .single();
     expect(prof?.role).toBe("league_manager");
   });
 
-  test("a deputy sees the office roster and can change nothing", async ({ page }) => {
+  test("a deputy sees the office roster and can change nothing", async ({
+    page,
+  }) => {
     await signInAs(page, "Deputy");
     await page.goto("/manage/office");
 
-    await expect(page.getByRole("heading", { name: "League Office" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "League Office" }),
+    ).toBeVisible();
     // The roster is visible...
-    await expect(page.getByRole("cell", { name: COMMISSIONER, exact: true })).toBeVisible();
-    await expect(page.getByRole("cell", { name: DEPUTY, exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: COMMISSIONER, exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: DEPUTY, exact: true }),
+    ).toBeVisible();
     // ...and nothing on it is actionable, including their own row.
     await expect(page.getByRole("button", { name: "Remove" })).toHaveCount(0);
     await expect(page.getByLabel("Manager account")).toHaveCount(0);
@@ -284,19 +329,28 @@ test.describe("Path 20 — League Office", () => {
 
     const row = page.locator("table tbody tr").filter({ hasText: DEPUTY });
     await row.getByRole("button", { name: "Remove" }).click();
-    await expect(page.locator("table tbody tr").filter({ hasText: DEPUTY })).toHaveCount(0);
+    await expect(
+      page.locator("table tbody tr").filter({ hasText: DEPUTY }),
+    ).toHaveCount(0);
 
     const { data: gone } = await db
-      .from("league_office").select("tier").eq("profile_id", deputyId);
+      .from("league_office")
+      .select("tier")
+      .eq("profile_id", deputyId);
     expect(gone ?? [], "the tier must actually be revoked").toHaveLength(0);
 
     // Restore through the UI, which is also the appoint path.
     await page.getByLabel("Manager account").selectOption(deputyId);
     await page.getByRole("button", { name: "Appoint as deputy" }).click();
-    await expect(page.locator("table tbody tr").filter({ hasText: DEPUTY })).toHaveCount(1);
+    await expect(
+      page.locator("table tbody tr").filter({ hasText: DEPUTY }),
+    ).toHaveCount(1);
 
     const { data: back } = await db
-      .from("league_office").select("tier").eq("profile_id", deputyId).single();
+      .from("league_office")
+      .select("tier")
+      .eq("profile_id", deputyId)
+      .single();
     expect(back?.tier).toBe("deputy");
   });
 
@@ -306,12 +360,16 @@ test.describe("Path 20 — League Office", () => {
     const db = admin();
     const deputyId = await profileIdFor(DEPUTY);
     const { data: league } = await db
-      .from("leagues").select("id").eq("slug", "obhl").single();
+      .from("leagues")
+      .select("id")
+      .eq("slug", "obhl")
+      .single();
 
     // A deputy WITH a membership row — the shape a promoted manager leaves, and
     // the only one where `removeStaff` reaches its office check rather than
     // bouncing off the membership check first.
-    await db.from("profile_leagues")
+    await db
+      .from("profile_leagues")
       .insert({ profile_id: deputyId, league_id: league!.id });
 
     try {
@@ -345,8 +403,11 @@ test.describe("Path 20 — League Office", () => {
         "the membership must survive: a no-op that logged a removal is the bug",
       ).toHaveLength(1);
     } finally {
-      await db.from("profile_leagues")
-        .delete().eq("profile_id", deputyId).eq("league_id", league!.id);
+      await db
+        .from("profile_leagues")
+        .delete()
+        .eq("profile_id", deputyId)
+        .eq("league_id", league!.id);
     }
   });
 });

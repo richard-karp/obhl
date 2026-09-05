@@ -195,17 +195,15 @@ async function loadMergeSet(
   ];
 
   return {
-    rosters: rosterRows.map(
-      (r): RosterRow => ({
-        id: r.id,
-        playerId: r.player_id,
-        seasonId: r.season_id,
-        teamId: r.team_id,
-        jerseyNumber: r.jersey_number,
-        isCaptain: r.is_captain,
-        leftOn: r.left_on,
-      }),
-    ),
+    rosters: rosterRows.map((r): RosterRow => ({
+      id: r.id,
+      playerId: r.player_id,
+      seasonId: r.season_id,
+      teamId: r.team_id,
+      jerseyNumber: r.jersey_number,
+      isCaptain: r.is_captain,
+      leftOn: r.left_on,
+    })),
     games: gameRows.flatMap((r): GameRow[] =>
       // A substitute row has no player_id (0016) and cannot be in the set the
       // `.in()` filter returned, but the column is nullable and `GameRow`'s is
@@ -260,7 +258,10 @@ export async function mergePlayers(
     ),
   ];
   if (!keepId || absorbIds.length === 0) {
-    return { ok: false, message: "Choose a record to keep and at least one to merge into it." };
+    return {
+      ok: false,
+      message: "Choose a record to keep and at least one to merge into it.",
+    };
   }
 
   const admin = createAdminClient();
@@ -269,7 +270,8 @@ export async function mergePlayers(
   if ("error" in loaded) return { ok: false, message: loaded.error };
 
   const plan = planMerge(keepId, loaded.rosters, loaded.games, loaded.linked);
-  if (!plan.ok) return { ok: false, message: await describeRefusal(admin, plan) };
+  if (!plan.ok)
+    return { ok: false, message: await describeRefusal(admin, plan) };
 
   const names = await playerNames(admin, mergeSet);
 
@@ -326,14 +328,22 @@ export async function mergePlayers(
       .from("team_players")
       .delete()
       .in("id", plan.rosterDelete);
-    if (error) return partial("roster-delete", `Could not remove the absorbed roster rows: ${error.message}`);
+    if (error)
+      return partial(
+        "roster-delete",
+        `Could not remove the absorbed roster rows: ${error.message}`,
+      );
   }
   if (plan.rosterKeep.length) {
     const { error } = await admin
       .from("team_players")
       .update({ player_id: keepId })
       .in("id", plan.rosterKeep);
-    if (error) return partial("roster-repoint", `Could not move the roster rows: ${error.message}`);
+    if (error)
+      return partial(
+        "roster-repoint",
+        `Could not move the roster rows: ${error.message}`,
+      );
   }
 
   // Same ordering for the same reason, per game: `unique (game_id, player_id)`
@@ -341,8 +351,15 @@ export async function mergePlayers(
   // still there.
   for (const g of plan.games) {
     if (g.deleteIds.length) {
-      const { error } = await admin.from("game_rosters").delete().in("id", g.deleteIds);
-      if (error) return partial("game-rows", `Could not merge game ${g.gameId}: ${error.message}`);
+      const { error } = await admin
+        .from("game_rosters")
+        .delete()
+        .in("id", g.deleteIds);
+      if (error)
+        return partial(
+          "game-rows",
+          `Could not merge game ${g.gameId}: ${error.message}`,
+        );
     }
     const { error } = await admin
       .from("game_rosters")
@@ -353,7 +370,11 @@ export async function mergePlayers(
         pim: g.pim,
       })
       .eq("id", g.survivorId);
-    if (error) return partial("game-rows", `Could not merge game ${g.gameId}: ${error.message}`);
+    if (error)
+      return partial(
+        "game-rows",
+        `Could not merge game ${g.gameId}: ${error.message}`,
+      );
   }
 
   // Everything else that names a player by id. Each is a plain repoint: none of
@@ -361,14 +382,29 @@ export async function mergePlayers(
   // is unique on (team, season, day) and the goalie-of-record columns are plain
   // references.
   const repointed = await Promise.all([
-    admin.from("team_goalie_days").update({ player_id: keepId }).in("player_id", absorbIds),
-    admin.from("games").update({ home_goalie_id: keepId }).in("home_goalie_id", absorbIds),
-    admin.from("games").update({ away_goalie_id: keepId }).in("away_goalie_id", absorbIds),
-    admin.from("profiles").update({ player_id: keepId }).in("player_id", absorbIds),
+    admin
+      .from("team_goalie_days")
+      .update({ player_id: keepId })
+      .in("player_id", absorbIds),
+    admin
+      .from("games")
+      .update({ home_goalie_id: keepId })
+      .in("home_goalie_id", absorbIds),
+    admin
+      .from("games")
+      .update({ away_goalie_id: keepId })
+      .in("away_goalie_id", absorbIds),
+    admin
+      .from("profiles")
+      .update({ player_id: keepId })
+      .in("player_id", absorbIds),
   ]);
   const repointErr = repointed.find((r) => r.error)?.error;
   if (repointErr) {
-    return partial("repoint", `Could not repoint the absorbed records: ${repointErr.message}`);
+    return partial(
+      "repoint",
+      `Could not repoint the absorbed records: ${repointErr.message}`,
+    );
   }
 
   // ⛔ LAST, and moving it up is not the harmless tidying it looks like.
@@ -379,8 +415,15 @@ export async function mergePlayers(
   // gone, with no error and no partial failure to notice. `team_goalie_days`
   // cascades the same way; the goalie-of-record columns are `set null`, which is
   // quieter still.
-  const { error: pErr } = await admin.from("players").delete().in("id", absorbIds);
-  if (pErr) return partial("players-delete", `Could not delete the absorbed records: ${pErr.message}`);
+  const { error: pErr } = await admin
+    .from("players")
+    .delete()
+    .in("id", absorbIds);
+  if (pErr)
+    return partial(
+      "players-delete",
+      `Could not delete the absorbed records: ${pErr.message}`,
+    );
 
   // Dismissals that named an absorbed record are gone with it (both player
   // columns cascade), which is right: the judgement was about two records, and
@@ -406,7 +449,6 @@ export async function mergePlayers(
   });
 
   revalidatePath("/[league]/people/duplicates", "page");
-  revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]", "layout");
 
@@ -434,7 +476,8 @@ export async function dismissDuplicatePair(
 
   const a = String(formData.get("player_a") ?? "");
   const b = String(formData.get("player_b") ?? "");
-  if (!a || !b || a === b) return { ok: false, message: "Pick two different records." };
+  if (!a || !b || a === b)
+    return { ok: false, message: "Pick two different records." };
 
   const admin = createAdminClient();
   // The same containment check the merge runs, for the same reason: this writes
@@ -490,8 +533,12 @@ export async function restoreDuplicatePair(
     .delete()
     .eq("id", id)
     .eq("league_id", leagueId);
-  if (error) return { ok: false, message: `Could not undo that: ${error.message}` };
+  if (error)
+    return { ok: false, message: `Could not undo that: ${error.message}` };
 
   revalidatePath("/[league]/people/duplicates", "page");
-  return { ok: true, message: "Dismissal undone — the pair is a candidate again." };
+  return {
+    ok: true,
+    message: "Dismissal undone — the pair is a candidate again.",
+  };
 }

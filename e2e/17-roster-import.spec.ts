@@ -1,7 +1,9 @@
 /** Roster-only import — teams and players, no games. */
 import { test, expect } from "@playwright/test";
 
-test("rosters-only mode hides the game count in the preview", async ({ page }) => {
+test("rosters-only mode hides the game count in the preview", async ({
+  page,
+}) => {
   await page.goto("/login");
   await page.getByRole("button", { name: "Manager" }).click();
   await page.waitForURL("/");
@@ -30,7 +32,9 @@ test("mode defaults to rosters-only and switching modes changes the blurb", asyn
   await page.goto("/obhl/import");
 
   await expect(page.getByLabel(/rosters only/i)).toBeChecked();
-  await expect(page.getByText(/imports the teams and players only/i)).toBeVisible();
+  await expect(
+    page.getByText(/imports the teams and players only/i),
+  ).toBeVisible();
 
   await page.getByLabel(/full migration/i).check();
   await expect(page.getByText(/schedule with final results/i)).toBeVisible();

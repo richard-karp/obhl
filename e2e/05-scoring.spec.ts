@@ -4,7 +4,10 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
+async function signedInAs(
+  page: Page,
+  role: "Manager" | "Scorekeeper" | "Captain",
+) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
@@ -39,7 +42,10 @@ test.describe("Path 10 — Score a game end-to-end", () => {
     for (let i = 0; i < (await awayBoxes.count()); i++) {
       await awayBoxes.nth(i).check();
     }
-    await lineupForms.first().getByRole("button", { name: "Save lineup" }).click();
+    await lineupForms
+      .first()
+      .getByRole("button", { name: "Save lineup" })
+      .click();
     await page.waitForLoadState("networkidle");
 
     // Dress all players for home team
@@ -47,7 +53,10 @@ test.describe("Path 10 — Score a game end-to-end", () => {
     for (let i = 0; i < (await homeBoxes.count()); i++) {
       await homeBoxes.nth(i).check();
     }
-    await lineupForms.last().getByRole("button", { name: "Save lineup" }).click();
+    await lineupForms
+      .last()
+      .getByRole("button", { name: "Save lineup" })
+      .click();
     await page.waitForLoadState("networkidle");
 
     // Record one goal using the aria-labeled + button

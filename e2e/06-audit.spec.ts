@@ -26,6 +26,7 @@ test.describe("Path 12 — Audit log", () => {
     // The roster editor is a tab on the team page now, not a page of
     // its own behind a uuid.
     await page.getByRole("tab", { name: "Manage" }).click();
+    await page.waitForURL(/\?tab=manage$/);
 
     await page
       .locator("table tbody tr")
@@ -52,6 +53,7 @@ test.describe("Path 12 — Audit log", () => {
     // The roster editor is a tab on the team page now, not a page of
     // its own behind a uuid.
     await page.getByRole("tab", { name: "Manage" }).click();
+    await page.waitForURL(/\?tab=manage$/);
 
     // Toggle captain status on the first skater row (nth(1) skips goalie)
     const row = page.locator("table tbody tr").nth(1);
@@ -83,6 +85,7 @@ test.describe("Path 12 — Audit log", () => {
     // The roster editor is a tab on the team page now, not a page of
     // its own behind a uuid.
     await page.getByRole("tab", { name: "Manage" }).click();
+    await page.waitForURL(/\?tab=manage$/);
     await page
       .locator("table tbody tr")
       .nth(2)

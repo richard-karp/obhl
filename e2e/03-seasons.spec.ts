@@ -14,7 +14,10 @@ function admin() {
   );
 }
 
-async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
+async function signedInAs(
+  page: Page,
+  role: "Manager" | "Scorekeeper" | "Captain",
+) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
@@ -73,7 +76,9 @@ test.describe("Path 7 — Season setup", () => {
    * unavoidable exception is "Set active", which is per-league by definition —
    * it is done last and put back in `finally`.
    */
-  test("every season action lands in this league's audit log", async ({ page }) => {
+  test("every season action lands in this league's audit log", async ({
+    page,
+  }) => {
     const stamp = Date.now();
     const seasonName = `Audit Probe Season ${stamp}`;
     const teamName = `Audit Probe Team ${stamp}`;
@@ -99,7 +104,9 @@ test.describe("Path 7 — Season setup", () => {
       await page.goto("/obhl/seasons");
       await page.getByLabel("Name").fill(seasonName);
       await page.getByRole("button", { name: "Create season" }).click();
-      await expect(page.getByText(`Season "${seasonName}" created.`)).toBeVisible();
+      await expect(
+        page.getByText(`Season "${seasonName}" created.`),
+      ).toBeVisible();
 
       const { data: made } = await db
         .from("seasons")
@@ -109,7 +116,9 @@ test.describe("Path 7 — Season setup", () => {
       seasonId = made!.id as string;
 
       await page.goto("/obhl/audit");
-      await expect(page.getByText(`Created season ${seasonName}`)).toBeVisible();
+      await expect(
+        page.getByText(`Created season ${seasonName}`),
+      ).toBeVisible();
 
       // ── create_team ──────────────────────────────────────────────────────
       await page.goto(`/obhl/seasons/${seasonId}`);
@@ -165,7 +174,9 @@ test.describe("Path 7 — Season setup", () => {
 
       await page.goto("/obhl/audit");
       await expect(
-        page.getByText(`Made ${seasonName} the active season (was ${wasActive!.name})`),
+        page.getByText(
+          `Made ${seasonName} the active season (was ${wasActive!.name})`,
+        ),
       ).toBeVisible();
 
       // …and every one of them named this league. That is the half the page
@@ -180,17 +191,22 @@ test.describe("Path 7 — Season setup", () => {
         .from("audit_log")
         .select("action, league_id")
         .eq("entity_id", seasonId);
-      const byAction = new Map((entries ?? []).map((e) => [e.action, e.league_id]));
+      const byAction = new Map(
+        (entries ?? []).map((e) => [e.action, e.league_id]),
+      );
       for (const action of [
         "create_season",
         "unenroll_team",
         "carry_forward_enrollment",
         "set_active_season",
       ]) {
-        expect(byAction.has(action), `${action} wrote no audit entry`).toBe(true);
-        expect(byAction.get(action), `${action} was filed under no league`).toBe(
-          league!.id,
+        expect(byAction.has(action), `${action} wrote no audit entry`).toBe(
+          true,
         );
+        expect(
+          byAction.get(action),
+          `${action} was filed under no league`,
+        ).toBe(league!.id);
       }
     } finally {
       // The two deletes are order-free — `season_teams` cascades from both
@@ -215,7 +231,9 @@ test.describe("Path 8 — AI league summary", () => {
     await signedInAs(page, "Manager");
     await goToActiveSeasonSetup(page);
     await page.waitForLoadState("networkidle");
-    await expect(page.getByRole("button", { name: "Generate", exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByRole("button", { name: "Generate", exact: true }),
+    ).toBeVisible({ timeout: 10000 });
     await expect(page.getByText("No summary yet")).toBeVisible();
   });
 
@@ -232,9 +250,9 @@ test.describe("Path 8 — AI league summary", () => {
     await goToActiveSeasonSetup(page);
 
     await page.getByRole("button", { name: "Generate" }).click();
-    await expect(
-      page.getByRole("button", { name: "Regenerate" }),
-    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible({
+      timeout: 30_000,
+    });
 
     const summaryText = await page.locator("p.italic").first().innerText();
     expect(summaryText.length).toBeGreaterThan(20);

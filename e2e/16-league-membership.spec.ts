@@ -1013,6 +1013,7 @@ test.describe("Path 17 — Per-league membership", () => {
   async function openRosterEditor(page: Page, slug: string) {
     await page.goto(await teamRosterUrl(page, slug));
     await page.getByRole("tab", { name: "Manage" }).click();
+    await page.waitForURL(/\?tab=manage$/);
   }
 
   test("a roster add cannot name another league's team", async ({ page }) => {

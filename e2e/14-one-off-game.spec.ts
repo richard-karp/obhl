@@ -27,7 +27,10 @@ function admin() {
 
 const SEASON = "One-Off Test 2027";
 
-async function signedInAs(page: Page, role: "Manager" | "Scorekeeper" | "Captain") {
+async function signedInAs(
+  page: Page,
+  role: "Manager" | "Scorekeeper" | "Captain",
+) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // Sign-in lands on the league picker — there is no league-agnostic dashboard
@@ -66,7 +69,9 @@ async function seedFutureSeason(page: Page) {
 
   // Enroll the same teams as the seeded season.
   if ((await page.locator("table tbody tr").count()) === 0) {
-    await page.getByRole("button", { name: "Same teams as last season" }).click();
+    await page
+      .getByRole("button", { name: "Same teams as last season" })
+      .click();
     await expect(page.locator("table tbody tr").first()).toBeVisible();
   }
 
@@ -93,7 +98,9 @@ async function seedFutureSeason(page: Page) {
     await page.getByRole("button", { name: "Generate schedule" }).click();
     // Generation is a solver, not a query: it runs to a wall-clock budget and is
     // the slowest thing in the suite, so it needs more than the default timeout.
-    await expect(page.getByText("Balance report")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Balance report")).toBeVisible({
+      timeout: 30_000,
+    });
     await page.getByRole("button", { name: /Publish \d+ games/ }).click();
     // Wait for the publish to land. Navigating away while the action is still in
     // flight leaves the one-off page reading a season whose games are all still
@@ -148,7 +155,11 @@ test.describe("Path 22 — one-off games", () => {
     const date = page.getByLabel("Date");
     await expect(date).toBeDisabled();
 
-    const options = await page.getByLabel("Team 1").first().locator("option").all();
+    const options = await page
+      .getByLabel("Team 1")
+      .first()
+      .locator("option")
+      .all();
     const teamValues: string[] = [];
     for (const o of options) {
       const v = await o.getAttribute("value");
@@ -174,13 +185,17 @@ test.describe("Path 22 — one-off games", () => {
     await expect(picker.or(relabel)).toBeVisible({ timeout: 30000 });
 
     if (await picker.isVisible()) {
-      await expect(page.getByText(/opponent balance restored/).first()).toBeVisible();
+      await expect(
+        page.getByText(/opponent balance restored/).first(),
+      ).toBeVisible();
       await page.getByRole("button", { name: "Apply this plan" }).click();
     } else {
       await page.getByRole("button", { name: "Label the game" }).click();
     }
 
-    await expect(page.getByText(/Scheduled the game|Labelled the game/)).toBeVisible({
+    await expect(
+      page.getByText(/Scheduled the game|Labelled the game/),
+    ).toBeVisible({
       timeout: 30000,
     });
   });

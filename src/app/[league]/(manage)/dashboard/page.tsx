@@ -89,8 +89,8 @@ export default async function DashboardPage({
             description="Create seasons, set the active one, and enroll teams (carry forward)."
           />
           <ActionCard
-            href={`/${leagueSlug}/rosters`}
-            title="Rosters"
+            href={`/${leagueSlug}/teams`}
+            title="Teams"
             description="Add players to teams and set numbers, positions, and captains."
           />
           <ActionCard
@@ -161,8 +161,12 @@ async function CaptainPanel({
     ) : null;
   }
 
-  let team: { id: string; name: string; slug: string; color: string | null } | null =
-    null;
+  let team: {
+    id: string;
+    name: string;
+    slug: string;
+    color: string | null;
+  } | null = null;
   if (seasonId) {
     const { data } = await supabase
       .from("team_players")
@@ -201,7 +205,9 @@ async function CaptainPanel({
       <CardHeader>
         <div className="flex items-center gap-2">
           <TeamLogo name={team.name} color={team.color} />
-          <CardTitle className="text-base">You captain the {team.name}</CardTitle>
+          <CardTitle className="text-base">
+            You captain the {team.name}
+          </CardTitle>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -231,7 +237,9 @@ async function CaptainPanel({
                     <span className="font-medium">{opp?.name ?? "TBD"}</span>
                   </span>
                   <Button asChild size="sm">
-                    <Link href={`/${leagueSlug}/score/${g.id}`}>Set lineup</Link>
+                    <Link href={`/${leagueSlug}/score/${g.id}`}>
+                      Set lineup
+                    </Link>
                   </Button>
                 </div>
               );
