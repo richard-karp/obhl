@@ -17,12 +17,20 @@
 -- and their player page still renders. Archiving takes them out of the lists
 -- that ask "who could join a team / be a captain here", and nothing else.
 --
--- The application invariant that keeps that coherent lives in `archivePlayer`
+-- The rule that keeps that coherent lives in `archivePlayer`
 -- (src/lib/actions/rosters.ts): a person with an ACTIVE roster row in the league
 -- cannot be archived. Not enforced here — it spans seasons and would need a
--- trigger reading team_players on every insert, for a rule the one writer
--- already applies — but a reader wondering why an archived person is never in
--- the roster table should know it is a rule and not a coincidence.
+-- trigger reading team_players on every insert — but a reader wondering why an
+-- archived person is never in the roster table should know it is a rule and not
+-- a coincidence.
+--
+-- ⚠️ IT IS A RULE TWO WRITERS APPLY, NOT AN INVARIANT THIS SCHEMA HOLDS.
+-- `archivePlayer` and `addRosterPlayer` each read what the other writes, so a
+-- sufficiently unlucky interleaving lands an archived person on a roster with
+-- no error. `archivePlayer` re-reads the roster after its write and undoes
+-- itself, which closes the order where the add arrives mid-archive; the reverse
+-- order is still open. Making it actually hold needs the trigger. Recorded so
+-- nobody reads the paragraph above as a guarantee and builds on it.
 
 create table player_league_archive (
   player_id   uuid not null references players(id)  on delete cascade,

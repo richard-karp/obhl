@@ -93,6 +93,31 @@ export default async function RosterEditorPage({
     .flatMap((e) => (e.teams && e.teams.id !== teamId ? [{ id: e.teams.id, name: e.teams.name }] : []))
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  // ⚠️ THE TEAM BELONGS TO THE LEAGUE BUT NOT TO THIS SEASON. The check above
+  // only proves the former. Reachable in one click now that the season switcher
+  // exists: it posts `next = usePathname()`, so switching season here keeps the
+  // same `teamId`, and a team enrolled last season but not this one rendered an
+  // empty roster with a working Add Player form — which wrote `team_players`
+  // rows for a team the season does not have. An empty state rather than
+  // `notFound()`, because the team is real and the switcher is how they got
+  // here: name the season, and leave the switcher on the page to get back.
+  //
+  // The server refuses it too (`addRosterPlayer`) — hiding a form is a list,
+  // not a restriction, the same distinction the picker comment below draws.
+  if (!(enrolled ?? []).some((e) => e.team_id === teamId)) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title={`${team.name} — Roster`} description={season.name}>
+          <SeasonSwitcher ctx={ctx} />
+        </PageHeader>
+        <EmptyState
+          title={`${team.name} is not in ${season.name}`}
+          description="Enrol the team in this season on the season setup page, or switch to a season it plays in."
+        />
+      </div>
+    );
+  }
+
   // Global people not already on this team's roster — for the shared-identity
   // "existing person" picker (reuse someone who plays in another league).
   //

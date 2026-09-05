@@ -67,6 +67,24 @@ export async function addRosterPlayer(
   const league_id = await leagueOfSeason(season_id, admin);
   if (!league_id) return { ok: false, message: "That season no longer exists." };
 
+  // ⛔ THE TEAM HAS TO BE PLAYING THIS SEASON — the same check
+  // `movePlayerToTeam` makes, and for the same reason: the guard above proves
+  // the ids agree on one league, which is a different question, because a team
+  // can belong to the league and not be enrolled. Without it this action was
+  // the one write path that would create a `team_players` row for a team the
+  // season does not have. The season switcher made that reachable by clicking
+  // (it keeps the `teamId` in the path), and the page now shows an empty state
+  // instead — but a page that omits a form is a list, not a restriction.
+  const { data: seasonTeam } = await admin
+    .from("season_teams")
+    .select("team_id")
+    .eq("season_id", season_id)
+    .eq("team_id", team_id)
+    .maybeSingle();
+  if (!seasonTeam) {
+    return { ok: false, message: "That team is not enrolled in this season." };
+  }
+
   const existing_id = String(formData.get("player_id") ?? "").trim();
   const first = String(formData.get("first_name") ?? "").trim();
   const last = String(formData.get("last_name") ?? "").trim();
@@ -1056,24 +1074,27 @@ export async function archivePlayer(
   //
   // Every season of this league, not just the current one: a person on next
   // season's roster is just as much a member of the league.
-  const { data: active } = await admin
-    .from("team_players")
-    .select("teams!team_players_team_id_fkey(name), seasons!inner(league_id)")
-    .eq("player_id", playerId)
-    .is("left_on", null)
-    .eq("seasons.league_id", leagueId);
-  if (active?.length) {
-    const teams = [
-      ...new Set((active ?? []).flatMap((a) => (a.teams?.name ? [a.teams.name] : []))),
-    ].join(", ");
-    return {
-      ok: false,
-      message:
-        `${name} is still on ${teams || "a roster"} in this league. Remove them from the ` +
-        `roster first — archiving hides someone from this league's pickers, it does not ` +
-        `take them off a team.`,
-    };
-  }
+  const activeRosterTeams = async () => {
+    const { data } = await admin
+      .from("team_players")
+      .select("teams!team_players_team_id_fkey(name), seasons!inner(league_id)")
+      .eq("player_id", playerId)
+      .is("left_on", null)
+      .eq("seasons.league_id", leagueId);
+    return [
+      ...new Set((data ?? []).flatMap((a) => (a.teams?.name ? [a.teams.name] : []))),
+    ];
+  };
+  const stillRostered = (teams: string[]) => ({
+    ok: false as const,
+    message:
+      `${name} is still on ${teams.join(", ") || "a roster"} in this league. Remove them ` +
+      `from the roster first — archiving hides someone from this league's pickers, it ` +
+      `does not take them off a team.`,
+  });
+
+  const before = await activeRosterTeams();
+  if (before.length) return stillRostered(before);
 
   // Upsert, not insert: archiving someone already archived is a no-op the
   // operator should not see an error for. Two managers clicking at once is the
@@ -1085,6 +1106,33 @@ export async function archivePlayer(
       { onConflict: "player_id,league_id" },
     );
   if (error) return { ok: false, message: error.message };
+
+  // ⚠️ ASKED AGAIN AFTER THE WRITE, because the check above is a read and
+  // `addRosterPlayer` is a second writer. Interleaved — two managers, or one
+  // with two tabs — `addRosterPlayer` reads the archive and finds nothing while
+  // this action reads the roster and finds nothing, and both then succeed: an
+  // archived person sitting on a roster, which is the state 0040's header calls
+  // an invariant and does not enforce in the schema.
+  //
+  // Re-reading closes the order where the add lands DURING this call. It does
+  // not close the reverse one, where this call finishes before the add's insert
+  // — that window belongs to `addRosterPlayer`, whose own archive check has the
+  // same shape, and closing it properly needs a trigger reading team_players.
+  // So this narrows the race rather than removing it, and 0040's comment now
+  // says that instead of claiming the rule always holds.
+  //
+  // The archive row goes whether or not this call created it: a person on a
+  // roster must not be archived, so removing it is the right repair in both
+  // cases rather than a rollback of our own insert.
+  const after = await activeRosterTeams();
+  if (after.length) {
+    await admin
+      .from("player_league_archive")
+      .delete()
+      .eq("player_id", playerId)
+      .eq("league_id", leagueId);
+    return stillRostered(after);
+  }
 
   void logAudit({
     user_id: manager.id,
