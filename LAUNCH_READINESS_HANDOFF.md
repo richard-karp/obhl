@@ -149,7 +149,7 @@ accounts deleted, leaves no way in but SQL.
 ⛔ **That is now the standing state, not a warning about a future one.** Both
 doors closed on 2026-09-04, and whether a real magic-link sign-in works has still
 never been confirmed. Doing that — on `obhl.vercel.app`, as a real
-(non-`@obhl.test`) manager, checking `/manage/dashboard` shows the Manager badge
+(non-`@obhl.test`) manager, checking `/<league>/dashboard` shows the Manager badge
 — is the single highest-value action left in this file.
 
 **`LAUNCH.md` Phases 2-6 are unverified from here.** This file speaks only to
