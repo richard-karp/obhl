@@ -13,7 +13,22 @@ import { join } from "node:path";
  * It also enforces the `type` argument: Next requires it whenever the path
  * contains a dynamic segment, which every league-scoped path now does.
  */
-const ACTIONS_DIR = join(process.cwd(), "src/lib/actions");
+/**
+ * Every directory holding `revalidatePath` calls — NOT just the actions.
+ *
+ * ⚠️ `src/lib/games/shared.ts` was outside this scan, and it carries the score
+ * pages' calls, two of which the `/manage/` flatten rewrote. So the guard written
+ * to catch a missed rewrite did not cover the file most likely to have one. A
+ * review caught it; the fix is the second entry.
+ *
+ * A file added elsewhere is still invisible here. The `calls.length` sentinel
+ * below is what stops that going unnoticed for long — it is a floor on the total,
+ * so a new call site outside these directories does not lower it, but a
+ * directory disappearing from the scan does.
+ */
+const CALL_DIRS = ["src/lib/actions", "src/lib/games"].map((d) =>
+  join(process.cwd(), d),
+);
 
 /**
  * Paths that are legitimately outside a league: the root landing page, and the
@@ -27,16 +42,17 @@ type Call = { file: string; path: string; type: string | null };
 
 function revalidateCalls(): Call[] {
   const calls: Call[] = [];
-  for (const file of readdirSync(ACTIONS_DIR)) {
-    if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
-    const src = readFileSync(join(ACTIONS_DIR, file), "utf8");
-    // First argument only: a string literal or a template literal.
-    const re =
-      /revalidatePath\(\s*(?:"([^"]*)"|`([^`]*)`)\s*(?:,\s*"(page|layout)")?/g;
-    for (const m of src.matchAll(re)) {
-      calls.push({ file, path: m[1] ?? m[2], type: m[3] ?? null });
+  for (const dir of CALL_DIRS)
+    for (const file of readdirSync(dir)) {
+      if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
+      const src = readFileSync(join(dir, file), "utf8");
+      // First argument only: a string literal or a template literal.
+      const re =
+        /revalidatePath\(\s*(?:"([^"]*)"|`([^`]*)`)\s*(?:,\s*"(page|layout)")?/g;
+      for (const m of src.matchAll(re)) {
+        calls.push({ file, path: m[1] ?? m[2], type: m[3] ?? null });
+      }
     }
-  }
   return calls;
 }
 
@@ -60,7 +76,11 @@ describe("revalidatePath conventions", () => {
     // missed still starts with "/[league]" and so satisfied every other
     // assertion here, while silently revalidating nothing — which is exactly how
     // a stale path fails. There are none today; this is what keeps that true.
-    const stale = calls.filter((c) => c.path.startsWith("/[league]/manage"));
+    // Segment-anchored: a future `/[league]/managers` route is not a stale path.
+    const stale = calls.filter(
+      (c) =>
+        c.path === "/[league]/manage" || c.path.startsWith("/[league]/manage/"),
+    );
     expect(stale).toEqual([]);
   });
 
