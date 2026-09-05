@@ -483,6 +483,9 @@ test.describe("Path 16 — Per-league routing", () => {
         "/obhl/manage/schedule-builder/one-off",
         "/obhl/schedule-builder/one-off",
       ],
+      // `/rules/edit` has since merged into `/rules`, so this one takes two
+      // hops. The prefix redirect is what this test is about, so it asserts the
+      // first; `10-rules.spec.ts` asserts the second.
       ["/obhl/manage/rules/edit", "/obhl/rules/edit"],
       // A dynamic segment rides along rather than being swallowed.
       ["/harbor/manage/seasons/abc-123", "/harbor/seasons/abc-123"],

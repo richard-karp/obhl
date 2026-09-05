@@ -43,7 +43,11 @@ async function signedInClient(email: string) {
 }
 
 async function leagueId(slug: string) {
-  const { data } = await admin().from("leagues").select("id").eq("slug", slug).single();
+  const { data } = await admin()
+    .from("leagues")
+    .select("id")
+    .eq("slug", slug)
+    .single();
   return data!.id as string;
 }
 
@@ -94,8 +98,14 @@ function theOneLeague(slugs: string[], who: string): string {
 test.beforeAll(async () => {
   const { data: all } = await admin().from("leagues").select("slug");
   const slugs = (all ?? []).map((l) => l.slug as string);
-  LEAD_IN = theOneLeague(await leaguesOf("Single League Manager"), "Single League Manager");
-  SCORER_IN = theOneLeague(await leaguesOf("Single League Scorer"), "Single League Scorer");
+  LEAD_IN = theOneLeague(
+    await leaguesOf("Single League Manager"),
+    "Single League Manager",
+  );
+  SCORER_IN = theOneLeague(
+    await leaguesOf("Single League Scorer"),
+    "Single League Scorer",
+  );
   LEAD_OUT = slugs.find((slug) => slug !== LEAD_IN) ?? "";
   SCORER_OUT = slugs.find((slug) => slug !== SCORER_IN) ?? "";
 });
@@ -144,13 +154,18 @@ test.describe("Path 17 — Per-league membership", () => {
     "/schedule-builder/one-off",
     "/score",
     "/announcements",
-    "/rules/edit",
+    // NOT "/rules": it merged into the public page, so a manager of another
+    // league now SEES it like any visitor. What they must not get is the
+    // editor, and that is asserted on its own below — a redirect assertion here
+    // would have quietly become a test of nothing.
     "/import",
     "/audit",
   ];
 
   for (const path of MANAGE_PATHS) {
-    test(`a manager of another league is refused at ${path}`, async ({ page }) => {
+    test(`a manager of another league is refused at ${path}`, async ({
+      page,
+    }) => {
       await signInAs(page, "One-league mgr");
       await page.goto(`/${LEAD_OUT}${path}`);
       // The picker, the same place a wrong ROLE lands — it is the one page that
@@ -159,7 +174,86 @@ test.describe("Path 17 — Per-league membership", () => {
     });
   }
 
-  test("a scorekeeper cannot score another league's games", async ({ page }) => {
+  test("a manager of another league reads the rules and cannot edit them", async ({
+    page,
+  }) => {
+    // `/rules` is shared: public content, plus an editing surface for whoever
+    // is entitled to it. Entitlement is membership, not the role — this account
+    // IS a league_manager, just not of this league.
+    await signInAs(page, "One-league mgr");
+    await page.goto(`/${LEAD_OUT}/rules`);
+    await expect(page).toHaveURL(`/${LEAD_OUT}/rules`);
+    await expect(
+      page.locator("h1").filter({ hasText: "League Rules" }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Edit rules" })).toHaveCount(
+      0,
+    );
+  });
+
+  test("...and the database refuses the write even so", async () => {
+    // The half that matters. Drawing no button stops nobody: the account holds
+    // a real Supabase session and can address PostgREST directly, so the
+    // refusal has to live in the policies. An RLS-filtered upsert is not an
+    // error — it matches no rows — so the `select()` is what makes it visible.
+    const client = await signedInClient("single-league-lead@obhl.test");
+    const db = admin();
+    const foreignLeague = await leagueId(LEAD_OUT);
+
+    const { data: before } = await db
+      .from("league_rules")
+      .select("content")
+      .eq("league_id", foreignLeague)
+      .maybeSingle();
+
+    const { data: written } = await client
+      .from("league_rules")
+      .upsert(
+        { league_id: foreignLeague, content: { hijacked: true } },
+        { onConflict: "league_id" },
+      )
+      .select("league_id");
+    expect(written ?? []).toHaveLength(0);
+
+    const { data: after } = await db
+      .from("league_rules")
+      .select("content")
+      .eq("league_id", foreignLeague)
+      .maybeSingle();
+    expect(after?.content ?? null).toEqual(before?.content ?? null);
+
+    // The control. Without it, an upsert that is broken for EVERYONE — a
+    // missing grant, a typo'd column — reads as a policy refusing an attacker.
+    // The same session, the same statement, its own league: it lands.
+    const ownLeague = await leagueId(LEAD_IN);
+    const { data: own } = await db
+      .from("league_rules")
+      .select("content")
+      .eq("league_id", ownLeague)
+      .maybeSingle();
+    const { data: allowed } = await client
+      .from("league_rules")
+      .upsert(
+        { league_id: ownLeague, content: { control: true } },
+        { onConflict: "league_id" },
+      )
+      .select("league_id");
+    expect(allowed ?? []).toHaveLength(1);
+
+    // Put it back: the suite shares one database and later specs read these.
+    await db
+      .from("league_rules")
+      .upsert(
+        { league_id: ownLeague, content: own?.content ?? null },
+        { onConflict: "league_id" },
+      );
+
+    await client.auth.signOut();
+  });
+
+  test("a scorekeeper cannot score another league's games", async ({
+    page,
+  }) => {
     // The first leak the handoff names: the role is instance-wide, so a
     // scorekeeper for one league could open the other league's scoresheet and
     // score its games. `/score` is one of only two guards that ever admitted a
@@ -318,7 +412,9 @@ test.describe("Path 17 — Per-league membership", () => {
     // State the precondition rather than assume it: if the seed ever makes this
     // account a manager, the upsert below is a no-op and the test would pass
     // while proving nothing.
-    expect(before!.role, "victim must start as a non-manager").toBe("scorekeeper");
+    expect(before!.role, "victim must start as a non-manager").toBe(
+      "scorekeeper",
+    );
 
     const memberships = async () => {
       const { data } = await db
@@ -433,7 +529,9 @@ test.describe("Path 17 — Per-league membership", () => {
       .select("id, role, display_name")
       .eq("display_name", "Single League Scorer")
       .single();
-    expect(before!.role, "victim must start as a non-manager").toBe("scorekeeper");
+    expect(before!.role, "victim must start as a non-manager").toBe(
+      "scorekeeper",
+    );
 
     /** The add form, filled and submitted, on a page fresh enough to fill. */
     async function addStaff(email: string, name: string, roleLabel: string) {
@@ -469,7 +567,10 @@ test.describe("Path 17 — Per-league membership", () => {
       // ── Step 2: the page offers no way to spend it ───────────────────────
       await page.reload();
       const row = page.locator("table tbody tr").filter({ hasText: victim });
-      await expect(row, "the grant should have put them in this table").toHaveCount(1);
+      await expect(
+        row,
+        "the grant should have put them in this table",
+      ).toHaveCount(1);
       await expect(
         row.getByLabel("Change role"),
         "no role on this row is a manager of one league's to change",
@@ -665,7 +766,9 @@ test.describe("Path 17 — Per-league membership", () => {
       .select("id, role")
       .eq("display_name", "Single League Scorer")
       .single();
-    expect(victim!.role, "victim must start as a non-manager").toBe("scorekeeper");
+    expect(victim!.role, "victim must start as a non-manager").toBe(
+      "scorekeeper",
+    );
 
     const client = await signedInClient("single-league-lead@obhl.test");
     try {
@@ -703,7 +806,10 @@ test.describe("Path 17 — Per-league membership", () => {
       ).toBe("scorekeeper");
     } finally {
       await client.auth.signOut();
-      await db.from("profiles").update({ role: victim!.role }).eq("id", victim!.id);
+      await db
+        .from("profiles")
+        .update({ role: victim!.role })
+        .eq("id", victim!.id);
       await db
         .from("profile_leagues")
         .delete()
@@ -831,7 +937,10 @@ test.describe("Path 17 — Per-league membership", () => {
    */
   async function tamper(page: Page, field: Locator, value: string) {
     await page.waitForLoadState("networkidle");
-    await field.evaluate((el, v) => ((el as HTMLInputElement).value = v), value);
+    await field.evaluate(
+      (el, v) => ((el as HTMLInputElement).value = v),
+      value,
+    );
     await expect(field).toHaveValue(value);
   }
 
@@ -839,7 +948,9 @@ test.describe("Path 17 — Per-league membership", () => {
   async function crossLeagueRosterRows(db: ReturnType<typeof admin>) {
     const { data } = await db
       .from("team_players")
-      .select("id, teams!team_players_team_id_fkey!inner(league_id), seasons!inner(league_id)");
+      .select(
+        "id, teams!team_players_team_id_fkey!inner(league_id), seasons!inner(league_id)",
+      );
     return (data ?? []).filter(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (r: any) => r.teams?.league_id !== r.seasons?.league_id,
@@ -876,7 +987,11 @@ test.describe("Path 17 — Per-league membership", () => {
       // The season stays the page's own; only the team is swapped. Guarding
       // the season alone passed this, and `is_captain` rides in the same
       // payload.
-      await tamper(page, form.locator('input[name="team_id"]'), foreignTeam!.id);
+      await tamper(
+        page,
+        form.locator('input[name="team_id"]'),
+        foreignTeam!.id,
+      );
       await form.getByLabel("First name").fill(first);
       await form.getByLabel("Last name").fill("Player");
       await submitAndSettle(
@@ -906,7 +1021,8 @@ test.describe("Path 17 — Per-league membership", () => {
         .from("players")
         .select("id")
         .eq("first_name", first);
-      for (const p of junk ?? []) await db.from("players").delete().eq("id", p.id);
+      for (const p of junk ?? [])
+        await db.from("players").delete().eq("id", p.id);
     }
   });
 
@@ -919,7 +1035,9 @@ test.describe("Path 17 — Per-league membership", () => {
     // row has to be is another league's.
     const { data: victim } = await db
       .from("team_players")
-      .select("id, is_default_goalie, teams!team_players_team_id_fkey!inner(league_id)")
+      .select(
+        "id, is_default_goalie, teams!team_players_team_id_fkey!inner(league_id)",
+      )
       .eq("teams.league_id", await leagueId(LEAD_OUT))
       .eq("is_default_goalie", false)
       .limit(1)
@@ -1021,7 +1139,9 @@ test.describe("Path 17 — Per-league membership", () => {
       const ownRow = page
         .locator("table tbody tr")
         .filter({ hasText: "manager@obhl.test" });
-      await expect(ownRow.getByRole("button", { name: "Remove" })).toHaveCount(0);
+      await expect(ownRow.getByRole("button", { name: "Remove" })).toHaveCount(
+        0,
+      );
 
       // …and the page not offering it is not the guard. Aim a real Remove form
       // at yourself and submit: the server has to be what refuses.
@@ -1061,7 +1181,9 @@ test.describe("Path 17 — Per-league membership", () => {
       const row = page
         .locator("table tbody tr")
         .filter({ hasText: "single-league-lead@obhl.test" });
-      await expect(row.getByText("Role changed by a commissioner")).toBeVisible();
+      await expect(
+        row.getByText("Role changed by a commissioner"),
+      ).toBeVisible();
       await expect(row.getByLabel("Change role")).toHaveCount(0);
       await submitAndSettle(
         page,
@@ -1069,7 +1191,10 @@ test.describe("Path 17 — Per-league membership", () => {
       );
 
       await expect(
-        page.getByRole("cell", { name: "single-league-lead@obhl.test", exact: true }),
+        page.getByRole("cell", {
+          name: "single-league-lead@obhl.test",
+          exact: true,
+        }),
       ).toHaveCount(0);
 
       // The league went, the account did not.

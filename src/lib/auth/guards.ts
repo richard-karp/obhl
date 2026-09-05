@@ -160,3 +160,25 @@ export async function requireVisibleLeague(
   const member = user ? await isLeagueMember(user.id, league.id) : false;
   if (!decideLeagueVisible(league.is_public, member)) notFound();
 }
+
+/**
+ * Does this viewer manage this league? A QUESTION, not a guard.
+ *
+ * ⛔ RENDERING IS NOT A RESTRICTION. This decides whether to DRAW an editing
+ * surface on a shared page — one URL that serves the public and the people who
+ * run the league. It does not protect anything: a form action is reachable by
+ * anyone who can construct the request, whether or not a button was drawn for
+ * them. Every action behind such a surface calls its own guard —
+ * `saveRules` calls `requireLeagueManager` — and that is what actually refuses.
+ * This is the same split `ACCESS_CONTROL_HANDOFF.md`'s *Traps* section is about,
+ * and the same one the League Office guards are written to.
+ *
+ * Role AND membership, for the reason `requireLeagueRole` exists: `user.role` is
+ * instance-wide, so a manager of the other league would otherwise be offered
+ * controls that every action behind them refuses.
+ */
+export async function canManageLeague(leagueId: string): Promise<boolean> {
+  const user = await getSessionUser();
+  if (user?.role !== "league_manager") return false;
+  return await isLeagueMember(user.id, leagueId);
+}

@@ -18,7 +18,7 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
     { path: "/schedule-builder", label: "Schedule" },
     { path: "/score", label: "Games" },
     { path: "/announcements", label: "Announcements" },
-    { path: "/rules/edit", label: "Rules" },
+    { path: "/rules", label: "Rules" },
     { path: "/import", label: "Import" },
     { path: "/audit", label: "Audit Log" },
   ],

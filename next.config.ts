@@ -31,6 +31,15 @@ const nextConfig: NextConfig = {
         destination: "/:league/:rest*",
         permanent: true,
       },
+      // `/rules/edit` merged INTO `/rules`, which now shows a manager an editor
+      // and everyone else the published page. Ordering with the rule above is
+      // not a concern: an old `/<league>/manage/rules/edit` takes both hops,
+      // landing on `/<league>/rules/edit` and then here.
+      {
+        source: "/:league/rules/edit",
+        destination: "/:league/rules",
+        permanent: true,
+      },
     ];
   },
 };

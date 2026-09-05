@@ -86,7 +86,10 @@ export async function saveRules(leagueId: string, content: unknown) {
   // when the runtime freezes the function after the response, and this entry
   // holds the only copy of the rules being replaced. logAudit swallows its own
   // errors, so awaiting cannot turn a successful save into a reported failure.
-  if (saved && canonical(previous?.content ?? null) !== canonical(content ?? null)) {
+  if (
+    saved &&
+    canonical(previous?.content ?? null) !== canonical(content ?? null)
+  ) {
     await logAudit({
       user_id: user.id,
       action: "save_rules",
@@ -97,7 +100,8 @@ export async function saveRules(leagueId: string, content: unknown) {
     });
   }
 
+  // One path, because there is now one page: `/rules` serves the public the
+  // rules and their manager the same page with an editor on it.
   revalidatePath("/[league]/rules", "page");
-  revalidatePath("/[league]/rules/edit", "page");
   return error ? { ok: false, message: error.message } : { ok: true };
 }
