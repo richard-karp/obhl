@@ -97,6 +97,20 @@ export default async function SchedulePage({
   const upcomingGroups = groupByDate(upcoming);
   const resultGroups = groupByDate(results);
 
+  // ⛔ Cancelled games are in NEITHER group above — not upcoming, not final —
+  // which is right for a visitor and was a regression for everyone else.
+  // `/manage/score` listed `getSchedule()` unfiltered, so a manager found a
+  // cancelled game there and clicked through to restore it. Absorbing that list
+  // into this page removed the only route to `restoreGame` while leaving the
+  // ability in place, and `game-row.tsx`'s `cancelled → "Manage"` label became
+  // unreachable — the tell that the button had nothing left to sit on.
+  //
+  // Shown only to someone who can act on them: to a visitor a cancelled game is
+  // noise, and acting on it is the whole reason this section exists.
+  const cancelled = canScore
+    ? groupByDate(games.filter((g) => g.status === "cancelled"))
+    : [];
+
   return (
     <div className="space-y-8">
       <PageHeader title="Schedule" description={ctx.season.name}>
@@ -152,6 +166,17 @@ export default async function SchedulePage({
               </h2>
               <GroupedGames
                 groups={resultGroups}
+                league={slug}
+                canScore={canScore}
+              />
+            </section>
+          ) : null}
+
+          {cancelled.length > 0 ? (
+            <section className="space-y-4">
+              <h2 className="text-lg font-bold tracking-tight">Cancelled</h2>
+              <GroupedGames
+                groups={cancelled}
                 league={slug}
                 canScore={canScore}
               />

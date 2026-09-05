@@ -596,6 +596,10 @@ test.describe("Path 16 — Per-league routing", () => {
       ["/harbor/manage/seasons/abc-123", "/harbor/seasons/abc-123"],
       // Zero trailing segments: the bare prefix lands on the league home.
       ["/obhl/manage", "/obhl"],
+      // The score pages, which merged away in their own step. Both are pure path
+      // rewrites — a game keeps the same id at either URL.
+      ["/obhl/score", "/obhl/schedule"],
+      ["/harbor/score/abc-123", "/harbor/games/abc-123/score"],
     ];
     // `location` may be relative, so resolve it against a base before reading
     // the parts off it rather than assuming either shape.

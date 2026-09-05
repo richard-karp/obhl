@@ -58,8 +58,11 @@ const nextConfig: NextConfig = {
       // under the game it scores. Both are pure path rewrites: unlike
       // `/rosters/<uuid>`, the game is named by the same id at either URL.
       //
-      // Order matters between these two: the more specific one must come first,
-      // or `/score/:gameId` would match `/score` -> `/schedule` and lose the id.
+      // These two cannot shadow each other in either order, for the same reason
+      // the `/rosters` pair above cannot: `:gameId` is a required single
+      // segment and sources are anchored at both ends, so `/:league/score`
+      // matches two segments only and `/:league/score/:gameId` three. The
+      // specific one is written first anyway, as documentation of intent.
       {
         source: "/:league/score/:gameId",
         destination: "/:league/games/:gameId/score",

@@ -89,10 +89,39 @@ test.describe("Path 11 — Game management", () => {
     await page.getByRole("button", { name: "Cancel game" }).click();
     await page.waitForLoadState("networkidle");
     await expect(page.getByText("Cancelled").first()).toBeVisible();
+    const scoresheet = page.url();
+
+    // ⛔ The game has to still be FINDABLE. Merging the scorekeeper's list into
+    // the public schedule dropped cancelled games out of both of its groups —
+    // not upcoming, not final — so the only route to "Restore to scheduled" was
+    // a URL you had to already have. This test used to restore from the page it
+    // was already on and would not have noticed.
+    await page.goto("/obhl/schedule");
+    await expect(
+      page.getByRole("heading", { name: "Cancelled" }),
+    ).toBeVisible();
+    const listed = page.locator(`a[href="${new URL(scoresheet).pathname}"]`);
+    await expect(listed).toHaveCount(1);
+    await listed.click();
 
     await page.getByRole("button", { name: "Restore to scheduled" }).click();
     await page.waitForLoadState("networkidle");
     await expect(page.getByText("Scheduled").first()).toBeVisible();
+
+    // ...and it leaves again once restored.
+    await page.goto("/obhl/schedule");
+    await expect(page.getByRole("heading", { name: "Cancelled" })).toHaveCount(
+      0,
+    );
+  });
+
+  test("a visitor is not shown cancelled games", async ({ page }) => {
+    // The section exists so somebody can act on those games. To a visitor a
+    // cancelled game is noise, and the public page did not list them before.
+    await page.goto("/obhl/schedule");
+    await expect(page.getByRole("heading", { name: "Cancelled" })).toHaveCount(
+      0,
+    );
   });
 
   test("postpone a game and restore it", async ({ page }) => {

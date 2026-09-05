@@ -316,9 +316,10 @@ test.describe("Path 17 — Per-league membership", () => {
     // Score button anywhere on it. That is the affordance half.
     await page.goto(`/${SCORER_OUT}/schedule`);
     await expect(page).toHaveURL(`/${SCORER_OUT}/schedule`);
-    await expect(
-      page.getByRole("link", { name: "Score", exact: true }),
-    ).toHaveCount(0);
+    // Every scoresheet link, not just the ones labelled "Score": a finished game
+    // says "Edit" and a cancelled one says "Manage", so a name-based assertion
+    // would report zero on a schedule that was handing out both.
+    await expect(page.locator('a[href$="/score"]')).toHaveCount(0);
 
     // And the half that matters: the same game id under a league they are not
     // in, which is what proves the refusal is about the league rather than

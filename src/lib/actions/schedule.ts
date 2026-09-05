@@ -349,10 +349,11 @@ export type PublishState = { ok: boolean; message: string } | null;
 function revalidateAfterPublish() {
   revalidatePath("/[league]/schedule-builder", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
-  revalidatePath("/[league]/schedule", "page");
-  // The scoring list reads through getSchedule, so a replace changes which games
-  // it shows. The old publishSchedule didn't revalidate it either — that gap was
-  // invisible while publishing only ever added games.
+  // One call, not two. The scoring list read through `getSchedule` and needed
+  // its own revalidation; it is now the same page as the public schedule, so
+  // naming it twice was the same instruction twice. The gap the second call
+  // closed — a replace changing which games are shown, invisible while
+  // publishing only ever added games — is still closed by this one.
   revalidatePath("/[league]/schedule", "page");
   revalidatePath("/[league]", "page");
 }
@@ -761,7 +762,6 @@ export async function applyOneOffGame(
   revalidatePath("/[league]/schedule-builder", "page");
   revalidatePath("/[league]/schedule-builder/one-off", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
-  revalidatePath("/[league]/schedule", "page");
   revalidatePath("/[league]/schedule", "page");
   revalidatePath("/[league]", "page");
 
