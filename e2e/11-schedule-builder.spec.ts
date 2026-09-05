@@ -28,11 +28,17 @@ async function goToFallSeasonSetup(page: Page) {
   await page.waitForURL(/\/seasons\//);
 }
 
-test("page loads with heading and active season description", async ({ page }) => {
+test("page loads with heading, its season, and the switcher", async ({ page }) => {
   await signedInAs(page, "Manager");
   await page.goto("/obhl/manage/schedule-builder");
   await expect(page.getByText("Schedule Builder")).toBeVisible();
-  await expect(page.getByText(/active/)).toBeVisible();
+  // The description used to read "<season> (active)" and this asserted on the
+  // word "active". The builder is no longer pinned to the active season — the
+  // switcher beside the heading picks one, and marks in its own options which
+  // season the public site is showing — so the page names its season plainly.
+  // With no cookie and no `?season=`, that season is still the active one.
+  await expect(page.getByText(/Spring 2026 · \d+ teams enrolled/)).toBeVisible();
+  await expect(page.getByLabel("Select season")).toBeVisible();
 });
 
 test("scorekeeper cannot reach /schedule-builder", async ({ page }) => {

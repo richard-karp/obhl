@@ -1,9 +1,12 @@
 import { notFound } from "next/navigation";
 import { requireLeagueManager } from "@/lib/auth/guards";
 import { createAdminClient } from "@/utils/supabase/admin";
-import { getActiveContext } from "@/lib/queries/season";
+import { resolveLeagueBySlug } from "@/lib/league/current";
+import { getManageContext } from "@/lib/queries/season";
 import { AddPlayerForm } from "@/components/manage/add-player-form";
 import { TransferPlayerForm } from "@/components/manage/transfer-player-form";
+import { EditPlayerForm } from "@/components/manage/edit-player-form";
+import { archivedPlayerIdsIn } from "@/lib/players/archive";
 import { removeRosterPlayer, toggleCaptain, updatePlayerStatus, setDefaultGoalie, setGoalieDay } from "@/lib/actions/rosters";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -20,27 +23,39 @@ import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { LogoUpload } from "@/components/manage/logo-upload";
+import { SeasonSwitcher } from "@/components/manage/season-switcher";
 
 const POS: Record<string, string> = { F: "Forward", D: "Defense", G: "Goalie" };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export default async function RosterEditorPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ league: string; teamId: string }>;
+  searchParams: Promise<{ season?: string }>;
 }) {
   const { league: leagueSlug, teamId } = await params;
-  const ctx = await getActiveContext(leagueSlug);
-  await requireLeagueManager(ctx.league.id);
+  const { season: seasonParam } = await searchParams;
+  // ⚠️ League, then GUARD, then context. `getManageContext` reads every season
+  // of the league on the ADMIN client; running it ahead of the guard makes a
+  // request that is about to be refused pay for data it never renders. See the
+  // same note on the rosters index.
+  const league = await resolveLeagueBySlug(leagueSlug);
+  if (!league) notFound();
+  await requireLeagueManager(league.id);
+  const ctx = await getManageContext(leagueSlug, seasonParam);
+  // A league with no seasons at all — the one case left. An imported season
+  // that nobody activated resolves like any other now, which is the point.
   if (!ctx.season) {
-    return <EmptyState title="No active season" />;
+    return <EmptyState title="No seasons yet" description="Create a season first." />;
   }
 
   const season = ctx.season;
   const admin = createAdminClient();
   const { data: team } = await admin
     .from("teams")
-    .select("id, name, color, league_id, logo_path")
+    .select("id, name, color, league_id, logo_path, logo_text_color")
     .eq("id", teamId)
     .maybeSingle();
   // The id says nothing about which league it belongs to, so the slug in the
@@ -78,20 +93,72 @@ export default async function RosterEditorPage({
     .flatMap((e) => (e.teams && e.teams.id !== teamId ? [{ id: e.teams.id, name: e.teams.name }] : []))
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  // ⚠️ THE TEAM BELONGS TO THE LEAGUE BUT NOT TO THIS SEASON. The check above
+  // only proves the former. Reachable in one click now that the season switcher
+  // exists: it posts `next = usePathname()`, so switching season here keeps the
+  // same `teamId`, and a team enrolled last season but not this one rendered an
+  // empty roster with a working Add Player form — which wrote `team_players`
+  // rows for a team the season does not have. An empty state rather than
+  // `notFound()`, because the team is real and the switcher is how they got
+  // here: name the season, and leave the switcher on the page to get back.
+  //
+  // The server refuses it too (`addRosterPlayer`) — hiding a form is a list,
+  // not a restriction, the same distinction the picker comment below draws.
+  if (!(enrolled ?? []).some((e) => e.team_id === teamId)) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title={`${team.name} — Roster`} description={season.name}>
+          <SeasonSwitcher ctx={ctx} />
+        </PageHeader>
+        <EmptyState
+          title={`${team.name} is not in ${season.name}`}
+          description="Enrol the team in this season on the season setup page, or switch to a season it plays in."
+        />
+      </div>
+    );
+  }
+
   // Global people not already on this team's roster — for the shared-identity
   // "existing person" picker (reuse someone who plays in another league).
-  const { data: allPeople } = await admin
-    .from("players")
-    .select("id, first_name, last_name")
-    .order("last_name", { ascending: true });
+  //
+  // ⛔ STILL READ UNFILTERED FROM `players`, AND THAT IS THE POINT. The archive
+  // is applied below, per league. Pushing it into this query as a global flag —
+  // the shape a `players.archived_at` column would have forced — would hide the
+  // person from every OTHER league's picker too, silently, for leagues that
+  // never archived them.
+  const [{ data: allPeople }, archived, { data: leagueRostered }] = await Promise.all([
+    admin
+      .from("players")
+      .select("id, first_name, last_name")
+      .order("last_name", { ascending: true }),
+    archivedPlayerIdsIn(ctx.league.id, admin),
+    // Who is on some team in THIS league right now. Used only so the picker can
+    // say so: `archivePlayer` refuses these, and a button that always fails is
+    // worse than no button.
+    admin
+      .from("team_players")
+      .select("player_id, seasons!inner(league_id)")
+      .is("left_on", null)
+      .eq("seasons.league_id", ctx.league.id),
+  ]);
   const onRoster = new Set((roster ?? []).map((r) => r.player_id));
+  const rosteredInLeague = new Set((leagueRostered ?? []).map((r) => r.player_id));
   const people = (allPeople ?? [])
     .filter((p) => !onRoster.has(p.id))
-    .map((p) => ({ id: p.id, name: `${p.first_name} ${p.last_name}` }));
+    .map((p) => ({
+      id: p.id,
+      name: `${p.first_name} ${p.last_name}`,
+      // Archived OUT OF THIS LEAGUE. The picker hides these until "Show
+      // archived" is ticked; every other league still lists them normally.
+      archived: archived.has(p.id),
+      rostered: rosteredInLeague.has(p.id),
+    }));
 
   return (
     <div className="space-y-6">
-      <PageHeader title={`${team.name} — Roster`} description={season.name} />
+      <PageHeader title={`${team.name} — Roster`} description={season.name}>
+        <SeasonSwitcher ctx={ctx} />
+      </PageHeader>
 
       <Card>
         <CardHeader>
@@ -102,6 +169,7 @@ export default async function RosterEditorPage({
             name={team.name}
             color={team.color}
             logoPath={team.logo_path}
+            textColor={team.logo_text_color}
             className="size-12 text-base"
           />
           <LogoUpload teamId={team.id} />
@@ -116,6 +184,7 @@ export default async function RosterEditorPage({
           <AddPlayerForm
             seasonId={season.id}
             teamId={team.id}
+            leagueId={ctx.league.id}
             people={people}
           />
         </CardContent>
@@ -224,6 +293,13 @@ export default async function RosterEditorPage({
                           {r.is_captain ? "Unset C" : "Make C"}
                         </Button>
                       </form>
+                      <EditPlayerForm
+                        rosterId={r.id}
+                        firstName={r.players?.first_name ?? ""}
+                        lastName={r.players?.last_name ?? ""}
+                        jerseyNumber={r.jersey_number ?? null}
+                        position={r.position}
+                      />
                       <TransferPlayerForm
                         rosterId={r.id}
                         jerseyNumber={r.jersey_number ?? null}

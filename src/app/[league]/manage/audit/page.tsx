@@ -214,6 +214,59 @@ export default async function AuditLogPage({
           ? `Made ${name ?? "player"} captain`
           : `Removed captain from ${name ?? "player"}`;
       }
+      // The four roster/player entries added with the editing tools. Each names
+      // its subject from its OWN payload, like the staff entries above and for
+      // the same reason: `update_player_name` and the archive pair carry a
+      // PLAYER id, which the two lookups above (team_player ids, and player ids
+      // read out of add/remove payloads) do not resolve.
+      case "update_roster_player": {
+        const who = typeof nd?.name === "string" ? nd.name : "a player";
+        const num = nd?.jersey_number == null ? "no number" : `#${nd.jersey_number}`;
+        return `Set ${who} to ${num}, ${nd?.position ?? "?"}`;
+      }
+      case "update_player_name": {
+        const from = od ? `${od.first_name} ${od.last_name}` : "a player";
+        const to = nd ? `${nd.first_name} ${nd.last_name}` : "a new name";
+        return `Renamed ${from} to ${to} (in every league)`;
+      }
+      case "archive_player": {
+        const who = typeof nd?.name === "string" ? nd.name : "a player";
+        return `Archived ${who} from this league`;
+      }
+      case "restore_player": {
+        const who = typeof nd?.name === "string" ? nd.name : "a player";
+        return `Restored ${who} to this league`;
+      }
+      // ⚠️ The half-failed transfer, and the entry `movePlayerToTeam` calls "the
+      // only way anyone finds out what reached the database". It fell through to
+      // `default` and rendered as the bare string "transfer player partial".
+      case "transfer_player_partial": {
+        const pid = typeof od?.player_id === "string" ? od.player_id : null;
+        const who = (pid ? playerNameMap.get(pid) : undefined) ?? "a player";
+        return `Transfer of ${who} FAILED part-way — they were released from their old team but not added to the new one`;
+      }
+      case "transfer_player": {
+        // `new_data.name` is only written on the add-form path; `transferPlayer`
+        // passes no label.
+        //
+        // ⛔ `playerNameMap` VIA `old_data`, NOT `tpNameMap`. `tpNameMap` is
+        // built from `lookupByTeamPlayer`, which filters to four actions —
+        // toggle_captain, update_player_status and their two reverts — and
+        // `transfer_player` is not one of them. Reading it here resolved a name
+        // only when the same roster row happened to appear under one of those
+        // four inside the same 500-row window, which is to say almost never.
+        // `movePlayerToTeam` writes the whole `team_players` row into
+        // `old_data`, and step 2 above harvests `old_data.player_id` from every
+        // row regardless of action — so the name is already in `playerNameMap`,
+        // which is the map `remove_player` reads for exactly this reason.
+        const pid = typeof od?.player_id === "string" ? od.player_id : null;
+        const who =
+          (typeof nd?.name === "string" ? nd.name : null) ??
+          (pid ? playerNameMap.get(pid) : undefined) ??
+          null;
+        const via = nd?.via === "add" ? " (via the add form)" : "";
+        return `Transferred ${who ?? "a player"} to another team${via}`;
+      }
       case "update_player_status": {
         const name = tpNameMap.get(r.entity_id);
         const field = typeof nd?.field === "string" ? nd.field.replace(/_/g, " ") : "status";

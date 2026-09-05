@@ -9,6 +9,7 @@ import {
   generateLeagueSummary,
 } from "@/lib/actions/seasons";
 import { AddTeamForm } from "@/components/manage/add-team-form";
+import { TeamBrandingForm } from "@/components/manage/team-branding-form";
 import { ScheduleBuilderPanel } from "@/components/manage/schedule-builder-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -81,7 +82,9 @@ export default async function SeasonSetupPage({
     await Promise.all([
       admin
         .from("season_teams")
-        .select("team_id, teams!season_teams_team_id_fkey(id, name, color)")
+        .select(
+          "team_id, teams!season_teams_team_id_fkey(id, name, color, logo_text_color, logo_path)",
+        )
         .eq("season_id", seasonId),
       admin
         .from("team_players")
@@ -184,6 +187,7 @@ export default async function SeasonSetupPage({
                   <TableRow className="bg-muted/40">
                     <TableHead>Team</TableHead>
                     <TableHead>Captain</TableHead>
+                    <TableHead>Color</TableHead>
                     <TableHead className="text-right">Enrollment</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -192,12 +196,25 @@ export default async function SeasonSetupPage({
                     <TableRow key={t.id}>
                       <TableCell>
                         <span className="flex items-center gap-2 font-medium">
-                          <TeamLogo name={t.name} color={t.color} />
+                          <TeamLogo
+                            name={t.name}
+                            color={t.color}
+                            textColor={t.logo_text_color}
+                          />
                           {t.name}
                         </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {captainOf.get(t.id) || "—"}
+                      </TableCell>
+                      <TableCell>
+                        <TeamBrandingForm
+                          teamId={t.id}
+                          name={t.name}
+                          color={t.color}
+                          logoTextColor={t.logo_text_color}
+                          logoPath={t.logo_path}
+                        />
                       </TableCell>
                       <TableCell className="text-right">
                         <form action={unenrollTeam} className="inline">

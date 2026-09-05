@@ -9,6 +9,7 @@ export type TeamSummary = {
   slug: string;
   color: string | null;
   logo_path: string | null;
+  logo_text_color: string | null;
 };
 export type RosterEntry = {
   player_id: string;
@@ -27,7 +28,9 @@ export async function getEnrolledTeams(
   const supabase = opts.client ?? (await createClient());
   const { data } = await supabase
     .from("season_teams")
-    .select("team:teams!season_teams_team_id_fkey(id, name, slug, color, logo_path)")
+    .select(
+      "team:teams!season_teams_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)",
+    )
     .eq("season_id", seasonId);
   const teams = ((data ?? [])
     .map((r) => r.team)

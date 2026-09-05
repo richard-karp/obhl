@@ -10,6 +10,7 @@ import {
   type MergePlan,
   type RosterRow,
 } from "@/lib/players/merge-plan";
+import { isPlayerArchivedIn } from "@/lib/players/archive";
 
 export type PlayersActionState = { ok: boolean; message: string } | null;
 
@@ -77,6 +78,20 @@ async function describeRefusal(admin: Admin, plan: Refusal): Promise<string> {
         (names ? ` (${names})` : "") +
         `. One player cannot be active on both. Transfer or remove one of them ` +
         `first, then merge.`
+      );
+    }
+    case "keep-archived": {
+      const { data: teams } = await admin
+        .from("teams")
+        .select("name")
+        .in("id", plan.teamIds);
+      const names = (teams ?? []).map((t) => t.name).join(" and ");
+      return (
+        `The record you chose to keep has been removed from this league, but ` +
+        `the merge would put it back on a roster` +
+        (names ? ` (${names})` : "") +
+        `. Restore that person from the archive first, or keep one of the ` +
+        `other records instead. Nothing was merged.`
       );
     }
     case "both-linked": {
@@ -268,7 +283,17 @@ export async function mergePlayers(
   const loaded = await loadMergeSet(admin, leagueId, mergeSet);
   if ("error" in loaded) return { ok: false, message: loaded.error };
 
-  const plan = planMerge(keepId, loaded.rosters, loaded.games, loaded.linked);
+  // Asked of the survivor only. An ABSORBED record that is archived needs no
+  // check: its `players` row is deleted by the merge and 0040's `player_id` FK
+  // cascades the archive row away with it, so that direction self-heals.
+  const keepArchived = await isPlayerArchivedIn(keepId, leagueId, admin);
+  const plan = planMerge(
+    keepId,
+    loaded.rosters,
+    loaded.games,
+    loaded.linked,
+    keepArchived,
+  );
   if (!plan.ok) return { ok: false, message: await describeRefusal(admin, plan) };
 
   const names = await playerNames(admin, mergeSet);

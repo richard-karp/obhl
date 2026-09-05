@@ -1,6 +1,8 @@
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireLeagueRole } from "@/lib/auth/guards";
-import { getActiveContext } from "@/lib/queries/season";
+import { resolveLeagueBySlug } from "@/lib/league/current";
+import { getManageContext } from "@/lib/queries/season";
 import { getSchedule } from "@/lib/queries/schedule";
 import { GameStatusBadge } from "@/components/shared/game-status-badge";
 import { TeamLogo } from "@/components/shared/team-logo";
@@ -15,20 +17,29 @@ import {
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
+import { SeasonSwitcher } from "@/components/manage/season-switcher";
 import { formatGameDateTime } from "@/lib/format";
 
 export default async function ScoreGamesPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ league: string }>;
+  searchParams: Promise<{ season?: string }>;
 }) {
   const { league: leagueParam } = await params;
-  const ctx = await getActiveContext(leagueParam);
-  await requireLeagueRole(ctx.league.id, "scorekeeper", "league_manager");
+  const { season: seasonParam } = await searchParams;
+  // League, then GUARD, then context — `getManageContext` reads every season on
+  // the ADMIN client, so it must not run for a request about to be refused.
+  // `resolveLeagueBySlug` is cache()-wrapped, so the context reuses it free.
+  const league = await resolveLeagueBySlug(leagueParam);
+  if (!league) notFound();
+  await requireLeagueRole(league.id, "scorekeeper", "league_manager");
+  const ctx = await getManageContext(leagueParam, seasonParam);
   // The resolved slug, not the URL's — links stay canonical from /OBHL.
   const leagueSlug = ctx.league.slug;
   if (!ctx.season) {
-    return <EmptyState title="No active season" />;
+    return <EmptyState title="No seasons yet" description="Create a season first." />;
   }
   const games = await getSchedule(ctx.season.id);
 
@@ -36,8 +47,9 @@ export default async function ScoreGamesPage({
     <div className="space-y-6">
       <PageHeader
         title="Games"
-        description="Open a game to set rosters, record scoring, and finalize."
+        description={`${ctx.season.name} · open a game to set rosters, record scoring, and finalize.`}
       >
+        <SeasonSwitcher ctx={ctx} />
         <Button asChild size="sm" variant="outline">
           <Link href={`/${leagueSlug}/manage/schedule-builder/one-off`}>
             Schedule a one-off game

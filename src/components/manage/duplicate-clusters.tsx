@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { useFormStatus } from "react-dom";
 import {
   dismissDuplicatePair,
   mergePlayers,
@@ -196,9 +197,30 @@ function ClusterCard({ leagueId, cluster }: { leagueId: string; cluster: Cluster
   );
 }
 
+/**
+ * One row's Undo, pending on ITS OWN form.
+ *
+ * ⚠️ `useActionState`'s `pending` is per HOOK, and one hook serves every row
+ * here — so clicking one Undo greyed out the entire list. `useFormStatus` reads
+ * the enclosing form instead, which is what makes this per-row without tracking
+ * an id by hand. It must be a child of the form to see it, which is the whole
+ * reason this is a separate component (`season-select.tsx` splits for the same
+ * reason). Third place this shape has appeared — `ConstraintsCard` and
+ * `PersonPicker` were the others, and both had to track an id because their
+ * controls are click handlers rather than forms.
+ */
+function UndoButton() {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" variant="ghost" size="sm" disabled={pending}>
+      Undo
+    </Button>
+  );
+}
+
 /** The dismissed list, and the undo that is the only way back out of a misclick. */
 function DismissedList({ leagueId, pairs }: { leagueId: string; pairs: DismissedPair[] }) {
-  const [state, action, pending] = useActionState<PlayersActionState, FormData>(
+  const [state, action] = useActionState<PlayersActionState, FormData>(
     restoreDuplicatePair,
     null,
   );
@@ -221,9 +243,7 @@ function DismissedList({ leagueId, pairs }: { leagueId: string; pairs: Dismissed
             <form action={action}>
               <input type="hidden" name="league_id" value={leagueId} />
               <input type="hidden" name="pair_id" value={p.id} />
-              <Button type="submit" variant="ghost" size="sm" disabled={pending}>
-                Undo
-              </Button>
+              <UndoButton />
             </form>
           </li>
         ))}
