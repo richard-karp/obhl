@@ -74,7 +74,7 @@ which #24's manage tools read; and `0042`/`0043`, which let a league's own
 scorekeepers and captains read it before it is public (*Member reads*, below).
 
 ⚠️ **THIS FILE IS NOT ON `main` YET.** It lives on `docs/readiness-and-url-space`
-(PR #33, CI green). `main`'s copy still says migrations are unpushed and a
+(PR #33). `main`'s copy still says migrations are unpushed and a
 sign-in is unverified — both false. Merging #33 is what stops the next reader
 being misled. Everything else waiting on a person rather than on work — the
 other open PRs, two decisions, a stale branch — is listed under *Open — waiting
