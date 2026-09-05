@@ -39,11 +39,14 @@ export default async function LandingPage() {
   // has no league in the URL, so the account state is the instance-wide one.
   const user = await getSessionUser();
   // A cross-link needs a league, and this page is the one place that has none.
-  // Their oldest membership is the destination — `getMemberLeagues` orders by
-  // `created_at`, so it is stable rather than arbitrary — and for someone in
-  // more than one league it is still the right link, because the manage header
-  // it lands on carries the league switcher. A dead end here is what sent a
-  // signed-in manager back to typing URLs.
+  // The destination is the OLDEST LEAGUE THIS ACCOUNT CAN REACH — not their
+  // oldest membership: `getMemberLeagues` orders leagues by `leagues.created_at`,
+  // and for a League Office member it returns every league in the instance, so a
+  // commissioner lands on the oldest league there is rather than on anything
+  // they belong to. That is stable rather than arbitrary, and it is still the
+  // right link for someone with several, because the manage header it lands on
+  // carries the league switcher. A dead end here is what sent a signed-in
+  // manager back to typing URLs.
   const mine = user ? await getMemberLeagues(user.id) : [];
 
   const cluster = (

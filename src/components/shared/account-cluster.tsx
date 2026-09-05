@@ -40,7 +40,11 @@ export function AccountCluster({
    * Where this viewer's *other* half of the app is: their tools from a public
    * page, the public site from the manage chrome. Null when there is nowhere
    * meaningful to point — a signed-in visitor to a league they do not belong to,
-   * or the picker when more than one league could be meant.
+   * or anyone with no membership at all.
+   *
+   * It is the CALLER's job to decide where it goes, and the callers differ: a
+   * league page points at that league, while the picker has no league in its URL
+   * and picks the first one this account can reach. See `app/page.tsx`.
    */
   crossLink,
   /**

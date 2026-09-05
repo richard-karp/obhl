@@ -75,6 +75,15 @@ test.describe("Path 6 — Auth / Login / Session", () => {
 });
 
 /**
+ * The role badge specifically, not the word anywhere on the page. As a bare
+ * `getByText("Manager")` this matched any future content containing the word —
+ * a staff name, an announcement — so the absence assertions below would have
+ * started failing on unrelated copy.
+ */
+const badge = (page: Page) =>
+  page.locator('[data-slot="badge"]', { hasText: "Manager" });
+
+/**
  * The chrome outside the manage tools. A signed-in manager used to see exactly
  * what a stranger saw on every public page — no badge, no route to their tools,
  * no way out — which is the confusion the account cluster exists to end.
@@ -89,14 +98,14 @@ test.describe("Path 6b — Auth-aware chrome", () => {
 
     // The picker: the page sign-in actually lands on, and the one page with no
     // league in its URL.
-    await expect(page.getByText("Manager").first()).toBeVisible();
+    await expect(badge(page)).toBeVisible();
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
     await page.getByRole("link", { name: "Manage" }).click();
     await expect(page).toHaveURL(/\/manage\/dashboard$/);
 
     // And a public league page, which has its own header.
     await page.goto("/obhl/standings");
-    await expect(page.getByText("Manager").first()).toBeVisible();
+    await expect(badge(page)).toBeVisible();
     await expect(page.getByRole("link", { name: "Manage" })).toHaveAttribute(
       "href",
       "/obhl/manage/dashboard",
@@ -111,7 +120,7 @@ test.describe("Path 6b — Auth-aware chrome", () => {
         0,
       );
       await expect(page.getByRole("link", { name: "Manage" })).toHaveCount(0);
-      await expect(page.getByText("Manager")).toHaveCount(0);
+      await expect(badge(page)).toHaveCount(0);
     }
   });
 
@@ -122,10 +131,25 @@ test.describe("Path 6b — Auth-aware chrome", () => {
     // its tightest — see the measurement in `site-header.tsx`. Signed in the
     // links drop to their own row instead of sharing it with the account
     // controls, which is what keeps this true.
+    //
+    // Measured on the BAR, not on the document. The document is the weaker
+    // subject: `NavLinks` carries `overflow-x-auto`, and an overflowing flex
+    // item with its own scroller can absorb the excess by clipping its links
+    // rather than pushing the page sideways — which is the mechanism
+    // `manage-nav.tsx` documents. The bar's own `scrollWidth` sees the overflow
+    // either way.
+    //
+    // Controlled 2026-09-05: with the signed-in class strings reverted to `md:`,
+    // this test fails on the signed-in leg. It is not a check that cannot fail.
     const fits = () =>
       page.evaluate(() => {
-        const el = document.documentElement;
-        return el.scrollWidth <= el.clientWidth;
+        const bar = document.querySelector("header > div");
+        if (!bar) throw new Error("header bar not found");
+        return (
+          bar.scrollWidth <= bar.clientWidth &&
+          document.documentElement.scrollWidth <=
+            document.documentElement.clientWidth
+        );
       });
 
     await page.setViewportSize({ width: 768, height: 800 });
@@ -137,6 +161,6 @@ test.describe("Path 6b — Auth-aware chrome", () => {
     await page.waitForURL("/");
     await page.goto("/obhl/standings");
     expect(await fits()).toBe(true);
-    await expect(page.getByText("Manager").first()).toBeVisible();
+    await expect(badge(page)).toBeVisible();
   });
 });
