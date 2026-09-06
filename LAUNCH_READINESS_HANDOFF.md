@@ -72,12 +72,11 @@ which fixed GAA being inflated by empty-net goals on live pages; `0039`-`0041`,
 which #24's manage tools read; and `0042`/`0043`, which let a league's own
 scorekeepers and captains read it before it is public (*Member reads*, below).
 
-⚠️ **THIS FILE IS NOT ON `main` YET.** It lives on `docs/readiness-and-url-space`
-(PR #33). `main`'s copy still says migrations are unpushed and a
-sign-in is unverified — both false. Merging #33 is what stops the next reader
-being misled. Everything else waiting on a person rather than on work — the
-other open PRs, two decisions, a stale branch — is listed under *Open — waiting
-on a person* below. Nothing outstanding from 2026-09-05 is anywhere else.
+✅ **THIS FILE IS ON `main`, and there are NO open PRs** (2026-09-05: #33, #34
+and #35 merged; #23 and issue #30 closed). ⚠️ **Check anyway** — this line goes
+stale the moment someone branches, and a stale copy in a worktree misled a
+reader today. Everything waiting on a person rather than on work is listed
+under *Open — waiting on a person* below, and nothing outstanding is elsewhere.
 
 **What remains is item 4: the `LAUNCH.md` phases — and it now has a date on
 it.** The published season's first game night is **2026-09-10**, after which its
@@ -198,12 +197,9 @@ is one command and is always right.
 | What | State | Who |
 |---|---|---|
 | ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in *Next action* |
-| **PR #33** — this file, the URL spec, the production verification | Mergeable; docs only | merge it; `main` is misleading until then |
-| **PR #34** — exports 404 an unknown id instead of an empty file | Mergeable; one test, watched failing then passing | merge it |
 | **`LAUNCH.md` Verification steps 4, 5, 6** | The manager badge, the league switcher, an announcement in one league only | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written |
 | **Item 7** — custom SMTP, then a set/reset flow, then a password field | Runbook written 2026-09-05 with the exact SMTP values and a 5th step; nothing run. Phase 2's two missing calls are named and measured | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
 | **`NEXT_PUBLIC_SITE_URL` is missing on Preview** | `vercel env ls` 2026-09-05: Production only | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run |
-| **`docs/close-migration-push`** | Its seven commits are all in PR #33 | deletable once #33 lands; ⚠️ it is CHECKED OUT in the `manager-tools` worktree, so remove the worktree's checkout first |
 
 ---
 
@@ -643,6 +639,33 @@ stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
    LOCAL stack only** — there is no `supabase config push` in CI, `package.json`
    or `scripts/`. Production's real floor is whatever the dashboard says and is
    **recorded nowhere in this repository**, which is what step 1e is for.
+
+   **The code gaps, and where they land.** §7 named the missing calls but not
+   the files, which left the shape of the work unsaid:
+
+   | Piece | Where it goes | Bound by |
+   |---|---|---|
+   | The reset trigger | `src/lib/actions/auth.ts`, beside `sendMagicLink` | the `AuthActionState` / `(_prev, formData)` server-action signature used by every action in that file |
+   | The set-password page | a new route under `src/app/` — nothing matches reset/recovery/password today | — |
+   | The password field | `src/app/login/login-form.tsx` (page is `src/app/login/page.tsx`) | model it on `src/components/manage/office-password-form.tsx`, the only `type="password"` in the repo |
+
+   ⛔ **The unit suite goes RED the moment you add the trigger, and the fix is
+   not obvious from the failure.** `src/lib/actions/league-guards.test.ts`
+   requires every exported action in `src/lib/actions/` to reach a league guard
+   unless it is listed in that file's `NO_LEAGUE_ACTIONS`. A reset action has no
+   league — sign-in happens before any league is known, exactly as
+   `auth.ts:sendMagicLink` already records — so **add it to `NO_LEAGUE_ACTIONS`
+   with that reason**. ⚠️ **Measured 2026-09-05**, not read: a stub action
+   appended to `auth.ts` produced
+
+   ```
+   × reaches a league guard from every action that has a league
+   AssertionError: expected [ 'auth.ts:__probeSendPasswordReset' ] to deeply equal []
+   ```
+
+   and the file was restored. The allowlist is a convention guard, not a hole —
+   do not reach for it without the reason, and do not "fix" the red by bolting a
+   league guard onto an action that has no league.
 
 3. **Only then**, a password field on `/login`. ⚠️ Magic link stays as the
    secondary path. Removing it would replace one sole way in with a different
