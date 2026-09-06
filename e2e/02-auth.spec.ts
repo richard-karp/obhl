@@ -68,7 +68,10 @@ async function signedInAs(
 
 async function signOut(page: Page) {
   await page.getByRole("button", { name: "Sign out" }).click();
-  await page.waitForURL("/login");
+  // The league's public home, not `/login`. See `signOut` in
+  // `lib/actions/auth.ts` and `e2e/26-sign-out-destination.spec.ts`, which owns
+  // the destination rules including the fallback and the tampered-slug case.
+  await page.waitForURL("/obhl");
 }
 
 test.describe("Path 6 — Auth / Login / Session", () => {
@@ -90,13 +93,16 @@ test.describe("Path 6 — Auth / Login / Session", () => {
     await expect(page.getByText("Seasons").first()).toBeVisible();
   });
 
-  test("sign out returns to /login", async ({ page }) => {
+  test("sign out returns to the league's public home, not the sign-in screen", async ({
+    page,
+  }) => {
     await signedInAs(page, "Manager");
     await signOut(page);
-    await expect(page).toHaveURL("/login");
+    await expect(page).toHaveURL("/obhl");
     await expect(
-      page.getByRole("heading", { name: "Staff sign in" }),
+      page.getByRole("heading", { name: "Oceanview Beer Hockey League" }),
     ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
   });
 
   test("unauthenticated access to a manage route redirects to /login", async ({

@@ -56,6 +56,16 @@ export function AccountCluster({
    */
   crossLink,
   /**
+   * The league to land on after signing out, or undefined where there is none —
+   * the league picker draws this cluster too, and has no league in its URL.
+   *
+   * ⚠️ It is a HINT, not an instruction. It rides to `signOut` as a hidden form
+   * field, which puts it under the client's control, so the action resolves it
+   * against the database and falls back to `/` rather than redirecting to
+   * whatever was posted. See `signOut`.
+   */
+  leagueSlug,
+  /**
    * Context-specific items that lead the cluster: "All leagues" on the public
    * header, the league switcher on the manage one. They are NOT account state,
    * which is why they are a slot rather than more props.
@@ -64,6 +74,7 @@ export function AccountCluster({
 }: {
   user: { role: AppRole | null } | null;
   crossLink?: { href: string; label: string } | null;
+  leagueSlug?: string;
   children?: React.ReactNode;
 }) {
   return (
@@ -110,6 +121,15 @@ export function AccountCluster({
       <ThemeToggle />
       {user ? (
         <form action={signOut}>
+          {/*
+            ⚠️ INSIDE the `user` branch, with everything else. An unconditional
+            element here — even a hidden input, which renders nothing — breaks
+            the "signed out is byte-for-byte unchanged" bar this component is
+            written to.
+          */}
+          {leagueSlug ? (
+            <input type="hidden" name="league" value={leagueSlug} />
+          ) : null}
           <Button type="submit" variant="ghost" size="sm">
             Sign out
           </Button>

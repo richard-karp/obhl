@@ -200,6 +200,7 @@ export function ManageNav({
           <AccountCluster
             user={{ role }}
             crossLink={{ href: `/${currentSlug}`, label: "View site" }}
+            leagueSlug={currentSlug}
           >
             <LeagueSwitcher
               leagues={leagues}
