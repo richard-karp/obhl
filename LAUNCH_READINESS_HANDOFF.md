@@ -23,10 +23,10 @@
      first game night is now refused at generate. ⛔ **PUBLISH is unguarded
      either way, and a draft generated before 2026-09-05 never met the guard —
      discard it, do not publish it.** **Read the date before publishing.**
-   - **Mutating** `gh` (`pr create`, `pr merge`) and `vercel env` are denied to
-     an agent under the auto-mode classifier — ask a human; one authorised
-     them 2026-09-05. **Read-only `gh` works**: `run list`, `run view`, `run download`. On a
-     red CI run, pull the artifact and read `error-context.md` yourself; its
+   - ✅ **`gh pr create` WORKS from an agent** — measured 2026-09-06, PR #40, no
+     prompt. The line here calling mutating `gh` classifier-denied was wrong and
+     cost a handoff; only `vercel env` is untested. On a red CI run,
+     `gh run download` the artifact and read `error-context.md` yourself; its
      page snapshot has twice settled in seconds what guessing got wrong.
 3. ⛔ **The hot tier — everything above _The items_ — is capped at 130 lines.**
    Adding to it means evicting something to a section below, in the same edit.
