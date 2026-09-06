@@ -19,11 +19,10 @@
      FOR GOOD.** `season_is_started` (`0026`) counts only `not is_draft`, so a
      past-dated DRAFT is invisible to the gate and looks completely fine — until
      it is published, at which point generate, replace and remove all refuse
-     permanently. The builder's "First game night" pre-fills from the season's
-     `starts_on`, is `required`, and has **no `min`**; `generateSchedule` never
-     checks it either. *Verified in the code 2026-09-05, not reproduced against
-     production.* **Read that date before publishing.** ⚠️ A ~20-minute guard
-     closes it without waiting for PR #23 — see *Item 9* below.
+     permanently. ⚠️ **The generate guard is BUILT BUT NOT MERGED** (item 9): it
+     lives on `feat/past-date-guard`, so on `main` today the input still has no
+     `min` and `generateSchedule` still does not check. ⛔ **PUBLISH is
+     unguarded either way.** **Read the date before publishing.**
    - **Mutating** `gh` (`pr create`, `pr merge`) and `vercel env` are denied to
      an agent under the auto-mode classifier — ask a human, do not work around
      it. **Read-only `gh` works**: `run list`, `run view`, `run download`. On a
@@ -169,9 +168,9 @@ design, so assume the gap and check the list rather than the flag.
 | 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | ⛔ **OPEN, AND ON A CLOCK** — Phase 6's first game night is 2026-09-10; sign-in, access control and the anonymous half of *Verification* are done; steps 4-6 of that list need a session |
 | 5 | Smaller deferred items | below | open |
 | 6 | `0039`-`0043` not pushed | `supabase db push` | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides |
-| 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard + `vercel env` | **OPEN** — needs a human; *The other half of auth* |
+| 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard | **OPEN** — needs a human; runbook with the exact SMTP values is in *The other half of auth*. ⚠️ No app env key is involved — that line was wrong |
 | 8 | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code | ✅ **closed 2026-09-05** — steps 1-6 shipped as #31 (which collapsed #25-#29); step 7, the prose, is this commit. Spec: `docs/superpowers/specs/2026-09-05-unified-url-space-design.md` |
-| 9 | **A past first-game-night locks the season on publish** | code | ⛔ **OPEN** — no `min` on the input, no check in `generateSchedule`; the one irreversible mistake available in the builder. a ~20-minute guard is specced in *Item 9 — the cheap guard*; PR #23 is the larger answer and is NOT needed for this |
+| 9 | **A past first-game-night locks the season on publish** | code | ⚠️ **BUILT, NOT MERGED** — reproduced, then guarded at generate on `feat/past-date-guard`; unreachable from `main` until that merges. ⛔ Publish stays unguarded regardless — see *Item 9 — the guard, built* |
 
 ⛔ **Do not re-file 1-3.** They are kept as rows, rather than deleted, because a
 reader who knows this file by its old shape will otherwise assume they were
@@ -201,11 +200,12 @@ is one command and is always right.
 | ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in *Next action* |
 | **PR #33** — this file, the URL spec, the production verification | Mergeable; docs only | merge it; `main` is misleading until then |
 | **PR #34** — exports 404 an unknown id instead of an empty file | Mergeable; one test, watched failing then passing | merge it |
-| **PR #23** — future-only scheduling brief/design/plan | Docs only, 2,282 lines, 3 new files, merges cleanly but is far behind | ⚠️ **a decision, not a task.** Merging puts an UNBUILT plan in `docs/superpowers/plans/`, where it reads as scheduled work. Closing it keeps the branch. ⛔ Item 9's guard does NOT depend on it |
+| **PR #23** — future-only scheduling brief/design/plan | Docs only, 2,282 lines, 3 new files. **Decided 2026-09-05: close it, keep the branch** — an unbuilt plan in `docs/superpowers/plans/` reads as scheduled work, and the branch loses nothing | ⛔ **not yet executed** — `gh pr close 23` needs a human; mutating `gh` is denied to an agent. Item 9's guard never depended on it |
 | **Issue #30** — public pages answer 200 for `notFound()` | Investigated, deliberately unfixed, evidence on the issue | a decision: close as working-as-documented (recommended), or accept a database round trip in `proxy` on every page view |
-| **Item 9** — the past-date guard | Specced in *Item 9 — the cheap guard*, below; unbuilt | ~20 minutes; offered 2026-09-05 and not taken up |
+| **Item 9's guard** — built, unmerged | `feat/past-date-guard`: 5 unit tests + 2 e2e, watched failing first; branched off `c405807`, no PR opened | ⛔ **merge it before the rebuild.** Kept off PR #33 on purpose so that stays docs-only. Opening the PR needs a human — mutating `gh` is denied to an agent |
 | **`LAUNCH.md` Verification steps 4, 5, 6** | The manager badge, the league switcher, an announcement in one league only | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written |
-| **Item 7** — custom SMTP, then a set/reset flow, then a password field | Sequence written, nothing started | Supabase dashboard + `vercel env` writes; ⛔ not doable from a checkout |
+| **Item 7** — custom SMTP, then a set/reset flow, then a password field | Runbook written 2026-09-05 with the exact SMTP values; nothing run | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel |
+| **`NEXT_PUBLIC_SITE_URL` is missing on Preview** | `vercel env ls` 2026-09-05: Production only | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run |
 | **`docs/close-migration-push`** | Its seven commits are all in PR #33 | deletable once #33 lands; ⚠️ it is CHECKED OUT in the `manager-tools` worktree, so remove the worktree's checkout first |
 
 ---
@@ -569,11 +569,41 @@ which is not a route a person has.
 **So do not reach for it in a lockout expecting it to work.** Today the button
 is a bootstrap for the flow that has not shipped. What closes it, in order:
 
-1. **Custom SMTP (Resend).** ⛔ Cannot be done from a checkout: it is Supabase
-   dashboard configuration plus `vercel env` writes, and mutating `vercel env`
-   is denied to an agent. Deliverable from a checkout is the written steps and
-   the exact env keys — a human runs them.
-2. **A self-serve set/reset-password flow**, riding on that SMTP.
+1. **Custom SMTP (Resend).** ⛔ Cannot be done from a checkout — a human runs
+   the steps below. ⚠️ **The app itself needs no new env key.** Nothing in
+   `src/` reads a Resend variable and nothing should: Supabase Auth sends these
+   emails, so the API key belongs in the SUPABASE dashboard, not Vercel's.
+   `vercel integration add resend/resend-email` is therefore optional — it buys
+   unified billing and puts `RESEND_API_KEY` somewhere the app will never read
+   it. A Resend account reached directly does the same job.
+
+   a. **Verify a sending domain** in Resend, and create an API key. Supabase's
+      built-in email service is rate-limited to a couple of messages an hour
+      and is not a production sender — that limit, not the branding, is the
+      reason this item exists.
+   b. **Supabase → Authentication → Emails → SMTP Settings**, enable custom
+      SMTP: host `smtp.resend.com`, port `465`, username **the literal string
+      `resend`**, password **the Resend API key**, sender an address at the
+      domain from (a).
+   c. **Authentication → Rate Limits**: raise "emails per hour" off its default.
+      ⛔ Skipping this is the failure that looks like a bug in the app — sign-in
+      links stop arriving for everyone once a handful of staff try at once.
+   d. Confirm Site URL and the redirect allow-list still name production, then
+      send one real magic link and watch it arrive.
+
+   ⚠️ **`NEXT_PUBLIC_SITE_URL` is set on Production ONLY** (`vercel env ls`,
+   2026-09-05). `sendMagicLink` falls back to `http://localhost:3000` when it is
+   absent, so a magic link requested from a PREVIEW deployment mails a localhost
+   link. Production is unaffected — this is a preview-only defect, and setting
+   the key on Preview is the whole fix.
+2. **A self-serve set/reset-password flow**, riding on that SMTP. ✅ **Smaller
+   than it looks: the confirm half already exists.** `/auth/confirm`
+   (`src/app/auth/confirm/route.ts`) verifies `token_hash` for ANY
+   `EmailOtpType`, `recovery` included, and already sets the audit-session
+   cookie. What is missing is the two ends: a `resetPasswordForEmail` trigger,
+   and a page to type the new password into. ⚠️ `setStaffPassword` enforces 8
+   characters while `supabase/config.toml` sets `minimum_password_length = 6` —
+   pick one before a second entry point disagrees with the first.
 3. **Only then**, a password field on `/login`. ⚠️ Magic link stays as the
    secondary path; removing it would make step 1 the only way back in, and the
    whole point of this item is not having a single one of those.
@@ -581,30 +611,48 @@ is a bootstrap for the flow that has not shipped. What closes it, in order:
 Until 1 lands, 2 and 3 cannot be verified, so none of it should ship. That is
 why the sequence is written down rather than left to whoever picks it up.
 
-## Item 9 — the cheap guard, offered and unbuilt
+## Item 9 — the guard, built
 
-⚠️ **PR #23 is not the only way to close this, and reaching for it first is the
-mistake this section exists to prevent.** That PR is a 1,708-line plan for
-future-only scheduling as a whole — the right long answer, and far more than is
-needed to stop the irreversible case. Do **not** read it to fix this.
+⚠️ **Built 2026-09-05 on `feat/past-date-guard`, and NOT merged** — nothing
+below is true of `main` yet. Kept as a section because the residual risk is real
+even after it merges, and because the reproduction is the useful part.
 
-The mitigation is two edits and a test, offered on 2026-09-05 and not taken up:
+**What it does.** A first game night before *today* is refused at GENERATE, so
+no new draft can carry a past date:
 
-1. `min` on the date input — `schedule-generate-form.tsx`, the `start_date`
-   `<Input>` around line 510, which today carries only
-   `defaultValue={seasonStart}` and `required`. Browser-side only, so it is the
-   half that cannot be trusted.
-2. The half that can: refuse a past `start_date` in `generateSchedule`
-   (`src/lib/actions/schedule.ts`, near the existing
-   `if (!startDate) return { ok: false, message: "Pick a first game night." }`
-   around line 379). Same shape, one condition later.
+- `src/lib/schedule/startDate.ts` — `isPastGameNight({ startDate, today })`,
+  pure, 5 unit tests in `startDate.test.ts`. ⚠️ **Named arguments on purpose**:
+  both are date strings, and swapping them positionally would INVERT the guard —
+  every future date refused, every past one let through — with nothing at the
+  call site looking wrong.
+- `src/lib/actions/schedule.ts` — the refusal, immediately after the existing
+  `!startDate` check. The half that cannot be bypassed.
+- `schedule-generate-form.tsx` — `min` on the `start_date` input. Browser-side,
+  so it stops the typing, not the request.
+- `e2e/11-schedule-builder.spec.ts` — two tests: the `min` bound, and a
+  server-side refusal that strips `min` first so it proves the trustworthy half.
 
-⚠️ **Guard the GENERATE, not the publish.** Refusing at publish would be the
-obvious place and is worse: by then the manager has a draft they have reviewed
-and can do nothing with, and the useful message — "this date is in the past" —
-arrives too late to act on cheaply.
+⚠️ **Today itself passes**, and the bound is computed in the LEAGUE's zone via
+`leagueDateKey`, not server-UTC — UTC runs up to five hours ahead of Eastern and
+would refuse a legitimate same-day generate every evening after 7pm.
 
-*Line numbers read 2026-09-05; re-check the symbols before trusting them.*
+⛔ **The residual risk, and it is not theoretical: PUBLISH IS STILL UNGUARDED.**
+`publishSchedule` checks no dates. The guard stops a past-dated draft being
+*created*; a draft that already exists from before it can still be published and
+still locks the season for good. Guarding publish was rejected deliberately —
+by then the manager has a reviewed draft they can do nothing with, and the
+message arrives too late to act on cheaply — but that argument covers where the
+*message* goes, not whether publish should refuse at all. If a past-dated draft
+is ever found in the wild, discard it; do not press Publish to "see".
+
+**The reproduction, which is why this stopped being a code reading.** With the
+guard temporarily removed, a first game night of `2020-01-06` generated a
+12-game draft and offered a live "Publish 12 games" button. The hazard note in
+the protocol used to say *verified in the code, not reproduced*; it has now been
+reproduced against the fixture.
+
+⚠️ PR #23 remains the larger answer to future-only scheduling as a whole and is
+NOT needed for any of this. Do not read it to work on this item.
 
 ## 5 — Smaller, deliberately deferred
 
