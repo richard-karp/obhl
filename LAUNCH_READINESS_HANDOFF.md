@@ -23,10 +23,10 @@
      first game night is now refused at generate. ⛔ **PUBLISH is unguarded
      either way, and a draft generated before 2026-09-05 never met the guard —
      discard it, do not publish it.** **Read the date before publishing.**
-   - **Mutating** `gh` (`pr create`, `pr merge`) and `vercel env` are denied to
-     an agent under the auto-mode classifier — ask a human; one authorised
-     them 2026-09-05. **Read-only `gh` works**: `run list`, `run view`, `run download`. On a
-     red CI run, pull the artifact and read `error-context.md` yourself; its
+   - ✅ **`gh pr create` WORKS from an agent** — measured 2026-09-06, PR #40, no
+     prompt. The line here calling mutating `gh` classifier-denied was wrong and
+     cost a handoff; only `vercel env` is untested. On a red CI run,
+     `gh run download` the artifact and read `error-context.md` yourself; its
      page snapshot has twice settled in seconds what guessing got wrong.
 3. ⛔ **The hot tier — everything above _The items_ — is capped at 130 lines.**
    Adding to it means evicting something to a section below, in the same edit.
@@ -76,11 +76,11 @@ stale the moment someone branches, and a stale copy in a worktree misled a
 reader today. Everything waiting on a person rather than on work is listed
 under _Open — waiting on a person_ below, and nothing outstanding is elsewhere.
 
-**What remains splits into two lanes, and neither blocks the other.**
+**Only one lane is left; the code lane is finished.**
 
-- **CODE — an agent, from a checkout: 4 items.** All in the test harness; none
-  can reach a manager or a player. §5 _The final pre-launch pass_ carries each
-  one with its fix, and they are listed nowhere else.
+- ✅ **CODE — the 4 harness items are FIXED** (2026-09-06, PR #40, CI green).
+  §5 _The final pre-launch pass_ carries each one and how it was verified. ⛔ One
+  harness item is left and it is DATED: §5 _The fixture dates_, 2026-09-16.
 - **A PERSON — the user, and no agent can do any of them: 5 items**, under
   _Open — waiting on a person_. ⛔ Exactly one is dated: **rebuild the schedule
   before 2026-09-10 23:00 UTC**, the published season's first game night, after
@@ -209,9 +209,11 @@ is one command and is always right.
 | **The schedule write path has no transaction**                       | Compensation only — a runtime dying mid-batch leaves writes applied and uncompensated, publicly visible. Four review rounds each found a bug in the machinery that exists _because_ there is no `pg_advisory_xact_lock` RPC                                                                                                                                                                                                                                                                                                                                                                                                 | **the user, decided 2026-09-06: SHIP NOW, build the RPC first thing after launch.** See §5                                                                 |
 
 ⚠️ **One class is missing from that table on purpose, because nothing in it
-waits on a person:** four test-harness defects found 2026-09-06 while merging #38
-and #39. None of them affects the app, and all of them cost a session's time when
-they fire. They are the final pre-launch pass — §5, _The final pre-launch pass_.
+waits on a person:** test-harness defects. None affects the app; each costs a
+session's time when it fires. The four found on 2026-09-06 while merging #38 and
+#39 are ✅ **fixed** (PR #40) — §5, _The final pre-launch pass_. ⛔ **One is
+open and it is DATED: `11-` and `23-` break from 2026-09-16** — §5, _The fixture
+dates_. It is the only outstanding code item anywhere in this file.
 
 ---
 
@@ -889,7 +891,32 @@ round 3 (mutation testing) found only the first failure in each 25-way chunk was
 so an ordinary multi-request network fault left games half-changed while reporting
 "Nothing was written". Each fix was correct. The next layer is where the next bug was.
 
-### The final pre-launch pass — found 2026-09-06, not fixed
+### The final pre-launch pass — found 2026-09-06, ✅ ALL FOUR FIXED
+
+✅ **Done 2026-09-06, in this order: 1 first (it is the root cause under 2),
+then 2, 3, 4.** Verified by the full suite behind the config change, not a spec:
+`npm test` **32 unit files / 444 tests**; `PORT=3013 scripts/e2e-locked.sh`
+**213 passed / 1 skipped / 0 failed in 4.8m across 29 spec files** — the same
+numbers as the 2026-09-06 baseline, so `actionTimeout` cost the suite nothing.
+The skip is still the API-key-gated AI-summary test in `03-seasons`.
+Each item below now records what was done; the diagnosis is kept because it is
+the reason the fix looks the way it does.
+
+- **1** — `actionTimeout: 20_000` added to `use:` in `playwright.config.ts`,
+  with the reasoning inline.
+- **2** — `expectGenerateFormUsable` copied into `11-schedule-builder`,
+  `23-schedule-constraints` and `14-one-off-game`. ⚠️ In the two specs whose
+  seed sits behind a gate — `14-`'s `count("No draft schedule") > 0` and `11-`'s
+  `removeButton.count() === 0` — the guard went **before** the gate, not inside
+  the branch: the read-failed card makes both conditions pick the wrong branch,
+  so guarding inside would still have misreported.
+- **3** — `03-seasons` now asserts the destination heading
+  `Season setup — <name>`; `PageHeader` renders it as an `h1`.
+- **4** — renamed to `28-schedule-form-state` and `29-schedule-repair` via
+  `git mv`, order relative to each other kept. `28-`'s one cross-reference to
+  "`27`'s seeding" was repointed at `29-schedule-repair`. The `Path 26`/`Path 27`
+  labels inside them are QA-path names, not filenames, and were left alone —
+  file numbers and path numbers have never matched in this suite.
 
 ⛔ **All four are in the test harness, not the app.** Nothing here can reach a
 manager or a player. What they cost is a session's time, and two of them spend it
@@ -918,7 +945,8 @@ the budget of every action in the suite. Run the full suite behind it, not a spe
 (Watched, CI run `34055032836`.) `getPublishState` fails closed: any of its seven
 parallel reads erroring locks the panel and renders "This season's games couldn't
 be read", with **no generate form on the page at all**. #38 added
-`expectGenerateFormUsable` to `26-schedule-form-state` and `27-schedule-repair`;
+`expectGenerateFormUsable` to what are now `28-schedule-form-state` and
+`29-schedule-repair` (item 4 renumbered them);
 these three still seed it bare:
 
 | Spec | Seeding shape | What a read failure costs |
@@ -936,7 +964,7 @@ misreports the failure an assertion later. A guarded seed is not optional just
 because a spec happens to have the safer polarity.
 
 Copy `expectGenerateFormUsable` out of
-`e2e/27-schedule-repair.spec.ts`: there is no shared helper module in `e2e/` and
+`e2e/29-schedule-repair.spec.ts` (`27-` before item 4 renumbered it): there is no shared helper module in `e2e/` and
 no spec imports another, so duplicating it is the house style here.
 
 **3 — `03-seasons.spec.ts` races a redirect.** (Watched — this is the failure
@@ -968,6 +996,35 @@ built in parallel worktrees and both numbered new specs from the same free slot:
 run is still deterministic — but the number no longer identifies a spec, and #38's
 own ordering note ("the spec that ran before it") is now ambiguous. Renumber #38's
 pair to `28-` and `29-`, which keeps their order relative to each other.
+
+### The fixture dates — ⛔ `11-` and `23-` break from 2026-09-16, OPEN
+
+⛔ **Dated, and it is the only outstanding code item in this file.** Found
+2026-09-06 during the review of PR #40; not fixed there, because fixing it means
+changing how those specs seed rather than editing a line.
+
+**What happens.** `11-schedule-builder` and `23-schedule-constraints` both drive
+Fall 2026 and both hardcode a first game night of **`2026-09-15`** — `11-` at
+seven call sites, `23-` in its `FIRST_NIGHT` constant. Item 9's guard refuses a
+first night in the past at GENERATE, with "That first game night has already
+passed — pick tonight or a later date." `11-` has a test asserting exactly that
+refusal, so the mechanism is not in doubt. From **2026-09-16** every generate in
+both specs is refused and both files fail. Nothing about the app is wrong.
+
+⚠️ **A reading of the dates and the guard, not a measurement** — the clock has
+not reached it. Everything else about the two specs is measured; this is
+arithmetic on today's date.
+
+**Why it was left.** The fix is to compute a date instead of pinning one, which
+touches the seeding of every test in both files, and it lands six days after the
+schedule window shuts on 2026-09-10 — so it is genuinely not launch-blocking.
+⛔ **But it will fire on someone else's branch and look like their bug**, which
+is the same failure mode the four items above existed to prevent.
+
+**When it fires, the guard now says so.** `expectGenerateFormUsable` races a
+third locator as of PR #40: a started season renders "The season is under way",
+and the guard names it and says it is permanent, not transient, and to check the
+dates the spec seeds. That is a legible failure, not a fix.
 
 ### From the sixth review of #24 — open, never triaged
 

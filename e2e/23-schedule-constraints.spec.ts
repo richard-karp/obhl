@@ -101,6 +101,67 @@ async function clearRequests(page: Page) {
   }
 }
 
+/**
+ * Wait for the generate form, and fail IMMEDIATELY and by name if the builder
+ * came up in either state that has no form on the page.
+ *
+ * ⛔ NOT A RETRY, AND NOT A LOOSENED ASSERTION. `publishMode` returns `locked`
+ * for TWO reasons, and neither renders a generate form:
+ *
+ *   - `readFailed` — `getPublishState` fails closed, so any of its six reads
+ *     erroring locks the panel and renders "This season's games couldn't be
+ *     read". Transient, usually a database error under load.
+ *   - `started` — the season is legitimately under way. Permanent, and it means
+ *     this spec is pointed at the wrong season, not that anything broke.
+ *
+ * A plain `fill()` in either state waits on a locator that can never resolve
+ * and reports only "waiting for getByLabel('First game night')" — on CI (run
+ * 34055032836) that was a 12-minute `Test timeout of 720000ms exceeded`, which
+ * tells the next person nothing about what actually happened.
+ *
+ * Racing the three locators is what makes the message honest: whichever the
+ * page settled on is the one reported, in seconds. Both failures still fail the
+ * run — they are real conditions and must not be swallowed — they just say so.
+ *
+ * ⛔ CALL IT BEFORE ANY GATE THAT READS THE PANEL, not inside the branch the
+ * gate picks. Both locked cards make a `count()` probe answer wrongly, so a
+ * guard behind one either never runs or runs too late to help.
+ *
+ * ⚠️ COPIED INTO EACH SPEC THAT NEEDS IT, AND IT HAS TO BE. A shared
+ * `e2e/schedule-helpers.ts` was built and measured on 2026-09-06: every
+ * relative TypeScript import dies at load with `context.conditions?.includes is
+ * not a function`, sibling or not, with or without a `.js` specifier
+ * (Playwright 1.61.0, Node 22.18.0). It is not "no module exists yet" and not
+ * "only `src` is out of reach" — relative TS imports do not work here at all.
+ * Change one copy, change them all; there are five.
+ */
+async function expectGenerateFormUsable(page: Page) {
+  const firstNight = page.getByLabel("First game night");
+  const readFailed = page.getByText("This season's games couldn't be read");
+  const started = page.getByText("The season is under way");
+  await expect(firstNight.or(readFailed).or(started).first()).toBeVisible();
+
+  if (await readFailed.isVisible()) {
+    throw new Error(
+      "The schedule builder is in its read-failed state: getPublishState " +
+        "reported readFailed, so publishMode locked the panel and there is no " +
+        "generate form to fill. One of its parallel reads errored — check the " +
+        "server log for 'publish state read failed'. This is usually a " +
+        "transient database error under load, not a broken query.",
+    );
+  }
+
+  if (await started.isVisible()) {
+    throw new Error(
+      "The schedule builder is locked because the season has STARTED, so " +
+        "there is no generate form to fill. Not transient: a season is started " +
+        "once it holds a published, non-draft game whose date has passed. " +
+        "Either this spec is pointed at the wrong season, or its fixture " +
+        "season has aged into the past — check the dates it seeds.",
+    );
+  }
+}
+
 test.describe("Path 24 — schedule constraints", () => {
   // A generate can be ~25 s of search, and two of these run one.
   test.describe.configure({ timeout: 150_000 });
@@ -108,6 +169,12 @@ test.describe("Path 24 — schedule constraints", () => {
   test.beforeEach(async ({ page }) => {
     await signedInAsManager(page);
     await goToFallSeasonSetup(page);
+    // ⛔ HERE, not before each `fill` further down. The constraints card and
+    // its team select are INSIDE the generate form, so `firstTeamName` touches
+    // the panel too — a guard placed after it never runs, because the select is
+    // the locator that has already timed out. Guarding from one place also
+    // covers the tests that only read the card.
+    await expectGenerateFormUsable(page);
   });
 
   test.afterEach(async ({ page }) => {

@@ -32,24 +32,44 @@ async function goToFallSeasonSetup(page: Page) {
 
 /**
  * Wait for the generate form, and fail IMMEDIATELY and by name if the builder
- * came up in its read-failed state instead.
+ * came up in either state that has no form on the page.
  *
- * ⛔ NOT A RETRY, AND NOT A LOOSENED ASSERTION. `getPublishState` fails closed:
- * if any of its reads errors it reports `readFailed`, `publishMode` returns
- * `locked`, and the panel renders "This season's games couldn't be read" with
- * NO generate form on the page at all. A plain `fill()` then waits on a locator
- * that can never resolve — on CI (run 34055032836) that was a 12-minute
- * `Test timeout of 720000ms exceeded / waiting for getByLabel('First game
- * night')`, which tells the next person nothing about what actually happened.
+ * ⛔ NOT A RETRY, AND NOT A LOOSENED ASSERTION. `publishMode` returns `locked`
+ * for TWO reasons, and neither renders a generate form:
  *
- * Racing the two locators is what makes the message honest: whichever the page
- * settled on is the one reported, in seconds. A read failure still fails the
- * run — it is a real condition and must not be swallowed — it just says so.
+ *   - `readFailed` — `getPublishState` fails closed, so any of its six reads
+ *     erroring locks the panel and renders "This season's games couldn't be
+ *     read". Transient, usually a database error under load.
+ *   - `started` — the season is legitimately under way. Permanent, and it means
+ *     this spec is pointed at the wrong season, not that anything broke.
+ *
+ * A plain `fill()` in either state waits on a locator that can never resolve
+ * and reports only "waiting for getByLabel('First game night')" — on CI (run
+ * 34055032836) that was a 12-minute `Test timeout of 720000ms exceeded`, which
+ * tells the next person nothing about what actually happened.
+ *
+ * Racing the three locators is what makes the message honest: whichever the
+ * page settled on is the one reported, in seconds. Both failures still fail the
+ * run — they are real conditions and must not be swallowed — they just say so.
+ *
+ * ⛔ CALL IT BEFORE ANY GATE THAT READS THE PANEL, not inside the branch the
+ * gate picks. Both locked cards make a `count()` probe answer wrongly, so a
+ * guard behind one either never runs or runs too late to help.
+ *
+ * ⚠️ COPIED INTO EACH SPEC THAT NEEDS IT, AND IT HAS TO BE. A shared
+ * `e2e/schedule-helpers.ts` was built and measured on 2026-09-06: every
+ * relative TypeScript import dies at load with `context.conditions?.includes is
+ * not a function`, sibling or not, with or without a `.js` specifier
+ * (Playwright 1.61.0, Node 22.18.0). It is not "no module exists yet" and not
+ * "only `src` is out of reach" — relative TS imports do not work here at all.
+ * Change one copy, change them all; there are five.
  */
 async function expectGenerateFormUsable(page: Page) {
   const firstNight = page.getByLabel("First game night");
   const readFailed = page.getByText("This season's games couldn't be read");
-  await expect(firstNight.or(readFailed).first()).toBeVisible();
+  const started = page.getByText("The season is under way");
+  await expect(firstNight.or(readFailed).or(started).first()).toBeVisible();
+
   if (await readFailed.isVisible()) {
     throw new Error(
       "The schedule builder is in its read-failed state: getPublishState " +
@@ -57,6 +77,16 @@ async function expectGenerateFormUsable(page: Page) {
         "generate form to fill. One of its parallel reads errored — check the " +
         "server log for 'publish state read failed'. This is usually a " +
         "transient database error under load, not a broken query.",
+    );
+  }
+
+  if (await started.isVisible()) {
+    throw new Error(
+      "The schedule builder is locked because the season has STARTED, so " +
+        "there is no generate form to fill. Not transient: a season is started " +
+        "once it holds a published, non-draft game whose date has passed. " +
+        "Either this spec is pointed at the wrong season, or its fixture " +
+        "season has aged into the past — check the dates it seeds.",
     );
   }
 }
@@ -83,7 +113,7 @@ function requestList(page: Page) {
 
 /** Fill every field on the generate form with something that is not its default. */
 async function fillEverything(page: Page) {
-  // Same hazard as `27`'s seeding: with the builder locked by a failed read
+  // Same hazard as `29-schedule-repair`'s seeding: with the builder locked by a failed read
   // there is no form here at all, and a bare `fill` waits out the whole test
   // budget saying only "waiting for getByLabel".
   await expectGenerateFormUsable(page);

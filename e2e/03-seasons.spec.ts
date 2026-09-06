@@ -104,8 +104,15 @@ test.describe("Path 7 — Season setup", () => {
       await page.goto("/obhl/seasons");
       await page.getByLabel("Name").fill(seasonName);
       await page.getByRole("button", { name: "Create season" }).click();
+      // ⛔ Assert the DESTINATION, not the success message. `CreateSeasonForm`
+      // renders `Season "<name>" created.` and, in a `useEffect` on the same
+      // state, calls `router.push` to the new season's page — so waiting on
+      // that message races the navigation that removes it. It lost that race
+      // on CI run 34057995109: the season was created, the browser was already
+      // on `Season setup — <name>`, and the message was simply gone. The
+      // heading below is the same success, and it is the state that stays.
       await expect(
-        page.getByText(`Season "${seasonName}" created.`),
+        page.getByRole("heading", { name: `Season setup — ${seasonName}` }),
       ).toBeVisible();
 
       const { data: made } = await db
