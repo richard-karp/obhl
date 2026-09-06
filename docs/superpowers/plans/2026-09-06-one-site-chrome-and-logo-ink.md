@@ -2,15 +2,23 @@
 
 **Protocol — read this and nothing else to resume.**
 
-1. This file is the RECORD of work that is built and committed on
-   `refactor/one-site-chrome-and-logo-ink` (PR #39, open, **not merged, not
-   pushed further**). The design doc is
+1. This file is the RECORD of work that **SHIPPED**: PR #39, merged to `main` as
+   `9d57fbe` on 2026-09-06. The branch is gone; read it in `main`'s history. The
+   design doc is
    `docs/superpowers/specs/2026-09-06-one-site-chrome-and-logo-ink-design.md`;
    read it only if you need _why_ a thing was decided. ⛔ Do not read
    `LAUNCH_READINESS_HANDOFF.md` (867 lines) for this work — nothing in it
    blocks it.
-2. ⛔ **§1 below is a DEPLOY GATE. Read it before shipping anything on this
-   branch.**
+2. ✅ **§1's deploy gate is CLOSED.** Migration `0044` was pushed to production
+   on 2026-09-06 — `--dry-run` first, then the push, then `supabase migration
+list --linked` read back showing `0044` in the remote history. ⚠️ The view
+   columns themselves were never read back (this checkout's `.env.local` points
+   at the LOCAL stack, so there is no production key here), so that last step is
+   a reading, not a measurement. §1 is kept because the ORDERING RULE it teaches
+   outlives this migration: the code names those columns explicitly, and a
+   `db push` from the wrong checkout finds nothing pending — `0044` lived on
+   this branch, never on `main`, which is exactly how two attempted pushes
+   silently did nothing.
 3. Every number here was **watched appear** in a browser at Chromium
    `Desktop Chrome` metrics. Claims about how code is _shaped_ say so.
 4. Verify with `npm run typecheck && npx vitest run`, `npx eslint src e2e`,

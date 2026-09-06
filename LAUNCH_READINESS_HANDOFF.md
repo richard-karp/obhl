@@ -334,14 +334,26 @@ fine.** Measured the same day: `profiles` carries `role = 'league_manager'` and
 `display_name`, created 2026-09-03, with one `profile_leagues` row. So this was
 NOT the missing-row case above, and not any of the three legs.
 
-✅ **Nothing was broken. It was the URL.** `src/app/page.tsx` says so in its own
-docstring: `/` is "what a bare domain, a role-denied redirect, and a completed
-sign-in all land on" — and `/` renders no `ManageNav`, because the nav and its
-badge live in `src/app/[league]/(manage)/layout.tsx`. A successful sign-in
-therefore lands on a page that shows no badge to anybody.
-`/lcc-old-boys-hockey-league/dashboard` shows it. ⛔ **Test the dashboard URL,
-never `/`** — this cost a full round of misdiagnosis on 2026-09-05, and the
-symptom of "signed in, no badge, no tools" is identical to a real lockout.
+✅ **Nothing was broken. It was the URL** — _as of 2026-09-05_.
+`src/app/page.tsx` says so in its own docstring: `/` is "what a bare domain, a
+role-denied redirect, and a completed sign-in all land on", and back then `/`
+rendered no `ManageNav`, because the nav and its badge lived in
+`src/app/[league]/(manage)/layout.tsx`. A successful sign-in therefore landed on
+a page that showed no badge to anybody, and
+`/lcc-old-boys-hockey-league/dashboard` was the URL that proved otherwise. That
+cost a full round of misdiagnosis, because "signed in, no badge, no tools" is
+the same symptom as a real lockout.
+
+⚠️ **THE FIX FOR THAT SHIPPED — do not re-diagnose it, and do not follow the old
+advice.** PR #39 (merged `9d57fbe`, 2026-09-06) deleted `ManageNav` entirely;
+there is one header for the whole site and staff get a row of links beneath it.
+`/` now renders `AccountCluster` (`page.tsx:93`), **so the badge IS there for a
+signed-in visitor**, and the picker also lists the leagues that account belongs
+to — badged "Not yet public" for one that is still staged. The old ⛔ "test the
+dashboard URL, never `/`" is therefore stale: `/` is now a _valid_ place to
+check a sign-in, and a missing badge there means something is genuinely wrong
+rather than that you picked the wrong page. Kept rather than deleted because the
+misdiagnosis is the lesson — the symptom is still identical to a real lockout.
 
 **`LAUNCH.md` Phase 2 is now verified; Phases 3-6 are not.** SMTP, the redirect
 allow-list, the role resolution and the manage tools were all exercised end to

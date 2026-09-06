@@ -1,6 +1,6 @@
 # One site, not two — merged chrome, team-logo ink, and where sign-out lands
 
-> **Built 2026-09-06.** The record of what actually shipped — commit shas,
+> **Shipped 2026-09-06 — PR #39, merged as `9d57fbe`.** The record of what actually shipped — commit shas,
 > measured test counts, the migration, and the four things this spec got wrong —
 > is `docs/superpowers/plans/2026-09-06-one-site-chrome-and-logo-ink.md`. Read
 > that one if you are picking this up after the fact; this file is the design.
@@ -11,13 +11,13 @@
    the three steps and the acceptance bars are all below. ⛔ **Do NOT read
    `LAUNCH_READINESS_HANDOFF.md` (867 lines)** — nothing in it blocks this work.
    ⚠️ **`ACCESS_CONTROL_HANDOFF.md` (244 lines) is worth ONE targeted read** before
-   step 2 — its *Traps* section only. Every manage page guards itself; that is what
+   step 2 — its _Traps_ section only. Every manage page guards itself; that is what
    makes the chrome change safe, and §4 explains why.
 2. ⛔ **Hazards, before any instruction:**
    - ⛔ **THE GUARDS ARE NOT THE CHROME. Do not remove a single guard.** This
      change moves headers. Every `requireLeagueManager` / `requireGameRole` call
      stays exactly where it is, and `(manage)/layout.tsx`'s `if (!user)
-     redirect("/login")` stays too. A page that stops being reachable from a nav is
+redirect("/login")` stays too. A page that stops being reachable from a nav is
      still reachable by typing its URL, and the guard is the only thing between
      that URL and the data.
    - ⛔ **Do not touch the schedule builder or any scheduling action.** A parallel
@@ -30,7 +30,7 @@
      database VIEW has to expose a column it does not already carry; see §3.
    - **Mutating `gh` and `vercel env` are denied to an agent.** Read-only works.
    - ⚠️ **Never bare `git stash`** — the tree is shared. `git stash push -u -m
-     "<tag>"`, then `apply`, not `pop`. **Re-check the branch before every git
+"<tag>"`, then `apply`, not `pop`. **Re-check the branch before every git
      write**; another session commits here.
 3. Claims are marked. **Watched** means a command was run and its output read.
    **A reading** means it follows from the code and has not been executed.
@@ -66,33 +66,33 @@
 **It is not a styling bug. `TeamLogo` is correct and always has been.** It takes
 `textColor` (`"dark"` → `text-slate-900`, anything else → `text-white`) and
 `logoPath` (an uploaded image instead of the monogram). Its own doc comment names
-the failure mode exactly: *"the `null` a caller that has not plumbed the column
-through will pass."*
+the failure mode exactly: _"the `null` a caller that has not plumbed the column
+through will pass."_
 
 **The bug is that most callers never pass them.** Watched 2026-09-06 by reading
 every call site:
 
-| Call site | `logoPath` | `textColor` |
-|---|---|---|
-| `(public)/teams/page.tsx:65` | ✅ | ✅ |
-| `(public)/teams/[slug]/page.tsx:138` | ✅ | ✅ |
-| `manage/roster-editor.tsx:177` | ✅ | ✅ |
-| `manage/team-branding-form.tsx:54` | n/a — live preview | ✅ |
-| `(manage)/seasons/[seasonId]/page.tsx:199` | ❌ | ✅ |
-| `public/standings-table.tsx:56` | ❌ | ✅ |
-| `(public)/players/[playerId]/page.tsx:89` | ✅ | ❌ |
-| **`manage/schedule-builder-panel.tsx:762`** | ❌ | ❌ |
-| **`manage/schedule-builder-panel.tsx:768`** | ❌ | ❌ |
-| `(manage)/dashboard/page.tsx:218` | ❌ | ❌ |
-| `(manage)/dashboard/page.tsx:247` | ❌ | ❌ |
-| `(public)/page.tsx:125` | ❌ | ❌ |
-| `public/skater-stats-table.tsx:171` | ❌ | ❌ |
-| `public/goalie-stats-table.tsx:168` | ❌ | ❌ |
-| `public/game-row.tsx:28` | ❌ | ❌ |
-| `public/box-score.tsx:26` | ❌ | ❌ |
-| `manage/score-board.tsx:289` | ❌ | ❌ |
-| `(public)/players/[playerId]/page.tsx:361` | ❌ | ❌ |
-| `(public)/players/[playerId]/page.tsx:435` | ❌ | ❌ |
+| Call site                                   | `logoPath`         | `textColor` |
+| ------------------------------------------- | ------------------ | ----------- |
+| `(public)/teams/page.tsx:65`                | ✅                 | ✅          |
+| `(public)/teams/[slug]/page.tsx:138`        | ✅                 | ✅          |
+| `manage/roster-editor.tsx:177`              | ✅                 | ✅          |
+| `manage/team-branding-form.tsx:54`          | n/a — live preview | ✅          |
+| `(manage)/seasons/[seasonId]/page.tsx:199`  | ❌                 | ✅          |
+| `public/standings-table.tsx:56`             | ❌                 | ✅          |
+| `(public)/players/[playerId]/page.tsx:89`   | ✅                 | ❌          |
+| **`manage/schedule-builder-panel.tsx:762`** | ❌                 | ❌          |
+| **`manage/schedule-builder-panel.tsx:768`** | ❌                 | ❌          |
+| `(manage)/dashboard/page.tsx:218`           | ❌                 | ❌          |
+| `(manage)/dashboard/page.tsx:247`           | ❌                 | ❌          |
+| `(public)/page.tsx:125`                     | ❌                 | ❌          |
+| `public/skater-stats-table.tsx:171`         | ❌                 | ❌          |
+| `public/goalie-stats-table.tsx:168`         | ❌                 | ❌          |
+| `public/game-row.tsx:28`                    | ❌                 | ❌          |
+| `public/box-score.tsx:26`                   | ❌                 | ❌          |
+| `manage/score-board.tsx:289`                | ❌                 | ❌          |
+| `(public)/players/[playerId]/page.tsx:361`  | ❌                 | ❌          |
+| `(public)/players/[playerId]/page.tsx:435`  | ❌                 | ❌          |
 
 **19 call sites; 4 correct, 15 wrong in one way or the other.** The user's guess
 was right and understated: the schedule blocks are the worst case — missing
@@ -116,7 +116,7 @@ Three shapes, and they are not equally cheap:
 1. **Direct `teams` reads** — add `logo_path, logo_text_color` to the `select`.
    Cheap. This covers the schedule builder, the dashboard, the season page.
 2. **Joined `teams` reads** — the embedded selector already names columns, e.g.
-   ``home:teams!games_home_team_id_fkey(name, color)`` in
+   `home:teams!games_home_team_id_fkey(name, color)` in
    `schedule-builder-panel.tsx`. Add the two columns inside the parentheses.
 3. **Database VIEWS** — `src/lib/queries/standings.ts` and
    `src/lib/queries/players.ts` read views that expose team columns under prefixed
@@ -140,8 +140,8 @@ is right that this is one site pretending to be two.
 
 **The shape already exists.** `StaffLinks` in `manage-nav.tsx` is exactly the
 target design — a staff row beneath the public header — and its own comment
-explains why it is a row and not a replacement: *"A shared page is a public page
-with more on it, and this is the more."* This work generalises that from three
+explains why it is a row and not a replacement: _"A shared page is a public page
+with more on it, and this is the more."_ This work generalises that from three
 shared pages to every page.
 
 ### What moves
@@ -204,6 +204,7 @@ then the minimal code. Commit per step. ⛔ Steps 1 and 3 are independent of ste
 do them first so the risky one lands on a green tree.
 
 ### Step 1 — team-logo ink and images, everywhere
+
 1. **First**, read what the views expose (§3) and write down what you find.
 2. Unit-test the rendering contract: `textColor="dark"` gives dark letters,
    `logoPath` set renders the image branch. **Watch it pass** — this is the
@@ -217,6 +218,7 @@ do them first so the risky one lands on a green tree.
    correctly on the schedule and on the league home.
 
 ### Step 2 — one chrome
+
 1. e2e first: signed in as a manager, visit a **public** page and assert the staff
    row is present; assert no "Manage" and no "View site" link exists anywhere.
    Assert an anonymous visitor sees no staff row. **Watch all of it fail.**
@@ -226,6 +228,7 @@ do them first so the risky one lands on a green tree.
    chrome, and the suite is full of header selectors.
 
 ### Step 3 — sign-out
+
 1. e2e: sign in, sign out from a league page, assert the URL is `/<league>` and
    the page shows a signed-out header. **Watch it fail.**
 2. Hidden field, server-side validation with `resolveLeagueBySlug`, `/` fallback.
