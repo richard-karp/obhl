@@ -199,6 +199,8 @@ is one command and is always right.
 | **`LAUNCH.md` Verification steps 4, 5, 6** | The manager badge, the league switcher, an announcement in one league only | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written |
 | **Item 7** — custom SMTP, now the only phase left | ⛔ **Blocked on ACQUIRING A DOMAIN** — `vercel domains ls` is 0 and `vercel.app` cannot be verified in Resend. Runbook has the DNS records and the traps, plus three values to READ AND RECORD while in the dashboard: the allow-list entry for `/auth/confirm?next=…`, the password length, and `secure_password_change`. Phases 2-3 merged 2026-09-06; the email leg is what nobody can test until this is done | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
 | **`NEXT_PUBLIC_SITE_URL` is missing on Preview** | `vercel env ls` 2026-09-05: Production only | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run |
+| ⛔ **`supabase db push` for migration `0044`** | Applied `--local` only. Widens four stats views with `team_logo_path` / `team_logo_text_color`. **Additive and safe to apply at any time; nothing reads the columns until PR #39's code lands.** Deploying #39 first makes `getPlayerBio` return blank team/position/jersey for substitute players — logged, but it does not throw, so nothing alerts you | **the user, decided 2026-09-06: db push FIRST, then merge #39.** Not an agent's to run |
+| **The schedule write path has no transaction** | Compensation only — a runtime dying mid-batch leaves writes applied and uncompensated, publicly visible. Four review rounds each found a bug in the machinery that exists *because* there is no `pg_advisory_xact_lock` RPC | **the user, decided 2026-09-06: SHIP NOW, build the RPC first thing after launch.** See §5 |
 
 ---
 
@@ -720,6 +722,33 @@ design on that branch — not from the plan, which needs rewriting against the
 current URL space.
 
 ## 5 — Smaller, deliberately deferred
+
+### ⛔ FIRST POST-LAUNCH JOB — the schedule-write RPC (decided 2026-09-06)
+
+Everything in `src/lib/schedule/gameWrites.ts` is damage control for a missing
+transaction. It pre-flights, writes each row conditionally so it cannot clobber a
+concurrent edit, and compensates on failure — but a runtime dying mid-batch leaves
+the written rows written, and the public schedule, both iCal feeds and the CSV all
+read `games` live.
+
+**The decision, made deliberately rather than by default:** ship without it, because
+new SQL against production days before a permanent season lock is the larger risk;
+then build it as the first job after both leagues are running. Adding it later needs
+no redesign — the repair path already works on a locked season.
+
+**What it is:** a `plpgsql` function taking `pg_advisory_xact_lock(hashtext(p_season::text))`
+and doing the whole batch in one transaction, following `bfe0400`'s precedent — that
+commit fixed a two-session race which left a season with **zero games** while
+reporting success. It closes two things at once: multi-row atomicity, and the
+season-level serialisation that lets two managers' repairs interleave and drift pair
+balance with no drift report.
+
+⚠️ **The evidence for doing it is the review history, not a hunch.** Round 1 found the
+write paths raced; round 2 found the compensator was itself a lost-update writer;
+round 3 (mutation testing) found only the first failure in each 25-way chunk was kept,
+so an ordinary multi-request network fault left games half-changed while reporting
+"Nothing was written". Each fix was correct. The next layer is where the next bug was.
+
 
 ### From the sixth review of #24 — open, never triaged
 
