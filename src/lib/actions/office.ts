@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireCommissioner } from "@/lib/auth/guards";
+import { passwordProblem } from "@/lib/auth/password";
 import { officeTierOf } from "@/lib/auth/office";
 import { findUserIdByEmail } from "@/lib/auth/users";
 import { logAudit } from "@/lib/audit";
@@ -120,15 +121,6 @@ export async function removeDeputy(formData: FormData) {
 export type SetPasswordState = { ok: boolean; message: string } | null;
 
 /**
- * The shortest password this will set.
- *
- * Supabase's own floor is 6. Eight is not a security theory, it is the number
- * that stops a commissioner handing someone a password Supabase would accept and
- * a browser would autofill into every other box.
- */
-const MIN_PASSWORD = 8;
-
-/**
  * Set a staff account's password, as a commissioner.
  *
  * ⛔ THIS IS THE NO-EMAIL RECOVERY PATH, and the bootstrap under it. No staff
@@ -176,12 +168,11 @@ export async function setStaffPassword(
 
   if (!email)
     return { ok: false, message: "Enter the account's email address." };
-  if (password.length < MIN_PASSWORD) {
-    return {
-      ok: false,
-      message: `Use at least ${MIN_PASSWORD} characters.`,
-    };
-  }
+  // The floor lives in `@/lib/auth/password` because the self-serve reset
+  // enforces the same one; see the module comment for why it is checked before
+  // Supabase rather than left to Supabase.
+  const tooShort = passwordProblem(password);
+  if (tooShort) return { ok: false, message: tooShort };
 
   const admin = createAdminClient();
   // Lowercased on both sides — `findUserIdByEmail` compares against a lowercased

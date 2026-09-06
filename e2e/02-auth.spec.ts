@@ -364,20 +364,49 @@ test.describe("Path 6b — a session with no role claim", () => {
 });
 
 /**
- * ⛔ `/login` DEFAULTS TO MAGIC LINK AND SHOWS NO PASSWORD FIELD, and must keep
- * doing so until the self-serve set-password flow exists.
+ * ⛔ `/login` STILL OFFERS THE MAGIC LINK, and must never stop.
  *
- * No existing staff account has a password — production's were made for
- * magic-link sign-in — so a password-primary login page shipped before anyone
- * can set one locks every real user out. This test is what makes that a build
- * failure rather than a discovery.
+ * This test used to assert the opposite of half of itself — no password field at
+ * all — because no staff account had a password and a password-primary login
+ * page would have locked every real user out. The self-serve flow now exists
+ * (`sendPasswordReset` → `/auth/confirm?next=/set-password` →
+ * `updateOwnPassword`), so a password field is allowed; what is NOT allowed is
+ * it becoming the only door. The link is the path that works with no JavaScript
+ * and for the accounts that have no password, which is still most of them.
  */
-test("login still defaults to the magic link, with no password field", async ({
+test("login offers the magic link first, with the password path as a fallback", async ({
   page,
 }) => {
   await page.goto("/login");
   await expect(
     page.getByRole("button", { name: "Send magic link" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Sign in with password" }),
+  ).toBeVisible();
+  // The way to GET a password. Without it the field is a door with no key.
+  await expect(
+    page.getByRole("link", { name: "Set or reset your password" }),
+  ).toBeVisible();
+});
+
+/**
+ * The recovery landing, reached without a link.
+ *
+ * ⚠️ A sessionless visit offers the REQUEST form, not an error: the same URL is
+ * both halves of the flow. What it must not do is offer a password field that
+ * has no session to write through. The signed-in half needs a real recovery
+ * email and cannot be driven from here.
+ */
+test("/set-password offers a fresh link when there is no recovery session", async ({
+  page,
+}) => {
+  await page.goto("/set-password");
+  await expect(
+    page.getByRole("heading", { name: "Set your password" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Email me a link" }),
   ).toBeVisible();
   await expect(page.locator('input[type="password"]')).toHaveCount(0);
 });
