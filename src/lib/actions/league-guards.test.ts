@@ -65,7 +65,15 @@ const NO_LEAGUE_ACTIONS: Record<string, string> = {
   // is no role to check: a captain resetting their own password is the case.
   "auth.ts:updateOwnPassword":
     "sets the caller's own password; touches no league data",
-  "auth.ts:signOut": "ends a session; touches no league data",
+  // Ends the caller's OWN session, so the session is the authorisation and
+  // there is nothing to be a member of. It does now read `leagues` — one
+  // `resolveLeagueBySlug` to turn the posted sign-out slug into a redirect
+  // target. That read is through RLS on a request whose session has just been
+  // ended, and its whole purpose is to REFUSE a slug the viewer cannot resolve.
+  // ⚠️ It selects `*` and gets the whole row; only `.slug` is read from it, and
+  // nothing is rendered. A guard here would have nothing left to guard.
+  "auth.ts:signOut":
+    "ends the caller's own session; its one league read goes through RLS and only its slug is used, to validate the redirect target",
   "auth.ts:devSignIn": "sign-in happens before any league is known",
   "import.ts:previewEsportsdeskImport":
     "fetches an external URL and writes nothing",

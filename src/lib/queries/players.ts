@@ -21,6 +21,13 @@ export type PlayerBio = {
   team_slug: string;
   team_color: string | null;
   team_logo_path: string | null;
+  /**
+   * The ink for the monogram chip. Read beside `team_logo_path` because the two
+   * are one decision: the crest wins when it is set, and the ink is what the
+   * chip falls back to — so a caller that plumbs only one of them still shows
+   * the wrong thing for half the teams.
+   */
+  team_logo_text_color: string | null;
 };
 
 export type PlayerGameLogRow = {
@@ -29,6 +36,8 @@ export type PlayerGameLogRow = {
   opponent_name: string;
   opponent_slug: string;
   opponent_color: string | null;
+  opponent_logo_path: string | null;
+  opponent_logo_text_color: string | null;
   team_goals: number;
   opp_goals: number;
   goals: number;
@@ -42,6 +51,8 @@ export type PlayerVsOpponent = {
   opponent_name: string;
   opponent_slug: string;
   opponent_color: string | null;
+  opponent_logo_path: string | null;
+  opponent_logo_text_color: string | null;
   gp: number;
   g: number;
   a: number;
@@ -59,7 +70,7 @@ export async function getPlayerBio(
     .select(
       "jersey_number, position, is_captain, is_rookie, injury_notes, is_suspended, player_id, " +
         "players!team_players_player_id_fkey(first_name, last_name), " +
-        "teams!team_players_team_id_fkey(id, name, slug, color, logo_path)",
+        "teams!team_players_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)",
     )
     .eq("player_id", playerId)
     .eq("season_id", seasonId)
@@ -89,38 +100,65 @@ export async function getPlayerBio(
       team_slug: d.teams?.slug ?? "",
       team_color: d.teams?.color ?? null,
       team_logo_path: d.teams?.logo_path ?? null,
+      team_logo_text_color: d.teams?.logo_text_color ?? null,
     };
   }
 
   // Fallback: player appeared in game_rosters (e.g. as a substitute) but has
   // no team_players row for this season. Pull name from players table and
   // team/position from v_skater_stats; status flags default to safe values.
-  const [{ data: player }, { data: stat }] = await Promise.all([
-    supabase
-      .from("players")
-      .select("first_name, last_name")
-      .eq("id", playerId)
-      .maybeSingle(),
-    // Still the PER-TEAM view, deliberately. This fallback runs for a player
-    // with no `team_players` row at all, and the totals view gets its team from
-    // exactly that row — so it would hand back nulls for every player who
-    // reaches here, which is all of them.
-    //
-    // Ordered and limited rather than `maybeSingle()`: a player who moved teams
-    // has a row per team, and `maybeSingle()` treats two rows as an error and
-    // returns nothing — the whole bio would fall back to blanks. The team they
-    // played most for is the best single answer this shape can give.
-    supabase
-      .from("v_skater_stats")
-      .select(
-        "team_id, team_name, team_slug, team_color, position, jersey_number",
-      )
-      .eq("player_id", playerId)
-      .eq("season_id", seasonId)
-      .order("gp", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
+  const [{ data: player, error: playerErr }, { data: stat, error: statErr }] =
+    await Promise.all([
+      supabase
+        .from("players")
+        .select("first_name, last_name")
+        .eq("id", playerId)
+        .maybeSingle(),
+      // Still the PER-TEAM view, deliberately. This fallback runs for a player
+      // with no `team_players` row at all, and the totals view gets its team
+      // from exactly that row — so it would hand back nulls for every player who
+      // reaches here, which is all of them.
+      //
+      // Ordered and limited rather than `maybeSingle()`: a player who moved
+      // teams has a row per team, and `maybeSingle()` treats two rows as an
+      // error and returns nothing — the whole bio would fall back to blanks. The
+      // team they played most for is the best single answer this shape can give.
+      supabase
+        .from("v_skater_stats")
+        .select(
+          // ⛔ THIS SELECT IS A DEPLOY GATE ON MIGRATION 0044. It is the only
+          // place in the app that names `team_logo_path` / `team_logo_text_color`
+          // EXPLICITLY — everywhere else reads `select("*")` or a `teams` column
+          // that has existed since 0002. Against a database where 0044 has not
+          // run, PostgREST answers 42703 ("column does not exist") for the whole
+          // request, `stat` is null, and this bio degrades to blank team, blank
+          // position and no number for every substitute player. Ship 0044 with or
+          // before this code; the `console.error` below is what makes the
+          // mismatch say so instead of looking like a player with no history.
+          "team_id, team_name, team_slug, team_color, team_logo_path, team_logo_text_color, position, jersey_number",
+        )
+        .eq("player_id", playerId)
+        .eq("season_id", seasonId)
+        .order("gp", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+  // Logged the way the read above this one already logs, and for a stronger
+  // reason: both of these degrade to a *plausible* bio rather than to an error,
+  // so a failure here is invisible in the page it produces.
+  //
+  // ⛔ BOTH, not `playerErr ?? statErr`. These are independent requests and can
+  // fail independently, and the one this logging exists for is the SECOND: a
+  // missing-migration 42703 on `v_skater_stats`. Coalescing would let an
+  // unrelated `players` error mask exactly the failure being watched for.
+  if (playerErr)
+    console.error("getPlayerBio fallback players read:", playerErr.message);
+  if (statErr)
+    console.error(
+      "getPlayerBio fallback v_skater_stats read:",
+      statErr.message,
+    );
 
   if (!player) return null;
 
@@ -138,7 +176,8 @@ export async function getPlayerBio(
     team_name: stat?.team_name ?? "",
     team_slug: stat?.team_slug ?? "",
     team_color: stat?.team_color ?? null,
-    team_logo_path: null,
+    team_logo_path: stat?.team_logo_path ?? null,
+    team_logo_text_color: stat?.team_logo_text_color ?? null,
   };
 }
 
@@ -235,8 +274,8 @@ export async function getPlayerGameLog(
     .from("games")
     .select(
       "id, scheduled_at, home_goals, away_goals, home_team_id, away_team_id, " +
-        "home_team:teams!games_home_team_id_fkey(id, name, slug, color), " +
-        "away_team:teams!games_away_team_id_fkey(id, name, slug, color)",
+        "home_team:teams!games_home_team_id_fkey(id, name, slug, color, logo_path, logo_text_color), " +
+        "away_team:teams!games_away_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)",
     )
     .in("id", gameIds)
     .eq("season_id", seasonId)
@@ -264,6 +303,8 @@ export async function getPlayerGameLog(
         opponent_name: opp?.name ?? "Unknown",
         opponent_slug: opp?.slug ?? "",
         opponent_color: opp?.color ?? null,
+        opponent_logo_path: opp?.logo_path ?? null,
+        opponent_logo_text_color: opp?.logo_text_color ?? null,
         team_goals: isHome ? g.home_goals : g.away_goals,
         opp_goals: isHome ? g.away_goals : g.home_goals,
         goals: r.goals,
@@ -297,8 +338,8 @@ export async function getPlayerStatsByOpponent(
     .from("games")
     .select(
       "id, home_team_id, away_team_id, " +
-        "home_team:teams!games_home_team_id_fkey(id, name, slug, color), " +
-        "away_team:teams!games_away_team_id_fkey(id, name, slug, color)",
+        "home_team:teams!games_home_team_id_fkey(id, name, slug, color, logo_path, logo_text_color), " +
+        "away_team:teams!games_away_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)",
     )
     .in("id", gameIds)
     .eq("season_id", seasonId)
@@ -334,6 +375,8 @@ export async function getPlayerStatsByOpponent(
         opponent_name: opp.name,
         opponent_slug: opp.slug,
         opponent_color: opp.color ?? null,
+        opponent_logo_path: opp.logo_path ?? null,
+        opponent_logo_text_color: opp.logo_text_color ?? null,
         gp: 1,
         g: r.goals,
         a: r.assists,

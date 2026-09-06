@@ -52,8 +52,8 @@ export default async function ScoreGamePage({
        home_goalie_is_sub, away_goalie_is_sub,
        home_empty_net_against, away_empty_net_against,
        ai_recap,
-       home_team:teams!games_home_team_id_fkey(id, name, color),
-       away_team:teams!games_away_team_id_fkey(id, name, color)`,
+       home_team:teams!games_home_team_id_fkey(id, name, color, logo_path, logo_text_color),
+       away_team:teams!games_away_team_id_fkey(id, name, color, logo_path, logo_text_color)`,
     )
     .eq("id", gameId)
     .maybeSingle();
@@ -160,6 +160,8 @@ export default async function ScoreGamePage({
       side,
       name: t.name,
       color: t.color,
+      logoPath: t.logo_path ?? null,
+      logoTextColor: t.logo_text_color ?? null,
       dressed: lines,
       roster: rosterChecks,
       goalies,

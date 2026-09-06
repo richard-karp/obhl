@@ -133,7 +133,15 @@ test.describe("Path 16 — Per-league routing", () => {
     ).toBeVisible();
   });
 
-  test("the public header has no league switcher, only a way back to the picker", async ({
+  /**
+   * ⚠️ ANONYMOUS ONLY, and the name says so because the claim is not general.
+   * A signed-in MEMBER of two or more leagues does get a switcher on this same
+   * URL — it lives in the staff row beneath the header, and this locator is
+   * page-wide rather than scoped to the header. What the page owes an anonymous
+   * visitor is a way back to the picker and nothing that implies a league they
+   * cannot switch to.
+   */
+  test("an anonymous visitor gets no league switcher, only a way back to the picker", async ({
     page,
   }) => {
     await page.goto("/obhl");
@@ -201,7 +209,11 @@ test.describe("Path 16 — Per-league routing", () => {
       // all. This is the half that used to 404.
       const asMember = await page.goto("/harbor");
       expect(asMember?.status()).toBe(200);
-      await expect(page.getByRole("link", { name: "Manage" })).toBeVisible();
+      // The staff row, which is what a member's chrome is now — there is no
+      // "Manage" cross-link because there is nothing to cross to.
+      await expect(
+        page.getByRole("navigation", { name: "Staff tools" }),
+      ).toBeVisible();
 
       // ...including Teams, which absorbed `/manage/rosters`. That page read
       // past RLS on purpose, and losing it in the merge would have shown a
@@ -218,6 +230,28 @@ test.describe("Path 16 — Per-league routing", () => {
       await page.goto("/harbor/dashboard");
       await expect(page).toHaveURL("/harbor/dashboard");
       await expect(page.getByRole("heading", { name: "Manage" })).toBeVisible();
+
+      // ⛔ AND THE PICKER LISTS IT, BADGED. This is the half that has no other
+      // route: `getPublicLeagues` filters `is_public`, so before the picker
+      // learned about membership a staged league appeared NOWHERE on `/` — and
+      // for a single-league manager the "Manage" cross-link this change removed
+      // pointed at exactly that league, with `LeagueSwitcher` rendering null
+      // below two leagues. Typing the URL was all that was left.
+      //
+      // The badge is asserted, not just the link: a manager who cannot tell
+      // which of their leagues the public can already see has lost the one fact
+      // staging exists to control.
+      await page.goto("/");
+      const staged = page.getByRole("link", {
+        name: /Harbor Rec Hockey League/,
+      });
+      await expect(staged).toBeVisible();
+      await expect(staged).toContainText("Not yet public");
+      // Oceanview is published, so it carries no badge — the control that says
+      // the badge tracks visibility rather than merely marking every row.
+      await expect(
+        page.getByRole("link", { name: /Oceanview Beer Hockey League/ }),
+      ).not.toContainText("Not yet public");
     } finally {
       await setHarborPublic(true);
     }

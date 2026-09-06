@@ -57,6 +57,7 @@ export function StandingsTable({
                     name={r.team_name ?? ""}
                     color={r.team_color}
                     textColor={r.team_logo_text_color}
+                    logoPath={r.team_logo_path}
                   />
                   {r.team_name}
                 </Link>

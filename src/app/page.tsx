@@ -4,6 +4,7 @@ import { createClient } from "@/utils/supabase/server";
 import { getPublicLeagues } from "@/lib/league/current";
 import { EmptyState } from "@/components/shared/empty-state";
 import { AccountCluster } from "@/components/shared/account-cluster";
+import { Badge } from "@/components/ui/badge";
 import { getSessionUser } from "@/lib/auth/session";
 import { getMemberLeagues } from "@/lib/auth/membership";
 
@@ -32,33 +33,64 @@ export const metadata: Metadata = { title: { absolute: TITLE } };
  */
 export default async function LandingPage() {
   const supabase = await createClient();
-  const leagues = await getPublicLeagues(supabase);
+  const publicLeagues = await getPublicLeagues(supabase);
 
   // This page is where a completed sign-in lands, and until now it said nothing
-  // about having signed in — no badge, no way on to the tools, no way out. It
-  // has no league in the URL, so the account state is the instance-wide one.
+  // about having signed in — no badge, no way out. It has no league in the URL,
+  // so the account state is the instance-wide one.
   const user = await getSessionUser();
-  // A cross-link needs a league, and this page is the one place that has none.
-  // The destination is the OLDEST LEAGUE THIS ACCOUNT CAN REACH — not their
-  // oldest membership: `getMemberLeagues` orders leagues by `leagues.created_at`,
-  // and for a League Office member it returns every league in the instance, so a
-  // commissioner lands on the oldest league there is rather than on anything
-  // they belong to. That is stable rather than arbitrary, and it is still the
-  // right link for someone with several, because the manage header it lands on
-  // carries the league switcher. A dead end here is what sent a signed-in
-  // manager back to typing URLs.
+
+  // ⚠️ NO "Manage" CROSS-LINK ANY MORE. It used to point at
+  // `/<oldest league this account can reach>/dashboard`, which was the one route
+  // from here into the staff tools. There are no separate staff tools to route
+  // to: a staff member opens their league like anybody else and the staff row
+  // beneath the header carries everything they can do.
+  //
+  // ⛔ BUT THE LIST HAD TO GROW TO ABSORB THAT, or removing the link would have
+  // been a regression rather than a simplification. `getPublicLeagues` filters
+  // `is_public`, so a league still being STAGED appeared nowhere on this page —
+  // and for a single-league manager the old cross-link pointed at exactly that
+  // league. `LeagueSwitcher` renders null below two leagues, so nothing else
+  // covered them: they would have been left typing the URL. The leagues this
+  // account belongs to are therefore listed too.
   const mine = user ? await getMemberLeagues(user.id) : [];
 
-  const cluster = (
-    <AccountCluster
-      user={user && { role: user.role }}
-      crossLink={
-        mine.length > 0
-          ? { href: `/${mine[0].slug}/dashboard`, label: "Manage" }
-          : null
-      }
-    />
-  );
+  // Staged = `is_public` is false ON THE ROW. ⛔ DO NOT go back to deriving this
+  // from "absent from `publicLeagues`". That inference reads as equivalent —
+  // `getPublicLeagues` filters on exactly that column — but it is only equivalent
+  // when that read returns every public league, and it fails in the HARMFUL
+  // direction when it doesn't: a connection blip returns `[]`, and every league
+  // this account belongs to is then badged "Not yet public", including ones the
+  // public can see. PostgREST's `max_rows` (1000) is a second route to the same
+  // wrong badge. Telling a manager their league is hidden when it is visible is
+  // the one mistake this badge exists to prevent, so the column is read.
+  //
+  // The slug set is still used, but only to DEDUPLICATE — a league that is both
+  // public and yours must appear once. `leagues.slug` is `not null unique`
+  // (0002), so matching on it is exact.
+  //
+  // ⚠️ PUBLISHED FIRST, THEN THE REST — DELIBERATE, and it does NOT preserve the
+  // `created_at` order both reads ask for. Concatenating two sorted lists gives a
+  // list sorted by section, so a league staged in 2024 sorts below one published
+  // yesterday. That is the right shape for this page rather than an accident of
+  // the merge: the public list is what this page is FOR and what every visitor
+  // sees, and a member's unpublished leagues are an appendix to it that only they
+  // can see at all. Interleaving them by age would bury a staged league in a list
+  // whose other rows mean something different.
+  //
+  // Restoring a single `created_at` order would also mean widening both return
+  // types to carry the column — neither read returns it — for an ordering nobody
+  // has asked for. If that ever changes, sort the merged array; do not reorder
+  // the sections.
+  const publicSlugs = new Set(publicLeagues.map((l) => l.slug));
+  const leagues = [
+    ...publicLeagues.map((l) => ({ ...l, staged: false })),
+    ...mine
+      .filter((l) => !publicSlugs.has(l.slug))
+      .map(({ is_public, ...l }) => ({ ...l, staged: !is_public })),
+  ];
+
+  const cluster = <AccountCluster user={user && { role: user.role }} />;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-10">
@@ -96,9 +128,22 @@ export default async function LandingPage() {
             <li key={l.slug}>
               <Link
                 href={`/${l.slug}`}
-                className="hover:border-primary hover:bg-muted/40 block rounded-lg border px-4 py-3 font-medium transition-colors"
+                className="hover:border-primary hover:bg-muted/40 flex items-center justify-between gap-3 rounded-lg border px-4 py-3 font-medium transition-colors"
               >
                 {l.name}
+                {/*
+                  ⚠️ THE BADGE IS THE POINT OF LISTING THESE AT ALL. A staged
+                  league sits beside published ones in the same list, and without
+                  it a manager cannot tell which of their leagues the public can
+                  already see — which is the one fact staging exists to control.
+                  Only a member ever sees a row carrying it: the row is only here
+                  because `getMemberLeagues` returned it.
+                */}
+                {l.staged ? (
+                  <Badge variant="secondary" className="shrink-0 font-normal">
+                    Not yet public
+                  </Badge>
+                ) : null}
               </Link>
             </li>
           ))}

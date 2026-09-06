@@ -200,6 +200,7 @@ export default async function SeasonSetupPage({
                             name={t.name}
                             color={t.color}
                             textColor={t.logo_text_color}
+                            logoPath={t.logo_path}
                           />
                           {t.name}
                         </span>

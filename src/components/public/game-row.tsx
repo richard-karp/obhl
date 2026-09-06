@@ -25,7 +25,12 @@ function TeamLine({
   return (
     <div className="flex items-center justify-between gap-2">
       <span className="flex min-w-0 items-center gap-2">
-        <TeamLogo name={team?.name ?? "TBD"} color={team?.color} />
+        <TeamLogo
+          name={team?.name ?? "TBD"}
+          color={team?.color}
+          logoPath={team?.logo_path}
+          textColor={team?.logo_text_color}
+        />
         <span className={cn("truncate", winner && "font-semibold")}>
           {team?.name ?? "TBD"}
         </span>

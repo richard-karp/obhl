@@ -122,7 +122,12 @@ export default async function HomePage({
                   <span className="text-muted-foreground w-4 text-center text-xs">
                     {i + 1}
                   </span>
-                  <TeamLogo name={p.team_name ?? ""} color={p.team_color} />
+                  <TeamLogo
+                    name={p.team_name ?? ""}
+                    color={p.team_color}
+                    logoPath={p.team_logo_path}
+                    textColor={p.team_logo_text_color}
+                  />
                   <span className="flex-1 truncate font-medium">
                     {p.first_name} {p.last_name}
                   </span>
