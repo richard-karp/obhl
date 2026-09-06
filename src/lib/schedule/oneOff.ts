@@ -1162,8 +1162,6 @@ export type PlanRepairOptions = {
   /** The manager's instruction, or null to simply repair what is there. */
   pin: RepairPin | null;
   seed?: number;
-  /** The season's stored `slot_on` constraints — preserved, never dragged back. */
-  slotPins?: { night: number; team: number; slot: number }[];
 };
 
 /**
@@ -1190,7 +1188,7 @@ export type PlanRepairOptions = {
  * reference every plan's `worseThan` is measured against.
  */
 export function planRepair(opts: PlanRepairOptions): RepairResult {
-  const { teamCount, nights, pin, seed, slotPins } = opts;
+  const { teamCount, nights, pin, seed } = opts;
 
   // Participation first, because it is the one thing no plan can change — and
   // saying so before spending the search budget is both faster and clearer.
@@ -1238,7 +1236,10 @@ export function planRepair(opts: PlanRepairOptions): RepairResult {
     forcedPairs: [],
     featureSlot: false,
     seed,
-    slotPins,
+    // ⚠️ No stored `slot_on` pins. Publishing deletes a season's manager
+    // requests, so a season this can act on has none — a parameter that cannot
+    // fire reads as a working feature until somebody relies on it. The caller
+    // says the same thing at greater length.
     slotForce:
       pin?.kind === "slot_on"
         ? { night: pin.night, team: pin.team, slot: pin.slot }

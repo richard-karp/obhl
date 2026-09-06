@@ -251,10 +251,15 @@ export type SchedulePublishState = {
    *
    * The count alone will not do: replacing a 144-game schedule with another
    * 144-game one leaves it identical. `replace_published_schedule` promotes the
-   * draft rows, so every game gets a NEW id and the first one's id moves — while
-   * an in-place repair (`applyOneOffGame`, `rescheduleNight`) upserts by id and
-   * deliberately leaves this alone, which is exactly the distinction its one
-   * consumer needs.
+   * draft rows, so every game gets a NEW id and the lowest one moves — while an
+   * in-place edit (`applyOneOffGame`, `applyScheduleRepair`, `rescheduleNight`)
+   * updates rows by id and leaves every id alone, which is exactly the
+   * distinction its one consumer needs.
+   *
+   * ⛔ The id half is the LOWEST id, not the earliest game's. Ordering by date
+   * made the key move whenever a night moved to the front of the season, which
+   * remounted the generate form and discarded what the manager had typed —
+   * precisely the bug this key exists to prevent.
    */
   liveScheduleKey: string;
   /**
@@ -287,7 +292,7 @@ export async function getPublishState(
       .eq("season_id", seasonId)
       .eq("is_draft", false);
 
-  const [live, firstLive, lastLive, drafts, started, lineups] =
+  const [live, firstLive, lastLive, lowestId, drafts, started, lineups] =
     await Promise.all([
       // An exact count from the server, not `data.length`. Counting the returned
       // rows silently capped liveCount at PostgREST's `max_rows` (1000 — see
@@ -304,14 +309,27 @@ export async function getPublishState(
       // season in memory. Undated games are excluded here on purpose — they have
       // no place in a date range — and no longer need to be carried by this query
       // to be counted, now that the count above is its own request.
+      // `id` is a tiebreak, not decoration: two games on the same night share a
+      // timestamp often enough, and without it "the first live game" is
+      // whichever row PostgREST happened to return, which can differ between
+      // two renders of the same unchanged schedule.
       liveGames()
         .not("scheduled_at", "is", null)
         .order("scheduled_at", { ascending: true })
+        .order("id", { ascending: true })
         .limit(1),
       liveGames()
         .not("scheduled_at", "is", null)
         .order("scheduled_at", { ascending: false })
+        .order("id", { ascending: false })
         .limit(1),
+      // ⛔ Ordered by ID, NOT by date — this one feeds `liveScheduleKey`, whose
+      // whole job is to move when the rows are REPLACED and stay put when they
+      // are merely edited. Keyed off the earliest game by date, moving a night
+      // to the front of the season changed it, and the generate form remounted
+      // and threw away everything the manager had typed — the exact bug the key
+      // was added to prevent, triggered by the feature next to it.
+      liveGames().order("id", { ascending: true }).limit(1),
       supabase
         .from("games")
         .select("*", { count: "exact", head: true })
@@ -357,6 +375,7 @@ export async function getPublishState(
     live.error ??
     firstLive.error ??
     lastLive.error ??
+    lowestId.error ??
     drafts.error ??
     started.error ??
     lineups.error;
@@ -371,7 +390,7 @@ export async function getPublishState(
     started: failure ? true : started.data === true,
     firstLiveDate: firstAt ? leagueDateKey(firstAt) : null,
     lastLiveDate: lastAt ? leagueDateKey(lastAt) : null,
-    liveScheduleKey: `${live.count ?? 0}:${firstLive.data?.[0]?.id ?? ""}`,
+    liveScheduleKey: `${live.count ?? 0}:${lowestId.data?.[0]?.id ?? ""}`,
     lineupsAtRisk: lineups.count ?? 0,
     readFailed: !!failure,
   };

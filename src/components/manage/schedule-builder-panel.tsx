@@ -79,14 +79,18 @@ export async function ScheduleBuilderPanel({
 
   const publish = await getPublishState(seasonId, { client: admin });
 
-  const storedConstraints = await getScheduleConstraints(seasonId, {
-    client: admin,
-  });
-
-  // The published season as nights, for the live-schedule tools below. Read even
-  // when there is no live schedule — it comes back empty, and the alternative is
-  // a conditional await that has to be kept in step with the render below.
-  const seasonNights = await getSeasonNights(seasonId, { client: admin });
+  // ⚠️ In parallel, not one after the other. This panel already serialises five
+  // round-trips before these two, and neither depends on the other — adding the
+  // nights read as a sixth sequential await put another full query on the
+  // critical path of a page that is already the slowest in the manage area.
+  //
+  // The nights are read even when there is no live schedule: they come back
+  // empty, and a conditional await is a second thing to keep in step with the
+  // render below.
+  const [storedConstraints, seasonNights] = await Promise.all([
+    getScheduleConstraints(seasonId, { client: admin }),
+    getSeasonNights(seasonId, { client: admin }),
+  ]);
   const openNights = seasonNights.filter((n) => !n.locked);
 
   // This panel's own draft read is part of the same fail-closed contract as

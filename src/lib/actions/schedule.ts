@@ -743,13 +743,20 @@ export async function publishSchedule(
     return { ok: false, message: "There's no draft to publish." };
   }
 
-  // ⛔ PUBLISH IS TERMINAL, SO THE SEASON'S MANAGER REQUESTS GO WITH IT.
+  // ⛔ PUBLISH IS TERMINAL FOR THE REQUESTS, SO THEY GO WITH IT. This is what
+  // the user asked for, in as many words, and the requirement wins over the
+  // convenience below.
   //
-  // They are instructions to the *generator*, and after a publish there is
-  // nothing left for the generator to do on this season — `season_is_started`
-  // shuts generate and replace the moment the first game is played. Leaving them
-  // behind means the next season's setup starts under last season's requests,
-  // which is how a forced bye outlives the reason it was asked for.
+  // ⚠️ "Terminal" means terminal for the REQUESTS, not for the generator.
+  // `replace_published_schedule` supports publish → regenerate → re-publish
+  // right up until the season starts, so a manager who publishes and then wants
+  // one more pass has to re-enter any requests they still want. That is the
+  // cost of the instruction, and it is written here rather than discovered.
+  //
+  // ⚠️ It also stops the one-off planner and the repair ever seeing a stored
+  // `slot_on` again — both read through `getScheduleConstraints`, which now
+  // returns nothing for a published season. The repair drops that plumbing
+  // rather than keep a dead parameter; see `previewScheduleRepair`.
   //
   // ⚠️ These are shared rows: another manager may have added one. So this is a
   // scoped delete of THIS season's rows, audited with the count and the rows
@@ -1118,8 +1125,11 @@ export async function rescheduleNight(
   const source = nights.find((n) => n.date === from)!;
   const moves = moveNightTo(source.games, to);
   if (moves.length !== source.games.length) {
-    // Only a game with no date of its own can be dropped, and its night would
-    // have been locked. Fail closed rather than move the half that has one.
+    // ⚠️ Unreachable by construction, and kept as a fail-closed floor rather
+    // than as a guard that fires: the only game without a time of its own is a
+    // postponed one, and `status = 'postponed'` locks its night, which
+    // `checkNightMove` has already refused above. If it ever does fire, moving
+    // the half of a night that has a time is the wrong answer.
     return {
       ok: false,
       message: "That night has a game with no time on it — move it on its own.",
@@ -1147,11 +1157,24 @@ export async function rescheduleNight(
     action: "reschedule_night",
     entity_type: "season",
     entity_id: seasonId,
-    old_data: { date: from, games: source.games.map((g) => g.id) },
-    new_data: { date: to, games: moves },
+    // Symmetric, and with the times on both sides: this entry is what somebody
+    // undoing the move by hand has to work from, and the old timestamps are not
+    // otherwise recoverable once the rows hold the new ones.
+    old_data: {
+      date: from,
+      games: moves.map((m) => ({ id: m.id, scheduledAt: m.from })),
+    },
+    new_data: {
+      date: to,
+      games: moves.map((m) => ({ id: m.id, scheduledAt: m.scheduledAt })),
+    },
   });
 
   revalidatePath("/[league]/schedule-builder", "page");
+  // The repair page lists this season's nights and their ice times, so a moved
+  // night makes its pickers stale exactly as it does the builder's.
+  revalidatePath("/[league]/schedule-builder/repair", "page");
+  revalidatePath("/[league]/schedule-builder/one-off", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
   revalidatePath("/[league]/schedule", "page");
   revalidatePath("/[league]", "page");
@@ -1525,17 +1548,16 @@ async function repairContext(seasonId: string, admin: Admin) {
         "The schedule has a game for a team that isn't enrolled this season.",
     };
   }
-  const resolved = resolveConstraints(
-    await getScheduleConstraints(seasonId, { client: admin }),
-    { nights: publishedSlots(nights), teamIds: teams.map((t) => t.id) },
-  );
+  // ⚠️ The season's stored constraints are deliberately NOT read here — see the
+  // note at the `planRepair` call. Publishing deletes them, so on any season
+  // this page can act on there are none, and reading them would be a query
+  // whose result nothing may use.
   return {
     ok: true as const,
     teams,
     indexOf,
     nights,
     plannerNights,
-    resolved,
   };
 }
 
@@ -1589,7 +1611,7 @@ export async function previewScheduleRepair(
 
   const ctx = await repairContext(seasonId, admin);
   if (!ctx.ok) return { ok: false, message: ctx.message };
-  const { teams, indexOf, nights, plannerNights, resolved } = ctx;
+  const { teams, indexOf, nights, plannerNights } = ctx;
 
   let pin: RepairPin | null = null;
   if (input.pin) {
@@ -1598,11 +1620,22 @@ export async function previewScheduleRepair(
     pin = read.pin;
   }
 
+  /*
+    ⚠️ NO STORED `slot_on` PINS ARE PASSED HERE, AND THAT IS DELIBERATE.
+    Publishing deletes the season's manager requests — which is what the user
+    asked for, and the requirement wins — so `getScheduleConstraints` returns
+    nothing for any season published since. Reading them and threading them
+    through would be plumbing that cannot fire, and the kind that reads as a
+    working feature until somebody depends on it.
+
+    Nothing is lost that the manager cannot ask for directly: a stored `slot_on`
+    only ever told the repair to PRESERVE a game already sitting on that ice
+    time, and this page's own pin does the stronger thing — it moves it there.
+  */
   const result = planRepair({
     teamCount: teams.length,
     nights: plannerNights,
     pin,
-    slotPins: resolved.slotPins.length > 0 ? resolved.slotPins : undefined,
   });
   if (!result.ok) return { ok: false, message: result.reason };
 
@@ -1737,6 +1770,6 @@ export async function applyScheduleRepair(input: {
   return {
     ok: true,
     kind: "applied",
-    message: `Repaired ${n} night${n === 1 ? "" : "s"} — ${rows.length} game${rows.length === 1 ? "" : "s"} rewritten, none re-created.`,
+    message: `Repaired ${n} night${n === 1 ? "" : "s"} — ${rows.length} game${rows.length === 1 ? "" : "s"} rewritten in place, keeping their ids and ice times.`,
   };
 }

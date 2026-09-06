@@ -192,7 +192,15 @@ export function ScheduleRepairForm({
                   pin is about a night that already exists. See `publishedSlots`
                   in the action for the hazard this avoids.
                 */}
-                {(night?.times ?? []).map((t) => (
+                {/*
+                  ⚠️ DISTINCT times. A night can run two games at the same clock
+                  time — two sheets of ice, or a hand `rescheduleGame` — and
+                  listing both gave two <option>s with the same key and the same
+                  value: a React duplicate-key warning, and two choices that
+                  submit identically. The pin means "that ice time", and the
+                  server resolves it to the first game on it.
+                */}
+                {[...new Set(night?.times ?? [])].map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>

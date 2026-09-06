@@ -18,6 +18,29 @@ import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 
+/**
+ * The league-local calendar date of a timestamp.
+ *
+ * ⚠️ A DELIBERATE COPY of `leagueDateKey` in `src/lib/format.ts`, not a second
+ * rule. Importing the real one — by `@/lib/format` or by relative path — dies
+ * at load with `context.conditions?.includes is not a function`: Playwright's
+ * loader will not take a TypeScript module from outside `e2e/`, which is why no
+ * spec in this suite imports from `src`. Both were tried on 2026-09-06.
+ *
+ * So it is the same three lines and the same timezone, copied rather than
+ * re-derived — an earlier version of this helper invented its own "subtract a
+ * day when the UTC hour is small" rule, which happened to agree for evening
+ * games and would have gone on agreeing after the real one changed.
+ */
+const LEAGUE_TZ = "America/New_York";
+const leagueDateKey = (iso: string) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: LEAGUE_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+
 /** Service-role client, for reading ids and putting the seeded season back. */
 function admin() {
   return createClient(
@@ -82,32 +105,30 @@ async function teamsOn(
   const db = admin();
   const season = await seasonId();
   const [{ data: enrolled }, { data: games }] = await Promise.all([
-    db.from("season_teams").select("team_id, teams(name)").eq("season_id", season),
+    db
+      .from("season_teams")
+      .select("team_id, teams(name)")
+      .eq("season_id", season),
     db
       .from("games")
       .select("home_team_id, away_team_id, scheduled_at")
       .eq("season_id", season)
       .eq("is_draft", false),
   ]);
-  // The dates are league-local YYYY-MM-DD and the timestamps are UTC evenings,
-  // so a night's games can spill past midnight UTC. Match on the option value
-  // the picker gave us by comparing the local date the same way the app does:
-  // an evening game is 23:00–03:00 UTC, so the calendar date is the UTC date
-  // minus a day when the UTC hour is small.
-  const localDate = (iso: string) => {
-    const d = new Date(iso);
-    if (d.getUTCHours() < 12) d.setUTCDate(d.getUTCDate() - 1);
-    return d.toISOString().slice(0, 10);
-  };
+  // ⛔ `leagueDateKey`, not a rule re-derived here. A night's games spill past
+  // midnight UTC, so grouping them needs the league zone — and a test that
+  // reimplements that rule is one that keeps passing after the real one changes.
   const playingIds = new Set(
     (games ?? [])
-      .filter((g) => g.scheduled_at && localDate(g.scheduled_at) === date)
+      .filter((g) => g.scheduled_at && leagueDateKey(g.scheduled_at) === date)
       .flatMap((g) => [g.home_team_id, g.away_team_id]),
   );
   const name = (e: { teams: unknown }) =>
     (e.teams as { name: string } | null)?.name ?? "";
   return {
-    playing: (enrolled ?? []).filter((e) => playingIds.has(e.team_id)).map(name),
+    playing: (enrolled ?? [])
+      .filter((e) => playingIds.has(e.team_id))
+      .map(name),
     bye: (enrolled ?? []).filter((e) => !playingIds.has(e.team_id)).map(name),
   };
 }
@@ -236,9 +257,7 @@ test.describe("Path 27 — changing a live schedule", () => {
       }),
     ).toHaveCount(1);
     await expect(
-      page
-        .getByLabel("Night to move")
-        .locator(`option[value="${first}"]`),
+      page.getByLabel("Night to move").locator(`option[value="${first}"]`),
     ).toHaveCount(0);
 
     // ⛔ No new game ids. Moving a night is an update, not a republish.
@@ -369,7 +388,9 @@ test.describe("Path 27 — changing a live schedule", () => {
     await expect(page).toHaveURL(/\/schedule-builder\/repair/);
 
     const before = await publishedGameIds();
-    await page.getByRole("button", { name: "Just repair the schedule" }).click();
+    await page
+      .getByRole("button", { name: "Just repair the schedule" })
+      .click();
 
     const plans = page.getByText("Pick a repair");
     const idle = page.getByText("Nothing to improve");
