@@ -143,10 +143,38 @@ export type OneOffResult =
 export type PlanOneOffOptions = {
   teamCount: number;
   nights: OneOffNight[];
-  /** Index into `nights` — must be unlocked. */
-  oneOffNight: number;
-  /** The labelled game(s), as unordered pairs. */
+  /**
+   * Index into `nights` — must be unlocked.
+   *
+   * **Null means there is no one-off game**, which is the repair-only mode
+   * `planRepair` drives: the same three phases over the same unlocked nights,
+   * with nothing forced onto any night. Everything keyed on this index — the
+   * `require` constraint, the feature slot, the churn distance and the
+   * no-repair baseline's freeze — reads differently in that mode, and each
+   * place says how.
+   */
+  oneOffNight: number | null;
+  /** The labelled game(s), as unordered pairs. Empty when there is no one-off. */
   forcedPairs: [number, number][];
+  /**
+   * ⛔ **The item-3 pin: MOVE a team's game onto an ice time, don't merely
+   * preserve it.** This is the one thing `slotPins` below deliberately will not
+   * do, and the difference is the whole distinction between honouring a stored
+   * constraint (preserve what is already right) and acting on an instruction a
+   * manager has just typed (put it right).
+   *
+   * `slot` is an index into the night's ice-time order — the order
+   * `OneOffNight.games` is already in — resolved by the caller against the
+   * season **as published**, never against a form's slot list. See §5 of the
+   * repair spec: `slot_on` resolves against two different lists depending on the
+   * path in, and this is the third caller.
+   *
+   * The team must already play that night. Participation is frozen by the
+   * published schedule, so a pin for a team that byes is not something this can
+   * do badly — it cannot do it at all, and `planRepair` reports it unmet rather
+   * than quietly dropping it.
+   */
+  slotForce?: { night: number; team: number; slot: number };
   /** Hold the labelled game(s) on the night's last ice time(s). */
   featureSlot?: boolean;
   seed?: number;
@@ -276,13 +304,30 @@ function placedGames(arranged: [number, number][][]): PlacedGame[] {
  * caller degrades to "no repair" rather than failing outright.
  */
 function precheck(opts: PlanOneOffOptions): string | null {
-  const { nights, oneOffNight, forcedPairs, teamCount } = opts;
+  const { nights, oneOffNight, forcedPairs, teamCount, slotForce } = opts;
   if (nights.length === 0) return "This season has no scheduled games yet.";
-  if (oneOffNight < 0 || oneOffNight >= nights.length) {
-    return "That date isn't a game night this season.";
+  if (oneOffNight !== null) {
+    if (oneOffNight < 0 || oneOffNight >= nights.length) {
+      return "That date isn't a game night this season.";
+    }
+    if (nights[oneOffNight].locked) {
+      return "That night has already been played.";
+    }
+  } else if (nights.every((n) => n.locked)) {
+    // Repair-only mode. With every night locked there is nothing the phases are
+    // allowed to move, and the search would return the schedule it was given.
+    return "Every game night has already been played, so there's nothing left to repair.";
   }
-  if (nights[oneOffNight].locked) {
-    return "That night has already been played.";
+  if (slotForce) {
+    const night = nights[slotForce.night];
+    if (!night) return "That date isn't a game night this season.";
+    if (night.locked) return "That night has already been played.";
+    if (slotForce.slot < 0 || slotForce.slot >= night.games.length) {
+      return "That isn't one of that night's ice times.";
+    }
+    if (!night.games.flat().includes(slotForce.team)) {
+      return "That team isn't scheduled to play that night.";
+    }
   }
   for (const night of nights) {
     const seen = new Set<number>();
@@ -298,6 +343,9 @@ function precheck(opts: PlanOneOffOptions): string | null {
       seen.add(a);
     }
   }
+  // Repair-only mode has no forced game, so every check below it is about a
+  // one-off that isn't there.
+  if (oneOffNight === null) return null;
   if (forcedPairs.length === 0) return "Pick the teams for the game.";
   const used = forcedPairs.flat();
   if (new Set(used).size !== used.length) {
@@ -325,8 +373,14 @@ export type CheckWriteOptions = {
   nights: WriteNight[];
   /** Team ids by planner index — how `changes` refers to teams. */
   teamIds: string[];
-  /** The night the labelled game goes on. */
-  date: string;
+  /**
+   * The night the labelled game goes on, or **null on the repair path**, which
+   * has no labelled game. The checks below split cleanly in two: the ones about
+   * the one-off night, and the ones about the plan itself. Only the second half
+   * applies when this is null, and the first half is what would otherwise reject
+   * every repair for not naming a game night.
+   */
+  date: string | null;
   forcedPairs: [string, string][];
   changes: { date: string; to: [number, number][] }[];
 };
@@ -353,23 +407,26 @@ export function checkOneOffWrite(opts: CheckWriteOptions): string | null {
   const { nights, teamIds, date, forcedPairs, changes } = opts;
 
   const nightOn = new Map(nights.map((n) => [n.date, n]));
-  const oneOff = nightOn.get(date);
-  if (!oneOff) return "That date isn't a game night this season.";
-  // Checked unconditionally, not just for nights in `changes`: when the teams
-  // already meet that night the plan carries no changes at all, and this night's
-  // lock state would otherwise never be examined.
-  if (oneOff.locked) {
-    return `${oneOff.date} has already been played — pick another night.`;
-  }
-  // On the relabel path the row builder writes this night's games straight back,
-  // mapping their team ids through `teamIds`. A game for a team no longer
-  // enrolled — unenrolling doesn't delete the games already scheduled — has no
-  // index to map to, and would otherwise reach the write as a row with no team
-  // on it. Preview rejects the same schedule; apply re-reads, so it has to too.
-  const enrolled = new Set(teamIds);
-  for (const [h, a] of oneOff.games) {
-    if (!enrolled.has(h) || !enrolled.has(a)) {
-      return `${oneOff.date} has a game for a team that isn't enrolled this season.`;
+  const oneOff = date === null ? null : nightOn.get(date);
+  if (date !== null) {
+    if (!oneOff) return "That date isn't a game night this season.";
+    // Checked unconditionally, not just for nights in `changes`: when the teams
+    // already meet that night the plan carries no changes at all, and this
+    // night's lock state would otherwise never be examined.
+    if (oneOff.locked) {
+      return `${oneOff.date} has already been played — pick another night.`;
+    }
+    // On the relabel path the row builder writes this night's games straight
+    // back, mapping their team ids through `teamIds`. A game for a team no
+    // longer enrolled — unenrolling doesn't delete the games already scheduled
+    // — has no index to map to, and would otherwise reach the write as a row
+    // with no team on it. Preview rejects the same schedule; apply re-reads, so
+    // it has to too.
+    const enrolled = new Set(teamIds);
+    for (const [h, a] of oneOff.games) {
+      if (!enrolled.has(h) || !enrolled.has(a)) {
+        return `${oneOff.date} has a game for a team that isn't enrolled this season.`;
+      }
     }
   }
 
@@ -404,6 +461,10 @@ export function checkOneOffWrite(opts: CheckWriteOptions): string | null {
       return "That plan changes who plays that night, which would unbalance the season.";
     }
   }
+
+  // Repair has no game being scheduled, so there is nothing for the plan to be
+  // missing. Every check above it still applied.
+  if (date === null || !oneOff) return null;
 
   const onNight =
     changes
@@ -470,8 +531,13 @@ export type BuildRowsOptions = {
   nights: RowNight[];
   /** Team ids by planner index — how `changes` refers to teams. */
   teamIds: string[];
-  /** The night the labelled game goes on. */
-  date: string;
+  /**
+   * The night the labelled game goes on, or **null on the repair path** — which
+   * writes matchups and nothing else. With null, `round`, `label` and
+   * `forcedPairs` are unused and no night is force-rewritten: a repair that
+   * changes nothing writes nothing.
+   */
+  date: string | null;
   round: OneOffRound;
   /** The manager's wording for a final; ignored for semifinals. */
   label: string;
@@ -502,8 +568,8 @@ export function buildOneOffRows(opts: BuildRowsOptions): OneOffRow[] {
   const { nights, teamIds, date, round, label, forcedPairs, changes } = opts;
 
   const nightOn = new Map(nights.map((n) => [n.date, n]));
-  const oneOff = nightOn.get(date);
-  if (!oneOff) return [];
+  const oneOff = date === null ? null : nightOn.get(date);
+  if (date !== null && !oneOff) return [];
 
   const indexOf = new Map(teamIds.map((id, i) => [id, i]));
   const forced = forcedPairs.map(([h, a]) => idKey(h, a));
@@ -512,21 +578,25 @@ export function buildOneOffRows(opts: BuildRowsOptions): OneOffRow[] {
   // that's the relabel case, where the two teams already meet and the only edit
   // is the label. Standing in its current arrangement lets one loop handle both,
   // and the unchanged-row skip below keeps it from writing anything it needn't.
-  const all = changes.some((c) => c.date === date)
-    ? changes
-    : [
-        ...changes,
-        {
-          date,
-          to: oneOff.games.map(
-            (g) =>
-              [indexOf.get(g.homeTeamId)!, indexOf.get(g.awayTeamId)!] as [
-                number,
-                number,
-              ],
-          ),
-        },
-      ];
+  //
+  // Repair has no such night — there is no label to apply — so its changes are
+  // the whole of the work, and a repair that changes nothing writes nothing.
+  const all =
+    !oneOff || changes.some((c) => c.date === date)
+      ? changes
+      : [
+          ...changes,
+          {
+            date: oneOff.date,
+            to: oneOff.games.map(
+              (g) =>
+                [indexOf.get(g.homeTeamId)!, indexOf.get(g.awayTeamId)!] as [
+                  number,
+                  number,
+                ],
+            ),
+          },
+        ];
 
   const rows: OneOffRow[] = [];
   for (const c of all) {
@@ -569,10 +639,29 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
     featureSlot = true,
     seed = 1,
     slotPins,
+    slotForce,
   } = opts;
 
   const reason = precheck(opts);
   if (reason) return { ok: false, reason };
+
+  /**
+   * Which night the churn weightings measure distance from, and which one the
+   * no-repair baseline is allowed to move.
+   *
+   * With a one-off it is the one-off's night, as it always was. Without one it
+   * is the pinned night when there is a pin, else the first night the repair may
+   * touch — so "put it right soonest" still means "land the changes early"
+   * rather than "land them near night zero", which on a half-played season is a
+   * night the repair may not touch at all.
+   */
+  const focusNight =
+    oneOffNight ??
+    slotForce?.night ??
+    Math.max(
+      0,
+      nights.findIndex((n) => !n.locked),
+    );
 
   const N = nights.length;
   const incumbent = nights.map((n) => n.games);
@@ -608,9 +697,12 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
   const homeAwaySpreadBefore = homeAwaySpread(T, incumbent.flat());
 
   // Already playing each other that night? Then this is a pure relabel — no
-  // matchup moves, so nothing to repair.
-  const onNight = new Set(incumbent[oneOffNight].map(keyOf));
-  if (forcedPairs.every((p) => onNight.has(keyOf(p)))) {
+  // matchup moves, so nothing to repair. Repair-only mode has no forced pair to
+  // be already met, so it never takes this exit.
+  const onNight = new Set(
+    oneOffNight === null ? [] : incumbent[oneOffNight].map(keyOf),
+  );
+  if (oneOffNight !== null && forcedPairs.every((p) => onNight.has(keyOf(p)))) {
     return {
       ok: true,
       relabelOnly: true,
@@ -658,6 +750,9 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
     );
 
     const nightConstraints: (NightConstraint | null)[] = nights.map((n, i) => {
+      // `oneOffNight === null` (repair-only) never matches, so no night is
+      // required to hold a particular pair and Phase M is free everywhere it is
+      // not frozen.
       if (i === oneOffNight) return { kind: "require", pairs: forcedPairs };
       if (frozen[i]) return { kind: "fixed", pairs: incumbent[i] };
       return null;
@@ -684,11 +779,39 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
     let pairsByNight = m.pairsByNight.map((ps, n) =>
       alignToIncumbent(ps, incumbent[n]),
     );
-    if (featureSlot) {
+    if (featureSlot && oneOffNight !== null) {
       pairsByNight = pairsByNight.map((ps, n) =>
         n === oneOffNight ? featureLast(ps, forcedPairs) : ps,
       );
     }
+
+    /**
+     * The item-3 pin, as Phase S can act on it.
+     *
+     * `assignSlots`'s `pinned` holds a game on the slot `initial` gave it, so
+     * MOVING a game to a slot means seeding `initial` with the identity packing
+     * swapped at those two positions and then pinning the game. The game that
+     * was on the requested ice time takes the pinned game's old slot and is
+     * free to move again from there.
+     *
+     * Resolved after Phase M and `alignToIncumbent`, not before: Phase M may
+     * have given the pinned team a different opponent, and the pin is about the
+     * team's ice time, not about which game it is.
+     */
+    const forcedNight = slotForce?.night ?? -1;
+    const forcedGame =
+      slotForce === undefined
+        ? -1
+        : pairsByNight[forcedNight].findIndex((p) => p.includes(slotForce.team));
+    const forcedInitial =
+      forcedGame < 0
+        ? undefined
+        : (() => {
+            const init = pairsByNight[forcedNight].map((_, gi) => gi);
+            init[forcedGame] = slotForce!.slot;
+            init[slotForce!.slot] = forcedGame;
+            return init;
+          })();
 
     const slotOf = assignSlots({
       teamCount: T,
@@ -702,10 +825,15 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
       // whichever comes first, and a frozen-night repair needs the kicks.
       restarts: Number.MAX_SAFE_INTEGER,
       timeBudgetMs: 600,
-      initial: pairsByNight.map((ps) => ps.map((_, gi) => gi)),
+      initial: pairsByNight.map((ps, n) =>
+        n === forcedNight && forcedInitial ? forcedInitial : ps.map((_, gi) => gi),
+      ),
       frozen,
       pinned: nights.map((_, n) => {
-        if (featureSlot && n === oneOffNight) {
+        // The manager's just-typed pin outranks everything else on its night:
+        // it is the instruction the whole plan was asked for.
+        if (n === forcedNight && forcedGame >= 0) return [forcedGame];
+        if (featureSlot && oneOffNight !== null && n === oneOffNight) {
           return pairsByNight[n]
             .map((_, gi) => gi)
             .slice(pairsByNight[n].length - forcedPairs.length);
@@ -821,7 +949,10 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
 
   const candidates = [
     // The baseline first: everything but the one-off night held still, so the
-    // cost of doing nothing is visible rather than implied.
+    // cost of doing nothing is visible rather than implied. In repair-only mode
+    // `oneOffNight` is null, so `n !== oneOffNight` freezes EVERY night and the
+    // baseline is literally the published schedule — which is the right
+    // reference there too, and what "nothing to improve" is measured against.
     build(
       "no-repair",
       "Leave the rest of the season alone",
@@ -833,7 +964,7 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
     build(
       "soonest",
       "Put it right soonest",
-      (n) => CHURN_W.SOONEST * (1 + Math.abs(n - oneOffNight)),
+      (n) => CHURN_W.SOONEST * (1 + Math.abs(n - focusNight)),
       12,
       900,
     ),
@@ -904,4 +1035,137 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
   }
 
   return { ok: true, plans, relabelOnly: false };
+}
+
+/* -------------------------------------------------------------- item 3 & 4 */
+
+/**
+ * What a manager can pin on a season that is already published.
+ *
+ * The same vocabulary the generator speaks, narrowed to the two kinds a repair
+ * can act on at all. The bye kinds are absent on purpose: they are participation
+ * decisions, and repair does not move participation.
+ */
+export type RepairPin =
+  | { kind: "play_on"; team: number; night: number }
+  | { kind: "slot_on"; team: number; night: number; slot: number };
+
+export type RepairResult =
+  | { ok: false; reason: string }
+  | {
+      ok: true;
+      plans: OneOffPlan[];
+      /**
+       * Why the pin could not be honoured, in terms a manager can act on — null
+       * when there was no pin, or it was honoured.
+       *
+       * ⛔ NOT AN ERROR, AND NOT SILENCE EITHER. The obvious reading of "X needs
+       * to play that night" is that repair will add them to it, and it will not:
+       * participation is frozen by the published schedule, so adding a team to a
+       * night changes byes, which unbalances the season. Reporting it unmet with
+       * the reason is the honest answer, and the UI has to show it.
+       */
+      unmet: string | null;
+      /**
+       * True when the search found nothing worth doing — every candidate came
+       * back identical to the published schedule. ⚠️ Item 4 must be able to say
+       * this rather than offer a plan that churns nights for a score that did
+       * not move.
+       */
+      nothingToImprove: boolean;
+    };
+
+export type PlanRepairOptions = {
+  teamCount: number;
+  nights: OneOffNight[];
+  /** The manager's instruction, or null to simply repair what is there. */
+  pin: RepairPin | null;
+  seed?: number;
+  /** The season's stored `slot_on` constraints — preserved, never dragged back. */
+  slotPins?: { night: number; team: number; slot: number }[];
+};
+
+/**
+ * Repair a published season — with a pin (item 3) or without one (item 4).
+ *
+ * ⛔ THE SAME ENGINE AS `planOneOff`, DELIBERATELY. There are exactly two write
+ * paths onto `games`, and only this one survives `season_is_started`:
+ * `generateSchedule` → `replace_published_schedule` refuses permanently once the
+ * season is under way, while a plan from here is applied as an ordinary upsert
+ * by id. Unifying repair with the generator "for symmetry" would break it on
+ * precisely the seasons it exists to serve, and the failure would arrive in
+ * production rather than in a test.
+ *
+ * **What repair can and cannot move.** Participation is frozen: who plays on
+ * which night is fixed by the published schedule, so games played, byes and
+ * per-weekday counts cannot change. What it moves is who plays whom, the ice
+ * time, and home/away. A `play_on` pin for a team that byes that night is
+ * therefore not satisfiable, and comes back in `unmet` rather than being
+ * quietly dropped.
+ *
+ * The zero-change baseline is not offered as a plan: "leave it alone" is what
+ * happens when the manager applies nothing, and listing it as something to
+ * choose invites choosing it by accident. It is still built, because it is the
+ * reference every plan's `worseThan` is measured against.
+ */
+export function planRepair(opts: PlanRepairOptions): RepairResult {
+  const { teamCount, nights, pin, seed, slotPins } = opts;
+
+  // Participation first, because it is the one thing no plan can change — and
+  // saying so before spending the search budget is both faster and clearer.
+  if (pin) {
+    const night = nights[pin.night];
+    if (!night) {
+      return { ok: false, reason: "That date isn't a game night this season." };
+    }
+    if (night.locked) {
+      return {
+        ok: false,
+        reason: "That night has already been played, so it can't be changed.",
+      };
+    }
+    if (!night.games.flat().includes(pin.team)) {
+      return {
+        ok: true,
+        plans: [],
+        nothingToImprove: false,
+        unmet:
+          "That team has a bye that night, and a repair can't add it to one — that would change who plays, which changes every team's byes. Move a single game with Reschedule instead, or regenerate the schedule if the season hasn't started.",
+      };
+    }
+    if (
+      pin.kind === "slot_on" &&
+      (pin.slot < 0 || pin.slot >= night.games.length)
+    ) {
+      const n = night.games.length;
+      return {
+        ok: true,
+        plans: [],
+        nothingToImprove: false,
+        unmet: `That night runs ${n} game${n === 1 ? "" : "s"}, so that isn't one of its ice times.`,
+      };
+    }
+  }
+
+  const result = planOneOff({
+    teamCount,
+    nights,
+    // No one-off game: this is the repair-only mode of the same planner.
+    oneOffNight: null,
+    forcedPairs: [],
+    featureSlot: false,
+    seed,
+    slotPins,
+    slotForce:
+      pin?.kind === "slot_on"
+        ? { night: pin.night, team: pin.team, slot: pin.slot }
+        : undefined,
+  });
+  if (!result.ok) return result;
+
+  // Drop the do-nothing plans, the baseline among them. A plan with no changes
+  // is not a choice, and offering one alongside real ones reads as though the
+  // search found two answers.
+  const plans = result.plans.filter((p) => p.changes.length > 0);
+  return { ok: true, plans, unmet: null, nothingToImprove: plans.length === 0 };
 }

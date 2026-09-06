@@ -342,6 +342,25 @@ export async function ScheduleBuilderPanel({
                   </Link>
                   .
                 </p>
+                {/*
+                  ⛔ THIS IS THE MODE REPAIR EXISTS FOR. A started season can no
+                  longer be regenerated, so rearranging the nights still to come
+                  — pinning a team to an ice time, or putting the ice-time share
+                  back after a run of manual reschedules — is the only lever
+                  left. The card used to offer per-game edits and the one-off
+                  planner and stop there.
+                */}
+                <p>
+                  To put a team on a particular night or ice time, or to even
+                  out the nights still to come,{" "}
+                  <Link
+                    href={`/${league}/schedule-builder/repair`}
+                    className="text-foreground font-medium underline"
+                  >
+                    repair the schedule
+                  </Link>
+                  .
+                </p>
               </>
             )}
           </CardContent>
@@ -465,7 +484,7 @@ export async function ScheduleBuilderPanel({
           <CardHeader>
             <CardTitle className="text-base">Move a game night</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             <RescheduleNightForm
               seasonId={seasonId}
               nights={openNights.map((n) => ({
@@ -473,6 +492,23 @@ export async function ScheduleBuilderPanel({
                 games: n.games.length,
               }))}
             />
+            {/*
+              Rendered in published mode too, not only when locked. A manager
+              who has just published still reaches for this after a few manual
+              per-game reschedules, and the locked card carries its own link for
+              the mode where it is the only lever left.
+            */}
+            <p className="text-muted-foreground text-sm">
+              To put a team on a particular night or ice time, or to even out
+              the nights still to come,{" "}
+              <Link
+                href={`/${league}/schedule-builder/repair`}
+                className="text-foreground font-medium underline"
+              >
+                repair the schedule
+              </Link>
+              .
+            </p>
           </CardContent>
         </Card>
       ) : null}

@@ -4,6 +4,7 @@ import { assignNights, type Night } from "./assignNights";
 import { weekdayOf } from "@/lib/format";
 import {
   planOneOff,
+  planRepair,
   checkOneOffWrite,
   buildOneOffRows,
   iceTimeSpread,
@@ -955,5 +956,223 @@ describe("buildOneOffRows", () => {
     const rows = byId(buildOneOffRows(o));
     expect(rows.get("g4")?.label).toBe("Championship");
     expect(rows.get("g3")?.label).toBeNull();
+  });
+});
+
+/**
+ * Items 3 and 4 of the repair spec: pin a team to a night (or a night and an ice
+ * time) and repair around it, and repair with no pin at all.
+ *
+ * ⛔ THESE DRIVE THE SAME ENGINE THE ONE-OFF PLANNER USES, NEVER
+ * `generateSchedule`. `season_is_started` shuts generate and
+ * `replace_published_schedule` permanently once a season is under way, and this
+ * is the feature that has to keep working after that — so it plans over the
+ * unlocked nights and applies as an in-place upsert by id, exactly as
+ * `applyOneOffGame` does.
+ */
+describe("planRepair", () => {
+  const base = season({ teams: 8, weeks: 8, gamesPerTeam: 12 });
+  // Half the season played, as it would be mid-season.
+  const nights = base.nights.map((n, i) => ({ ...n, locked: i < 6 }));
+  const T = base.teamCount;
+
+  /** An unlocked night, a team playing on it, and a team sitting it out. */
+  const openNight = 6;
+  const playing = [...new Set(nights[openNight].games.flat())];
+  const bye = Array.from({ length: T }, (_, t) => t).find(
+    (t) => !playing.includes(t),
+  )!;
+
+  it("has a fixture with both a player and a bye on the pinned night", () => {
+    // Eight teams over three ice times means two sit out. If that ever stops
+    // being true the unmet test below would silently stop testing anything.
+    expect(playing.length).toBeGreaterThan(0);
+    expect(bye).toBeGreaterThanOrEqual(0);
+  });
+
+  it("accepts a play_on pin for a team already on that night", () => {
+    const res = planRepair({
+      teamCount: T,
+      nights,
+      pin: { kind: "play_on", team: playing[0], night: openNight },
+    });
+    if (!res.ok) throw new Error(res.reason);
+    expect(res.unmet).toBeNull();
+  });
+
+  /**
+   * ⛔ THE MOST LIKELY THING TO BE GOT WRONG. "X needs to play that night" reads
+   * as though repair will ADD them to it. It will not: participation is frozen
+   * by the published schedule, and adding a team to a night changes byes, which
+   * unbalances the season. The honest answer is to say so.
+   */
+  it("reports a play_on pin unmet, with a reason, when the team byes that night", () => {
+    const res = planRepair({
+      teamCount: T,
+      nights,
+      pin: { kind: "play_on", team: bye, night: openNight },
+    });
+    if (!res.ok) throw new Error(res.reason);
+    expect(res.unmet).toBeTruthy();
+    expect(res.unmet).toMatch(/bye/i);
+    // And it offers nothing that pretends otherwise.
+    expect(res.plans).toEqual([]);
+  });
+
+  it("puts a slot_on pin's game on the ice time it asked for", () => {
+    const team = playing[0];
+    const slots = nights[openNight].games.length;
+    const currently = nights[openNight].games.findIndex((g) =>
+      g.includes(team),
+    );
+    const wanted = (currently + 1) % slots;
+    const res = planRepair({
+      teamCount: T,
+      nights,
+      pin: { kind: "slot_on", team, night: openNight, slot: wanted },
+    });
+    if (!res.ok) throw new Error(res.reason);
+    expect(res.unmet).toBeNull();
+    expect(res.plans.length).toBeGreaterThan(0);
+    for (const plan of res.plans) {
+      const after = applyPlan(nights, plan);
+      const landed = after[openNight].games.findIndex((g) => g.includes(team));
+      expect(landed).toBe(wanted);
+    }
+  });
+
+  it("refuses a slot_on pin for a team that byes that night, with a reason", () => {
+    const res = planRepair({
+      teamCount: T,
+      nights,
+      pin: { kind: "slot_on", team: bye, night: openNight, slot: 0 },
+    });
+    if (!res.ok) throw new Error(res.reason);
+    expect(res.unmet).toMatch(/bye/i);
+  });
+
+  it("refuses an ice time that night does not run", () => {
+    const res = planRepair({
+      teamCount: T,
+      nights,
+      pin: {
+        kind: "slot_on",
+        team: playing[0],
+        night: openNight,
+        slot: nights[openNight].games.length,
+      },
+    });
+    if (!res.ok) throw new Error(res.reason);
+    expect(res.unmet).toBeTruthy();
+  });
+
+  /** ⛔ The invariant every plan on this path has to keep. */
+  it("never moves games played, byes, or weekday counts", () => {
+    const res = planRepair({ teamCount: T, nights, pin: null });
+    if (!res.ok) throw new Error(res.reason);
+    const before = invariants(T, nights);
+    for (const plan of res.plans) {
+      expect(invariants(T, applyPlan(nights, plan))).toEqual(before);
+    }
+  });
+
+  it("never touches a locked night", () => {
+    const res = planRepair({ teamCount: T, nights, pin: null });
+    if (!res.ok) throw new Error(res.reason);
+    for (const plan of res.plans) {
+      for (const c of plan.changes) expect(nights[c.night].locked).toBe(false);
+    }
+  });
+
+  /**
+   * ⚠️ Item 4 must be able to say "nothing to improve" rather than churn nights
+   * for a score that did not move. A season with one unlocked night has nothing
+   * the search can trade.
+   */
+  it("says there is nothing to improve when no plan changes anything", () => {
+    const allButOneLocked = nights.map((n, i) => ({
+      ...n,
+      locked: i !== nights.length - 1,
+    }));
+    const res = planRepair({
+      teamCount: T,
+      nights: allButOneLocked,
+      pin: null,
+    });
+    if (!res.ok) throw new Error(res.reason);
+    expect(res.nothingToImprove).toBe(res.plans.length === 0);
+  });
+
+  /**
+   * ⛔ §5's id-stability property, at the level a pure test can reach it: the
+   * rows a plan writes are rows that already exist. A regenerate mints new ids
+   * and replaces every subscriber's calendar events; a repair must not. The e2e
+   * checks the real before/after id set.
+   */
+  it("writes only rows that already exist, keeping every ice time", () => {
+    const res = planRepair({ teamCount: T, nights, pin: null });
+    if (!res.ok) throw new Error(res.reason);
+    const plan = res.plans[0];
+    // No repair on this fixture is a legitimate outcome; the branch above owns it.
+    if (!plan) return;
+
+    const teamIds = Array.from({ length: T }, (_, i) => `team-${i}`);
+    const rowNights = nights.map((n) => ({
+      date: n.date,
+      games: n.games.map((g, i) => ({
+        id: `${n.date}-${i}`,
+        homeTeamId: teamIds[g[0]],
+        awayTeamId: teamIds[g[1]],
+        scheduledAt: `${n.date}T23:0${i}:00Z`,
+        label: null,
+      })),
+    }));
+    const existing = new Set(rowNights.flatMap((n) => n.games.map((g) => g.id)));
+
+    const rows = buildOneOffRows({
+      nights: rowNights,
+      teamIds,
+      date: null,
+      round: "final",
+      label: "",
+      forcedPairs: [],
+      changes: plan.changes.map((c) => ({
+        date: nights[c.night].date,
+        to: c.to,
+      })),
+    });
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(existing.has(r.id)).toBe(true);
+      // The times are the night's, never the game's, so a repair cannot move a
+      // game onto an ice time the night does not already run.
+      expect(r.scheduledAt).toBeTruthy();
+    }
+  });
+
+  it("passes the write check it will be applied through", () => {
+    const res = planRepair({ teamCount: T, nights, pin: null });
+    if (!res.ok) throw new Error(res.reason);
+    const plan = res.plans[0];
+    if (!plan) return;
+    const teamIds = Array.from({ length: T }, (_, i) => `team-${i}`);
+    expect(
+      checkOneOffWrite({
+        nights: nights.map((n) => ({
+          date: n.date,
+          locked: n.locked,
+          games: n.games.map(
+            (g) => [teamIds[g[0]], teamIds[g[1]]] as [string, string],
+          ),
+        })),
+        teamIds,
+        date: null,
+        forcedPairs: [],
+        changes: plan.changes.map((c) => ({
+          date: nights[c.night].date,
+          to: c.to,
+        })),
+      }),
+    ).toBeNull();
   });
 });

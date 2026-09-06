@@ -11,11 +11,13 @@ import { enumerateNights } from "@/lib/schedule/capacity";
 import { isPastGameNight } from "@/lib/schedule/startDate";
 import {
   planOneOff,
+  planRepair,
   checkOneOffWrite,
   buildOneOffRows,
   type OneOffNight,
   type OneOffPlan,
   type OneOffRound,
+  type RepairPin,
 } from "@/lib/schedule/oneOff";
 import {
   getScheduleConstraints,
@@ -1276,5 +1278,273 @@ export async function applyOneOffGame(
       touched === 0
         ? "Labelled the game — nothing else needed to change."
         : `Scheduled the game and adjusted ${touched} night${touched === 1 ? "" : "s"}.`,
+  };
+}
+
+/* ------------------------------------------------------ repair (items 3, 4) */
+
+export type RepairPreview = {
+  /** Index-aligned with the planner's team indices. */
+  teams: { id: string; name: string }[];
+  /** Index-aligned with the planner's night indices. */
+  nights: { date: string; times: string[]; locked: boolean }[];
+  plans: OneOffPlan[];
+  /** Why the pin could not be honoured — shown instead of plans. */
+  unmet: string | null;
+  /** True when the season is already as good as the search can make it. */
+  nothingToImprove: boolean;
+};
+
+export type RepairInput = {
+  seasonId: string;
+  /** Pin a team to a night, optionally at an ice time. Null repairs as-is. */
+  pin: { teamId: string; date: string; time: string } | null;
+};
+
+export type RepairState =
+  | null
+  | { ok: false; message: string }
+  | { ok: true; kind: "preview"; preview: RepairPreview }
+  | { ok: true; kind: "applied"; message: string };
+
+/**
+ * A season's nights with each one's ice times, as the pin resolves against them.
+ *
+ * ⚠️ Built from the season **as published**, never from a form's `slot_times`.
+ * `slot_on` resolves against two different lists depending on the path in —
+ * `generateSchedule` matches pins against the FORM's list, while the one-off
+ * planner builds its list from the published games — and this is the third
+ * caller. It takes the published list, like the planner, because the pin it is
+ * resolving is about a night that already exists and already has ice times.
+ *
+ * A postponed game has no time of its own and gets a placeholder no stored time
+ * can equal; dropping it instead would shift every later slot index on that
+ * night.
+ */
+function publishedSlots(nights: SeasonNight[]) {
+  return nights.map((n) => ({
+    date: n.date,
+    slots: n.games.map((g) =>
+      g.scheduledAt ? leagueTimeKey(g.scheduledAt) : "--:--",
+    ),
+  }));
+}
+
+/** Everything the planner needs, or a message saying why it can't be had. */
+async function repairContext(seasonId: string, admin: Admin) {
+  const { teams, indexOf, nights } = await loadContext(seasonId, admin);
+  if (nights.length === 0) {
+    return {
+      ok: false as const,
+      message: "This season has no published schedule to repair.",
+    };
+  }
+  const plannerNights = toPlannerNights(nights, indexOf);
+  if (!plannerNights) {
+    return {
+      ok: false as const,
+      message:
+        "The schedule has a game for a team that isn't enrolled this season.",
+    };
+  }
+  const resolved = resolveConstraints(
+    await getScheduleConstraints(seasonId, { client: admin }),
+    { nights: publishedSlots(nights), teamIds: teams.map((t) => t.id) },
+  );
+  return {
+    ok: true as const,
+    teams,
+    indexOf,
+    nights,
+    plannerNights,
+    resolved,
+  };
+}
+
+/**
+ * Turn the manager's pin into the planner's index-based one, or say why it
+ * cannot be turned into anything.
+ *
+ * ⛔ The time is matched against the night's PUBLISHED ice times, and one the
+ * night does not run is refused rather than rounded to the nearest slot. A pin
+ * quietly relocated is worse than one refused: the manager has no way to see it
+ * happened.
+ */
+function readRepairPin(
+  pin: NonNullable<RepairInput["pin"]>,
+  nights: SeasonNight[],
+  indexOf: Map<string, number>,
+): { pin: RepairPin } | { error: string } {
+  const team = indexOf.get(pin.teamId);
+  if (team === undefined) {
+    return { error: "Pick a team enrolled in this season." };
+  }
+  const night = nights.findIndex((n) => n.date === pin.date);
+  if (night < 0) return { error: "That date isn't a game night this season." };
+
+  if (!pin.time) return { pin: { kind: "play_on", team, night } };
+
+  const wanted = normalizeTime(pin.time);
+  if (!wanted) return { error: "Enter the ice time as HH:MM." };
+  const slot = publishedSlots(nights)[night].slots.indexOf(wanted);
+  if (slot < 0) return { error: `${wanted} isn't one of that night's ice times.` };
+  return { pin: { kind: "slot_on", team, night, slot } };
+}
+
+/**
+ * Plan a repair — with a pin (item 3) or without one (item 4). Reads only;
+ * nothing is written until the manager picks a plan.
+ *
+ * ⛔ Goes nowhere near `generateSchedule` or `replace_published_schedule`. Both
+ * refuse permanently once `season_is_started` trips, and a started season is
+ * exactly what this exists for; see `planRepair` for the decision and §3 of the
+ * repair spec for what happens if it is ever "unified" with the generator.
+ */
+export async function previewScheduleRepair(
+  input: RepairInput,
+): Promise<RepairState> {
+  const admin = createAdminClient();
+  const target = await targetSeasonForManager(admin, input.seasonId);
+  if (!target) return { ok: false, message: "No season selected." };
+  const { seasonId } = target;
+
+  const ctx = await repairContext(seasonId, admin);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+  const { teams, indexOf, nights, plannerNights, resolved } = ctx;
+
+  let pin: RepairPin | null = null;
+  if (input.pin) {
+    const read = readRepairPin(input.pin, nights, indexOf);
+    if ("error" in read) return { ok: false, message: read.error };
+    pin = read.pin;
+  }
+
+  const result = planRepair({
+    teamCount: teams.length,
+    nights: plannerNights,
+    pin,
+    slotPins: resolved.slotPins.length > 0 ? resolved.slotPins : undefined,
+  });
+  if (!result.ok) return { ok: false, message: result.reason };
+
+  return {
+    ok: true,
+    kind: "preview",
+    preview: {
+      teams,
+      nights: nights.map((n) => ({
+        date: n.date,
+        times: n.games.map((g) => formatGameTime(g.scheduledAt)),
+        locked: n.locked,
+      })),
+      plans: result.plans,
+      unmet: result.unmet,
+      nothingToImprove: result.nothingToImprove,
+    },
+  };
+}
+
+/**
+ * Write a previewed repair.
+ *
+ * ⛔ AN UPSERT BY ID. Every changed game keeps the row it already had, so no
+ * game gets a new id and no calendar subscription is invalidated — the property
+ * §5 of the spec asks to be asserted, and the e2e does.
+ *
+ * The submitted changes are VALIDATED, not re-solved, for the reason
+ * `applyOneOffGame` gives: both solvers stop on a wall-clock deadline, so two
+ * runs may legitimately differ and re-solving would fail spuriously.
+ * `checkOneOffWrite` IS the invariant — anything that passes it leaves
+ * games-played, byes and weekday balance exactly as it found them, whatever the
+ * client sent — and it is shared with the one-off path rather than reimplemented
+ * here, so there is one definition of what a repair may not do.
+ *
+ * Changes are keyed by DATE, not by position, for the same reason: preview and
+ * apply read the schedule independently, and an index would silently write the
+ * plan to the wrong nights if anything shifted in between.
+ */
+export async function applyScheduleRepair(input: {
+  seasonId: string;
+  changes: { date: string; to: [number, number][] }[];
+}): Promise<RepairState> {
+  const admin = createAdminClient();
+  const target = await targetSeasonForManager(admin, input.seasonId);
+  if (!target) return { ok: false, message: "No season selected." };
+  const { seasonId, manager } = target;
+
+  if (input.changes.length === 0) {
+    return { ok: false, message: "That plan changes nothing." };
+  }
+
+  const { teams, nights } = await loadContext(seasonId, admin);
+  const teamIds = teams.map((t) => t.id);
+
+  const problem = checkOneOffWrite({
+    nights: nights.map((n) => ({
+      date: n.date,
+      locked: n.locked,
+      games: n.games.map(
+        (g) => [g.homeTeamId, g.awayTeamId] as [string, string],
+      ),
+    })),
+    teamIds,
+    // No labelled game on this path — see `CheckWriteOptions.date`.
+    date: null,
+    forcedPairs: [],
+    changes: input.changes,
+  });
+  if (problem) return { ok: false, message: problem };
+
+  const rows: TablesInsert<"games">[] = buildOneOffRows({
+    nights,
+    teamIds,
+    date: null,
+    round: "final",
+    label: "",
+    forcedPairs: [],
+    changes: input.changes,
+  }).map((r) => ({
+    id: r.id,
+    season_id: seasonId,
+    home_team_id: r.homeTeamId,
+    away_team_id: r.awayTeamId,
+    label: r.label,
+    // The game's own scheduled_at as just read, so this is a no-op for the row
+    // it targets — it is here only because `upsert` INSERTS when no row matches,
+    // and a game deleted between the read and the write would otherwise be
+    // recreated with no date at all.
+    scheduled_at: r.scheduledAt,
+  }));
+
+  if (rows.length === 0) {
+    return { ok: false, message: "That plan changes nothing." };
+  }
+
+  // One statement, so a plan can't land half-applied.
+  const { error } = await admin
+    .from("games")
+    .upsert(rows, { onConflict: "id" });
+  if (error) return { ok: false, message: error.message };
+
+  await logAudit({
+    user_id: manager.id,
+    action: "repair_schedule",
+    entity_type: "season",
+    entity_id: seasonId,
+    old_data: { nights: input.changes.map((c) => c.date) },
+    new_data: { games_rewritten: rows.length },
+  });
+
+  revalidatePath("/[league]/schedule-builder", "page");
+  revalidatePath("/[league]/schedule-builder/repair", "page");
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
+  revalidatePath("/[league]/schedule", "page");
+  revalidatePath("/[league]", "page");
+
+  const n = input.changes.length;
+  return {
+    ok: true,
+    kind: "applied",
+    message: `Repaired ${n} night${n === 1 ? "" : "s"} — ${rows.length} game${rows.length === 1 ? "" : "s"} rewritten, none re-created.`,
   };
 }

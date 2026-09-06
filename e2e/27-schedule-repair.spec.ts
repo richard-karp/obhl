@@ -40,8 +40,7 @@ async function signedInAsManager(page: Page) {
   await page.goto("/obhl/dashboard");
 }
 
-/** Every published game id for this spec's season, for the id-stability check. */
-async function publishedGameIds(): Promise<string[]> {
+async function seasonId(): Promise<string> {
   const db = admin();
   const { data: league } = await db
     .from("leagues")
@@ -54,12 +53,63 @@ async function publishedGameIds(): Promise<string[]> {
     .eq("league_id", league!.id)
     .eq("name", SEASON)
     .single();
-  const { data } = await db
+  return season!.id;
+}
+
+/** Every published game id for this spec's season, for the id-stability check. */
+async function publishedGameIds(): Promise<string[]> {
+  const { data } = await admin()
     .from("games")
     .select("id")
-    .eq("season_id", season!.id)
+    .eq("season_id", await seasonId())
     .eq("is_draft", false);
   return (data ?? []).map((g) => g.id).sort();
+}
+
+/**
+ * Which enrolled teams play on `date` and which sit it out, by name.
+ *
+ * ⛔ Read from the database, never found by clicking every team in turn. A loop
+ * that stops at the first team producing the message it hoped for cannot tell
+ * "the branch works" from "the fixture has no byes and I never reached it", and
+ * this fixture is built with two ice times precisely so byes exist. Both lists
+ * are asserted non-empty at the call sites, so a fixture that stops producing
+ * either fails loudly instead of passing quietly.
+ */
+async function teamsOn(
+  date: string,
+): Promise<{ playing: string[]; bye: string[] }> {
+  const db = admin();
+  const season = await seasonId();
+  const [{ data: enrolled }, { data: games }] = await Promise.all([
+    db.from("season_teams").select("team_id, teams(name)").eq("season_id", season),
+    db
+      .from("games")
+      .select("home_team_id, away_team_id, scheduled_at")
+      .eq("season_id", season)
+      .eq("is_draft", false),
+  ]);
+  // The dates are league-local YYYY-MM-DD and the timestamps are UTC evenings,
+  // so a night's games can spill past midnight UTC. Match on the option value
+  // the picker gave us by comparing the local date the same way the app does:
+  // an evening game is 23:00–03:00 UTC, so the calendar date is the UTC date
+  // minus a day when the UTC hour is small.
+  const localDate = (iso: string) => {
+    const d = new Date(iso);
+    if (d.getUTCHours() < 12) d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  };
+  const playingIds = new Set(
+    (games ?? [])
+      .filter((g) => g.scheduled_at && localDate(g.scheduled_at) === date)
+      .flatMap((g) => [g.home_team_id, g.away_team_id]),
+  );
+  const name = (e: { teams: unknown }) =>
+    (e.teams as { name: string } | null)?.name ?? "";
+  return {
+    playing: (enrolled ?? []).filter((e) => playingIds.has(e.team_id)).map(name),
+    bye: (enrolled ?? []).filter((e) => !playingIds.has(e.team_id)).map(name),
+  };
 }
 
 /**
@@ -100,9 +150,20 @@ async function seedFutureSeason(page: Page) {
   await expect(
     page.getByText(new RegExp(`${SEASON} · \\d+ teams enrolled`)),
   ).toBeVisible();
-  if ((await page.getByText("No draft schedule").count()) > 0) {
+  // ⛔ THE GUARD IS "IS IT PUBLISHED", NOT "IS THERE NO DRAFT". A published
+  // season also has no draft, so the draft-shaped guard sent the second test
+  // through a second generate — and then looked for a "Publish N games" button
+  // that, with a live schedule already there, reads "Replace published
+  // schedule". It cost a wasted generate per test and then failed on the button.
+  if ((await page.getByText(/^Published: \d+ games$/).count()) === 0) {
     await page.getByLabel("First game night").fill(FIRST_NIGHT);
     await page.getByLabel("Games per team").fill("6");
+    // ⛔ TWO ice times, not the default three, AND THAT IS THE FIXTURE'S POINT.
+    // Six teams over three sheets is three games a night, so every team plays
+    // every night and the season has NO BYES AT ALL — which would make the
+    // unmet-pin test below unreachable, and it would pass by never getting
+    // there. Two sheets means four teams play and two sit out.
+    await page.getByLabel(/Ice-time slots/).fill("19:00, 20:15");
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
     await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
     await page.getByRole("button", { name: "Generate schedule" }).click();
@@ -182,5 +243,109 @@ test.describe("Path 27 — changing a live schedule", () => {
 
     // ⛔ No new game ids. Moving a night is an update, not a republish.
     expect(await publishedGameIds()).toEqual(before);
+  });
+
+  test("a pin against a live season gives ranked plans, a diff, and no new ids", async ({
+    page,
+  }) => {
+    test.slow();
+    await signedInAsManager(page);
+    await seedFutureSeason(page);
+
+    await page.goto("/obhl/schedule-builder/repair");
+    await expect(
+      page.getByRole("heading", { name: "Repair the schedule" }),
+    ).toBeVisible();
+
+    // A team, a night, and an ice time that night actually runs — the picker is
+    // built from the PUBLISHED games, so every option in it is resolvable.
+    const nightPicker = page.getByLabel("Night", { exact: true });
+    const nightValue = (await nightPicker
+      .locator("option")
+      .nth(1)
+      .getAttribute("value"))!;
+    await nightPicker.selectOption(nightValue);
+
+    const timePicker = page.getByLabel("Ice time (optional)");
+    await expect(timePicker).toBeEnabled();
+    const times = await timePicker.locator("option").allTextContents();
+    // "Any time that night" plus the night's real slots.
+    expect(times.length).toBeGreaterThan(1);
+
+    // A team that actually plays that night, read from the schedule.
+    const { playing } = await teamsOn(nightValue);
+    expect(playing.length).toBeGreaterThan(0);
+    await page
+      .getByLabel("Team", { exact: true })
+      .selectOption({ label: playing[0] });
+    await timePicker.selectOption({ index: 1 });
+
+    await page.getByRole("button", { name: "Preview the repair" }).click();
+    // A repair, or an honest "there is nothing to improve" — both are real
+    // outcomes of a search under a wall clock, and only the first can be applied.
+    const plans = page.getByText("Pick a repair");
+    const idle = page.getByText("Nothing to improve");
+    await expect(plans.or(idle)).toBeVisible(AFTER_GENERATE);
+    if (await idle.isVisible()) return;
+
+    // ⛔ THE DIFF IS ON SCREEN BEFORE THE APPLY. Every plan says which nights
+    // change and what they change to.
+    await expect(
+      page.getByText(/opponent balance restored|left off target/).first(),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: /Show the \d+ nights? that change/ })
+      .first()
+      .click();
+    await expect(page.getByText(" @ ").first()).toBeVisible();
+
+    const before = await publishedGameIds();
+    await page.getByRole("button", { name: "Apply this plan" }).click();
+    await expect(page.getByText(/^Repaired \d+ nights?/)).toBeVisible(
+      AFTER_GENERATE,
+    );
+
+    // ⛔ Applying a repair changes no game ids — that is what keeps 144
+    // subscribers' calendar events intact where a regenerate would replace them.
+    expect(await publishedGameIds()).toEqual(before);
+  });
+
+  /**
+   * ⛔ The most likely thing to be got wrong, asserted in the UI. "X needs to
+   * play that night" reads as though repair will ADD them to it. It will not —
+   * that changes participation, which changes byes — and the page has to say so
+   * rather than quietly dropping the pin.
+   */
+  test("an unsatisfiable pin says why, in terms a manager can act on", async ({
+    page,
+  }) => {
+    test.slow();
+    await signedInAsManager(page);
+    await seedFutureSeason(page);
+
+    await page.goto("/obhl/schedule-builder/repair");
+    const nightPicker = page.getByLabel("Night", { exact: true });
+    const nightValue = (await nightPicker
+      .locator("option")
+      .nth(1)
+      .getAttribute("value"))!;
+    await nightPicker.selectOption(nightValue);
+
+    // The team that byes that night, read from the schedule rather than found
+    // by clicking around — see `teamsOn`.
+    const { bye } = await teamsOn(nightValue);
+    expect(bye.length).toBeGreaterThan(0);
+    await page
+      .getByLabel("Team", { exact: true })
+      .selectOption({ label: bye[0] });
+
+    await page.getByRole("button", { name: "Preview the repair" }).click();
+    await expect(
+      page.getByText("That isn't something a repair can do"),
+    ).toBeVisible(AFTER_GENERATE);
+    await expect(page.getByText(/bye that night/)).toBeVisible();
+    await expect(page.getByText(/changes every team's byes/)).toBeVisible();
+    // And it points at what the manager CAN do instead.
+    await expect(page.getByText(/Reschedule/)).toBeVisible();
   });
 });
