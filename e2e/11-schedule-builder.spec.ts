@@ -221,6 +221,58 @@ test.describe("Path 17 — Schedule Builder", () => {
     await expect(page.getByText("No draft schedule")).toBeVisible();
   });
 
+  test("the first-game-night field is bounded below by today", async ({
+    page,
+  }) => {
+    // The browser half of the past-date guard. Bounded in the LEAGUE's zone,
+    // not the browser's: server-UTC runs up to five hours ahead of Eastern, so
+    // a UTC bound would refuse a same-day generate every evening after 7pm.
+    const leagueToday = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+
+    await expect(page.getByLabel("First game night")).toHaveAttribute(
+      "min",
+      leagueToday,
+    );
+  });
+
+  test("a past first game night is refused by the server, not just the browser", async ({
+    page,
+  }) => {
+    // ⛔ THE IRREVERSIBLE ONE. `season_is_started` counts only published games,
+    // so a past-dated DRAFT is invisible to the lock and looks completely fine
+    // — until it is published, at which point generate, replace and remove all
+    // refuse permanently. There is no undo, which is why this is refused at
+    // GENERATE rather than at publish.
+    //
+    // The `min` attribute above is stripped first, deliberately: it is
+    // browser-side and a client can drop it, so what is under test here is the
+    // half that cannot be bypassed. Without the server check this generates a
+    // draft and reports success.
+    await page
+      .getByLabel("First game night")
+      .evaluate((el) => el.removeAttribute("min"));
+
+    await page.getByLabel("First game night").fill("2020-01-06");
+    await page.getByLabel("Games per team").fill("4");
+    await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
+    await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
+
+    await page.getByRole("button", { name: "Generate schedule" }).click();
+
+    await expect(
+      page.getByText(
+        "That first game night has already passed — pick tonight or a later date.",
+      ),
+    ).toBeVisible();
+    // And nothing was drafted — the refusal is before any write.
+    await expect(page.getByText("No draft schedule")).toBeVisible();
+  });
+
   test("spacing checks report every goal the generator models", async ({
     page,
   }) => {

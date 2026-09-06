@@ -10,6 +10,7 @@ import {
 import type { DateRange, Matcher } from "react-day-picker";
 import { CalendarIcon, Loader2Icon, X } from "lucide-react";
 import { toast } from "sonner";
+import { leagueDateKey } from "@/lib/format";
 import {
   generateSchedule,
   saveScheduleConstraint,
@@ -513,6 +514,12 @@ export function ScheduleGenerateForm({
             name="start_date"
             type="date"
             required
+            // The browser half of the past-date guard: it stops the mistake
+            // being typed, but a client can drop it, so `generateSchedule`
+            // refuses the same date server-side. Today, in the league's zone —
+            // not the browser's, which would disagree by a day for anyone
+            // travelling.
+            min={leagueDateKey(new Date().toISOString())}
             defaultValue={seasonStart ?? ""}
           />
         </div>

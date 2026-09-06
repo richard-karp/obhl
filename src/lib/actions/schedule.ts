@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { buildBalancedPairings } from "@/lib/schedule/roundRobin";
 import { assignNights } from "@/lib/schedule/assignNights";
 import { enumerateNights } from "@/lib/schedule/capacity";
+import { isPastGameNight } from "@/lib/schedule/startDate";
 import {
   planOneOff,
   checkOneOffWrite,
@@ -32,7 +33,12 @@ import {
 import { buildNightMeta } from "@/lib/schedule/spacing";
 import { distributeGames } from "@/lib/schedule/assignNights";
 import { getEnrolledTeams } from "@/lib/queries/teams";
-import { leagueOffset, formatGameTime, leagueTimeKey } from "@/lib/format";
+import {
+  leagueOffset,
+  formatGameTime,
+  leagueTimeKey,
+  leagueDateKey,
+} from "@/lib/format";
 import type { TablesInsert } from "@/lib/db/helpers";
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -377,6 +383,23 @@ export async function generateSchedule(
     .map((s) => normalizeTime(s) ?? s)
     .filter(Boolean);
   if (!startDate) return { ok: false, message: "Pick a first game night." };
+  // ⛔ The one irreversible mistake the builder offers. A past-dated DRAFT is
+  // invisible to `season_is_started` (it counts only `not is_draft`), so this
+  // looks fine right up until publish — which locks the season for good.
+  // Refused here rather than at publish, so the manager finds out before they
+  // have a draft they have reviewed and can do nothing with.
+  if (
+    isPastGameNight({
+      startDate,
+      today: leagueDateKey(new Date().toISOString()),
+    })
+  ) {
+    return {
+      ok: false,
+      message:
+        "That first game night has already passed — pick tonight or a later date.",
+    };
+  }
   if (weekdays.size === 0) {
     return { ok: false, message: "Pick at least one game night of the week." };
   }
