@@ -62,6 +62,15 @@ export async function isLeagueMember(
  * The leagues this profile belongs to, for the staff row's switcher and for the
  * picker's "leagues you can reach" list.
  *
+ * ⚠️ `is_public` IS SELECTED AND RETURNED, and the picker must use it rather
+ * than inferring publication from absence in `getPublicLeagues`. Those two are
+ * NOT the same fact: that read discards nothing now, but it returns `[]` on a
+ * failure and is subject to PostgREST's `max_rows` (1000, `config.toml`), so an
+ * absence can mean "read failed" or "truncated" as easily as "not public" — and
+ * the inference fails in the harmful direction, badging a published league as
+ * staged. The extra column is why the return type is wider than `LeagueOption`;
+ * consumers that want only the three fields are unaffected.
+ *
  * The office is answered directly rather than through `memberLeagueIds`, which
  * for an office member selects every league id only for this function to ask the
  * same table again for the rows behind them.
@@ -76,12 +85,12 @@ export async function isLeagueMember(
  */
 export const getMemberLeagues = cache(async function getMemberLeagues(
   profileId: string,
-): Promise<LeagueOption[]> {
+): Promise<Array<LeagueOption & { is_public: boolean }>> {
   const admin = createAdminClient();
   const select = () =>
     admin
       .from("leagues")
-      .select("id, name, slug")
+      .select("id, name, slug, is_public")
       .order("created_at", { ascending: true });
 
   if (await officeTierOf(profileId)) {

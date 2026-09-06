@@ -45,11 +45,16 @@ export const resolveLeagueBySlug = cache(async function resolveLeagueBySlug(
 export async function getPublicLeagues(
   client: Client,
 ): Promise<LeagueOption[]> {
-  const { data } = await client
+  const { data, error } = await client
     .from("leagues")
     .select("id, name, slug")
     .eq("is_public", true)
     .order("created_at", { ascending: true });
+  // ⚠️ A FAILED READ HERE USED TO BE INDISTINGUISHABLE FROM "no public leagues".
+  // The landing page no longer infers anything from this list's absences — it
+  // reads `is_public` per row — but an empty list still silently empties the
+  // page, so say so rather than returning [] in silence.
+  if (error) console.error("getPublicLeagues failed:", error.message);
   return data ?? [];
 }
 

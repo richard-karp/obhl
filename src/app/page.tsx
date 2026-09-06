@@ -55,18 +55,25 @@ export default async function LandingPage() {
   // account belongs to are therefore listed too.
   const mine = user ? await getMemberLeagues(user.id) : [];
 
-  // Staged = a league this account can reach that the public list does not
-  // carry. Derived from the two reads already in hand rather than by selecting
-  // `is_public`: `getPublicLeagues` filters on exactly that column, and RLS's
-  // "public read leagues" policy is `using (is_public)`, so absence from it is
-  // the same fact by a different route — and it keeps `LeagueOption` at three
-  // fields for the four other functions that return one.
+  // Staged = `is_public` is false ON THE ROW. ⛔ DO NOT go back to deriving this
+  // from "absent from `publicLeagues`". That inference reads as equivalent —
+  // `getPublicLeagues` filters on exactly that column — but it is only equivalent
+  // when that read returns every public league, and it fails in the HARMFUL
+  // direction when it doesn't: a connection blip returns `[]`, and every league
+  // this account belongs to is then badged "Not yet public", including ones the
+  // public can see. PostgREST's `max_rows` (1000) is a second route to the same
+  // wrong badge. Telling a manager their league is hidden when it is visible is
+  // the one mistake this badge exists to prevent, so the column is read.
+  //
+  // The slug set is still used, but only to DEDUPLICATE — a league that is both
+  // public and yours must appear once. `leagues.slug` is `not null unique`
+  // (0002), so matching on it is exact.
   const publicSlugs = new Set(publicLeagues.map((l) => l.slug));
   const leagues = [
     ...publicLeagues.map((l) => ({ ...l, staged: false })),
     ...mine
       .filter((l) => !publicSlugs.has(l.slug))
-      .map((l) => ({ ...l, staged: true })),
+      .map(({ is_public, ...l }) => ({ ...l, staged: !is_public })),
   ];
 
   const cluster = <AccountCluster user={user && { role: user.role }} />;
