@@ -5,6 +5,7 @@ import { getEnrolledTeams } from "@/lib/queries/teams";
 import {
   getPublishState,
   getScheduleConstraints,
+  getSeasonNights,
 } from "@/lib/queries/schedule";
 import {
   describeConstraint,
@@ -30,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ScheduleGenerateForm } from "@/components/manage/schedule-generate-form";
+import { RescheduleNightForm } from "@/components/manage/reschedule-night-form";
 import { PublishControls } from "@/components/manage/publish-controls";
 import { RemoveControls } from "@/components/manage/remove-controls";
 import {
@@ -77,9 +79,19 @@ export async function ScheduleBuilderPanel({
 
   const publish = await getPublishState(seasonId, { client: admin });
 
-  const storedConstraints = await getScheduleConstraints(seasonId, {
-    client: admin,
-  });
+  // ⚠️ In parallel, not one after the other. This panel already serialises five
+  // round-trips before these two, and neither depends on the other — adding the
+  // nights read as a sixth sequential await put another full query on the
+  // critical path of a page that is already the slowest in the manage area.
+  //
+  // The nights are read even when there is no live schedule: they come back
+  // empty, and a conditional await is a second thing to keep in step with the
+  // render below.
+  const [storedConstraints, seasonNights] = await Promise.all([
+    getScheduleConstraints(seasonId, { client: admin }),
+    getSeasonNights(seasonId, { client: admin }),
+  ]);
+  const openNights = seasonNights.filter((n) => !n.locked);
 
   // This panel's own draft read is part of the same fail-closed contract as
   // getPublishState's six. It errors independently and PostgREST hands back
@@ -334,6 +346,25 @@ export async function ScheduleBuilderPanel({
                   </Link>
                   .
                 </p>
+                {/*
+                  ⛔ THIS IS THE MODE REPAIR EXISTS FOR. A started season can no
+                  longer be regenerated, so rearranging the nights still to come
+                  — pinning a team to an ice time, or putting the ice-time share
+                  back after a run of manual reschedules — is the only lever
+                  left. The card used to offer per-game edits and the one-off
+                  planner and stop there.
+                */}
+                <p>
+                  To put a team on a particular night or ice time, or to even
+                  out the nights still to come,{" "}
+                  <Link
+                    href={`/${league}/schedule-builder/repair`}
+                    className="text-foreground font-medium underline"
+                  >
+                    repair the schedule
+                  </Link>
+                  .
+                </p>
               </>
             )}
           </CardContent>
@@ -348,6 +379,23 @@ export async function ScheduleBuilderPanel({
             </CardHeader>
             <CardContent>
               <ScheduleGenerateForm
+                /*
+                  ⛔ PUBLISH IS THE OTHER HALF OF "generate keeps my fields".
+                  The form now holds everything it was given across a generate
+                  (see its `onSubmit`), which is right while the manager is still
+                  iterating and wrong the moment they publish: publishing ends
+                  the setup, and the next thing done here is a different season's
+                  schedule. Remounting on a new key is what returns the inputs to
+                  their `defaultValue`s and empties the skip chips — the same
+                  trick RemoveControls and PublishControls below already use.
+
+                  ⚠️ Keyed on the LIVE schedule, never on `draftCount`.
+                  `draftCount` also moves on a generate (0 → N), so keying on it
+                  would remount on exactly the submit this whole change exists to
+                  survive. `liveScheduleKey` moves only when the published games
+                  are replaced — see its note in queries/schedule.ts.
+                */
+                key={publish.liveScheduleKey}
                 seasonId={seasonId}
                 seasonStart={season?.starts_on ?? null}
                 seasonEnd={season?.ends_on ?? null}
@@ -425,6 +473,56 @@ export async function ScheduleBuilderPanel({
           ) : null}
         </>
       )}
+
+      {/*
+        The live-schedule tools. Rendered in EVERY mode that has published games
+        — `locked` above all, since that is the mode they exist for: once
+        `season_is_started` trips, generate, replace and remove are gone for
+        good and this is the only way left to change a night. `readFailed` hides
+        them because the night list behind them would be empty for the same
+        reason the counts are unknown, and an empty picker reads as "nothing to
+        move" rather than "we couldn't look".
+      */}
+      {publish.liveCount > 0 && !readFailed ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Move a game night</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <RescheduleNightForm
+              seasonId={seasonId}
+              nights={openNights.map((n) => ({
+                date: n.date,
+                games: n.games.length,
+              }))}
+              // Computed here, on the server, in the league's zone — see the
+              // prop's own note for why the browser's clock will not do.
+              minDate={leagueDateKey(new Date().toISOString())}
+              maxDate={season?.ends_on ?? null}
+            />
+            {/*
+              ⚠️ Suppressed in locked mode, where the card above already carries
+              this link inside the sentence that explains what a started season
+              can still be changed. Two identical links a few elements apart read
+              as a seam rather than as emphasis — the same call the "generate a
+              new one above" guidance makes below.
+            */}
+            {mode === "locked" ? null : (
+              <p className="text-muted-foreground text-sm">
+                To put a team on a particular night or ice time, or to even out
+                the nights still to come,{" "}
+                <Link
+                  href={`/${league}/schedule-builder/repair`}
+                  className="text-foreground font-medium underline"
+                >
+                  repair the schedule
+                </Link>
+                .
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {!hasDraft ? (
         // Not on a locked season. This section keys off the draft count alone,
