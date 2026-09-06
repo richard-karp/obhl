@@ -168,7 +168,7 @@ design, so assume the gap and check the list rather than the flag.
 | 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | ⛔ **OPEN, AND ON A CLOCK** — Phase 6's first game night is 2026-09-10; sign-in, access control and the anonymous half of *Verification* are done; steps 4-6 of that list need a session |
 | 5 | Smaller deferred items | below | open |
 | 6 | `0039`-`0043` not pushed | `supabase db push` | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides |
-| 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard | **OPEN** — needs a human; runbook with the exact SMTP values is in *The other half of auth*. ⚠️ No app env key is involved — that line was wrong |
+| 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard | **OPEN** — ⛔ `setStaffPassword` is WRITE-ONLY: no door on production accepts what it sets, so magic link is the only way in with no fallback. Runbook + the two missing calls in *The other half of auth*. ⚠️ No app env key is involved |
 | 8 | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code | ✅ **closed 2026-09-05** — steps 1-6 shipped as #31 (which collapsed #25-#29); step 7, the prose, is this commit. Spec: `docs/superpowers/specs/2026-09-05-unified-url-space-design.md` |
 | 9 | **A past first-game-night locks the season on publish** | code | ✅ **closed 2026-09-05 — PR #35, on `main` as `72b4148`** — reproduced, then guarded at generate. ⛔ Publish stays unguarded regardless — see *Item 9 — the guard, built* |
 
@@ -201,7 +201,7 @@ is one command and is always right.
 | **PR #33** — this file, the URL spec, the production verification | Mergeable; docs only | merge it; `main` is misleading until then |
 | **PR #34** — exports 404 an unknown id instead of an empty file | Mergeable; one test, watched failing then passing | merge it |
 | **`LAUNCH.md` Verification steps 4, 5, 6** | The manager badge, the league switcher, an announcement in one league only | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written |
-| **Item 7** — custom SMTP, then a set/reset flow, then a password field | Runbook written 2026-09-05 with the exact SMTP values; nothing run | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel |
+| **Item 7** — custom SMTP, then a set/reset flow, then a password field | Runbook written 2026-09-05 with the exact SMTP values and a 5th step; nothing run. Phase 2's two missing calls are named and measured | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
 | **`NEXT_PUBLIC_SITE_URL` is missing on Preview** | `vercel env ls` 2026-09-05: Production only | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run |
 | **`docs/close-migration-push`** | Its seven commits are all in PR #33 | deletable once #33 lands; ⚠️ it is CHECKED OUT in the `manager-tools` worktree, so remove the worktree's checkout first |
 
@@ -549,64 +549,112 @@ END COPY
 
 ## 7 — The other half of auth: a password can be SET but not USED
 
-⛔ **The recovery path is half-built, and the half that exists is the half that
-does nothing on its own.** #24 shipped `setStaffPassword`
-(`src/lib/actions/office.ts`, guarded by `requireCommissioner`, writing through
-`admin.auth.admin.updateUserById`) — so a commissioner can give a locked-out
-staff member a password. **Nothing on production can then sign in with it.**
-`/login` renders one field and one button, both `sendMagicLink`; the only
-`signInWithPassword` call in `src/` is inside `devSignIn`, which is gated on
-`ENABLE_DEV_LOGIN` and that is absent from every Vercel environment (item 1).
-The other two callers are e2e specs going straight to the Supabase client,
-which is not a route a person has.
+⛔ **`setStaffPassword` is a WRITE-ONLY FEATURE.** A commissioner can put a real
+password on a real account and there is no door on production that accepts it.
+Do not reach for it in a lockout expecting it to work.
 
-*A reading of the code, checked against every `signInWithPassword` and every
-`type="password"` in the repo on 2026-09-05 — not a probe against production.*
+| Step in a password flow | State |
+|---|---|
+| A commissioner **sets** a password for someone | ✅ `setStaffPassword` (`src/lib/actions/office.ts`, `requireCommissioner`, `admin.auth.admin.updateUserById`) |
+| A user **sets their own** password | ❌ nothing — see phase 2 below for the two calls and the route |
+| A user **signs in** with it on production | ❌ `/login` is one field and one button, both `sendMagicLink` |
 
-**So do not reach for it in a lockout expecting it to work.** Today the button
-is a bootstrap for the flow that has not shipped. What closes it, in order:
+**So magic link is not the primary way into the staff tools — it is the ONLY
+way, with no fallback.** Supabase's built-in sender allows two emails an hour,
+which a handful of simultaneous sign-ins exhausts; at that point every staff
+member is locked out at once and the tool built to rescue them cannot be used.
+That is the risk this item closes, and it is why phase 1 is worth doing alone.
 
-1. **Custom SMTP (Resend).** ⛔ Cannot be done from a checkout — a human runs
-   the steps below. ⚠️ **The app itself needs no new env key.** Nothing in
-   `src/` reads a Resend variable and nothing should: Supabase Auth sends these
-   emails, so the API key belongs in the SUPABASE dashboard, not Vercel's.
-   `vercel integration add resend/resend-email` is therefore optional — it buys
-   unified billing and puts `RESEND_API_KEY` somewhere the app will never read
-   it. A Resend account reached directly does the same job.
+⚠️ **Measured 2026-09-05, not read**: the auth-call inventory, both absences and
+the `config.toml` scope below were produced by full-repository greps run with
+two controls — one proving the grep shape finds a call that does exist
+(`signInWithOtp` at `src/lib/actions/auth.ts:20`), one proving the missing
+methods exist in the installed SDK (`@supabase/auth-js/GoTrueClient`). ⚠️ **No
+probe was made against production.** Every claim about the production Supabase
+project is a reading of the dashboard's documented behaviour, not an observation.
 
-   a. **Verify a sending domain** in Resend, and create an API key. Supabase's
-      built-in email service is rate-limited to a couple of messages an hour
-      and is not a production sender — that limit, not the branding, is the
-      reason this item exists.
-   b. **Supabase → Authentication → Emails → SMTP Settings**, enable custom
-      SMTP: host `smtp.resend.com`, port `465`, username **the literal string
-      `resend`**, password **the Resend API key**, sender an address at the
-      domain from (a).
-   c. **Authentication → Rate Limits**: raise "emails per hour" off its default.
-      ⛔ Skipping this is the failure that looks like a bug in the app — sign-in
-      links stop arriving for everyone once a handful of staff try at once.
+**Every `supabase.auth.*` call in `src/`** — so the next session need not grep:
+
+```
+2 getClaims            1 verifyOtp       1 signInWithPassword (devSignIn only)
+2 admin.createUser     1 uid             1 signInWithOtp
+1 admin.updateUserById 1 signOut         1 exchangeCodeForSession
+1 admin.listUsers      1 admin.getUserById
+```
+
+`signInWithPassword` appears once, inside `devSignIn`, gated on
+`ENABLE_DEV_LOGIN` — absent from every Vercel environment (item 1) and it should
+stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
+
+**What closes this, in order:**
+
+1. **Custom SMTP (Resend).** ⛔ Dashboard work — cannot be done from a checkout.
+   ⚠️ **The app needs no new env key.** Nothing in `src/` reads a Resend
+   variable and nothing should: Supabase Auth sends these emails, so the API key
+   belongs in the SUPABASE dashboard, not Vercel's.
+   `vercel integration add resend/resend-email` is optional — it buys unified
+   billing and puts `RESEND_API_KEY` somewhere the app will never read it.
+
+   a. **Verify a sending domain** in Resend, then create an API key. Unverified
+      domains fail at send time, not at setup time.
+   b. **Authentication → Emails → SMTP Settings**: host `smtp.resend.com`, port
+      `465`, username **the literal string `resend`**, password the API key,
+      sender an address at the domain from (a).
+   c. **Authentication → Rate Limits**: raise "emails per hour" off its default
+      of `2`. ⛔ Skipping this is the failure that looks like a bug in the app —
+      links stop arriving for everyone at once, with nothing in the app's logs.
    d. Confirm Site URL and the redirect allow-list still name production, then
       send one real magic link and watch it arrive.
+   e. **Read production's minimum password length and set it to 8**, while you
+      are already in this dashboard. See the layering note under phase 2.
 
    ⚠️ **`NEXT_PUBLIC_SITE_URL` is set on Production ONLY** (`vercel env ls`,
    2026-09-05). `sendMagicLink` falls back to `http://localhost:3000` when it is
    absent, so a magic link requested from a PREVIEW deployment mails a localhost
-   link. Production is unaffected — this is a preview-only defect, and setting
-   the key on Preview is the whole fix.
-2. **A self-serve set/reset-password flow**, riding on that SMTP. ✅ **Smaller
-   than it looks: the confirm half already exists.** `/auth/confirm`
-   (`src/app/auth/confirm/route.ts`) verifies `token_hash` for ANY
-   `EmailOtpType`, `recovery` included, and already sets the audit-session
-   cookie. What is missing is the two ends: a `resetPasswordForEmail` trigger,
-   and a page to type the new password into. ⚠️ `setStaffPassword` enforces 8
-   characters while `supabase/config.toml` sets `minimum_password_length = 6` —
-   pick one before a second entry point disagrees with the first.
-3. **Only then**, a password field on `/login`. ⚠️ Magic link stays as the
-   secondary path; removing it would make step 1 the only way back in, and the
-   whole point of this item is not having a single one of those.
+   link. Production is unaffected. `vercel env add NEXT_PUBLIC_SITE_URL preview`
+   is the whole fix, and an agent may not run it.
 
-Until 1 lands, 2 and 3 cannot be verified, so none of it should ship. That is
-why the sequence is written down rather than left to whoever picks it up.
+2. **A self-serve set/reset flow**, riding on that SMTP. ✅ **The hard part is
+   already built**: `/auth/confirm` (`src/app/auth/confirm/route.ts`) verifies a
+   `token_hash` for ANY `EmailOtpType`, `recovery` included, sets the
+   audit-session cookie, and redirects to a sanitised `next` path.
+
+   **Two calls and one route are missing — not one.** An earlier draft of this
+   file said "a `resetPasswordForEmail` trigger", which undercounted it:
+
+   - **The trigger.** An action calling `resetPasswordForEmail`. It must name
+     its landing page in the email, because `/auth/confirm` redirects to `next`:
+     ``resetPasswordForEmail(email, { redirectTo: `${base}/auth/confirm?next=/set-password` })``
+   - **The landing.** A page calling `auth.updateUser({ password })` against the
+     session `/auth/confirm` just established. ⛔ **`admin.updateUserById`
+     cannot be reused for this** — it needs the admin client and sits behind
+     `requireCommissioner`, and the whole point of the flow is that the person
+     resetting their own password is not a commissioner.
+   - **The route.** `find src/app` matches nothing on reset, recovery or
+     password.
+
+   ⚠️ **The 8-vs-6 password length is LAYERING, not a conflict — and it becomes
+   one the moment this phase ships.** `MIN_PASSWORD = 8` (`office.ts`, chosen
+   deliberately, with its reasoning in a comment) is checked *before* Supabase
+   is called, so Supabase's floor never gets a say. A reset flow goes through
+   Supabase Auth instead, so it would enforce Supabase's number: same account,
+   two doors, two rules. ⛔ **`supabase/config.toml`'s `minimum_password_length
+   = 6` is the stock scaffold default from the first commit and governs the
+   LOCAL stack only** — there is no `supabase config push` in CI, `package.json`
+   or `scripts/`. Production's real floor is whatever the dashboard says and is
+   **recorded nowhere in this repository**, which is what step 1e is for.
+
+3. **Only then**, a password field on `/login`. ⚠️ Magic link stays as the
+   secondary path. Removing it would replace one sole way in with a different
+   sole way in, which is not progress — and the entire point of this item is not
+   having a single one of those.
+
+Until 1 lands, 2 and 3 cannot be verified, so none of it should ship. An
+unverified sign-in path is worse than a missing one: it looks like a way back
+in, right up to the moment someone needs it.
+
+**Runbook with the dashboard steps as a tickable checklist:**
+<https://claude.ai/code/artifact/b92f802a-1a8f-4e0a-8599-3d601b9bc482>
 
 ## Item 9 — the guard, built
 
