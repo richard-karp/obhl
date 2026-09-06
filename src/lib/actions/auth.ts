@@ -5,8 +5,38 @@ import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 import { devLoginEnabled } from "@/lib/auth/dev-login";
 import { passwordProblem } from "@/lib/auth/password";
+import { logAudit } from "@/lib/audit";
 
 export type AuthActionState = { ok: boolean; message: string } | null;
+
+/**
+ * ⛔ WHY THESE TWO ACTIONS NEVER REPORT THE PROVIDER'S ERROR.
+ *
+ * `/login` and `/set-password` are public and unauthenticated, so anything they
+ * say differently for a real staff address than for a stranger's is an
+ * enumeration oracle. GoTrue says plenty, **measured against the local stack on
+ * 2026-09-06**:
+ *
+ * - `signInWithOtp` with `shouldCreateUser: false` → `422 otp_disabled`
+ *   ("Signups not allowed for otp") for an address with no account, success for
+ *   one with. **One request tells them apart.**
+ * - `resetPasswordForEmail` → `200` either way on the first request, but the
+ *   second within the throttle window returns `429 over_email_send_rate_limit`
+ *   ONLY for an address that exists — the per-user `recovery_sent_at` throttle
+ *   is never reached by an address with no user. **Two requests tell them
+ *   apart.**
+ *
+ * ⚠️ An earlier version of this file passed `error.message` through and said in
+ * a comment that the limit was per project and therefore safe. That was wrong,
+ * and it was wrong in the direction that costs something. Both actions now
+ * answer with the SAME sentence on every outcome, and the rate-limit advice is
+ * part of that sentence unconditionally — a person who is being throttled reads
+ * the same words as a person whose link is on its way, and gets told to wait
+ * either way. The real error goes to the server log, where it helps whoever is
+ * debugging and tells a stranger nothing.
+ *
+ * ⛔ Do not "improve" either message by reporting what actually happened.
+ */
 
 /** Sends a magic-link email. Staff-only: unknown emails can't sign up. */
 export async function sendMagicLink(
@@ -26,11 +56,13 @@ export async function sendMagicLink(
     },
   });
 
-  if (error) return { ok: false, message: error.message };
+  if (error) console.error("sendMagicLink", error.message);
+  // Identical whether the send succeeded, was throttled, or found no account.
   return {
     ok: true,
     message:
-      "If that email belongs to a staff account, a sign-in link is on its way.",
+      "If that email belongs to a staff account, a sign-in link is on its way. " +
+      "Links take a minute to arrive, and asking again straight away will not make one come sooner.",
   };
 }
 
@@ -65,11 +97,14 @@ export async function sendPasswordReset(
     redirectTo: `${base}/auth/confirm?next=/set-password`,
   });
 
-  if (error) return { ok: false, message: error.message };
+  if (error) console.error("sendPasswordReset", error.message);
+  // Identical whether the send succeeded, was throttled, or found no account —
+  // see the comment above `sendMagicLink` for what the differences leak.
   return {
     ok: true,
     message:
-      "If that email belongs to a staff account, a link to set a password is on its way.",
+      "If that email belongs to a staff account, a link to set a password is on its way. " +
+      "Links take a minute to arrive, and asking again straight away will not make one come sooner.",
   };
 }
 
@@ -82,10 +117,19 @@ export async function sendPasswordReset(
  * writes through the CALLER's session, so the session is the authorisation and
  * there is nothing here to guard by role.
  *
- * The session it writes through is the recovery one `/auth/confirm` established
- * from the emailed `token_hash`, which is why this refuses rather than redirects
- * when there is none: arriving here without a link is the ordinary case (a
- * bookmark, an expired link), and it needs a sentence, not a bounce.
+ * ANY session qualifies, not only a recovery one, and that is a CHOICE rather
+ * than a limitation: the token's `amr` claim names the method that minted it, so
+ * a recovery session could be told from an ordinary one right here. It is not,
+ * because someone already signed in — by magic link, or by a password they want
+ * to change — should be able to set one without mailing themselves a link
+ * first. What matters is that a session exists, which is why this refuses rather
+ * than redirects when there is none: arriving without one is the ordinary case
+ * (a bookmark, an expired link), and it needs a sentence, not a bounce.
+ *
+ * ⚠️ The cost of that choice is that a stolen session can set a password and
+ * outlive itself. `secure_password_change` is the dashboard control that would
+ * demand reauthentication; it is unread on production, and step 1f of item 7 in
+ * `LAUNCH_READINESS_HANDOFF.md` is where that is recorded.
  *
  * ⚠️ The floor is checked HERE as well as by the browser's `minLength`, and
  * before Supabase gets a say — see `@/lib/auth/password` for why the number
@@ -101,7 +145,8 @@ export async function updateOwnPassword(
 
   const supabase = await createClient();
   const { data, error: claimsError } = await supabase.auth.getClaims();
-  if (claimsError || !data?.claims?.sub) {
+  const claims = data?.claims as { sub?: string; email?: string } | undefined;
+  if (claimsError || !claims?.sub) {
     return {
       ok: false,
       message:
@@ -111,6 +156,43 @@ export async function updateOwnPassword(
 
   const { error } = await supabase.auth.updateUser({ password });
   if (error) return { ok: false, message: error.message };
+
+  // ⛔ `entity_type: "office"` because that is the only type the log SHOWS for
+  // an act with no league. A null league is hidden by RLS and filtered out of
+  // every league-scoped view, so a bespoke type here would be written correctly
+  // and be permanently invisible — the trap `audit.ts` warns about. Filed
+  // beside the commissioner's `set_password`, which is the same event seen from
+  // the other side; `office-audit-notice.tsx` gives it a sentence that does not
+  // call it an office appointment.
+  //
+  // ⚠️ NO PASSWORD IN THE PAYLOAD, for the reason `setStaffPassword` gives at
+  // length: these entries are read on the admin client, which is worse than a
+  // league's log, not better. Actor and target are the same person — that IS
+  // the distinction from `set_password`.
+  // ⚠️ `display_name` IS THE POINT OF THE SNAPSHOT, not decoration. The office
+  // reader takes the name from the entry first and the live `profiles` row only
+  // as a fallback, because after a profile is deleted the snapshot is the only
+  // thing left that says who this was. Omitting it here would make every one of
+  // these entries fall back — and read as a truncated uuid the moment the
+  // account is gone.
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("display_name")
+    .eq("id", claims.sub)
+    .maybeSingle();
+
+  await logAudit({
+    user_id: claims.sub,
+    action: "set_own_password",
+    entity_type: "office",
+    entity_id: claims.sub,
+    new_data: {
+      profile_id: claims.sub,
+      email: claims.email ?? null,
+      display_name: profile?.display_name ?? null,
+    },
+  });
+
   return {
     ok: true,
     message: "Password set. You can sign in with it from now on.",

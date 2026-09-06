@@ -85,6 +85,28 @@ export function AccountCluster({
           {crossLink.label}
         </Link>
       ) : null}
+      {user ? (
+        // ⛔ THE ONLY IN-APP ROUTE TO `/set-password`. The other one is on
+        // `/login`, which a signed-in person never sees — so without this, the
+        // bootstrap case (arrived by magic link, wants a password so the next
+        // sign-in needs no email) has to type the URL. It also carries the
+        // recovery case: if the emailed link ever lands someone on `/` instead
+        // of the set-password page — which is what a redirect URL missing from
+        // Supabase's allow-list does, silently — this is the difference between
+        // finishing and a dead end.
+        //
+        // ⚠️ Inside the `user` branch, like everything else here: with no
+        // session this component must still render `children` and the toggle and
+        // nothing else, or the "signed out is unchanged" bar breaks for every
+        // anonymous visitor. Hidden below `sm` for the same reason the badge and
+        // the cross-link are — the header has an overflow test at `md`.
+        <Link
+          href="/set-password"
+          className="text-muted-foreground hidden text-sm hover:underline sm:inline"
+        >
+          Password
+        </Link>
+      ) : null}
       <ThemeToggle />
       {user ? (
         <form action={signOut}>

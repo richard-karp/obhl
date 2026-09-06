@@ -9,7 +9,7 @@ import { OfficeRowActions } from "@/components/manage/office-row-actions";
 import { OfficePasswordForm } from "@/components/manage/office-password-form";
 import { PageHeader } from "@/components/shared/page-header";
 import { OfficeAuditNotice } from "@/components/manage/office-audit-notice";
-import { recentOfficeAudit } from "@/lib/audit";
+import { recentOfficeAudit, recentPasswordAudit } from "@/lib/audit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -44,11 +44,15 @@ export default async function OfficePage() {
   const isCommissioner = viewerTier === "commissioner";
 
   const admin = createAdminClient();
-  const [tiers, officeLog] = await Promise.all([
+  const [tiers, officeLog, passwordLog] = await Promise.all([
     listOfficeTiers(),
     // This page is where office changes are readable at all — they carry no
     // league, so every league-scoped view filters them out.
     recentOfficeAudit(20),
+    // ⚠️ A SECOND QUERY, NOT A BIGGER ONE. Self-serve password changes share the
+    // `office` entity type and nothing else — see the comment on the split in
+    // `lib/audit.ts`. This page is the only surface that shows them.
+    recentPasswordAudit(10),
   ]);
 
   // Candidates are managers who are not already in the office. The role filter
@@ -261,11 +265,16 @@ export default async function OfficePage() {
         </Table>
       </div>
 
-      <div className="mt-6">
+      <div className="mt-6 space-y-4">
         <OfficeAuditNotice
           entries={officeLog}
           heading="Recent office changes"
           emptyText="No appointments or removals logged yet."
+        />
+        <OfficeAuditNotice
+          entries={passwordLog}
+          heading="Recent password changes"
+          emptyText="Nobody has set their own password yet."
         />
       </div>
     </div>

@@ -7,6 +7,7 @@ import {
   updateOwnPassword,
   type AuthActionState,
 } from "@/lib/actions/auth";
+import { MIN_PASSWORD } from "@/lib/auth/password";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +21,9 @@ import { Label } from "@/components/ui/label";
  * not get set leaves someone believing they have a way back in.
  *
  * ⚠️ `minLength` here is a courtesy, not the rule. `updateOwnPassword` checks the
- * floor itself, because a form control is not a check.
+ * floor itself, because a form control is not a check. Both read the SAME
+ * number: a hint that says 8 while the action enforces 10 is a form that
+ * refuses what it invited.
  */
 export function SetPasswordForm() {
   const [state, action, pending] = useActionState<AuthActionState, FormData>(
@@ -37,10 +40,12 @@ export function SetPasswordForm() {
           name="password"
           type="password"
           autoComplete="new-password"
-          minLength={8}
+          minLength={MIN_PASSWORD}
           required
         />
-        <p className="text-muted-foreground text-xs">At least 8 characters.</p>
+        <p className="text-muted-foreground text-xs">
+          At least {MIN_PASSWORD} characters.
+        </p>
       </div>
       <Button type="submit" className="w-full" disabled={pending}>
         {pending ? "Saving…" : "Set password"}

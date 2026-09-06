@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { setStaffPassword, type SetPasswordState } from "@/lib/actions/office";
+import { MIN_PASSWORD } from "@/lib/auth/password";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,7 +56,7 @@ export function OfficePasswordForm() {
             // Never the browser's saved password for THIS session's account —
             // the field is for somebody else's login.
             autoComplete="new-password"
-            minLength={8}
+            minLength={MIN_PASSWORD}
             required
           />
         </div>
@@ -65,8 +66,8 @@ export function OfficePasswordForm() {
           {pending ? "Setting…" : "Set password"}
         </Button>
         <p className="text-muted-foreground text-xs">
-          At least 8 characters. Give it to them out of band — it is not shown
-          again.
+          At least {MIN_PASSWORD} characters. Give it to them out of band — it
+          is not shown again.
         </p>
       </div>
       {state ? (

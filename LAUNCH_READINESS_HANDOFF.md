@@ -552,7 +552,7 @@ cannot do. Until step 1 lands, treat the reset half as unproven: e2e drives the
 local Supabase stack, which accepts `resetPasswordForEmail` and mails into
 Inbucket. **Production has never sent one of these.** Password SIGN-IN and
 setting a password on an existing session need no email and were driven in a
-browser (`e2e/24-password-auth.spec.ts`, 5 tests, green 2026-09-05).
+browser (`e2e/24-password-auth.spec.ts`, 6 tests, green 2026-09-06).
 
 | Step in a password flow | State |
 |---|---|
@@ -622,8 +622,44 @@ stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
       links stop arriving for everyone at once, with nothing in the app's logs.
    d. Confirm Site URL and the redirect allow-list still name production, then
       send one real magic link and watch it arrive.
+   ⛔ **THE ALLOW-LIST NEEDS A NEW ENTRY, AND ITS ABSENCE IS SILENT.** The reset
+      link asks Supabase to return to `/auth/confirm?next=/set-password` — a
+      QUERY STRING the magic link never had, and the allow-list is a list of
+      exact URLs with wildcards. **Measured 2026-09-05** against the local
+      stack: a `redirectTo` that is not listed returns **no error at all**, the
+      mail still arrives, and its `redirect_to` is silently rewritten to the
+      Site URL. So the person lands signed-in on `/` with the token spent, no
+      way to finish, and nothing in the app's logs — while the action reports
+      success. Locally this passes only because `config.toml` allows
+      `http://localhost:3000/**`; production's list is unread from here. **Add a
+      pattern covering `https://<prod host>/auth/confirm?**` (or the equivalent
+      wildcard) before sending the first reset**, and add the preview pattern in
+      the same visit — see the `NEXT_PUBLIC_SITE_URL` note below.
+      ⚠️ There is no code fix for this: under PKCE `/auth/confirm` receives
+      `?code=…` with **no `type`**, so it cannot recognise a recovery link and
+      reuse the bare URL that is already listed. Measured the same day, by
+      watching the navigation chain.
    e. **Read production's minimum password length and set it to 8**, while you
       are already in this dashboard. See the layering note under phase 2.
+   f. **Read and record `secure_password_change` and the password-changed
+      notification.** Both govern what a stolen session can do: with
+      `secure_password_change` off, a session cookie alone — 7 days — is enough
+      to set a password and keep access that outlives the session, and with the
+      notification template off nobody is told. `config.toml` has
+      `secure_password_change = false` and the `password_changed` template
+      commented out, and ⛔ **both of those govern the LOCAL stack only** —
+      production's values live in the dashboard and are **recorded nowhere**,
+      exactly like the password length was. Turning them on is a judgement call;
+      leaving them unrecorded is not.
+   ⚠️ **Password sign-in has no throttle the app can see.** `signInWithPassword`
+      counts nothing itself, and GoTrue's per-IP limit on `/token` sees the
+      Next.js server's address rather than the caller's — every sign-in in the
+      instance arrives from one IP. So the limit neither slows a guess-the-
+      password run against one account nor keeps one attacker from spending the
+      whole budget and locking everybody out of the password door. The magic link
+      is unaffected and remains the way back in, which is why this is recorded
+      rather than built: if it ever needs fixing, the fix is a per-email attempt
+      count in a table, not a dashboard setting.
 
    ⚠️ **`NEXT_PUBLIC_SITE_URL` is set on Production ONLY** (`vercel env ls`,
    2026-09-05). `sendMagicLink` falls back to `http://localhost:3000` when it is
@@ -680,6 +716,8 @@ stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
    | The set-password page | `src/app/set-password/` — page + `SetPasswordForm`/`RequestResetForm`. **One URL is both halves**: with a session it sets the password, without one it offers the form that sends a fresh link, because a bookmark or a used link is the ordinary way to arrive |
    | The password field | `src/app/login/login-form.tsx:PasswordSignInForm`, a second form under the magic link, plus `auth.ts:signInWithPassword` (sets `audit_session`, lands on the picker like `devSignIn`) |
    | The floor | `src/lib/auth/password.ts` — `MIN_PASSWORD = 8` moved out of `office.ts`, now shared by both writers, with `password.test.ts` failing the build if either grows its own literal again |
+   | The way back to it | `components/shared/account-cluster.tsx` — a `Password` link in every signed-in header, the ONLY in-app route to `/set-password`. It is also the recovery for the allow-list trap in step (d): someone dropped on `/` signed-in can still finish |
+   | The audit entry | `auth.ts:updateOwnPassword` logs `set_own_password` under `entity_type: "office"`, with a sentence in `office-audit-notice.tsx`. ⚠️ "office" is not a claim that this is an office act — it is the only entity type whose entries are VISIBLE with a null league; anything else would be written correctly and hidden forever |
 
    ✅ **The 8-vs-6 layering is settled, and it did NOT need the dashboard.**
    Both password writers check 8 **before** Supabase is called, so Supabase's
@@ -698,10 +736,30 @@ stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
    button. ⚠️ Any test of these forms must wait for hydration or it is testing
    the race, not the page.
 
+   ⛔ **NEITHER EMAIL ACTION REPORTS THE PROVIDER'S ERROR, AND THAT IS LOAD-
+   BEARING.** Measured 2026-09-06 against the local stack: `signInWithOtp` with
+   `shouldCreateUser: false` answers `422 otp_disabled` for an address with no
+   account and succeeds for one with — **one request enumerates staff
+   addresses** — and `resetPasswordForEmail` returns `200` either way but `429
+   over_email_send_rate_limit` on a second request **only** for an address that
+   exists, because the throttle it trips is per user. Both actions now answer
+   with one sentence on every outcome, rate-limit advice included
+   unconditionally, and log the real error server-side. ⚠️ An earlier version of
+   this branch passed the message through and justified it in a comment with the
+   claim that the limit was per project. That claim was false; a fresh-context
+   review measured it.
+
+   ✅ **THE WHOLE LOOP IS DRIVEN LOCALLY**, through a real message:
+   `e2e/24-password-auth.spec.ts`'s last test requests a reset, reads it out of
+   Mailpit, opens the link and finishes — covering every hop except production's
+   SMTP. It skips itself when the local mail API is not answering rather than
+   reddening a run over someone's environment.
+
    ⚠️ `league-guards.test.ts` went red exactly as this section predicted
    (`expected [ 'auth.ts:sendPasswordReset' ] to deeply equal []`). All three new
-   actions are in `NO_LEAGUE_ACTIONS` with reasons; the file's baseline is now
-   **10 passed**, and `e2e/02-auth.spec.ts`'s "no password field" test was
+   actions are in `NO_LEAGUE_ACTIONS` with reasons; the file's baseline is
+   **still 7 passed** — the entries are data, not cases, so the count does not
+   move — and `e2e/02-auth.spec.ts`'s "no password field" test was
    rewritten — it asserted the absence this item exists to end, and now asserts
    the magic link SURVIVES alongside the field.
 

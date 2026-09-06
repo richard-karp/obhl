@@ -29,6 +29,12 @@ function sentence(e: OfficeAuditEntry): string {
       return `${e.actor} appointed ${e.target} as a deputy commissioner`;
     case "remove_deputy":
       return `${e.actor} removed ${e.target} as a deputy commissioner`;
+    // Not an office act at all — it is filed here because this band is the only
+    // surface that shows an entry with no league (see the comment at the
+    // `logAudit` call in `auth.ts:updateOwnPassword`). Worded so it cannot be
+    // misread as one: actor and target are the same person.
+    case "set_own_password":
+      return `${e.actor} set their own password`;
     default:
       // An action added without a sentence here should read as unfinished, not
       // as something that did not happen.
