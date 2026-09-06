@@ -19,6 +19,12 @@ export async function GET(
     getSchedule(seasonId),
     publicLeagueOfSeason(seasonId),
   ]);
+  // ⚠️ The comment above describes a header-only file that "looks like a real
+  // but empty season" and calls it worth a 404 — and an unknown-but-well-formed
+  // id produced exactly that, with a 200 on it, until this line. Same guard,
+  // same reason, one case later. See the sibling `.ics` route for why a null
+  // league covers both "no such season" and "not yours to read".
+  if (!league) return new Response("Not found", { status: 404 });
   const csv = buildScheduleCsv(
     games
       .filter((g) => isExportableFixture(g.status))
