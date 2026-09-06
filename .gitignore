@@ -44,3 +44,6 @@ next-env.d.ts
 
 # Claude Code session exports
 20[0-9][0-9]-*.txt
+
+# Claude Code worktrees, agent state
+.claude/

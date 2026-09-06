@@ -1,5 +1,10 @@
 # One site, not two — merged chrome, team-logo ink, and where sign-out lands
 
+> **Built 2026-09-06.** The record of what actually shipped — commit shas,
+> measured test counts, the migration, and the four things this spec got wrong —
+> is `docs/superpowers/plans/2026-09-06-one-site-chrome-and-logo-ink.md`. Read
+> that one if you are picking this up after the fact; this file is the design.
+
 **Protocol — read this and nothing else to resume.**
 
 1. This file is self-contained: the ask, the full call-site audit, the hazards,
