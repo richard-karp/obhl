@@ -41,10 +41,15 @@ supabase migration list --linked`, and `0032`'s backfill confirmed by
 Nothing in this file's scope is outstanding. The per-league work shipped, and
 so did CI, the `typecheck` script and the `saveRules` audit entry.
 
-**Outstanding work now lives in `LAUNCH_READINESS_HANDOFF.md`** — two open
-production doors, three false claims in `LAUNCH.md`, and the audit-log gaps in
-`people.ts` / `seasons.ts` / `announcements.ts`. That file is the one to read
-first; this one is background for its item 3.
+**Outstanding work now lives in `LAUNCH_READINESS_HANDOFF.md`.** That file is
+the one to read first; this one is background for its item 3.
+
+⚠️ **This paragraph used to describe what was open there, and every one of those
+had closed by 2026-09-06** — the two production doors (items 1 and 2), the false
+claims in `LAUNCH.md`, and the audit-log gaps in `people.ts` / `seasons.ts` /
+`announcements.ts`. A pointer that names its target's contents goes stale on
+someone else's commit, so this one no longer tries: **read the items table and
+*Open — waiting on a person* there for the current list.**
 
 ## What CI runs
 

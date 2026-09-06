@@ -30,7 +30,7 @@ SQL. Get the slug right the first time.
 
 Do this before the URL is reachable by anyone.
 
-- [ ] **Delete all five seeded accounts** (Dashboard → Authentication → Users):
+- [x] **Delete all five seeded accounts** (Dashboard → Authentication → Users):
 
           manager@obhl.test              scorekeeper@obhl.test
           captain@obhl.test              single-league-lead@obhl.test
@@ -45,10 +45,15 @@ Do this before the URL is reachable by anyone.
       ⚠️ `single-league-lead@` is a **manager**. It and `single-league-scorer@`
       arrived with the per-league membership tests, after this list was first
       written — check for all five, not the three this used to name.
-- [ ] **Confirm `ENABLE_DEV_LOGIN` is not set** in the production environment:
+
+      ✅ **Done 2026-09-04**, by a human at the dashboard. ⚠️ Taken on report
+      rather than measured — the account list has never been read from here.
+- [x] **Confirm `ENABLE_DEV_LOGIN` is not set** in the production environment:
       `vercel env ls production`. The one-click role buttons are off in a
       production build unless this is `true` (`src/lib/auth/dev-login.ts`), but
       confirm rather than assume.
+      ✅ **Watched 2026-09-04**: `vercel env ls` shows the key absent from
+      **every** environment, not just production.
 
 ## Phase 2 — Configuration
 
@@ -73,6 +78,18 @@ redeploy.
 
 - [ ] **Site URL and redirect allow-list** include the production domain, or
       `/auth/confirm` rejects the magic link at the last step.
+      ⛔ **The allow-list needs a SECOND entry, and its absence is silent.**
+      The password-reset link asks Supabase to return to
+      `/auth/confirm?next=/set-password` — a QUERY STRING the magic link never
+      had, and the list matches exact URLs with wildcards. **Measured
+      2026-09-05** against the local stack: an unlisted `redirectTo` returns
+      **no error**, the mail still arrives, and `redirect_to` is silently
+      rewritten to the Site URL — so the person lands signed-in on `/` with the
+      token already spent, and the action reports success. Add a pattern
+      covering `https://<prod host>/auth/confirm?**` **before sending the first
+      reset**. There is no code fix: under PKCE the route receives `?code=…`
+      with no `type`, so it cannot recognise a recovery link. Full evidence in
+      section 7 of `LAUNCH_READINESS_HANDOFF.md`.
 - [ ] **SMTP configured**, or sign-in emails never arrive. The default sender is
       heavily rate-limited and not suitable for real use.
 - [ ] **Custom Access Token hook enabled** — Authentication → Hooks → Customize
@@ -221,6 +238,15 @@ good.
 ## Verification
 
 Against the live site, signed in as manager:
+
+⚠️ **This list was written for the two-league end state, and there is one
+league today.** Steps **1 and 2 cannot pass as written** — measured 2026-09-05,
+not inferred. Steps **5 and 6 have the same dependency** (a switcher needs
+somewhere to switch to; "not the other's" needs an other) — that is a reading of
+the list, not a measurement. Read those four as satisfied when the single league
+behaves correctly, or defer them to the second league. **Steps 3, 4 and 7 stand
+as written**, and 4-6 are what is still outstanding; see item 4 of
+`LAUNCH_READINESS_HANDOFF.md`.
 
 1. `/` lists both leagues; each links to its own.
 2. `/<league-a>/standings` and `/<league-b>/standings` show different tables.
