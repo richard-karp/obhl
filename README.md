@@ -14,8 +14,11 @@ Built with **Next.js 16 (App Router)**, **Tailwind v4 + shadcn/ui**, and
 - **Captain** — sets their own team's game-day roster.
 - **Scorekeeper** — a global role that records goals/penalties and finalizes games.
 
-Sign-in is **staff-only magic link** (no public sign-up). The public site is
-read-only and needs no account.
+Sign-in is **staff-only** — there is no public sign-up. A magic link is the
+primary way in and the only one that works with no JavaScript; a password is the
+fallback, set by the account holder at `/set-password` (emailed link) or by a
+commissioner in the League Office. The public site is read-only and needs no
+account.
 
 ## Local development
 

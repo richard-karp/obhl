@@ -62,7 +62,7 @@ usually one of them.
 | `NEXT_PUBLIC_SUPABASE_URL` | Production project URL |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Anon/publishable key |
 | `SUPABASE_SECRET_KEY` | Server-only, bypasses RLS. Never expose to the client |
-| `NEXT_PUBLIC_SITE_URL` | Real domain. Magic-link redirects are built from it (`src/lib/actions/auth.ts`); it defaults to `localhost:3000` |
+| `NEXT_PUBLIC_SITE_URL` | Real domain. Magic-link **and password-reset** redirects are built from it (`src/lib/actions/auth.ts`); it defaults to `localhost:3000`. ⚠️ Set on Production only — a link requested from a Preview deploy points at localhost |
 | `NEXT_PUBLIC_SITE_TITLE` | Optional. Landing page heading and tab title |
 | `NEXT_PUBLIC_SITE_SUBTITLE` | Optional. Landing page subtitle |
 
@@ -153,7 +153,11 @@ on conflict (id) do update set role = 'league_manager';
 
 Everyone else is created from `/<league>/people`. Note it **sends no
 email**: the account is created without a password, so tell the person to go to
-`/login` and request a link themselves.
+`/login` and request a link themselves. Once in, they can set a password from
+the **Password** link in the header (`/set-password`) — or a commissioner can set
+one for them from the League Office, which is the path that needs no email at
+all. ⛔ The self-serve reset MAILS a link, so it does not work until custom SMTP
+is configured; see item 7 of `LAUNCH_READINESS_HANDOFF.md`.
 
 ## Phase 5 — Leagues and data
 
