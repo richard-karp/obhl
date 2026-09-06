@@ -5,6 +5,7 @@ import { getEnrolledTeams } from "@/lib/queries/teams";
 import {
   getPublishState,
   getScheduleConstraints,
+  getSeasonNights,
 } from "@/lib/queries/schedule";
 import {
   describeConstraint,
@@ -30,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ScheduleGenerateForm } from "@/components/manage/schedule-generate-form";
+import { RescheduleNightForm } from "@/components/manage/reschedule-night-form";
 import { PublishControls } from "@/components/manage/publish-controls";
 import { RemoveControls } from "@/components/manage/remove-controls";
 import {
@@ -80,6 +82,12 @@ export async function ScheduleBuilderPanel({
   const storedConstraints = await getScheduleConstraints(seasonId, {
     client: admin,
   });
+
+  // The published season as nights, for the live-schedule tools below. Read even
+  // when there is no live schedule — it comes back empty, and the alternative is
+  // a conditional await that has to be kept in step with the render below.
+  const seasonNights = await getSeasonNights(seasonId, { client: admin });
+  const openNights = seasonNights.filter((n) => !n.locked);
 
   // This panel's own draft read is part of the same fail-closed contract as
   // getPublishState's six. It errors independently and PostgREST hands back
@@ -442,6 +450,32 @@ export async function ScheduleBuilderPanel({
           ) : null}
         </>
       )}
+
+      {/*
+        The live-schedule tools. Rendered in EVERY mode that has published games
+        — `locked` above all, since that is the mode they exist for: once
+        `season_is_started` trips, generate, replace and remove are gone for
+        good and this is the only way left to change a night. `readFailed` hides
+        them because the night list behind them would be empty for the same
+        reason the counts are unknown, and an empty picker reads as "nothing to
+        move" rather than "we couldn't look".
+      */}
+      {publish.liveCount > 0 && !readFailed ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Move a game night</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RescheduleNightForm
+              seasonId={seasonId}
+              nights={openNights.map((n) => ({
+                date: n.date,
+                games: n.games.length,
+              }))}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       {!hasDraft ? (
         // Not on a locked season. This section keys off the draft count alone,

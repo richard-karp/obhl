@@ -22,6 +22,7 @@ import {
   getSeasonNights,
   type SeasonNight,
 } from "@/lib/queries/schedule";
+import { checkNightMove, moveNightTo } from "@/lib/schedule/nights";
 import {
   constraintConflicts,
   describeConstraint,
@@ -36,6 +37,7 @@ import { getEnrolledTeams } from "@/lib/queries/teams";
 import {
   leagueOffset,
   formatGameTime,
+  formatLongDate,
   leagueTimeKey,
   leagueDateKey,
 } from "@/lib/format";
@@ -891,6 +893,115 @@ export async function discardSchedule(formData: FormData) {
     .eq("is_draft", true);
   revalidatePath("/[league]/schedule-builder", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
+}
+
+/* ------------------------------------------------------- reschedule a night */
+
+export type RescheduleNightState = { ok: boolean; message: string } | null;
+
+/**
+ * Move every game on one night to another date.
+ *
+ * ⛔ AN IN-PLACE UPDATE BY ID, NEVER `replace_published_schedule`. This exists
+ * to be usable on a season already being played — `season_is_started` shuts
+ * generate, replace and remove permanently once the first game is in the past —
+ * so it takes the same write path `applyOneOffGame` does: an ordinary
+ * authenticated update of the rows that move, with their ids untouched, which is
+ * what keeps the teams' calendar subscriptions pointing at the same events.
+ *
+ * Three refusals, each saying its own thing:
+ *
+ *  - **A locked source night**, and it names the game that locked it. Moving the
+ *    unplayed remainder of a night somebody has already started scoring would
+ *    split a night in two silently, which is worse than not moving it.
+ *  - **A non-empty target night.** ⚠️ Merging two nights is out of scope on
+ *    purpose: it changes how many games run in an evening, which is an
+ *    ice-booking question this app cannot answer. The refusal names the count so
+ *    the manager can see what is in the way.
+ *  - **A date that is not a game night**, which is the stale-tab case.
+ *
+ * Participation is untouched — the same teams play the same opponents, only the
+ * calendar date moves — so nothing here needs the repair engine.
+ */
+export async function rescheduleNight(
+  _prev: RescheduleNightState,
+  formData: FormData,
+): Promise<RescheduleNightState> {
+  const admin = createAdminClient();
+  const target = await targetSeasonForManager(
+    admin,
+    String(formData.get("season_id") ?? ""),
+  );
+  if (!target) return { ok: false, message: "No season selected." };
+  const { seasonId, manager } = target;
+
+  const from = String(formData.get("from_date") ?? "").trim();
+  const to = String(formData.get("to_date") ?? "").trim();
+  // Shape only. Everything about the schedule — is this a night, is it locked,
+  // is the target free — is `checkNightMove`'s, below.
+  if (!DATE_RE.test(from)) {
+    return { ok: false, message: "Pick a night to move." };
+  }
+  if (!DATE_RE.test(to)) {
+    return { ok: false, message: "Pick a date to move it to." };
+  }
+
+  const [nights, teams] = await Promise.all([
+    getSeasonNights(seasonId, { client: admin }),
+    getEnrolledTeams(seasonId, { client: admin }),
+  ]);
+  const nameOf = (id: string) =>
+    teams.find((t) => t.id === id)?.name ?? "a removed team";
+
+  // Every refusal, in one pure and separately tested place — see
+  // `checkNightMove`. Re-read here rather than trusted from the form: the
+  // picker only offers unlocked nights, but a stale tab's option list is not a
+  // guarantee about the schedule as it is now.
+  const refusal = checkNightMove({ nights, from, to, nameOf });
+  if (refusal) return { ok: false, message: refusal };
+
+  const source = nights.find((n) => n.date === from)!;
+  const moves = moveNightTo(source.games, to);
+  if (moves.length !== source.games.length) {
+    // Only a game with no date of its own can be dropped, and its night would
+    // have been locked. Fail closed rather than move the half that has one.
+    return {
+      ok: false,
+      message: "That night has a game with no time on it — move it on its own.",
+    };
+  }
+
+  // One statement per row rather than an upsert: these rows exist, and an
+  // `upsert` would silently INSERT a dateless game if one were deleted between
+  // the read and the write. `.eq("season_id")` keeps a stale id from another
+  // season out of the update even though the ids came from this season's read.
+  for (const m of moves) {
+    const { error } = await admin
+      .from("games")
+      .update({ scheduled_at: m.scheduledAt })
+      .eq("id", m.id)
+      .eq("season_id", seasonId);
+    if (error) return { ok: false, message: error.message };
+  }
+
+  await logAudit({
+    user_id: manager.id,
+    action: "reschedule_night",
+    entity_type: "season",
+    entity_id: seasonId,
+    old_data: { date: from, games: source.games.map((g) => g.id) },
+    new_data: { date: to, games: moves },
+  });
+
+  revalidatePath("/[league]/schedule-builder", "page");
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
+  revalidatePath("/[league]/schedule", "page");
+  revalidatePath("/[league]", "page");
+
+  return {
+    ok: true,
+    message: `Moved ${moves.length} game${moves.length === 1 ? "" : "s"} from ${formatLongDate(from)} to ${formatLongDate(to)}.`,
+  };
 }
 
 /* ------------------------------------------------------------------ one-off */
