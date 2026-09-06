@@ -369,6 +369,11 @@ are fixed; see §3. What follows are choices, not oversights.
   building a season for it.
 - `src/lib/schedule/oneOff.ts` — the mid-season repair. See `EXPORTS_HANDOFF.md` §4
   before touching it.
+- `src/lib/schedule/gameWrites.ts` — the single write path for every schedule
+  edit: the night move, the repair, the one-off. `applyGameWrites` is pure;
+  `writeGames` in `src/lib/actions/schedule.ts` binds it to Supabase. See
+  `EXPORTS_HANDOFF.md` §2, and §4 for why `expectScheduledAt` may be asserted
+  non-null.
 - `src/lib/schedule/constraints.ts` — manager constraints: resolution to solver
   indices, contradiction and arithmetic refutation, satisfaction read off the
   placed games, and the forced-bye credits presentation subtracts. Storage is
@@ -381,7 +386,9 @@ are fixed; see §3. What follows are choices, not oversights.
   `describe("assignSlots weekday split")`, alongside Phase M's — not in a
   `slots.test.ts`.
 
-Verify with `npx vitest run` (222 pass), `npm run lint`, `npx tsc --noEmit`.
+Verify with `npx vitest run` (**444 pass across 32 files** — watched
+2026-09-06 at `c87764e`; the count moves with every branch, so re-run rather than
+quote it), `npm run lint`, `npx tsc --noEmit`.
 
 The suite runs Phase S at production's 5 s budget (`vitest.config.ts`), so it takes
 ~36 s. That is deliberate: a shorter budget once hid a real defect by building

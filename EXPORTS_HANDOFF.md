@@ -46,6 +46,21 @@ making `seasonId` optional — a caller who then forgets it silently reads the
 whole league — and don't season-scope the feed, which would delete past games out
 of calendars that already hold them.
 
+**`src/lib/schedule/gameWrites.ts`** — the single write path for a schedule
+*edit*, new with #38 (`c87764e`). Not the only code that writes `games` at all —
+scoring, the postponement RPCs and `replace_published_schedule` each own their
+own — but the only one the three editing actions go through: `rescheduleNight`,
+`applyScheduleRepair`, `applyOneOffGame`. `applyGameWrites` is pure and
+unit-tested there; `writeGames` in `src/lib/actions/schedule.ts` binds it to
+Supabase and files the audit entry its failures need.
+
+⛔ Every one is an **UPDATE by id, never an upsert.** An upsert INSERTs when the
+id is gone, which resurrects a deleted game as a live fixture — `is_draft`
+defaults false. It pre-flights, writes each row conditionally on the values it
+expects to find, and compensates when a write fails.
+⚠️ There is no transaction behind any of it; that is
+`LAUNCH_READINESS_HANDOFF.md` §5's first post-launch job.
+
 **Three routes**, all thin: `[seasonId]/route.ts` (season `.ics`),
 `[seasonId]/schedule.csv/route.ts`, `team/[teamId]/feed.ics/route.ts`. Each
 validates its id with `isUuid`, fetches through a query helper, filters with
@@ -172,11 +187,22 @@ if you "simplify" it away:
 
 **The trap.** `SeasonNightGame.scheduledAt` holds the game's *own* `scheduled_at`
 — null when postponed — and **not** the date its night was derived from. The
-one-off repair writes that field straight back to the column
-(`src/lib/actions/schedule.ts`). If you ever conflate the two, the repair will
+one-off repair hands that field to `applyGameWrites`
+(`src/lib/schedule/gameWrites.ts`, via `writeGames` in
+`src/lib/actions/schedule.ts`). If you ever conflate the two, the repair will
 resurrect a date that was cleared on purpose and leave a row claiming both a
 schedule and a postponement. `groupIntoNights` keeps them apart deliberately:
 `Slot.at` for placement and ordering, `game.scheduledAt` for what gets written.
+
+**Since #38 that preserved date is load-bearing, not merely prudent.** Both
+write sites pass `expectScheduledAt: r.scheduledAt!` — a non-null assertion whose
+soundness is one chain and nothing else: `groupIntoNights` places a postponed game
+by `postponed_from`, so it stays on its night; it locks any night holding a game
+whose status is not `scheduled`; and `checkOneOffWrite` refuses a locked night, so
+no row for a postponed game ever reaches the writer. ⛔ Clear `postponed_from` and
+the FIRST link breaks — the game leaves its night, the night stops being locked,
+and the assertion becomes a null in a `WHERE` clause. That is this table's first
+row over again, now with a second victim.
 
 ---
 
@@ -255,6 +281,7 @@ future-dated — anything that ages them past `now()` locks it.
 | `src/lib/schedule/nights.ts` + test | `groupIntoNights` — placement and locking |
 | `src/lib/schedule/publishMode.ts` + test | the builder's five modes |
 | `src/lib/queries/schedule.ts` | the single read path; every team filter guarded by `isUuid` |
+| `src/lib/schedule/gameWrites.ts` + test | the single write path for a schedule edit; UPDATE by id, conditional on expected values |
 | `src/lib/db/uuid.ts` + test | `isUuid` |
 | `src/lib/format.ts` + test | league-zone dates, `leagueWeekday`, `weekdayOf` |
 | `src/app/api/schedule/**` | the three routes |

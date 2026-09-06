@@ -20,7 +20,9 @@ front which section matters for which kind of change.
 - **`SCHEDULE_HANDOFF.md`** — the schedule generator: weekday balance, bye
   spacing, ice-time share, and why the phases are ordered as they are.
 - **`EXPORTS_HANDOFF.md`** — the CSV and calendar exports, the single read path
-  through `src/lib/queries/schedule.ts`, and what postponing a game does to its
+  through `src/lib/queries/schedule.ts`, the single *write* path for a schedule
+  edit through `src/lib/schedule/gameWrites.ts` (§2 — an UPDATE by id, never an
+  upsert, and no transaction behind it), and what postponing a game does to its
   date. Section 4 describes a way to silently corrupt game rows while believing
   you are simplifying; read it before touching postponement or the one-off
   planner.
