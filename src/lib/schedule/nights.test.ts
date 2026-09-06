@@ -223,8 +223,17 @@ describe("checkNightMove", () => {
   });
   const nameOf = (id: string) => (id === "home" ? "Bears" : "Sharks");
 
-  const check = (nights: SeasonNight[], from: string, to: string) =>
-    checkNightMove({ nights, from, to, nameOf });
+  const TODAY = "2026-09-20";
+
+  const check = (
+    nights: SeasonNight[],
+    from: string,
+    to: string,
+    season: { startsOn: string | null; endsOn: string | null } = {
+      startsOn: null,
+      endsOn: null,
+    },
+  ) => checkNightMove({ nights, from, to, today: TODAY, season, nameOf });
 
   it("allows a move onto an empty date", () => {
     expect(check([night("2026-09-22")], "2026-09-22", "2026-09-29")).toBeNull();
@@ -266,5 +275,50 @@ describe("checkNightMove", () => {
       night("2026-09-24", { games: [game({ id: "x" }), game({ id: "y" })] }),
     ];
     expect(check(nights, "2026-09-22", "2026-09-24")).toContain("2 games");
+  });
+
+  /**
+   * ⛔ THE ONE-WAY DOOR. `season_is_started` is true as soon as any published
+   * game's `scheduled_at` is in the past, and from that moment generate,
+   * replace and remove refuse PERMANENTLY. Moving a live night backwards trips
+   * it without anybody publishing anything.
+   *
+   * And it does not undo: `groupIntoNights` marks a night with a past date
+   * `locked`, so the move back is refused by the guard above and the only way
+   * out is `rescheduleGame`, one game at a time.
+   */
+  it("refuses moving a night into the past", () => {
+    const why = check([night("2026-09-22")], "2026-09-22", "2026-09-19");
+    expect(why).toMatch(/already passed/);
+    // Named for what it costs, not just refused.
+    expect(why).toMatch(/locks the season/i);
+    expect(why).toMatch(/no undo/i);
+  });
+
+  it("allows a move onto today", () => {
+    // Tonight is a legitimate game night — the same call `isPastGameNight`
+    // makes for the generator's first night.
+    expect(check([night("2026-09-22")], "2026-09-22", TODAY)).toBeNull();
+  });
+
+  it("refuses a target before the season starts", () => {
+    const season = { startsOn: "2026-09-21", endsOn: "2027-03-31" };
+    expect(
+      check([night("2026-09-22")], "2026-09-22", "2026-09-20", season),
+    ).toMatch(/before .* season/i);
+  });
+
+  it("refuses a target after the season ends", () => {
+    const season = { startsOn: "2026-09-01", endsOn: "2026-09-30" };
+    expect(
+      check([night("2026-09-22")], "2026-09-22", "2026-10-05", season),
+    ).toMatch(/after .* season/i);
+  });
+
+  it("allows a target inside the season's dates", () => {
+    const season = { startsOn: "2026-09-01", endsOn: "2027-03-31" };
+    expect(
+      check([night("2026-09-22")], "2026-09-22", "2026-09-29", season),
+    ).toBeNull();
   });
 });

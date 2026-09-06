@@ -126,11 +126,46 @@ export function checkNightMove(opts: {
   nights: SeasonNight[];
   from: string;
   to: string;
+  /**
+   * The league-local calendar date, supplied by the caller for the reason
+   * `groupIntoNights` takes it: server-UTC is up to five hours ahead of the
+   * league's zone, which would refuse a same-day move every evening after 7pm.
+   */
+  today: string;
+  /** The season's own bounds, either end nullable. */
+  season: { startsOn: string | null; endsOn: string | null };
   /** Team id → name, for naming the game that blocked the move. */
   nameOf: (id: string) => string;
 }): string | null {
-  const { nights, from, to, nameOf } = opts;
+  const { nights, from, to, today, season, nameOf } = opts;
   if (from === to) return "That night is already on that date.";
+
+  /**
+   * ⛔ THE ONE-WAY DOOR, AND THE REASON THIS FUNCTION TAKES `today` AT ALL.
+   *
+   * `season_is_started` (0026) is true the moment ANY published game's
+   * `scheduled_at` is in the past, and from then on `generateSchedule`,
+   * `replace_published_schedule` and `removeSchedule` refuse permanently. These
+   * are already-published rows, so moving a night backwards trips that lock
+   * without anyone publishing anything — the same trap `isPastGameNight` guards
+   * the generator against, on a path that does not even need a publish.
+   *
+   * ⚠️ AND IT DOES NOT UNDO. `groupIntoNights` marks a night whose date is
+   * behind us `locked`, so the move back is refused by the lock check below and
+   * the only way out is `rescheduleGame`, one game at a time.
+   *
+   * Today itself passes, matching `isPastGameNight`: tonight is a legitimate
+   * game night, and refusing it would cost the manager a real option.
+   */
+  if (to < today) {
+    return "That date has already passed. Moving live games into the past locks the season — it can no longer be regenerated, replaced or removed — and there is no undo.";
+  }
+  if (season.startsOn && to < season.startsOn) {
+    return `${formatLongDate(to)} is before the season starts on ${formatLongDate(season.startsOn)}.`;
+  }
+  if (season.endsOn && to > season.endsOn) {
+    return `${formatLongDate(to)} is after the season ends on ${formatLongDate(season.endsOn)}.`;
+  }
 
   const source = nights.find((n) => n.date === from);
   if (!source) return "That date isn't a game night this season.";
@@ -152,8 +187,16 @@ export function checkNightMove(opts: {
   return null;
 }
 
-/** One game's new timestamp, as `rescheduleNight` writes it. */
-export type MovedGame = { id: string; scheduledAt: string };
+/**
+ * One game's new timestamp, as `rescheduleNight` writes it.
+ *
+ * `from` rides along because the write is conditional on it: the update applies
+ * only while the row still holds the time this plan was computed against, so a
+ * game rescheduled or postponed in between refuses instead of being dragged to
+ * the new night. Carrying it here is what keeps the write path from re-deriving
+ * it and getting a null.
+ */
+export type MovedGame = { id: string; from: string; scheduledAt: string };
 
 /**
  * Move a whole night's games to another date, keeping their ice-time order and
@@ -184,6 +227,7 @@ export function moveNightTo(
       ? [
           {
             id: g.id,
+            from: g.scheduledAt,
             scheduledAt: `${targetDate}T${leagueTimeKey(g.scheduledAt)}:00${offset}`,
           },
         ]
