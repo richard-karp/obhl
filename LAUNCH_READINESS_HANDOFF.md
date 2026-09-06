@@ -2,40 +2,59 @@
 
 **Protocol — read this and nothing else to resume.**
 
-1. This file is self-contained. `ACCESS_CONTROL_HANDOFF.md` (~203 lines) holds
+1. This file is self-contained. `ACCESS_CONTROL_HANDOFF.md` (~225 lines) holds
    the membership model and its traps — open it only when auditing another action.
    Do **not** read `docs/superpowers/specs/2026-08-31-per-league-routing-design.md`
    (383 lines); nothing outstanding depends on it.
 2. ⛔ **Hazards, before any instruction:**
    - `supabase db reset --linked` **wipes production**. Use `db push`.
-   - ⚠️ **The lockout risk is still real, but it lost a leg on 2026-09-05.**
-     Items 1 and 2 are closed, so dev-login and the seeded accounts are both
-     gone — and with them every verified way into production's manage tools.
-     Of the three ways in that could break, **the JWT hook is no longer one**:
-     `getSessionUser` now falls back to `profiles.role` (#24, workstream D1).
-     SMTP and the redirect allow-list are untouched and still break sign-in one
-     step earlier, at the link itself. Recovery is still SQL. See
-     *Getting locked out*.
+   - ✅ **The lockout risk is closed as of 2026-09-05.** All three legs are
+     accounted for: the JWT hook degrades to a `profiles.role` lookup (#24,
+     workstream D1), and SMTP and the redirect allow-list were both exercised
+     end to end by a real magic-link sign-in that day. What that sign-in
+     exposed instead is the failure BELOW those legs — a session with no
+     `profiles` row signs in fine and is offered nothing. Recovery is still
+     SQL. See *Getting locked out*.
+   - ⛔ **A SCHEDULE PUBLISHED WITH A PAST DATE LOCKS THE SEASON INSTANTLY AND
+     FOR GOOD.** `season_is_started` (`0026`) counts only `not is_draft`, so a
+     past-dated DRAFT is invisible to the gate and looks completely fine — until
+     it is published, at which point generate, replace and remove all refuse
+     permanently. The builder's "First game night" pre-fills from the season's
+     `starts_on`, is `required`, and has **no `min`**; `generateSchedule` never
+     checks it either. *Verified in the code 2026-09-05, not reproduced against
+     production.* **Read that date before publishing.** ⚠️ A ~20-minute guard
+     closes it without waiting for PR #23 — see *Item 9* below.
    - **Mutating** `gh` (`pr create`, `pr merge`) and `vercel env` are denied to
      an agent under the auto-mode classifier — ask a human, do not work around
      it. **Read-only `gh` works**: `run list`, `run view`, `run download`. On a
      red CI run, pull the artifact and read `error-context.md` yourself; its
      page snapshot has twice settled in seconds what guessing got wrong.
-3. Every number here was **watched appear**. Where a claim is a reading of the
+3. ⛔ **The hot tier — everything above *The items* — is capped at 130 lines.**
+   Adding to it means evicting something to a section below, in the same edit.
+   Count first (`awk '/^## The rule item 6/{print NR; exit}'`), decide what
+   leaves, then write to the space you freed. Raise the number deliberately and
+   say why, or it drifts two lines at a time and the file stops being cheap.
+4. Every number here was **watched appear**. Where a claim is a reading of the
    code rather than a measurement, it says so in those words.
-   ⚠️ Production was read on **2026-09-04**: `migration list --linked` shows
-   `0001`-`0038` on both Local and Remote — no gaps, no drift — and
-   `vercel env ls` shows `ENABLE_DEV_LOGIN` absent from every environment. The
-   auth user list is still **unread from here**; item 2 was closed by a human and
-   is taken on report, not measured.
-   ⚠️ **That reading is now stale on the Local side and unrepeated on the
-   Remote one.** `0039`-`0041` exist in the repo as of #24 and have never been
-   pushed; Remote has not been read since 2026-09-04, and `migration list
-   --linked` **cannot run from a worktree** — the link lives in the main
-   checkout. Run it there. This is item 6.
-4. Verify code changes with `npm test && npm run test:e2e`. Measured on CI at
-   `244e95b` (`feat/manager-tools`), 2026-09-05: **27 unit files / 357 tests;
-   168 e2e passed / 1 skipped / 0 failed** in 9.2m, across 23 spec files. The
+   ⚠️ Production was read again on **2026-09-05**, after #31 merged:
+   `migration list --linked` shows `0001`-`0043` on Local, Remote **and**
+   Applied — no drift. `0005` and `0017` are absent from every column and always
+   have been: those numbers were never used, 41 files span `0001`-`0043`, and
+   the sides agree. Not a gap; do not try to repair it.
+   `vercel env ls` (2026-09-04) shows `ENABLE_DEV_LOGIN` absent from every
+   environment. The auth user list is still **unread from here**; item 2 was
+   closed by a human and is taken on report, not measured.
+   ⛔ **`migration list --linked` needs the link, and worktrees do not have
+   it.** `supabase/.temp/` is gitignored, so only the checkout that ran
+   `supabase link` carries `project-ref` and `linked-project.json`. ⚠️ Do NOT
+   reach for `--workdir <main checkout>` to borrow it: that also switches which
+   `supabase/migrations` directory is read, so a `db push` aimed at the main
+   checkout pushes whatever is on `main` and silently skips the migrations that
+   exist only on your branch. Copy those two files into the worktree's
+   `supabase/.temp/` instead, or re-run `supabase link` there.
+5. Verify code changes with `npm test && npm run test:e2e`. Measured on CI at
+   `f131d6c` (`main`, the #31 merge), 2026-09-05: **28 unit files / 365 tests;
+   183 e2e passed / 1 skipped / 0 failed** in 7.5m, across 23 spec files. The
    skip is the AI-summary test, gated on an API key — not a regression.
    ⚠️ The counts move with every merge; re-measure rather than quoting them.
    ⛔ **Run e2e against a dev server belonging to YOUR worktree.** Playwright's
@@ -47,49 +66,98 @@
    still defaults to 3000, so two worktrees that both forget still collide.
    `lsof -ti:$PORT` before believing a red run.
 
-**Status: both doors are shut; three migrations are now waiting.** As of
-2026-09-04 `ENABLE_DEV_LOGIN` is gone from every Vercel environment, the seeded
-accounts are deleted, and production carries `0001`-`0038` — including `0037`,
-which fixed GAA being inflated by empty-net goals on live pages. Since then #24
-has added `0039`-`0041`, **unpushed**.
+**Status: both doors are shut and every migration is pushed.** As of
+2026-09-05 `ENABLE_DEV_LOGIN` is gone from every Vercel environment, the seeded
+accounts are deleted, and production carries `0001`-`0043` — including `0037`,
+which fixed GAA being inflated by empty-net goals on live pages; `0039`-`0041`,
+which #24's manage tools read; and `0042`/`0043`, which let a league's own
+scorekeepers and captains read it before it is public (*Member reads*, below).
 
-**What remains is item 4 (the `LAUNCH.md` phases, never verified) and item 6
-(the three migrations).** Both need a human on production. Item 5 is deferred
-odds and ends, item 7 is the half of the auth work that a checkout cannot do.
+⚠️ **THIS FILE IS NOT ON `main` YET.** It lives on `docs/readiness-and-url-space`
+(PR #33). `main`'s copy still says migrations are unpushed and a
+sign-in is unverified — both false. Merging #33 is what stops the next reader
+being misled. Everything else waiting on a person rather than on work — the
+other open PRs, two decisions, a stale branch — is listed under *Open — waiting
+on a person* below. Nothing outstanding from 2026-09-05 is anywhere else.
+
+**What remains is item 4: the `LAUNCH.md` phases — and it now has a date on
+it.** The published season's first game night is **2026-09-10**, after which its
+schedule is locked for good. Item 5 is deferred odds and ends, item 7 is the
+half of the auth work that a checkout cannot do.
 
 ## Next action
 
-**Push `0039`-`0041` before #24 merges — in that order, not the other one.**
+⛔ **THE MANAGER IS REBUILDING THE SCHEDULE, AND THE WINDOW SHUTS
+THURSDAY 2026-09-10 23:00 UTC.** Stated intent (2026-09-05): discard the current
+draft and generate a new one. 144 games are published, first one that Thursday,
+all still in the future — so nothing is locked yet.
 
-⛔ **The merge deploys code that reads tables production does not have.** Vercel
-builds `main` on merge, and #24's pages select `season_schedule_constraints`,
-`player_league_archive` and `teams.logo_text_color`. The failures are not
-uniform, and the quiet ones are worse than the loud one:
+**The safe sequence, and it is not the obvious one.** Publishing IS the replace:
+`publishSchedule` calls `replace_published_schedule`, which deletes the live
+games and promotes the draft in ONE transaction. So generate and review while the
+old schedule stays up, then publish.
 
-- **Public standings degrade by design.** `getStandings` logs and carries on,
-  and `inkOf` falls back to null, which `TeamLogo` already renders as the white
-  letters it drew before `0041`. Nobody sees anything wrong.
-- **`archivedPlayerIdsIn` returns an empty set** on a failed read, so no one
-  looks archived and every removed player is back in the pickers — a correct
-  page showing the wrong league.
-- **The manage roster page 404s.** `teams` is read with an explicit
+1. `/lcc-old-boys-hockey-league/schedule-builder` → **Discard** (drafts only —
+   `discardSchedule` filters `is_draft = true`, has no lock gate, and cannot
+   touch a published game). Repeatable, costs nothing.
+2. **Generate**, review, regenerate as often as wanted.
+3. **Publish** — the one-way door. ⛔ Check the date field first; see the lock
+   hazard in the protocol above.
+
+⛔ **Do not press Remove first.** `0027`'s own comment says why the delete and
+the promotion are one transaction: run as two, "a failure between them leaves the
+season with ZERO games" — schedule page, both feeds and the CSV all empty. Remove
+is for abandoning a season's schedule, not for rebuilding one.
+
+⚠️ The lock also trips on `status <> 'scheduled'` or any goals, so a scorekeeper
+touching a game closes the window early. And every regenerated game gets a new
+id, so all 144 calendar UIDs change and subscribers see their events replaced.
+
+**Then the rest of `LAUNCH.md` Phases 2-6** — steps 4, 5 and 6 of its
+*Verification* list, which need a session. Nothing else outstanding can be done
+from a checkout.
+
+✅ **Sign-in, the app guard and RLS were all verified on production 2026-09-05**
+— see *Verified on production* under item 4. ⛔ **Test `/<slug>/dashboard`, never
+`/`**: a completed sign-in lands on `/`, which shows no badge to anybody, and
+that cost a round of misdiagnosis here. ⚠️ That URL was `/<slug>/manage/dashboard`
+when it was verified; #31 removed the `/manage/` prefix the day after, and
+`next.config.ts` redirects the old one.
+
+
+## The rule item 6 leaves behind — push migrations BEFORE merging their code
+
+⛔ **A merge deploys. If the code reads a table production does not have yet,
+the deploy is the outage.** Vercel builds `main` on merge, so the window between
+"merged" and "migration applied" is served to real users. `0039`-`0041` went to
+Remote first on 2026-09-05 and #24 merged after, which is the order to keep.
+
+⚠️ **The reason to care is that the failures are not uniform, and the quiet ones
+are worse than the loud one.** Had it gone the other way, #24 would have shown:
+
+- **Public standings degrading by design** — `getStandings` logs and carries on
+  and `inkOf` falls back to null, which `TeamLogo` renders as the white letters
+  it drew before `0041`. Nobody sees anything wrong.
+- **`archivedPlayerIdsIn` returning an empty set**, so nobody looks archived and
+  every removed player is back in every picker — a correct-looking page showing
+  the wrong league.
+- **The manage roster page 404ing** — `teams` is read with an explicit
   `logo_text_color` in the select list and `if (!team) notFound()` follows, so
   the whole page goes rather than the colour.
 
-*A reading of the code, not a probe.* Push first, then merge.
+*A reading of the code, not a probe — the order held, so none of it happened.*
 
-    # from the MAIN checkout, not a worktree — the link lives there
-    npx supabase migration list --linked      # expect 0039-0041 Local-only
-    npx supabase db push --include-all
-    npx supabase migration list --linked      # confirm they landed
+    npx supabase migration list --linked      # what is Local-only?
+    npx supabase db push
+    npx supabase migration list --linked      # confirm both columns
 
-⚠️ `--include-all` is not decoration. `0039`-`0041` sort below nothing applied,
-but they will not be the only gap for long, and `db push` **silently skips** any
-migration sorting under the latest applied one. This exact case needed it for
-`0034`. ⛔ Never `db reset --linked`; it wipes production.
+⚠️ **`--include-all` when, and only when, a number sorts BELOW the latest
+applied one.** `db push` silently skips those. `0039`-`0041` all sorted above
+`0038`, so plain `db push` was enough — but `0034` needed the flag, and parallel
+workstreams that pre-assign migration numbers land out of numeric order by
+design, so assume the gap and check the list rather than the flag.
 
-**Then walk `LAUNCH.md` Phases 2-6 on production.** Nothing else outstanding can
-be done from a checkout.
+⛔ Never `db reset --linked`; it wipes production.
 
 ## The items, and where they stand
 
@@ -98,19 +166,47 @@ be done from a checkout.
 | 1 | `ENABLE_DEV_LOGIN` set on production | Vercel env | ✅ **closed 2026-09-04** — absent from every environment (`vercel env ls`) |
 | 2 | Seeded test accounts live, password in git | Supabase dashboard | ✅ **closed 2026-09-04** — done by a human; not verifiable from a checkout |
 | 3 | `0033` not pushed — the RLS half of the escalation | `supabase db push` | ✅ **closed** — and `0034`-`0038` with it |
-| 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | **OPEN** — below |
+| 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | ⛔ **OPEN, AND ON A CLOCK** — Phase 6's first game night is 2026-09-10; sign-in, access control and the anonymous half of *Verification* are done; steps 4-6 of that list need a session |
 | 5 | Smaller deferred items | below | open |
-| 6 | **`0039`-`0041` not pushed** — #24's three tables | `supabase db push` | **OPEN, and it gates the merge** — *Next action* |
+| 6 | `0039`-`0043` not pushed | `supabase db push` | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides |
 | 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard + `vercel env` | **OPEN** — needs a human; *The other half of auth* |
+| 8 | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code | ✅ **closed 2026-09-05** — steps 1-6 shipped as #31 (which collapsed #25-#29); step 7, the prose, is this commit. Spec: `docs/superpowers/specs/2026-09-05-unified-url-space-design.md` |
+| 9 | **A past first-game-night locks the season on publish** | code | ⛔ **OPEN** — no `min` on the input, no check in `generateSchedule`; the one irreversible mistake available in the builder. a ~20-minute guard is specced in *Item 9 — the cheap guard*; PR #23 is the larger answer and is NOT needed for this |
 
 ⛔ **Do not re-file 1-3.** They are kept as rows, rather than deleted, because a
 reader who knows this file by its old shape will otherwise assume they were
 forgotten. The reasoning behind each is under *Closed doors* below.
 
+⛔ **Do not re-file 6 either.** It is kept for the same reason as 1-3, and
+because the ORDER it was closed in is the reusable part — see *The rule item 6
+leaves behind* above.
+
 ⚠️ **6 and 7 both arrived with #24** (`feat/manager-tools`: schedule
-constraints, roster editing, team branding, staff auth, season gating). Item 6
-is a blocker with a two-line fix; item 7 is a standing limitation that needs an
-account created outside this repo.
+constraints, roster editing, team branding, staff auth, season gating), merged
+2026-09-05 as `b244f65`. Item 7 is the one still open: a standing limitation
+that needs an account created outside this repo.
+
+## Open — waiting on a person, not on work
+
+⚠️ **This is the completeness list.** Everything left outstanding as of
+2026-09-05 appears here or in the items table above; if something is in neither,
+it was finished, and the commit that finished it says so.
+
+⚠️ **No CI verdict is recorded here on purpose.** It goes stale on the next push
+and a stale green is worse than none — `gh run list --branch <branch> --limit 1`
+is one command and is always right.
+
+| What | State | Who |
+|---|---|---|
+| ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in *Next action* |
+| **PR #33** — this file, the URL spec, the production verification | Mergeable; docs only | merge it; `main` is misleading until then |
+| **PR #34** — exports 404 an unknown id instead of an empty file | Mergeable; one test, watched failing then passing | merge it |
+| **PR #23** — future-only scheduling brief/design/plan | Docs only, 2,282 lines, 3 new files, merges cleanly but is far behind | ⚠️ **a decision, not a task.** Merging puts an UNBUILT plan in `docs/superpowers/plans/`, where it reads as scheduled work. Closing it keeps the branch. ⛔ Item 9's guard does NOT depend on it |
+| **Issue #30** — public pages answer 200 for `notFound()` | Investigated, deliberately unfixed, evidence on the issue | a decision: close as working-as-documented (recommended), or accept a database round trip in `proxy` on every page view |
+| **Item 9** — the past-date guard | Specced in *Item 9 — the cheap guard*, below; unbuilt | ~20 minutes; offered 2026-09-05 and not taken up |
+| **`LAUNCH.md` Verification steps 4, 5, 6** | The manager badge, the league switcher, an announcement in one league only | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written |
+| **Item 7** — custom SMTP, then a set/reset flow, then a password field | Sequence written, nothing started | Supabase dashboard + `vercel env` writes; ⛔ not doable from a checkout |
+| **`docs/close-migration-push`** | Its seven commits are all in PR #33 | deletable once #33 lands; ⚠️ it is CHECKED OUT in the `manager-tools` worktree, so remove the worktree's checkout first |
 
 ---
 
@@ -144,6 +240,29 @@ is appointed:** `league_office` starts empty, so `my_office_tier()` is null for
 every account and `may_write_profile` reduces to exactly `0033`'s containment
 test. Appointing the first commissioner is *The first commissioner* below, and
 until that is done nobody holds the tier.
+
+## Member reads (`0042`/`0043`) — a staged league is no longer invisible to itself
+
+Pushed 2026-09-05, after #31. Before them, RLS let a league be read only where
+`leagues.is_public`, so a league staged for launch was invisible to the very
+people preparing it: its own scorekeepers and captains got a 404 at the league
+itself and — with `0042` alone — a page that then resolved and showed nothing,
+because every child table was still public-only. `0043` is the other half, and
+the two are one decision split across two files.
+
+`0042` adds a `member read` policy to `leagues`; `0043` adds one to ten child
+tables, through `player_in_my_league` (`SECURITY DEFINER`, so it can see past
+the caller's own RLS). Policies are OR'd, so both are **purely additive** —
+nothing that was readable stopped being readable, which is why nothing broke in
+the window where the code was deployed and the migrations were not. This is the
+one case where the ordering rule above did not bite.
+
+⛔ **The `_is_public` helpers were deliberately NOT widened**, which is the
+tempting one-line version of this change. `player_is_public` and
+`game_is_public_final` read them to decide what the PUBLIC sees, so teaching
+them that a member's league is "public" propagates the lie out to anonymous
+visitors. The member path is a separate policy for that reason; do not
+consolidate them.
 
 ## Reference — the audit log is closed; the trap under it is not
 
@@ -194,17 +313,52 @@ segments call it per render. A working session still costs no extra query.
 before — the fallback has nothing to find. The hook and the `app_role` enum were
 deliberately not touched.
 
-⛔ **Two legs are still standing.** A missing SMTP config or redirect-allow-list
-entry breaks sign-in one step earlier, at the magic link — before any of this
-runs. With the dev-login panel removed and the seeded accounts deleted, either
-one still leaves no way in but SQL. And whether a real magic-link sign-in works
-has **still never been confirmed**. Doing that — on `obhl.vercel.app`, as a real
-(non-`@obhl.test`) manager, checking `/<league>/dashboard` shows the Manager
-badge — remains the single highest-value action left in this file.
+⛔ **That is not a hypothetical, it is the live failure mode.** Nothing creates
+a `profiles` row on sign-up — there is no trigger on `auth.users` in any
+migration — and `profiles.id` is `references auth.users(id) on delete cascade`,
+with `profile_leagues.profile_id` cascading off `profiles` in turn. So deleting
+an auth user takes its role AND its league memberships with it, and the next
+magic link for that same address mints a **new** user id with neither. The hook
+then adds no claim at all (`0010` writes one only `if v_role is not null`), the
+fallback finds no row, and the person signs in successfully to an app that
+offers them nothing. Restoring the row is *The first manager* in `LAUNCH.md`
+Phase 4, plus a `profile_leagues` row per league.
 
-**`LAUNCH.md` Phases 2-6 are unverified from here.** This file speaks only to
-Phase 1 (the test doors). The site is live with two leagues, so most of the rest
-presumably happened — but *presumably* is the operative word: nobody has checked
+⚠️ **A claim that is PRESENT but stale is not repaired either.** The resolution
+is `claimed ?? profileRole`, so the claim short-circuits the lookup whenever it
+exists. Change someone's role while the hook is on and it does not take effect
+until their next sign-in mints a new token.
+
+✅ **Both of those legs are now confirmed good, 2026-09-05.** A real magic-link
+sign-in on `obhl.vercel.app`, to a real (non-`@obhl.test`) address, was
+requested, delivered and accepted — which exercises SMTP and the redirect
+allow-list end to end, the two settings that had no fallback and had never been
+tested. Reported by the human who ran it; not measured from here.
+
+⚠️ **What that sign-in did NOT show was the Manager badge — and the row was
+fine.** Measured the same day: `profiles` carries `role = 'league_manager'` and
+`display_name`, created 2026-09-03, with one `profile_leagues` row. So this was
+NOT the missing-row case above, and not any of the three legs.
+
+✅ **Nothing was broken. It was the URL.** `src/app/page.tsx` says so in its own
+docstring: `/` is "what a bare domain, a role-denied redirect, and a completed
+sign-in all land on" — and `/` renders no `ManageNav`, because the nav and its
+badge live in `src/app/[league]/(manage)/layout.tsx`. A successful sign-in
+therefore lands on a page that shows no badge to anybody.
+`/lcc-old-boys-hockey-league/dashboard` shows it. ⛔ **Test the dashboard URL,
+never `/`** — this cost a full round of misdiagnosis on 2026-09-05, and the
+symptom of "signed in, no badge, no tools" is identical to a real lockout.
+
+**`LAUNCH.md` Phase 2 is now verified; Phases 3-6 are not.** SMTP, the redirect
+allow-list, the role resolution and the manage tools were all exercised end to
+end on 2026-09-05 (see *Next action*), which is the whole of Phase 2's
+Supabase-dashboard column bar the hook itself. This file otherwise speaks only to
+Phase 1 (the test doors). ⚠️ **Production has ONE league, not two** — measured
+2026-09-05: `lcc-old-boys-hockey-league` ("LCC Old Boys Hockey League"),
+`is_public = true`, and it is the only row in `leagues`. Two is the goal this
+file is named for, not the current state, and `LAUNCH.md`'s verification step 1
+("`/` lists both leagues") cannot pass until a second one exists. The site being
+live means some of the rest presumably happened — but *presumably* is the operative word: nobody has checked
 SMTP, the Supabase redirect allow-list, or that the Custom Access Token hook is
 still enabled. ⚠️ **The hook used to be the one that failed quietly; since #24
 it degrades instead** — sign-in falls back to `profiles.role` and the tools
@@ -239,6 +393,99 @@ any profile — that is the flow the membership model exists for, and closing
 step two is what makes keeping it safe. And the manage dashboard checks
 membership only for a *roled* account, because the page that explains "you have
 no role yet" would otherwise be unreachable; it renders no league data.
+
+### Verified anonymously against production, 2026-09-05
+
+The half of `LAUNCH.md`'s *Verification* list that needs no session. Measured
+with curl against `https://obhl.vercel.app`:
+
+| Check | Result |
+|---|---|
+| `/` lists the leagues | ✅ 200 — but **one** league, `lcc-old-boys-hockey-league`, not two |
+| `/<league>/standings` | ✅ 200 |
+| An unknown slug 404s | ✅ `/nosuchleague-zzz` → 404 |
+| `/api/schedule/team/<id>/feed.ics` resolves | ✅ 200, 36 events, calendar named for the league |
+| `/api/schedule/<season>` and `.../schedule.csv` | ✅ 200 |
+
+⚠️ **Verification steps 1 and 2 cannot pass as written.** They assume two
+leagues; production has one. Steps 4, 5 and 6 (the badge, the league switcher,
+an announcement) need a session and remain for a human — step 4 was separately
+confirmed on 2026-09-05, below.
+
+### The deadline reading, and what it could not see
+
+⚠️ The Phase 6 date in *Next action* was derived from the public ICS feed, which by definition shows only
+PUBLISHED games — it cannot see drafts. If a draft schedule is also sitting in
+that season, this reading will not have found it. The authoritative version
+needs the database:
+
+    select l.slug, s.name as season, s.is_active,
+           count(*) filter (where not g.is_draft) as published_games,
+           count(*) filter (where g.is_draft)     as draft_games,
+           min(g.scheduled_at) filter (where not g.is_draft) as first_night,
+           public.season_is_started(s.id) as already_locked
+    from seasons s
+    join leagues l on l.id = s.league_id
+    left join games g on g.season_id = s.id
+    group by l.slug, s.id, s.name, s.is_active
+    order by l.slug, s.starts_on desc nulls last;
+
+### Verified on production — sign-in, the app guard, and RLS (2026-09-05)
+
+⚠️ **A completed sign-in lands on `/`, which shows no badge to anybody.** That
+is what `src/app/page.tsx` documents ("a bare domain, a role-denied redirect,
+and a completed sign-in all land on" it), and it cost a round of misdiagnosis
+here: the nav and its badge live only in `src/app/[league]/(manage)/layout.tsx`.
+**The test is `/<slug>/dashboard`, never `/`.** Confirmed working at
+`/lcc-old-boys-hockey-league/manage/dashboard`, Manager badge shown — that was
+the URL on the day; #31 dropped the `/manage/` prefix and `next.config.ts`
+redirects it, so the check to repeat is `/lcc-old-boys-hockey-league/dashboard`.
+
+**The app guard.** Every manage route answers `307 -> /login` with no session
+cookie — `dashboard`, `people`, `rosters`, `schedule-builder`, `audit`, and
+`/manage/office` — while `/lcc-old-boys-hockey-league/standings` serves `200`.
+Measured with curl, which carries no cookies, so that is the true anonymous
+case.
+
+⚠️ **That measurement predates #31 by a day, and #31 changed the SHAPE of what
+it measured.** `rosters` is not a route any more, and roster editing did not move
+to another manage route — it moved onto the **public** team page, which serves
+`200` to an anonymous visitor by design. "Every manage route redirects" is
+therefore no longer the whole guard: the surviving redirect list still holds
+(the paths lost only their `/manage/` prefix), but the editor on
+`/<league>/teams/<team>` is guarded by `canManageLeague` deciding whether to
+RENDER it, not by the route refusing to serve. Scoring on `/<league>/schedule`
+is the same shape. ⛔ Re-probing this list would report green while saying
+nothing about either. `ACCESS_CONTROL_HANDOFF.md`'s *Traps* section carries the
+rule — `canManageLeague`/`canScoreLeague` are questions, not guards — and the
+server actions behind those sections are what actually refuse.
+
+**RLS, which is the half that matters.** Probed directly against PostgREST with
+the publishable key, bypassing the app entirely:
+
+| Probe | Result |
+|---|---|
+| `select` on `profiles`, `profile_leagues`, `audit_log`, `league_office` | `[]` each |
+| `select` on `leagues`, `seasons`, `team_players` | rows — public, as designed |
+| `insert` into `announcements` | `401`, `42501 new row violates row-level security policy` |
+| `update` on `leagues`, `profiles`, `team_players` | `200` with `[]` — zero rows matched |
+
+⛔ **The public reads are the load-bearing part of that table, not filler.** Had
+everything returned `[]`, a wrong key or a wrong URL would look exactly like
+working RLS. Public data coming back is what proves the probe reached the
+database as an anonymous caller and *then* got refused. Every write was a
+deliberate no-op (setting a column to the value it already held) except the
+`announcements` insert, which was refused; a follow-up read confirmed no probe
+row landed.
+
+⚠️ **Only the ANONYMOUS dimension is proven on production.** Signed-in-but-wrong-
+role and signed-in-but-wrong-league are proven in the fixture only
+(`e2e/09-access.spec.ts`, and the five API-level tests in
+`16-league-membership.spec.ts` — four refusals plus the own-league positive
+control that stops them passing vacuously). Production has one account and one
+league, so there is nothing there to refuse yet. **Re-probe when a second staff
+member exists**, especially a scorekeeper or captain, whose dashboard should be
+visibly smaller.
 
 ## Tests: never submit an unverified form tamper
 
@@ -334,7 +581,73 @@ is a bootstrap for the flow that has not shipped. What closes it, in order:
 Until 1 lands, 2 and 3 cannot be verified, so none of it should ship. That is
 why the sequence is written down rather than left to whoever picks it up.
 
+## Item 9 — the cheap guard, offered and unbuilt
+
+⚠️ **PR #23 is not the only way to close this, and reaching for it first is the
+mistake this section exists to prevent.** That PR is a 1,708-line plan for
+future-only scheduling as a whole — the right long answer, and far more than is
+needed to stop the irreversible case. Do **not** read it to fix this.
+
+The mitigation is two edits and a test, offered on 2026-09-05 and not taken up:
+
+1. `min` on the date input — `schedule-generate-form.tsx`, the `start_date`
+   `<Input>` around line 510, which today carries only
+   `defaultValue={seasonStart}` and `required`. Browser-side only, so it is the
+   half that cannot be trusted.
+2. The half that can: refuse a past `start_date` in `generateSchedule`
+   (`src/lib/actions/schedule.ts`, near the existing
+   `if (!startDate) return { ok: false, message: "Pick a first game night." }`
+   around line 379). Same shape, one condition later.
+
+⚠️ **Guard the GENERATE, not the publish.** Refusing at publish would be the
+obvious place and is worse: by then the manager has a draft they have reviewed
+and can do nothing with, and the useful message — "this date is in the past" —
+arrives too late to act on cheaply.
+
+*Line numbers read 2026-09-05; re-check the symbols before trusting them.*
+
 ## 5 — Smaller, deliberately deferred
+
+### From the sixth review of #24 — open, never triaged
+
+⚠️ **Recorded from that review, NOT re-verified since.** Treat each as a claim to
+check, not a measurement. No `/fix-all` has been run over them; the user's standing
+pattern is to invoke that skill separately, and it requires an outline plus an
+explicit go-ahead before any code changes.
+
+1. `SCHEDULE_HANDOFF.md` drifted on the `slot_bias` exemption — doc, not code.
+2. `constraintCredits` / `teamMetrics` have **no production reader**. Dead until
+   something renders them.
+3. The constraints panel applies `forcedByeCredits` **unconditionally**, rather than
+   only where a forced bye caused the breach.
+4. `slot_on` resolves against **two different slot lists** depending on the path in.
+   The likeliest of these to be a real bug.
+   ⚠️ **Confirmed 2026-09-05, and the divergence is deliberate on one side.**
+   `generateSchedule` matches pins against the FORM's `slot_times`;
+   `planOneOff`'s caller builds its list from the season AS PUBLISHED
+   (`leagueTimeKey(g.scheduledAt)`, with `--:--` standing in for a postponed
+   game), and says so in a comment. So a pin honoured at generation can fail to
+   match during a one-off repair. Real, documented, low severity — not the
+   silent-corruption shape the review's wording suggests.
+5. The `add_player` revert **deletes a row** that the "returning player" branch only
+   un-departed — so reverting an add can destroy history the add did not create.
+   ⚠️ Same shape as the `0036` goalie-stats class.
+   ✅ **CHECKED 2026-09-05 AND NOT REPRODUCED.** `revertAuditEntries`
+   (`src/lib/actions/audit.ts`, `case "add_player"`) reads the row rather than
+   the entry, counts `game_rosters` scoped to this season through `games`, and
+   marks the player departed instead of deleting when that count is non-zero —
+   with a comment naming the `0036` destruction explicitly. A hard delete
+   happens only where nothing was played. Left in the list with this note rather
+   than removed, because the next reader will otherwise re-derive it.
+6. `refuteConstraints` misses `bye_in_week` on an all-zero-quota week.
+7. The unbounded `players` select — **pre-existing**, not introduced by #24.
+   ⚠️ Re-read 2026-09-05: it survived #31 and now carries a docstring arguing it
+   is correct — the picker must offer people from other leagues, and filtering
+   globally would hide someone from every league that never archived them. That
+   makes it a **scale** question (`src/components/manage/roster-editor.tsx`),
+   not a correctness one, and it now runs only for a manager rather than on
+   every view of the team page.
+
 
 - **`saveRules` read-then-upsert is not atomic** — two concurrent saves both
   read the same previous document, so one audit entry's `old_data` names
@@ -344,6 +657,17 @@ why the sequence is written down rather than left to whoever picks it up.
 - **`save_rules` entries are not revertible.** `old_data` holds what a revert
   needs, but `revertAuditEntries` (`src/lib/actions/audit.ts`) has no case and
   `isRevertible` in the audit page returns false.
+- **Public detail pages answer 200 for `notFound()`** — issue #30, investigated
+  2026-09-05 and **deliberately not fixed**. Measured on a production build, with
+  controls: it is not dev-only, `loading.tsx` is not the cause (removed it, still
+  200), and a `(public)` page throwing before any `await` returns a clean 404 —
+  so the cause is that awaiting suspends and starts the stream, which Next 16
+  documents under `loading.tsx`'s *Status Codes*. Next emits
+  `<meta name="robots" content="noindex">` on every such body, so the soft-404
+  concern is handled; what is left is monitors reading the status line. The
+  documented remedy is a check in `proxy`, i.e. a database round trip on every
+  page view. Full evidence, including the two failed fixes, is on the issue —
+  ⛔ do not re-run those experiments.
 - **CI does not run `npm run lint`**, though the script exists.
 - **No `.nvmrc` or `engines`** — `.github/workflows/ci.yml` is the de-facto
   source of truth for the Node version (22).
@@ -395,15 +719,19 @@ Items 1, 2 and 4 come from `LAUNCH.md`, which remains the operational runbook �
 this file records only what is still outstanding in it. Item 3 came out of the
 PR #13 review on 2026-09-02.
 
-Items 6 and 7 arrived with **PR #24** (`feat/manager-tools`) on 2026-09-05, the
-five-workstream branch planned in
-`docs/superpowers/specs/2026-09-04-manager-tools-and-auth-design.md`. Item 6 is
-mechanical — three migrations the branch added. Item 7 is that branch's D
-workstream stopping where it was always going to stop, at the SMTP account
-nobody has created. ⚠️ Both were found by re-reading this file against the
-branch rather than by anything failing, which is the only way either would have
-surfaced before a merge: **the tests are green with item 6 open**, because CI
-runs migrations from the repo and never sees production's.
+Items 6 and 7 arrived with **PR #24** (`feat/manager-tools`), merged 2026-09-05
+as `b244f65` — the five-workstream branch planned in
+`docs/superpowers/specs/2026-09-04-manager-tools-and-auth-design.md`. Item 6 was
+mechanical, three migrations the branch added, and closed the same day. Item 7
+is that branch's D workstream stopping where it was always going to stop, at the
+SMTP account nobody has created.
+
+⚠️ **Both were found by re-reading this file against the branch, not by anything
+failing** — which is the only way either could have surfaced before the merge:
+**CI was fully green with item 6 open**, because it runs migrations from the
+repo and never looks at production's. A green build is not evidence that
+production has the schema the build assumes. Nothing in the pipeline checks
+that, so re-reading this file against the branch is the check.
 
 Items 1, 2 and 3 were closed on 2026-09-04 alongside the League Office work
 (`docs/worklists/2026-09-03-678b2916-league-office.md`, PR #22) and the roster
