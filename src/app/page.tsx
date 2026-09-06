@@ -5,7 +5,6 @@ import { getPublicLeagues } from "@/lib/league/current";
 import { EmptyState } from "@/components/shared/empty-state";
 import { AccountCluster } from "@/components/shared/account-cluster";
 import { getSessionUser } from "@/lib/auth/session";
-import { getMemberLeagues } from "@/lib/auth/membership";
 
 /**
  * Wording for the one page that belongs to no league, and so has no league name
@@ -35,30 +34,23 @@ export default async function LandingPage() {
   const leagues = await getPublicLeagues(supabase);
 
   // This page is where a completed sign-in lands, and until now it said nothing
-  // about having signed in — no badge, no way on to the tools, no way out. It
-  // has no league in the URL, so the account state is the instance-wide one.
+  // about having signed in — no badge, no way out. It has no league in the URL,
+  // so the account state is the instance-wide one.
   const user = await getSessionUser();
-  // A cross-link needs a league, and this page is the one place that has none.
-  // The destination is the OLDEST LEAGUE THIS ACCOUNT CAN REACH — not their
-  // oldest membership: `getMemberLeagues` orders leagues by `leagues.created_at`,
-  // and for a League Office member it returns every league in the instance, so a
-  // commissioner lands on the oldest league there is rather than on anything
-  // they belong to. That is stable rather than arbitrary, and it is still the
-  // right link for someone with several, because the manage header it lands on
-  // carries the league switcher. A dead end here is what sent a signed-in
-  // manager back to typing URLs.
-  const mine = user ? await getMemberLeagues(user.id) : [];
 
-  const cluster = (
-    <AccountCluster
-      user={user && { role: user.role }}
-      crossLink={
-        mine.length > 0
-          ? { href: `/${mine[0].slug}/dashboard`, label: "Manage" }
-          : null
-      }
-    />
-  );
+  // ⚠️ NO "Manage" CROSS-LINK ANY MORE. It used to point at
+  // `/<oldest league this account can reach>/dashboard`, which was the one route
+  // from here into the staff tools. There are no separate staff tools to route
+  // to: a staff member opens their league like anybody else and the staff row
+  // beneath the header carries everything they can do. The list below is the
+  // route, for them as for everyone.
+  //
+  // ⚠️ KNOWN CONSEQUENCE, left as the design implies rather than papered over:
+  // the list is PUBLIC leagues, so a league still being staged does not appear
+  // on it for the manager staging it. They reach it by its URL, which is what
+  // they were doing before the cross-link happened to point at the oldest league
+  // instead.
+  const cluster = <AccountCluster user={user && { role: user.role }} />;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-10">

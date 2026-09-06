@@ -201,7 +201,11 @@ test.describe("Path 16 — Per-league routing", () => {
       // all. This is the half that used to 404.
       const asMember = await page.goto("/harbor");
       expect(asMember?.status()).toBe(200);
-      await expect(page.getByRole("link", { name: "Manage" })).toBeVisible();
+      // The staff row, which is what a member's chrome is now — there is no
+      // "Manage" cross-link because there is nothing to cross to.
+      await expect(
+        page.getByRole("navigation", { name: "Staff tools" }),
+      ).toBeVisible();
 
       // ...including Teams, which absorbed `/manage/rosters`. That page read
       // past RLS on purpose, and losing it in the merge would have shown a

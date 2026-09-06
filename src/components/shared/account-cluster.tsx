@@ -12,19 +12,24 @@ const ROLE_LABEL: Record<AppRole, string> = {
 };
 
 /**
- * The right-hand end of every header: who you are, the way to the other half of
- * the app, the theme toggle, and sign-out.
+ * The right-hand end of the header: who you are, the theme toggle, the way to
+ * set a password, and sign-out.
  *
- * ONE component for all three headers — the public league header, the manage
- * header and the league picker — because the thing that was broken is that they
- * disagreed: a signed-in manager on a public page saw the anonymous chrome, with
- * no badge and no route back to their tools. Three copies would drift back into
- * that state one edit at a time.
+ * ONE component for both headers — the league header and the league picker —
+ * because the thing that was broken is that they disagreed: a signed-in manager
+ * on a public page saw the anonymous chrome, with no badge and no sign-out.
+ * Copies would drift back into that state one edit at a time.
+ *
+ * ⚠️ THERE IS NO `crossLink` ANY MORE, and its absence is the change rather than
+ * an oversight. It used to carry "Manage" from a public page and "View site"
+ * from the manage chrome — one control for crossing between two halves of the
+ * app. There are no halves: one header serves every page under `/<league>`, with
+ * the staff row beneath it for anyone who belongs to the league, so there is
+ * nowhere to cross TO. Re-adding it would recreate the mode this removed.
  *
  * No `"use client"` and no server-only imports, so it compiles into whichever
- * side imports it: a server component in `SiteHeader`, part of the client bundle
- * in `ManageNav`. Everything it needs arrives as serializable props; `signOut` is
- * a server action, which a client component may import and submit to.
+ * side imports it. Everything it needs arrives as serializable props; `signOut`
+ * is a server action, which a client component may import and submit to.
  *
  * ⚠️ Element ORDER is load-bearing for the "signed out is unchanged" bar. With
  * no session this renders `children` and the toggle and nothing else, which is
@@ -45,17 +50,6 @@ export function AccountCluster({
    */
   user,
   /**
-   * Where this viewer's *other* half of the app is: their tools from a public
-   * page, the public site from the manage chrome. Null when there is nowhere
-   * meaningful to point — a signed-in visitor to a league they do not belong to,
-   * or anyone with no membership at all.
-   *
-   * It is the CALLER's job to decide where it goes, and the callers differ: a
-   * league page points at that league, while the picker has no league in its URL
-   * and picks the first one this account can reach. See `app/page.tsx`.
-   */
-  crossLink,
-  /**
    * The league to land on after signing out, or undefined where there is none —
    * the league picker draws this cluster too, and has no league in its URL.
    *
@@ -66,14 +60,13 @@ export function AccountCluster({
    */
   leagueSlug,
   /**
-   * Context-specific items that lead the cluster: "All leagues" on the public
-   * header, the league switcher on the manage one. They are NOT account state,
-   * which is why they are a slot rather than more props.
+   * Context-specific items that lead the cluster: "All leagues" on the league
+   * header, nothing on the picker. They are NOT account state, which is why they
+   * are a slot rather than more props.
    */
   children,
 }: {
   user: { role: AppRole | null } | null;
-  crossLink?: { href: string; label: string } | null;
   leagueSlug?: string;
   children?: React.ReactNode;
 }) {
@@ -87,14 +80,6 @@ export function AccountCluster({
         <Badge variant="secondary" className="hidden sm:inline-flex">
           {ROLE_LABEL[user.role]}
         </Badge>
-      ) : null}
-      {user && crossLink ? (
-        <Link
-          href={crossLink.href}
-          className="text-muted-foreground hidden text-sm hover:underline sm:inline"
-        >
-          {crossLink.label}
-        </Link>
       ) : null}
       {user ? (
         // ⛔ THE ONLY IN-APP ROUTE TO `/set-password`. The other one is on

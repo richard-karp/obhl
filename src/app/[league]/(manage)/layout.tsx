@@ -1,10 +1,20 @@
 import { redirect, notFound } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/session";
-import { getMemberLeagues } from "@/lib/auth/membership";
-import { officeTierOf } from "@/lib/auth/office";
-import { ManageNav } from "@/components/manage/manage-nav";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 
+/**
+ * The staff pages of a league.
+ *
+ * ⛔ `if (!user) redirect("/login")` STAYS. It is the coarse gate over every
+ * page in this group — the fine one is each page's own `requireLeagueManager` /
+ * `requireGameRole` — and it is not chrome. When the two headers merged into one
+ * this file lost its `ManageNav` and kept every guard it had.
+ *
+ * There is no header here any more: `[league]/layout.tsx` draws it, with the
+ * staff link row beneath it, for every page under `/<league>`. That is what
+ * makes the staff pages part of the site rather than a second site — the same
+ * header, the same league nav, plus the row of things only staff can do.
+ */
 export default async function ManageLayout({
   children,
   params,
@@ -16,33 +26,13 @@ export default async function ManageLayout({
   if (!user) redirect("/login");
 
   const { league: slug } = await params;
-  const [league, leagues, officeTier] = await Promise.all([
-    // Resolved again rather than inherited: layouts cannot pass data down. The
-    // lookup is memoized, so this is the same query `[league]/layout.tsx` and
-    // the page beneath both make, answered once.
-    resolveLeagueBySlug(slug),
-    // The switcher offers the leagues this account is a member of, not every
-    // league it can read. RLS alone would still hand a manager every *public*
-    // league through the public-read policy, so the switcher would keep
-    // offering a league whose pages then bounce them back to the picker.
-    getMemberLeagues(user.id),
-    // Memoized per request, and `getMemberLeagues` above already asked it, so
-    // this is a cache hit rather than another query.
-    officeTierOf(user.id),
-  ]);
+  // Resolved again rather than inherited: layouts cannot pass data down. The
+  // lookup is memoized, so this is the same query `[league]/layout.tsx` and the
+  // page beneath both make, answered once.
+  const league = await resolveLeagueBySlug(slug);
   if (!league) notFound();
 
   return (
-    <div className="flex min-h-full flex-col">
-      <ManageNav
-        role={user.role}
-        leagues={leagues}
-        currentSlug={league.slug}
-        officeTier={officeTier}
-      />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
-        {children}
-      </main>
-    </div>
+    <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">{children}</main>
   );
 }

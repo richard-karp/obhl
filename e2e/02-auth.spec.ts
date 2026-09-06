@@ -140,9 +140,11 @@ const badge = (page: Page) =>
   page.locator('[data-slot="badge"]', { hasText: "Manager" });
 
 /**
- * The chrome outside the manage tools. A signed-in manager used to see exactly
- * what a stranger saw on every public page — no badge, no route to their tools,
- * no way out — which is the confusion the account cluster exists to end.
+ * The chrome. A signed-in manager used to see exactly what a stranger saw on
+ * every public page — no badge, no way out — which is the confusion the account
+ * cluster exists to end. There is now ONE header for every page under
+ * `/<league>`; `e2e/27-one-chrome.spec.ts` owns that claim, and this block keeps
+ * the account half of it.
  */
 test.describe("Path 6b — Auth-aware chrome", () => {
   test("a signed-in manager carries their badge onto the public site", async ({
@@ -156,20 +158,13 @@ test.describe("Path 6b — Auth-aware chrome", () => {
     // league in its URL.
     await expect(badge(page)).toBeVisible();
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
-    await page.getByRole("link", { name: "Manage" }).click();
-    await expect(page).toHaveURL(/\/dashboard$/);
 
-    // And a public league page, which has its own header — plus, for a manager,
-    // the staff link row beneath it, so the merged pages are not a dead end.
+    // A public league page: same header, plus the staff link row beneath it.
     await page.goto("/obhl/standings");
     await expect(badge(page)).toBeVisible();
     const staff = page.getByRole("navigation", { name: "Staff tools" });
     await expect(staff).toBeVisible();
     await expect(staff.getByRole("link", { name: "Seasons" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Manage" })).toHaveAttribute(
-      "href",
-      "/obhl/dashboard",
-    );
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   });
 
@@ -179,7 +174,6 @@ test.describe("Path 6b — Auth-aware chrome", () => {
       await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(
         0,
       );
-      await expect(page.getByRole("link", { name: "Manage" })).toHaveCount(0);
       await expect(badge(page)).toHaveCount(0);
       await expect(
         page.getByRole("navigation", { name: "Staff tools" }),
@@ -241,6 +235,21 @@ test.describe("Path 6b — Auth-aware chrome", () => {
     await page.goto("/obhl/standings");
     expect(await fits()).toBe(true);
     await expect(badge(page)).toBeVisible();
+
+    // ⚠️ RE-MEASURED, not assumed. This bar now draws on the STAFF pages too —
+    // the second header that used to serve them is gone — and a staff page is
+    // where the widest link set lives. The bar itself is unchanged and the staff
+    // row sits BELOW it, outside `<header>`, so `fits()` still measures the same
+    // three subjects it always did; this leg is what demonstrates that rather
+    // than asserting it. Measured 2026-09-06: true at 768px on the dashboard and
+    // on the ten-link manager pages.
+    for (const url of ["/obhl/dashboard", "/obhl/seasons"]) {
+      await page.goto(url);
+      await expect(
+        page.getByRole("navigation", { name: "Staff tools" }),
+      ).toBeVisible();
+      expect(await fits()).toBe(true);
+    }
   });
 });
 /**

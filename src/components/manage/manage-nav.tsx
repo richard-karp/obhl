@@ -4,9 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { LeagueSwitcher } from "@/components/shared/league-switcher";
-import { AccountCluster } from "@/components/shared/account-cluster";
 import type { AppRole } from "@/lib/auth/session";
 import type { LeagueOption } from "@/lib/league/current";
+
+/**
+ * The staff link row. Once half of a second header — `ManageNav`, a whole brand
+ * bar with its own account cluster and league switcher — now only the content,
+ * because there is one header for the whole site and this sits beneath it.
+ */
 
 /** Paths relative to `/<league>`. */
 const LINKS: Record<AppRole, { path: string; label: string }[]> = {
@@ -30,26 +35,22 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
 };
 
 /**
- * How many links the brand bar can hold inline before they get a row to
- * themselves.
+ * ⚠️ WHERE `MAX_INLINE_LINKS = 5` WENT, and why nothing replaced it.
  *
- * Measured at the widest the bar ever gets. Capped at `max-w-6xl` (1152px), the
- * inline nav's share is what is left after the brand and the account controls
- * take ~594px — about 526px, which holds five links of the manager's average
- * width. A narrower window leaves less, and what gives way there is the league
- * switcher, which shrinks; that is what keeps a short set intact down to `md`.
+ * It decided whether `ManageNav`'s links sat inline in that header's brand bar
+ * or took a full-width row beneath it, and it was measured: capped at
+ * `max-w-6xl` (1152px), the inline nav's share was what remained after the brand
+ * and the account controls took ~594px — about 526px, five links of the
+ * manager's average width. The manager's ten never fitted at any viewport, so
+ * they always took the row.
  *
- * Widening the window does not rescue a long set. The container is capped, so
- * ten links overflow it at every viewport — on a wide screen the centred
- * container's slack merely hides the fact. They get their own row instead.
- *
- * Deliberately no scroller on the inline nav. `overflow-x-auto` on a flex item
- * drops its automatic minimum size to zero, so the nav starts giving way
- * instead of the league switcher: with one, the scorekeeper's two links lose
- * 47px of "Score Games" at 768px. This threshold is the mechanism, and there is
- * no fallback behind it — a link set added past it needs re-measuring here.
+ * That bar is gone. This row is now the only shape the staff links have, at
+ * every width, so there is no threshold left to cross and no number to keep
+ * true. ⛔ Do not reintroduce an inline variant of these links without measuring
+ * again: the number above described a bar that no longer exists, and the one bar
+ * that does — `site-header.tsx`'s — carries its own measurement, which this row
+ * sits BELOW and therefore does not disturb.
  */
-const MAX_INLINE_LINKS = 5;
 
 type NavLink = { path: string; label: string; absolute?: boolean };
 
@@ -83,43 +84,84 @@ function Links({ links, base }: { links: NavLink[]; base: string }) {
 }
 
 /**
- * The staff link row on its own, for the SHARED pages.
+ * The staff link row — on EVERY page under `/<league>`, for anyone who belongs
+ * to the league.
  *
- * `/rules`, `/teams/<slug>` and `/schedule` are one URL serving the public and
- * the people who run the league. They live under `(public)`, so a manager who
- * followed one lost `ManageNav` and every link in it — three reviews flagged it
- * independently, as a consequence nobody had decided on.
+ * ⛔ A ROW BENEATH THE ONE HEADER, NOT A SECOND HEADER. It began life as the
+ * answer for three shared pages (`/rules`, `/teams/<slug>`, `/schedule` — one
+ * URL each, serving the public and the people who run the league), where
+ * swapping in the whole `ManageNav` was the obvious move and was wrong: its
+ * "View site" link would have pointed at a page that drew `ManageNav` again.
+ * `[league]/layout.tsx` now draws this for everything, which is that same answer
+ * generalised — a staff page is a public page with more on it, and this is the
+ * more. There is no mode to be in or out of, and nothing to toggle.
  *
- * ⛔ A ROW BENEATH THE PUBLIC HEADER, NOT A REPLACEMENT FOR IT. Swapping in the
- * whole `ManageNav` was the obvious move and is wrong: its "View site" link
- * would then point at a page that renders `ManageNav` again, so the one control
- * for getting back to the public view becomes a no-op. A shared page is a public
- * page with more on it, and this is the more.
+ * ⚠️ `aria-label` IS LOAD-BEARING. This and `NavLinks` ("League") are two
+ * `navigation` landmarks on every page now rather than on three, and two unnamed
+ * ones are indistinguishable to a screen reader.
+ *
+ * ⚠️ The CALLER gates this on membership, never on `user.role` — the role is
+ * instance-wide, so a manager of another league would otherwise be offered tools
+ * that every page behind them refuses.
  */
 export function StaffLinks({
   role,
   currentSlug,
   officeTier,
+  leagues,
 }: {
   role: AppRole | null;
   currentSlug: string;
   officeTier: string | null;
+  /**
+   * The leagues this account belongs to, for the switcher. It lived in
+   * `ManageNav`'s brand bar until that header was deleted, and it is HERE rather
+   * than in the one remaining bar for two reasons: the bar's overflow budget is
+   * measured and full (`site-header.tsx`), and the switcher is a staff control —
+   * putting it in `AccountCluster`'s `children` slot would render it for
+   * anonymous visitors, since that slot is outside the `user` branch.
+   */
+  leagues: LeagueOption[];
 }) {
   return (
     <div className="bg-muted/30 border-b">
-      <nav
-        aria-label="Staff tools"
-        className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 py-1"
-      >
-        <Links links={staffLinks(role, officeTier)} base={`/${currentSlug}`} />
-      </nav>
+      <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-1">
+        {/*
+          `min-w-0` on the scroller so the switcher beside it keeps its width:
+          without it this nav's automatic minimum is its content, and the select
+          is what gets squeezed off the screen instead.
+        */}
+        <nav
+          aria-label="Staff tools"
+          className="flex min-w-0 gap-1 overflow-x-auto"
+        >
+          <Links links={staffLinks(role, officeTier)} base={`/${currentSlug}`} />
+        </nav>
+        {/*
+          Outside the `nav`, so the "Staff tools" landmark stays a list of links.
+          Renders nothing for an account with fewer than two leagues.
+
+          Still lands on `/<slug>/dashboard` rather than the league home: it is a
+          staff control, and the equivalent sub-path never survives the crossing
+          — `/obhl/seasons/<uuid>` names a season that belongs to Oceanview.
+        */}
+        <LeagueSwitcher
+          leagues={leagues}
+          currentSlug={currentSlug}
+          rootPath="/dashboard"
+          className="ml-auto shrink-0"
+        />
+      </div>
     </div>
   );
 }
 
 /**
- * The links a role gets, plus the League Office when a tier says so. Shared by
- * `ManageNav` and `StaffLinks` so the two cannot offer different tools.
+ * The links a role gets, plus the League Office when a tier says so.
+ *
+ * A null role still gets the Dashboard: that is the one page that explains to an
+ * account with no role yet why nothing else works, and it is reachable from
+ * nowhere else.
  */
 function staffLinks(
   role: AppRole | null,
@@ -130,105 +172,8 @@ function staffLinks(
     // Without this the page is reachable only by typing the URL. It is not in
     // `LINKS` because that map is keyed on role and its paths are
     // league-relative, and the office is neither.
-    //
-    // Does not disturb the measurement below: 0034 refuses a tier to anyone who
-    // is not a `league_manager`, so the only set this can extend is the
-    // manager's, which is already past MAX_INLINE_LINKS and on its own
-    // full-width row.
     ...(officeTier
       ? [{ path: "/manage/office", label: "League Office", absolute: true }]
       : []),
   ];
-}
-
-export function ManageNav({
-  role,
-  leagues,
-  currentSlug,
-  officeTier,
-}: {
-  role: AppRole | null;
-  leagues: LeagueOption[];
-  currentSlug: string;
-  /**
-   * The viewer's League Office tier, or null. Gated on the TIER, not the role:
-   * an office member's role is `league_manager` like anyone else's, so keying
-   * this off `LINKS` would show it to every manager.
-   */
-  officeTier: string | null;
-}) {
-  const base = `/${currentSlug}`;
-  const links = staffLinks(role, officeTier);
-
-  // The manager's ten links cannot sit beside the account controls at any
-  // window size, so they get the full-width row to themselves — the same row
-  // every role already uses on small screens. Short link sets keep the inline
-  // nav and only drop to the row below `md`.
-  const linksNeedOwnRow = links.length > MAX_INLINE_LINKS;
-
-  return (
-    <header className="bg-background/80 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-40 border-b backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4">
-        {/*
-          Deliberately allowed to wrap. On a narrow phone "OBHL Manage" breaking
-          across two lines is what keeps the account controls inside the screen;
-          pinning it to one line costs ~47px and pushes them back out.
-        */}
-        <Link href={`${base}/dashboard`} className="font-bold tracking-tight">
-          OBHL <span className="text-muted-foreground font-normal">Manage</span>
-        </Link>
-        {linksNeedOwnRow ? null : (
-          <nav className="hidden items-center gap-1 md:flex">
-            <Links links={links} base={base} />
-          </nav>
-        )}
-        {/*
-          `min-w-0` is what lets this cluster give way on a phone. Without it
-          its automatic minimum is its min-content width — and the league
-          select contributes its full capped 11rem there, because a max-width
-          clamps an intrinsic contribution but a min-width does not lower it.
-          That pinned the cluster at 296px and pushed the page sideways below
-          390px. The toggle and sign-out are `shrink-0`, so the squeeze lands
-          on the select, which has its own floor.
-        */}
-        <div className="ml-auto flex min-w-0 items-center gap-2">
-          {/*
-            Same cluster the public header and the picker draw, so the badge,
-            the cross-link and sign-out cannot drift apart across the three.
-            Everyone here is signed in — the layout redirects anyone who is not.
-          */}
-          <AccountCluster
-            user={{ role }}
-            crossLink={{ href: `/${currentSlug}`, label: "View site" }}
-            leagueSlug={currentSlug}
-          >
-            <LeagueSwitcher
-              leagues={leagues}
-              currentSlug={currentSlug}
-              rootPath="/dashboard"
-            />
-          </AccountCluster>
-        </div>
-      </div>
-      {/*
-        The link row. Always present below `md`; for a long link set it is the
-        only nav at every size. Padded like the page's `main` so the links line
-        up with the content beneath them, and it still scrolls on a screen too
-        narrow to hold them.
-      */}
-      <div className={cn("border-t", !linksNeedOwnRow && "md:hidden")}>
-        {/*
-          A `nav`, not a `div`. For a long link set this is the only navigation
-          on the page, so as a plain div it left managers with no navigation
-          landmark at all. Both this and the inline nav can sit in the markup
-          together because they are mutually exclusive in CSS, and a
-          `display: none` element is not in the accessibility tree — exactly one
-          landmark is ever exposed.
-        */}
-        <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 py-1">
-          <Links links={links} base={base} />
-        </nav>
-      </div>
-    </header>
-  );
 }

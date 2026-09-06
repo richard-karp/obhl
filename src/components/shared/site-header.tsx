@@ -79,11 +79,6 @@ export async function SiteHeader({ league }: { league: Tables<"leagues"> }) {
           <AccountCluster
             user={user && { role: member ? user.role : null }}
             leagueSlug={league.slug}
-            crossLink={
-              member
-                ? { href: `/${league.slug}/dashboard`, label: "Manage" }
-                : null
-            }
           >
             <Link
               href="/"
