@@ -80,6 +80,18 @@ keyed on `user` rather than `member`.
 
 ## 4. Two behaviour changes, decided rather than overlooked
 
+### ⚖️ Both of §4's open questions were DECIDED 2026-09-06 — do not re-open them silently
+
+- **The staff row stays non-sticky.** The user was shown the measurement and both
+  candidate fixes with their costs, and chose to ship it as it is and revisit only
+  after using it. It already behaved this way on the three shared pages that
+  predate this work, so it is at least consistent. Neither candidate was built.
+- **The picker keeps published-first, then the viewer's own.** Chosen over
+  interleaving by `created_at`: the public list is what the page is _for_, and a
+  member's unpublished leagues read as an appendix only they can see. The
+  alternative would mean widening both reads to carry a date column neither
+  returns today.
+
 ### The staff row no longer sticks — measured, not assumed
 
 `ManageNav`'s deleted shell was `sticky top-0 z-40`, so a manager's links stayed
