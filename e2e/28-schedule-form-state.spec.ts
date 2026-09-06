@@ -83,7 +83,7 @@ function requestList(page: Page) {
 
 /** Fill every field on the generate form with something that is not its default. */
 async function fillEverything(page: Page) {
-  // Same hazard as `27`'s seeding: with the builder locked by a failed read
+  // Same hazard as `29-schedule-repair`'s seeding: with the builder locked by a failed read
   // there is no form here at all, and a bare `fill` waits out the whole test
   // budget saying only "waiting for getByLabel".
   await expectGenerateFormUsable(page);
