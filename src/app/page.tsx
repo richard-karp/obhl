@@ -68,6 +68,20 @@ export default async function LandingPage() {
   // The slug set is still used, but only to DEDUPLICATE — a league that is both
   // public and yours must appear once. `leagues.slug` is `not null unique`
   // (0002), so matching on it is exact.
+  //
+  // ⚠️ PUBLISHED FIRST, THEN THE REST — DELIBERATE, and it does NOT preserve the
+  // `created_at` order both reads ask for. Concatenating two sorted lists gives a
+  // list sorted by section, so a league staged in 2024 sorts below one published
+  // yesterday. That is the right shape for this page rather than an accident of
+  // the merge: the public list is what this page is FOR and what every visitor
+  // sees, and a member's unpublished leagues are an appendix to it that only they
+  // can see at all. Interleaving them by age would bury a staged league in a list
+  // whose other rows mean something different.
+  //
+  // Restoring a single `created_at` order would also mean widening both return
+  // types to carry the column — neither read returns it — for an ordering nobody
+  // has asked for. If that ever changes, sort the merged array; do not reorder
+  // the sections.
   const publicSlugs = new Set(publicLeagues.map((l) => l.slug));
   const leagues = [
     ...publicLeagues.map((l) => ({ ...l, staged: false })),

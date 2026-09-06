@@ -209,19 +209,54 @@ test.describe("Path 6b — Auth-aware chrome", () => {
     // The bar is stronger, but `NavLinks` is an `overflow-x-auto` scroller, and a
     // scroll container contributes zero min-content — so its wrapper can shrink
     // to nothing and CLIP THE LINKS while the bar still reports no overflow.
-    // Asserting on the nav's own scroller is what closes that, and it is the
-    // mechanism `manage-nav.tsx` documents.
+    // Asserting on the nav's own scroller is what closes that.
+    //
+    // ⛔ THE NAV TERM USED TO BE VACUOUS FOR A SIGNED-IN VIEWER, and that is why
+    // it is written out at this length. `SiteHeader` renders `NavLinks` TWICE —
+    // once inside the bar behind `hidden lg:block`, once below it behind
+    // `lg:hidden` — and exactly one is ever displayed. A bare
+    // `querySelector("header nav")` takes the FIRST, so signed in below `lg` it
+    // took the `display:none` one, measured 0 <= 0, and passed without looking at
+    // anything.
+    //
+    // ⚠️ BUT "assert over every visible nav" IS THE WRONG REPAIR, and measuring
+    // says so. Watched 2026-09-06, `scrollWidth/clientWidth` of the visible nav:
+    //
+    //             in the bar        below the bar
+    //   anon 1280   444/444           (hidden)
+    //   anon  768   444/444           (hidden)
+    //   anon  390   (hidden)          444/374   ← scrolls, by design
+    //   member 768  (hidden)          752/752
+    //   member 390  (hidden)          444/374   ← scrolls, by design
+    //
+    // The row below the bar is a full-width scroller and is MEANT to scroll on a
+    // phone; asserting it never does would pin a false claim. The two navs are
+    // different subjects and get different assertions:
+    //
+    //   in the bar — a flex item competing with the account cluster, so its
+    //     wrapper can be squeezed and clip. `scrollWidth <= clientWidth`.
+    //   below the bar — has the full width, so what matters is that it does not
+    //     take MORE than the viewport. `clientWidth <= documentElement`.
+    //
+    // `visible` is required to be non-empty so the whole term cannot go quiet
+    // again if both class strings change at once.
     const fits = () =>
       page.evaluate(() => {
         const bar = document.querySelector("header > div");
         if (!bar) throw new Error("header bar not found");
-        const nav = document.querySelector("header nav");
-        if (!nav) throw new Error("header nav not found");
+        const visible = [...document.querySelectorAll("header nav")].filter(
+          (n) => n.clientWidth > 0,
+        );
+        if (visible.length === 0)
+          throw new Error("no VISIBLE header nav — the term would be vacuous");
+        const inBar = visible.filter((n) => bar.contains(n));
+        const belowBar = visible.filter((n) => !bar.contains(n));
+        const doc = document.documentElement;
         return (
           bar.scrollWidth <= bar.clientWidth &&
-          nav.scrollWidth <= nav.clientWidth &&
-          document.documentElement.scrollWidth <=
-            document.documentElement.clientWidth
+          inBar.every((n) => n.scrollWidth <= n.clientWidth) &&
+          belowBar.every((n) => n.clientWidth <= doc.clientWidth) &&
+          doc.scrollWidth <= doc.clientWidth
         );
       });
 
@@ -268,6 +303,13 @@ test.describe("Path 6b — Auth-aware chrome", () => {
     // Both signed-in states are asserted because they differ in what the row
     // holds: a member of two leagues gets the switcher, and it is the switcher
     // that overflowed.
+    //
+    // ⚠️ RE-CONTROLLED 2026-09-06 after `fits()` was rewritten to stop measuring
+    // a `display:none` nav: reverting the row's scroller to plain `min-w-0` turns
+    // THIS leg red again, and restoring `flex-1` turns it green. The term that
+    // catches it is the DOCUMENT one — the staff row is not inside `<header>`, so
+    // no nav term sees it — which is exactly why the document term is still here
+    // after the nav terms were tightened.
     await page.setViewportSize({ width: 390, height: 800 });
     for (const url of ["/obhl/standings", "/obhl/seasons"]) {
       await page.goto(url);

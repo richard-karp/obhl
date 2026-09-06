@@ -147,12 +147,18 @@ export async function getPlayerBio(
   // Logged the way the read above this one already logs, and for a stronger
   // reason: both of these degrade to a *plausible* bio rather than to an error,
   // so a failure here is invisible in the page it produces.
-  if (playerErr || statErr) {
+  //
+  // ⛔ BOTH, not `playerErr ?? statErr`. These are independent requests and can
+  // fail independently, and the one this logging exists for is the SECOND: a
+  // missing-migration 42703 on `v_skater_stats`. Coalescing would let an
+  // unrelated `players` error mask exactly the failure being watched for.
+  if (playerErr)
+    console.error("getPlayerBio fallback players read:", playerErr.message);
+  if (statErr)
     console.error(
-      "getPlayerBio fallback failed:",
-      (playerErr ?? statErr)?.message,
+      "getPlayerBio fallback v_skater_stats read:",
+      statErr.message,
     );
-  }
 
   if (!player) return null;
 

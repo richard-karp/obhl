@@ -8,7 +8,9 @@ import { resolveLeagueBySlug } from "@/lib/league/current";
  * ⛔ `if (!user) redirect("/login")` STAYS. It is the coarse gate over every
  * page in this group — the fine one is each page's own `requireLeagueManager` /
  * `requireGameRole` — and it is not chrome. When the two headers merged into one
- * this file lost its `ManageNav` and kept every guard it had.
+ * this file lost its `ManageNav` — the header component, now
+ * `components/shared/staff-links.tsx` with only its link row left — and kept
+ * every guard it had.
  *
  * There is no header here any more: `[league]/layout.tsx` draws it, with the
  * staff link row beneath it, for every page under `/<league>`. That is what

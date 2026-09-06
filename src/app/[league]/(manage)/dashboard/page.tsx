@@ -75,7 +75,10 @@ export default async function DashboardPage({
     <div className="space-y-6">
       {/*
         The switcher sits on this row rather than in the brand bar — see the
-        note on `SeasonSwitcher`, and `MAX_INLINE_LINKS` in `manage-nav.tsx`.
+        note on `SeasonSwitcher`. (It used to cite `MAX_INLINE_LINKS` in
+        `manage-nav.tsx`; both the constant and that file are gone with the
+        second header. The bar's budget now lives in `site-header.tsx`, and the
+        conclusion is unchanged: nothing new goes in the bar.)
       */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1">

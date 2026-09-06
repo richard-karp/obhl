@@ -42,7 +42,15 @@ function admin() {
  */
 let before: {
   id: string;
-  logo_text_color: string | null;
+  /**
+   * ⛔ `string`, NOT `string | null`. `teams.logo_text_color` is `not null
+   * default 'light'` (0041), so a nullable type here is wider than the column
+   * and invites a `?? "light"` in the restore below — which would be dead today
+   * and would write the schema default over a captured `null` the day the column
+   * is ever made nullable. Type it as the column is, and the restore has nothing
+   * to fall back to.
+   */
+  logo_text_color: string;
   logo_path: string | null;
 }[] = [];
 
@@ -78,15 +86,26 @@ test.describe("Team logo ink and crests reach every screen", () => {
     // against one shared database is a price worth paying to put back exactly
     // what was there.
     const db = admin();
+    // ⛔ COLLECTED AND THROWN, not discarded. A restore that fails silently on a
+    // SHARED database leaves the next spec — or the parallel session's branch —
+    // running against a league this file dark-inked, with nothing anywhere
+    // saying so. Every row is attempted before throwing, so one bad id cannot
+    // strand the other five.
+    const failures: string[] = [];
     for (const row of before) {
-      await db
+      const { error } = await db
         .from("teams")
         .update({
-          logo_text_color: row.logo_text_color ?? "light",
+          logo_text_color: row.logo_text_color,
           logo_path: row.logo_path,
         })
         .eq("id", row.id);
+      if (error) failures.push(`${row.id}: ${error.message}`);
     }
+    if (failures.length > 0)
+      throw new Error(
+        `team branding NOT restored — the database is left dirty:\n${failures.join("\n")}`,
+      );
   });
 
   test("the schedule shows dark letters and the uploaded crest", async ({
