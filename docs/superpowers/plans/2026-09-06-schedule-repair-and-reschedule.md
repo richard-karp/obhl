@@ -128,3 +128,47 @@ The agent renamed its first e2e spec from `25-` to `26-` when the parallel sessi
 took `25-team-logo-ink`. ⚠️ **Both branches still carry a `26-` and a `27-`** —
 different filenames, so git will not conflict, but the numbering needs settling
 when they merge.
+
+### Still open: three other specs seed the builder unguarded
+
+`getPublishState` fails closed — any of its parallel reads erroring sets
+`readFailed`, `publishMode` returns `locked`, and the panel renders "This season's
+games couldn't be read" with **no generate form on the page at all**. This branch
+added `expectGenerateFormUsable` to `26-` and `27-` so that state fails in seconds
+naming the card. Three specs still fill that form with no such guard:
+
+| Spec | Seeding shape | What a read failure costs |
+|---|---|---|
+| `11-schedule-builder` | bare `fill` | waits out the test's 150s budget, reporting only `waiting for getByLabel('First game night')` |
+| `23-schedule-constraints` | bare `fill` | the same, 150s |
+| `14-one-off-game` | `if (count("No draft schedule") > 0)` | does **not** hang — the branch is skipped and the test fails later on an unrelated assertion |
+
+⛔ **The polarity of the seeding condition decides which of those two you get, and
+neither is legible.** `27-` gated on `count("Published: N games") === 0`, which is
+*true* while the card is showing, so it entered the branch and waited out the whole
+budget. `14-`'s condition is *false* while the card is showing, so it skips the seed
+and misreports the failure one assertion later. A guarded seed is not optional just
+because a spec happens to have the safer polarity.
+
+**The fix is two parts, neither done here** — all three specs predate this branch,
+and widening it days before a merge buys nothing.
+
+1. **The blanket net, one line in `playwright.config.ts`.** `use` sets no
+   `actionTimeout`, so every `fill` / `click` / `check` on a locator that never
+   resolves falls back to the whole test budget. `actionTimeout: 20_000` — above
+   `expect`'s 15s and below the 60s default test budget, keeping the layering that
+   config's own comment already argues for — caps every never-resolving action in
+   the suite, including specs nobody has written yet. ⚠️ **A reading, not a
+   measurement.** It is one line, and it changes the budget of every action in 202
+   tests; run the full suite before believing it.
+2. **The precise net.** `expectGenerateFormUsable` before the first `fill` in each
+   of the three, so the failure names the card rather than the locator. Copy it —
+   `e2e/` has no shared helper module and no spec imports another, so duplication
+   is the house style here, not an oversight.
+
+**Measured 2026-09-06**, CI run `34055032836` attempt 1: the trigger was
+`[WebServer] publish state read failed: An invalid response was received from the
+upstream server` — one upstream 502, six seconds after the preceding test's publish,
+logged once in a 202-test run. Not a bad query, and not something this branch
+introduced. The `720000ms` in that log is `test.slow()` tripling `27-`'s 240s
+describe budget; `11-` and `23-` are 150s, `14-` is 60s.
