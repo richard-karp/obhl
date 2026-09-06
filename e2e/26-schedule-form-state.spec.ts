@@ -30,6 +30,37 @@ async function goToFallSeasonSetup(page: Page) {
   await page.waitForURL(/\/seasons\//);
 }
 
+/**
+ * Wait for the generate form, and fail IMMEDIATELY and by name if the builder
+ * came up in its read-failed state instead.
+ *
+ * ⛔ NOT A RETRY, AND NOT A LOOSENED ASSERTION. `getPublishState` fails closed:
+ * if any of its reads errors it reports `readFailed`, `publishMode` returns
+ * `locked`, and the panel renders "This season's games couldn't be read" with
+ * NO generate form on the page at all. A plain `fill()` then waits on a locator
+ * that can never resolve — on CI (run 34055032836) that was a 12-minute
+ * `Test timeout of 720000ms exceeded / waiting for getByLabel('First game
+ * night')`, which tells the next person nothing about what actually happened.
+ *
+ * Racing the two locators is what makes the message honest: whichever the page
+ * settled on is the one reported, in seconds. A read failure still fails the
+ * run — it is a real condition and must not be swallowed — it just says so.
+ */
+async function expectGenerateFormUsable(page: Page) {
+  const firstNight = page.getByLabel("First game night");
+  const readFailed = page.getByText("This season's games couldn't be read");
+  await expect(firstNight.or(readFailed).first()).toBeVisible();
+  if (await readFailed.isVisible()) {
+    throw new Error(
+      "The schedule builder is in its read-failed state: getPublishState " +
+        "reported readFailed, so publishMode locked the panel and there is no " +
+        "generate form to fill. One of its parallel reads errored — check the " +
+        "server log for 'publish state read failed'. This is usually a " +
+        "transient database error under load, not a broken query.",
+    );
+  }
+}
+
 /** See `11-schedule-builder.spec.ts` — Phase S runs five candidates. */
 const AFTER_GENERATE = { timeout: 45_000 };
 
@@ -52,6 +83,10 @@ function requestList(page: Page) {
 
 /** Fill every field on the generate form with something that is not its default. */
 async function fillEverything(page: Page) {
+  // Same hazard as `27`'s seeding: with the builder locked by a failed read
+  // there is no form here at all, and a bare `fill` waits out the whole test
+  // budget saying only "waiting for getByLabel".
+  await expectGenerateFormUsable(page);
   await page.getByLabel("First game night").fill(FIRST_NIGHT);
   await page.getByLabel("Games per team").fill("4");
   await page.getByLabel(/Ice-time slots/).fill(SLOT_TIMES);

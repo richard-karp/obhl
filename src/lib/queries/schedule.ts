@@ -371,11 +371,31 @@ export async function getPublishState(
   // reading as a confident zero. Without it the locked card stated "0 games are
   // published" about a season that may hold hundreds — the same fabricated
   // number, moved one screen over.
+  // ⛔ `lowestId` IS DELIBERATELY NOT IN THIS LIST, AND THE REASON IS THE WHOLE
+  // POINT OF THE LIST.
+  //
+  // Locking the builder is the fail-closed answer for reads whose values drive
+  // DESTRUCTIVE decisions: the counts decide whether a one-click publish is
+  // offered over an RPC that deletes the live schedule, and what the confirm
+  // dialog says is about to be destroyed. A partial read there produces a
+  // confident number in front of the manager on the one screen that deletes
+  // data, so it locks instead.
+  //
+  // `lowestId` drives `liveScheduleKey`, whose only consumer is a React `key`
+  // that remounts the generate form after a publish. Its failure mode is a form
+  // that keeps its fields when it should have cleared them. Taking the entire
+  // builder offline for that is disproportionate — and it is a SEVENTH chance to
+  // trip a hard lock, added by this branch to a `Promise.all` that already had
+  // six. CI hit exactly that: a transient read on a season with no games at all
+  // rendered "This season's games couldn't be read" and cost a 12-minute
+  // timeout. The counts still fail closed; this one degrades.
+  if (lowestId.error) {
+    console.error("live schedule key read failed:", lowestId.error.message);
+  }
   const failure =
     live.error ??
     firstLive.error ??
     lastLive.error ??
-    lowestId.error ??
     drafts.error ??
     started.error ??
     lineups.error;
