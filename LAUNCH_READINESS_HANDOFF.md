@@ -51,9 +51,9 @@
    checkout pushes whatever is on `main` and silently skips the migrations that
    exist only on your branch. Copy those two files into the worktree's
    `supabase/.temp/` instead, or re-run `supabase link` there.
-5. Verify code changes with `npm test && npm run test:e2e`. Measured on CI at
-   `2bcaf8c` (PR #36, merged as `32262b5`), 2026-09-06: **30 unit files / 374
-   tests; 193 e2e passed / 1 skipped / 0 failed** in 10.4m, across 24 spec files. The
+5. Verify code changes with `npm test && npm run test:e2e`. Watched 2026-09-06
+   at `dcd10b1` (what #38 merged as `c87764e`): **32 unit files / 444 tests;
+   213 e2e passed / 1 skipped / 0 failed** in 4.8m local, 29 spec files. The
    skip is the AI-summary test, gated on an API key — not a regression.
    ⚠️ The counts move with every merge; re-measure rather than quoting them.
    ⛔ **Run e2e against a dev server belonging to YOUR worktree.** Playwright's
@@ -66,22 +66,27 @@
    `lsof -ti:$PORT` before believing a red run.
 
 **Status: both doors are shut and every migration is pushed.** As of
-2026-09-05 `ENABLE_DEV_LOGIN` is gone from every Vercel environment, the seeded
-accounts are deleted, and production carries `0001`-`0043` — including `0037`,
-which fixed GAA being inflated by empty-net goals on live pages; `0039`-`0041`,
-which #24's manage tools read; and `0042`/`0043`, which let a league's own
-scorekeepers and captains read it before it is public (_Member reads_, below).
+2026-09-06 `ENABLE_DEV_LOGIN` is gone from every Vercel environment, the seeded
+accounts are deleted, and production carries `0001`-`0044`. What the member-read
+migrations changed, and why, is under _Member reads_ below.
 
-✅ **THIS FILE IS ON `main`, and there are NO open PRs** (2026-09-06: #36
-merged; before it #33-#35; #23 and issue #30 closed). ⚠️ **Check anyway** — this line goes
+✅ **THIS FILE IS ON `main`, and there are NO open PRs** (2026-09-06: #38 and
+#39 merged, before them #36 and #33-#35; #23 and issue #30 closed). ⚠️ **Check anyway** — this line goes
 stale the moment someone branches, and a stale copy in a worktree misled a
 reader today. Everything waiting on a person rather than on work is listed
 under _Open — waiting on a person_ below, and nothing outstanding is elsewhere.
 
-**What remains is item 4: the `LAUNCH.md` phases — and it now has a date on
-it.** The published season's first game night is **2026-09-10**, after which its
-schedule is locked for good. Item 5 is deferred odds and ends. Item 7's CODE is
-now on `main` (#36); what is left of it is a domain and a dashboard.
+**What remains splits into two lanes, and neither blocks the other.**
+
+- **CODE — an agent, from a checkout: 4 items.** All in the test harness; none
+  can reach a manager or a player. §5 _The final pre-launch pass_ carries each
+  one with its fix, and they are listed nowhere else.
+- **A PERSON — the user, and no agent can do any of them: 5 items**, under
+  _Open — waiting on a person_. ⛔ Exactly one is dated: **rebuild the schedule
+  before 2026-09-10 23:00 UTC**, the published season's first game night, after
+  which its schedule locks for good. Two others — custom SMTP (item 7) and
+  `NEXT_PUBLIC_SITE_URL` on Preview — are blocked behind buying
+  `lccalumnihockey.ca` first, so that purchase is the unblocking move.
 
 ## Next action
 
