@@ -100,6 +100,10 @@ async function seedFutureSeason(page: Page) {
   await expect(
     page.getByText(new RegExp(`${SEASON} · \\d+ teams enrolled`)),
   ).toBeVisible();
+  // ⛔ Before the gate, not inside it. The read-failed card makes the
+  // condition below FALSE, so a read failure would skip the seed entirely
+  // and surface as an unrelated assertion further down. Fail here instead.
+  await expectGenerateFormUsable(page);
   if ((await page.getByText("No draft schedule").count()) > 0) {
     await page.getByLabel("First game night").fill("2027-01-05");
     await page.getByLabel("Games per team").fill("6");
@@ -117,6 +121,39 @@ async function seedFutureSeason(page: Page) {
     // drafts, and it renders "No published schedule" instead of the form. The
     // panel drops back to its empty state once the drafts are live.
     await expect(page.getByText("No draft schedule")).toBeVisible();
+  }
+}
+
+/**
+ * Wait for the generate form, and fail IMMEDIATELY and by name if the builder
+ * came up in its read-failed state instead.
+ *
+ * ⛔ NOT A RETRY, AND NOT A LOOSENED ASSERTION. `getPublishState` fails closed:
+ * if any of its reads errors it reports `readFailed`, `publishMode` returns
+ * `locked`, and the panel renders "This season's games couldn't be read" with
+ * NO generate form on the page at all. A plain `fill()` then waits on a locator
+ * that can never resolve and reports only "waiting for getByLabel('First game
+ * night')", which tells the next person nothing about what actually happened.
+ *
+ * Racing the two locators is what makes the message honest: whichever the page
+ * settled on is the one reported, in seconds. A read failure still fails the
+ * run — it is a real condition and must not be swallowed — it just says so.
+ *
+ * Copied from `29-schedule-repair.spec.ts` rather than shared: there is no
+ * helper module under `e2e/` and no spec imports another.
+ */
+async function expectGenerateFormUsable(page: Page) {
+  const firstNight = page.getByLabel("First game night");
+  const readFailed = page.getByText("This season's games couldn't be read");
+  await expect(firstNight.or(readFailed).first()).toBeVisible();
+  if (await readFailed.isVisible()) {
+    throw new Error(
+      "The schedule builder is in its read-failed state: getPublishState " +
+        "reported readFailed, so publishMode locked the panel and there is no " +
+        "generate form to fill. One of its parallel reads errored — check the " +
+        "server log for 'publish state read failed'. This is usually a " +
+        "transient database error under load, not a broken query.",
+    );
   }
 }
 

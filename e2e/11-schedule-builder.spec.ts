@@ -31,6 +31,39 @@ async function goToFallSeasonSetup(page: Page) {
   await page.waitForURL(/\/seasons\//);
 }
 
+/**
+ * Wait for the generate form, and fail IMMEDIATELY and by name if the builder
+ * came up in its read-failed state instead.
+ *
+ * ⛔ NOT A RETRY, AND NOT A LOOSENED ASSERTION. `getPublishState` fails closed:
+ * if any of its reads errors it reports `readFailed`, `publishMode` returns
+ * `locked`, and the panel renders "This season's games couldn't be read" with
+ * NO generate form on the page at all. A plain `fill()` then waits on a locator
+ * that can never resolve and reports only "waiting for getByLabel('First game
+ * night')", which tells the next person nothing about what actually happened.
+ *
+ * Racing the two locators is what makes the message honest: whichever the page
+ * settled on is the one reported, in seconds. A read failure still fails the
+ * run — it is a real condition and must not be swallowed — it just says so.
+ *
+ * Copied from `29-schedule-repair.spec.ts` rather than shared: there is no
+ * helper module under `e2e/` and no spec imports another.
+ */
+async function expectGenerateFormUsable(page: Page) {
+  const firstNight = page.getByLabel("First game night");
+  const readFailed = page.getByText("This season's games couldn't be read");
+  await expect(firstNight.or(readFailed).first()).toBeVisible();
+  if (await readFailed.isVisible()) {
+    throw new Error(
+      "The schedule builder is in its read-failed state: getPublishState " +
+        "reported readFailed, so publishMode locked the panel and there is no " +
+        "generate form to fill. One of its parallel reads errored — check the " +
+        "server log for 'publish state read failed'. This is usually a " +
+        "transient database error under load, not a broken query.",
+    );
+  }
+}
+
 test("page loads with heading, its season, and the switcher", async ({
   page,
 }) => {
@@ -147,6 +180,10 @@ test.describe("Path 17 — Schedule Builder", () => {
     // season — start on its first night. A date outside the window still
     // generates (drafts aren't bounded by the season start), so this reads as
     // passing while drafting a schedule months before the season it belongs to.
+
+    // The builder has no generate form at all when a read failed, and a bare
+    // `fill` then waits on a locator that can never resolve — see the helper.
+    await expectGenerateFormUsable(page);
     await page.getByLabel("First game night").fill("2026-09-15");
     await page.getByLabel("Games per team").fill("4");
     // Two game nights so weekday balance is exercised.
@@ -188,6 +225,10 @@ test.describe("Path 17 — Schedule Builder", () => {
     // ~26 s. What is covered here is the half that used to be missing
     // entirely: generateSchedule returned void, so a refusal and a slow run
     // were indistinguishable.
+
+    // The builder has no generate form at all when a read failed, and a bare
+    // `fill` then waits on a locator that can never resolve — see the helper.
+    await expectGenerateFormUsable(page);
     await page.getByLabel("First game night").fill("2026-09-15");
     await page.getByLabel("Games per team").fill("4");
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
@@ -209,6 +250,10 @@ test.describe("Path 17 — Schedule Builder", () => {
     // bails before it touches the database; before it returned a state, the
     // button simply went back to idle and the manager was left guessing
     // whether the generator had run and failed or never started.
+
+    // The builder has no generate form at all when a read failed, and a bare
+    // `fill` then waits on a locator that can never resolve — see the helper.
+    await expectGenerateFormUsable(page);
     await page.getByLabel("First game night").fill("2026-09-15");
     await page.getByLabel("Games per team").fill("4");
 
@@ -234,6 +279,9 @@ test.describe("Path 17 — Schedule Builder", () => {
       day: "2-digit",
     }).format(new Date());
 
+    // The builder has no generate form at all when a read failed, and a bare
+    // `fill` then waits on a locator that can never resolve — see the helper.
+    await expectGenerateFormUsable(page);
     await expect(page.getByLabel("First game night")).toHaveAttribute(
       "min",
       leagueToday,
@@ -281,6 +329,10 @@ test.describe("Path 17 — Schedule Builder", () => {
     // *value* — a four-game fixture is not the reference season and its numbers
     // are its own. What is asserted is that each check reaches the screen, which
     // is what nothing covered before.
+
+    // The builder has no generate form at all when a read failed, and a bare
+    // `fill` then waits on a locator that can never resolve — see the helper.
+    await expectGenerateFormUsable(page);
     await page.getByLabel("First game night").fill("2026-09-15");
     await page.getByLabel("Games per team").fill("4");
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
@@ -324,6 +376,9 @@ test.describe("Path 17 — Schedule Builder", () => {
     // The reported bug: generate + publish twice left the season holding two
     // complete overlapping schedules, both live in the exports and standings.
     const generate = async () => {
+      // The builder has no generate form at all when a read failed, and a bare
+      // `fill` then waits on a locator that can never resolve — see the helper.
+      await expectGenerateFormUsable(page);
       await page.getByLabel("First game night").fill("2026-09-15");
       await page.getByLabel("Games per team").fill("4");
       await page
@@ -425,6 +480,12 @@ test.describe("Path 17 — Schedule Builder", () => {
     // immediately, so probing first can read 0 on a season that *is* published
     // and send this down the publish branch — where the button reads "Replace
     // published schedule" and the publish click times out instead.
+    // ⛔ Before the probe below, not inside the branch it picks. Neither of
+    // those two texts renders in the read-failed state, so a read failure
+    // would fail on the probe naming only the locator — and if it got past,
+    // `count()` of 0 sends this down the publish branch on a season that may
+    // well be published. Fail here, by name, instead.
+    await expectGenerateFormUsable(page);
     await expect(
       page.getByText(/Published: \d+ games|No draft schedule/).first(),
     ).toBeVisible();

@@ -101,6 +101,39 @@ async function clearRequests(page: Page) {
   }
 }
 
+/**
+ * Wait for the generate form, and fail IMMEDIATELY and by name if the builder
+ * came up in its read-failed state instead.
+ *
+ * ⛔ NOT A RETRY, AND NOT A LOOSENED ASSERTION. `getPublishState` fails closed:
+ * if any of its reads errors it reports `readFailed`, `publishMode` returns
+ * `locked`, and the panel renders "This season's games couldn't be read" with
+ * NO generate form on the page at all. A plain `fill()` then waits on a locator
+ * that can never resolve and reports only "waiting for getByLabel('First game
+ * night')", which tells the next person nothing about what actually happened.
+ *
+ * Racing the two locators is what makes the message honest: whichever the page
+ * settled on is the one reported, in seconds. A read failure still fails the
+ * run — it is a real condition and must not be swallowed — it just says so.
+ *
+ * Copied from `29-schedule-repair.spec.ts` rather than shared: there is no
+ * helper module under `e2e/` and no spec imports another.
+ */
+async function expectGenerateFormUsable(page: Page) {
+  const firstNight = page.getByLabel("First game night");
+  const readFailed = page.getByText("This season's games couldn't be read");
+  await expect(firstNight.or(readFailed).first()).toBeVisible();
+  if (await readFailed.isVisible()) {
+    throw new Error(
+      "The schedule builder is in its read-failed state: getPublishState " +
+        "reported readFailed, so publishMode locked the panel and there is no " +
+        "generate form to fill. One of its parallel reads errored — check the " +
+        "server log for 'publish state read failed'. This is usually a " +
+        "transient database error under load, not a broken query.",
+    );
+  }
+}
+
 test.describe("Path 24 — schedule constraints", () => {
   // A generate can be ~25 s of search, and two of these run one.
   test.describe.configure({ timeout: 150_000 });
@@ -198,6 +231,9 @@ test.describe("Path 24 — schedule constraints", () => {
       requestList(page).filter({ hasText: `${name} plays on ${FIRST_NIGHT}` }),
     ).toBeVisible();
 
+    // The builder has no generate form at all when a read failed, and a bare
+    // `fill` then waits on a locator that can never resolve — see the helper.
+    await expectGenerateFormUsable(page);
     await page.getByLabel("First game night").fill(FIRST_NIGHT);
     await page.getByLabel("Games per team").fill("4");
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
@@ -238,6 +274,9 @@ test.describe("Path 24 — schedule constraints", () => {
       requestList(page).filter({ hasText: description }),
     ).toBeVisible();
 
+    // The builder has no generate form at all when a read failed, and a bare
+    // `fill` then waits on a locator that can never resolve — see the helper.
+    await expectGenerateFormUsable(page);
     await page.getByLabel("First game night").fill(FIRST_NIGHT);
     await page.getByLabel("Games per team").fill("4");
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
@@ -269,6 +308,9 @@ test.describe("Path 24 — schedule constraints", () => {
   test("the requests card is absent when nothing has been asked for", async ({
     page,
   }) => {
+    // The builder has no generate form at all when a read failed, and a bare
+    // `fill` then waits on a locator that can never resolve — see the helper.
+    await expectGenerateFormUsable(page);
     await page.getByLabel("First game night").fill(FIRST_NIGHT);
     await page.getByLabel("Games per team").fill("4");
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
