@@ -409,3 +409,14 @@ one-off repair defect are **done** as well (2026-08-12). Their plan is kept as a
 record of the reasoning, but two of its decisions were overruled during execution
 and are marked ⛔ in its Global Constraints — read those before trusting anything
 else in it. What shipped is in §5 here.
+
+**One e2e follow-up is open (2026-09-06).** `11-schedule-builder`,
+`14-one-off-game` and `23-schedule-constraints` seed the generate form without
+checking whether the builder came up in `getPublishState`'s fail-closed
+"This season's games couldn't be read" state, in which there is no form to fill.
+A transient database error there costs a 60–150s wait and a message naming only
+the locator. The fix — an `actionTimeout` in `playwright.config.ts` plus the
+`expectGenerateFormUsable` guard that `26-` and `27-` already carry — is written
+up under *Still open* in
+`docs/superpowers/plans/2026-09-06-schedule-repair-and-reschedule.md`, with the
+CI run that measured it.

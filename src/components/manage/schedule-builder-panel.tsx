@@ -68,8 +68,8 @@ export async function ScheduleBuilderPanel({
     .from("games")
     .select(
       `id, scheduled_at, round, home_team_id, away_team_id,
-       home:teams!games_home_team_id_fkey(name, color),
-       away:teams!games_away_team_id_fkey(name, color)`,
+       home:teams!games_home_team_id_fkey(name, color, logo_path, logo_text_color),
+       away:teams!games_away_team_id_fkey(name, color, logo_path, logo_text_color)`,
     )
     .eq("season_id", seasonId)
     .eq("is_draft", true)
@@ -860,12 +860,16 @@ export async function ScheduleBuilderPanel({
                         <TeamLogo
                           name={g.away?.name ?? ""}
                           color={g.away?.color}
+                          logoPath={g.away?.logo_path}
+                          textColor={g.away?.logo_text_color}
                         />
                         {g.away?.name}
                         <span className="text-muted-foreground mx-1">@</span>
                         <TeamLogo
                           name={g.home?.name ?? ""}
                           color={g.home?.color}
+                          logoPath={g.home?.logo_path}
+                          textColor={g.home?.logo_text_color}
                         />
                         {g.home?.name}
                       </span>

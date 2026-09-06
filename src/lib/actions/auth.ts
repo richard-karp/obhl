@@ -6,6 +6,7 @@ import { createClient } from "@/utils/supabase/server";
 import { devLoginEnabled } from "@/lib/auth/dev-login";
 import { passwordProblem } from "@/lib/auth/password";
 import { logAudit } from "@/lib/audit";
+import { resolveLeagueBySlug } from "@/lib/league/current";
 
 export type AuthActionState = { ok: boolean; message: string } | null;
 
@@ -245,10 +246,37 @@ export async function signInWithPassword(
   redirect("/");
 }
 
-export async function signOut() {
+/**
+ * Ends the session and lands the person on the public home of the league they
+ * were in.
+ *
+ * It used to land on `/login`. Being handed the email-entry screen the instant
+ * you deliberately signed out reads as a sign-out that failed, and the league's
+ * own front page is where a person who has stopped being staff belongs — it is
+ * the page they can still see.
+ *
+ * ⛔ THE SLUG COMES FROM THE CLIENT and becomes a redirect target, so it is
+ * RESOLVED rather than trusted: `AccountCluster` posts it as a hidden field, and
+ * anything at all can be typed into that field. `resolveLeagueBySlug` answers
+ * null for a slug that names no league, and null lands on `/`. Interpolating the
+ * posted value into the path directly would make this an open redirect within
+ * the app's own URL space.
+ *
+ * ⚠️ It resolves AFTER `signOut()`, on a request whose session is already gone,
+ * which is deliberate: the lookup reads through RLS, so a league that is not
+ * public and not theirs any more does not resolve, and they land on `/` instead
+ * of on a page that would 404 at them. A signed-out person's answer, for a
+ * signed-out person's destination.
+ *
+ * `/` is also the answer when no slug is posted at all — the league picker
+ * draws this cluster and has no league in its URL.
+ */
+export async function signOut(formData?: FormData) {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  redirect("/login");
+  const slug = String(formData?.get("league") ?? "").trim();
+  const league = slug ? await resolveLeagueBySlug(slug) : null;
+  redirect(league ? `/${league.slug}` : "/");
 }
 
 /**

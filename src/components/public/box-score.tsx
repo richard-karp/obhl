@@ -17,7 +17,12 @@ function TeamScore({
   score,
   winner,
 }: {
-  team: { name: string; color: string | null } | null;
+  team: {
+    name: string;
+    color: string | null;
+    logo_path: string | null;
+    logo_text_color: string | null;
+  } | null;
   score: number;
   winner: boolean;
 }) {
@@ -26,6 +31,8 @@ function TeamScore({
       <TeamLogo
         name={team?.name ?? "TBD"}
         color={team?.color}
+        logoPath={team?.logo_path}
+        textColor={team?.logo_text_color}
         className="size-10 text-sm"
       />
       <span className="text-center text-sm font-medium">

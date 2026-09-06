@@ -901,6 +901,8 @@ export type Database = {
           so: number | null;
           team_color: string | null;
           team_id: string | null;
+          team_logo_path: string | null;
+          team_logo_text_color: string | null;
           team_name: string | null;
           team_slug: string | null;
           ties: number | null;
@@ -930,6 +932,8 @@ export type Database = {
           so: number | null;
           team_color: string | null;
           team_id: string | null;
+          team_logo_path: string | null;
+          team_logo_text_color: string | null;
           team_name: string | null;
           team_slug: string | null;
           ties: number | null;
@@ -952,6 +956,8 @@ export type Database = {
           season_id: string | null;
           team_color: string | null;
           team_id: string | null;
+          team_logo_path: string | null;
+          team_logo_text_color: string | null;
           team_name: string | null;
           team_slug: string | null;
         };
@@ -994,6 +1000,8 @@ export type Database = {
           season_id: string | null;
           team_color: string | null;
           team_id: string | null;
+          team_logo_path: string | null;
+          team_logo_text_color: string | null;
           team_name: string | null;
           team_slug: string | null;
         };
@@ -1104,6 +1112,7 @@ export type Database = {
         Args: { p_profile: string };
         Returns: Database["public"]["Enums"]["office_tier"];
       };
+      player_in_my_league: { Args: { p_player: string }; Returns: boolean };
       player_is_public: { Args: { p_player: string }; Returns: boolean };
       postpone_game: { Args: { p_game: string }; Returns: undefined };
       remove_published_schedule: {

@@ -7,9 +7,9 @@
    or PR #13's description — what still binds is inlined below.
 2. ⛔ **Hazards, before any instruction:**
    - `npx supabase db reset --linked` **wipes production**. Use `db push`.
-     `npm run db:reset` is the *local* one and is safe.
+     `npm run db:reset` is the _local_ one and is safe.
    - Do not change the `app_role` enum or the JWT hook (`0010_auth_hook.sql`).
-     The model is membership-only *so that* both stay untouched; changing the
+     The model is membership-only _so that_ both stay untouched; changing the
      hook also means re-enabling it by hand in the Supabase dashboard.
    - `ENABLE_DEV_LOGIN=true` on a production deploy hands anyone with the URL
      a manager session — `devLoginEnabled()` in `src/lib/auth/dev-login.ts`.
@@ -49,7 +49,7 @@ had closed by 2026-09-06** — the two production doors (items 1 and 2), the fal
 claims in `LAUNCH.md`, and the audit-log gaps in `people.ts` / `seasons.ts` /
 `announcements.ts`. A pointer that names its target's contents goes stale on
 someone else's commit, so this one no longer tries: **read the items table and
-*Open — waiting on a person* there for the current list.**
+_Open — waiting on a person_ there for the current list.**
 
 ## What CI runs
 
@@ -57,7 +57,7 @@ someone else's commit, so this one no longer tries: **read the items table and
 
 - **check** — `npm run typecheck`, then `npm test`. No database, no browser.
 - **e2e** — `npx supabase start`, an `.env.local` written from `supabase status
-  -o env`, then `npm run test:e2e`. Playwright's `globalSetup` resets and seeds
+-o env`, then `npm run test:e2e`. Playwright's `globalSetup` resets and seeds
   the database and `playwright.config.ts` starts the dev server, so the job
   only has to supply Supabase and the env file.
 
@@ -79,7 +79,7 @@ Two settings exist because CI runs cold and on slower hardware than a laptop:
   quick.
 - **`vitest.config.ts` reads `OBHL_SLOT_BUDGET_MS` / `OBHL_SLOT_RESTARTS` from
   the environment**, defaulting to the values that have always run locally. The
-  schedule tests bound *quality* (`slotWeekdaySpread <= 8` and friends), and
+  schedule tests bound _quality_ (`slotWeekdaySpread <= 8` and friends), and
   those bounds are only reachable if enough restarts fit in the budget — so on
   slower hardware the lever is to **raise the budget, never to loosen an
   assertion**. Nothing sets these in CI today; the first runs decide whether
@@ -106,7 +106,7 @@ This paragraph used to say a policy-level refusal here need not set `error`;
 issuing exactly this upsert from a session that fails the policy raises `new row
 violates row-level security policy for table "league_rules"` — on both the
 insert and the `ON CONFLICT DO UPDATE` path — so `saved === null && error ===
-null` is not a state this call reaches. The *Traps* entry it pointed at is about
+null` is not a state this call reaches. The _Traps_ entry it pointed at is about
 a refused `UPDATE`, which filters rows rather than raising; an upsert is not
 that case. The branch is worth keeping; the claim under it was wrong.
 And the write is skipped when the document is **unchanged**, compared with a
@@ -117,8 +117,8 @@ every save a change and quietly do nothing.
 **Known limitation — the read and the write are not atomic.** `saveRules` reads
 the previous document, then upserts. Two managers saving the same league's
 rules concurrently both read the same `previous`, so one entry's `old_data`
-names a document it did not actually overwrite. *This is a reading of the code;
-it has not been reproduced.* Left alone deliberately: closing it means making
+names a document it did not actually overwrite. _This is a reading of the code;
+it has not been reproduced._ Left alone deliberately: closing it means making
 read-and-replace atomic, which realistically means a plpgsql function and a
 migration, and this area is not worth a migration for an unmeasured race on a
 page edited a few times a season. Revisit if rules editing ever becomes
@@ -127,7 +127,7 @@ concurrent.
 **The trap it sat behind, which is still armed for the next entity type:**
 `leagueOfEntity` in `src/lib/audit.ts` switches on `entity_type`. A type it
 does not handle returns `null`, and a null league is filtered out of every
-league-scoped view *and* hidden by RLS (`manages_league(null)` is false). So
+league-scoped view _and_ hidden by RLS (`manages_league(null)` is false). So
 adding a `logAudit` call alone writes an entry that is **correct and never
 appears**. Add the type to that switch in the same change; the per-entity
 resolvers are in `src/lib/league/of-entity.ts`.
@@ -176,12 +176,25 @@ in `src/lib/import/esportsdesk.ts`.
 
 Each of these cost a review round or a wrong fix in the session that built it.
 
+- **THE CHROME IS NOT A GUARD, and since 2026-09-06 it is not even a hint.**
+  PR #39 (`9d57fbe`) deleted the separate manager chrome: there is one header for
+  the whole site, and staff get a row of links beneath it
+  (`src/components/shared/staff-links.tsx`, formerly `components/manage/manage-nav.tsx`).
+  Which links a viewer sees is decided by MEMBERSHIP, in a component — it says
+  nothing about what the server will allow. Every page under `[league]/(manage)`
+  still calls its own `requireLeagueManager` / `requireLeagueRole`, and the route
+  group's layout still has `if (!user) redirect("/login")`. ⚠️ Removing a link
+  removes nothing: the URL still resolves and the guard is the only thing between
+  it and the data. When #39 landed, all 11 manage pages were audited individually
+  to confirm exactly that, and `e2e/27-one-chrome.spec.ts` asserts a page which
+  left the nav is still refused by its own guard.
+
 - **Every export of a `"use server"` file is a callable endpoint.** "Internal
   helper" in a doc comment is not a boundary. `finalizeGameById` /
   `reopenGameById` were two unguarded ones taking the audit actor as a
   parameter; they now live in `src/lib/games/finalize.ts`, a plain module.
 - **`logAudit` writes on the admin client, past RLS, with whatever entity id it
-  is handed.** Guarding an action's *table* writes is therefore not enough — an
+  is handed.** Guarding an action's _table_ writes is therefore not enough — an
   unguarded id reaching `logAudit` files a real-looking entry into another
   league's audit log. This bit twice, most recently in `setDefaultGoalie`,
   where guarding the id only on the branch that wrote it left the audit write
@@ -195,12 +208,12 @@ Each of these cost a review round or a wrong fix in the session that built it.
 - **`canManageLeague` and `canScoreLeague` are QUESTIONS, NOT GUARDS**, and they
   read exactly like guards at a call site. They return a boolean and refuse
   nobody. They exist because the manage pages merged into the public ones: a
-  page that everybody may open has to *ask* whether this viewer gets the editing
+  page that everybody may open has to _ask_ whether this viewer gets the editing
   surface, where the old `/manage/…` page could simply refuse at the top. The
   refusal still has to happen somewhere, and that somewhere is the server action
   — `src/lib/actions/*` guards itself, as it always did, plus RLS beneath. ⛔ Do
   not read "the page checks `canManageLeague`" as "this write is guarded"; the
-  page check decides what is *drawn*. A control that is not drawn is not a
+  page check decides what is _drawn_. A control that is not drawn is not a
   control that cannot be submitted.
 - **A page shared between the public and the staff has two audiences and one
   render.** Radix unmounts inactive tab content on the client, but the server
@@ -227,7 +240,7 @@ that symmetry: `single-league-lead@` (manager) and `single-league-scorer@`
   both learned by watching these tests pass against deliberately broken guards:
   wait for the POST before asserting (a DB read fired after `click()` races the
   action and reads "nothing written yet"), and assert the refusal
-  (`toHaveURL("/")`, which *waits*) rather than only the absence.
+  (`toHaveURL("/")`, which _waits_) rather than only the absence.
 - **Confirm every new guard fails without itself.** 25 mutations were run this
   way — 17 app-layer, 4 policy-level, 4 action-level — each knocked out with
   the matching test watched go red. Twice this caught a test that proved
@@ -240,5 +253,5 @@ Both parked pieces came out of the per-league routing project (PR #12,
 and the `saveRules` audit entry followed in `feat/ci-and-rules-audit`. The full
 routing design, including alternatives rejected, is
 `docs/superpowers/specs/2026-08-31-per-league-routing-design.md` — open it only
-if you need *why* beyond what is inlined here. Operational launch steps are in
+if you need _why_ beyond what is inlined here. Operational launch steps are in
 `LAUNCH.md`.

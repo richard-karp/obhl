@@ -168,7 +168,12 @@ export function SkaterStatsTable({
                   href={`/${league}/teams/${r.team_slug}`}
                   className="flex items-center gap-2 hover:underline"
                 >
-                  <TeamLogo name={r.team_name ?? ""} color={r.team_color} />
+                  <TeamLogo
+                    name={r.team_name ?? ""}
+                    color={r.team_color}
+                    logoPath={r.team_logo_path}
+                    textColor={r.team_logo_text_color}
+                  />
                   <span className="text-muted-foreground text-sm">
                     {r.team_name}
                   </span>

@@ -14,7 +14,7 @@
      end to end by a real magic-link sign-in that day. What that sign-in
      exposed instead is the failure BELOW those legs — a session with no
      `profiles` row signs in fine and is offered nothing. Recovery is still
-     SQL. See *Getting locked out*.
+     SQL. See _Getting locked out_.
    - ⛔ **A SCHEDULE PUBLISHED WITH A PAST DATE LOCKS THE SEASON INSTANTLY AND
      FOR GOOD.** `season_is_started` (`0026`) counts only `not is_draft`, so a
      past-dated DRAFT is invisible to the gate and looks completely fine — until
@@ -28,7 +28,7 @@
      them 2026-09-05. **Read-only `gh` works**: `run list`, `run view`, `run download`. On a
      red CI run, pull the artifact and read `error-context.md` yourself; its
      page snapshot has twice settled in seconds what guessing got wrong.
-3. ⛔ **The hot tier — everything above *The items* — is capped at 130 lines.**
+3. ⛔ **The hot tier — everything above _The items_ — is capped at 130 lines.**
    Adding to it means evicting something to a section below, in the same edit.
    Count first (`awk '/^## The rule item 6/{print NR; exit}'`), decide what
    leaves, then write to the space you freed. Raise the number deliberately and
@@ -70,13 +70,13 @@
 accounts are deleted, and production carries `0001`-`0043` — including `0037`,
 which fixed GAA being inflated by empty-net goals on live pages; `0039`-`0041`,
 which #24's manage tools read; and `0042`/`0043`, which let a league's own
-scorekeepers and captains read it before it is public (*Member reads*, below).
+scorekeepers and captains read it before it is public (_Member reads_, below).
 
 ✅ **THIS FILE IS ON `main`, and there are NO open PRs** (2026-09-06: #36
 merged; before it #33-#35; #23 and issue #30 closed). ⚠️ **Check anyway** — this line goes
 stale the moment someone branches, and a stale copy in a worktree misled a
 reader today. Everything waiting on a person rather than on work is listed
-under *Open — waiting on a person* below, and nothing outstanding is elsewhere.
+under _Open — waiting on a person_ below, and nothing outstanding is elsewhere.
 
 **What remains is item 4: the `LAUNCH.md` phases — and it now has a date on
 it.** The published season's first game night is **2026-09-10**, after which its
@@ -112,11 +112,11 @@ touching a game closes the window early. And every regenerated game gets a new
 id, so all 144 calendar UIDs change and subscribers see their events replaced.
 
 **Then the rest of `LAUNCH.md` Phases 2-6** — steps 4, 5 and 6 of its
-*Verification* list, which need a session. Nothing else outstanding can be done
+_Verification_ list, which need a session. Nothing else outstanding can be done
 from a checkout.
 
 ✅ **Sign-in, the app guard and RLS were all verified on production 2026-09-05**
-— see *Verified on production* under item 4. ⛔ **Test `/<slug>/dashboard`, never
+— see _Verified on production_ under item 4. ⛔ **Test `/<slug>/dashboard`, never
 `/`**: a completed sign-in lands on `/`, which shows no badge to anybody, and
 that cost a round of misdiagnosis here. ⚠️ That URL was `/<slug>/manage/dashboard`
 when it was verified; #31 removed the `/manage/` prefix the day after, and
@@ -142,7 +142,7 @@ are worse than the loud one.** Had it gone the other way, #24 would have shown:
   `logo_text_color` in the select list and `if (!team) notFound()` follows, so
   the whole page goes rather than the colour.
 
-*A reading of the code, not a probe — the order held, so none of it happened.*
+_A reading of the code, not a probe — the order held, so none of it happened._
 
     npx supabase migration list --linked      # what is Local-only?
     npx supabase db push
@@ -158,25 +158,25 @@ design, so assume the gap and check the list rather than the flag.
 
 ## The items, and where they stand
 
-| # | Item | Where | Status |
-|---|---|---|---|
-| 1 | `ENABLE_DEV_LOGIN` set on production | Vercel env | ✅ **closed 2026-09-04** — absent from every environment (`vercel env ls`) |
-| 2 | Seeded test accounts live, password in git | Supabase dashboard | ✅ **closed 2026-09-04** — done by a human; not verifiable from a checkout |
-| 3 | `0033` not pushed — the RLS half of the escalation | `supabase db push` | ✅ **closed** — and `0034`-`0038` with it |
-| 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | ⛔ **OPEN, AND ON A CLOCK** — Phase 6's first game night is 2026-09-10; sign-in, access control and the anonymous half of *Verification* are done; steps 4-6 of that list need a session |
-| 5 | Smaller deferred items | below | open |
-| 6 | `0039`-`0043` not pushed | `supabase db push` | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides |
-| 7 | Staff can set a password, but only a commissioner can give them one | a domain, then Supabase dashboard | **OPEN — only phase 1 is left, and it needs a DOMAIN BOUGHT FIRST** — ✅ phases 2-3 merged 2026-09-06 (#36, `32262b5`): reset trigger, `/set-password`, password field on `/login`. ⛔ No production email has ever been sent, so the reset half is unproven and nobody should be told it works. Runbook in *The other half of auth*. ⚠️ No app env key is involved |
-| 8 | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code | ✅ **closed 2026-09-05** — steps 1-6 shipped as #31 (which collapsed #25-#29); step 7, the prose, is this commit. Spec: `docs/superpowers/specs/2026-09-05-unified-url-space-design.md` |
-| 9 | **A past first-game-night locks the season on publish** | code | ✅ **closed 2026-09-05 — PR #35, on `main` as `72b4148`** — reproduced, then guarded at generate. ⛔ Publish stays unguarded regardless — see *Item 9 — the guard, built* |
+| #   | Item                                                                           | Where                             | Status                                                                                                                                                                                                                                                                                                                                                              |
+| --- | ------------------------------------------------------------------------------ | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `ENABLE_DEV_LOGIN` set on production                                           | Vercel env                        | ✅ **closed 2026-09-04** — absent from every environment (`vercel env ls`)                                                                                                                                                                                                                                                                                          |
+| 2   | Seeded test accounts live, password in git                                     | Supabase dashboard                | ✅ **closed 2026-09-04** — done by a human; not verifiable from a checkout                                                                                                                                                                                                                                                                                          |
+| 3   | `0033` not pushed — the RLS half of the escalation                             | `supabase db push`                | ✅ **closed** — and `0034`-`0038` with it                                                                                                                                                                                                                                                                                                                           |
+| 4   | **`LAUNCH.md` Phases 2-6 never verified**                                      | production                        | ⛔ **OPEN, AND ON A CLOCK** — Phase 6's first game night is 2026-09-10; sign-in, access control and the anonymous half of _Verification_ are done; steps 4-6 of that list need a session                                                                                                                                                                            |
+| 5   | Smaller deferred items                                                         | below                             | open                                                                                                                                                                                                                                                                                                                                                                |
+| 6   | `0039`-`0043` not pushed                                                       | `supabase db push`                | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides                                                                                                                                                                                                                         |
+| 7   | Staff can set a password, but only a commissioner can give them one            | a domain, then Supabase dashboard | **OPEN — only phase 1 is left, and it needs a DOMAIN BOUGHT FIRST** — ✅ phases 2-3 merged 2026-09-06 (#36, `32262b5`): reset trigger, `/set-password`, password field on `/login`. ⛔ No production email has ever been sent, so the reset half is unproven and nobody should be told it works. Runbook in _The other half of auth_. ⚠️ No app env key is involved |
+| 8   | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code                              | ✅ **closed 2026-09-05** — steps 1-6 shipped as #31 (which collapsed #25-#29); step 7, the prose, is this commit. Spec: `docs/superpowers/specs/2026-09-05-unified-url-space-design.md`                                                                                                                                                                             |
+| 9   | **A past first-game-night locks the season on publish**                        | code                              | ✅ **closed 2026-09-05 — PR #35, on `main` as `72b4148`** — reproduced, then guarded at generate. ⛔ Publish stays unguarded regardless — see _Item 9 — the guard, built_                                                                                                                                                                                           |
 
 ⛔ **Do not re-file 1-3.** They are kept as rows, rather than deleted, because a
 reader who knows this file by its old shape will otherwise assume they were
-forgotten. The reasoning behind each is under *Closed doors* below.
+forgotten. The reasoning behind each is under _Closed doors_ below.
 
 ⛔ **Do not re-file 6 either.** It is kept for the same reason as 1-3, and
-because the ORDER it was closed in is the reusable part — see *The rule item 6
-leaves behind* above.
+because the ORDER it was closed in is the reusable part — see _The rule item 6
+leaves behind_ above.
 
 ⚠️ **6 and 7 both arrived with #24** (`feat/manager-tools`: schedule
 constraints, roster editing, team branding, staff auth, season gating), merged
@@ -193,12 +193,15 @@ it was finished, and the commit that finished it says so.
 and a stale green is worse than none — `gh run list --branch <branch> --limit 1`
 is one command and is always right.
 
-| What | State | Who |
-|---|---|---|
-| ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in *Next action* |
-| **`LAUNCH.md` Verification steps 4, 5, 6** | The manager badge, the league switcher, an announcement in one league only | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written |
-| **Item 7** — custom SMTP, now the only phase left | ⛔ **Blocked on ACQUIRING A DOMAIN** — `vercel domains ls` is 0 and `vercel.app` cannot be verified in Resend. Runbook has the DNS records and the traps, plus three values to READ AND RECORD while in the dashboard: the allow-list entry for `/auth/confirm?next=…`, the password length, and `secure_password_change`. Phases 2-3 merged 2026-09-06; the email leg is what nobody can test until this is done | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
-| **`NEXT_PUBLIC_SITE_URL` is missing on Preview** | `vercel env ls` 2026-09-05: Production only | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run |
+| What                                                                 | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Who                                                                                                                                                        |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in _Next action_                                      |
+| **`LAUNCH.md` Verification steps 4, 5, 6**                           | The manager badge, the league switcher, an announcement in one league only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written                                                                         |
+| ⛔ **Buy `lccalumnihockey.ca` and move the site onto it**            | **Decided 2026-09-06: `lccalumnihockey.ca`, for the site AND the mail sender** — not only the mail — which widens §7, whose runbook assumes the site stays on `obhl.vercel.app`. No code change: `grep vercel.app src/ e2e/` is empty and the host reaches the app through `NEXT_PUBLIC_SITE_URL` alone, in three places. The work is purchase → DNS → env var on Production AND Preview → Supabase Site URL → the whole redirect allow-list → Resend. ⚠️ Finish by REDIRECTING `obhl.vercel.app` to the new host — sessions are origin-scoped, so two live origins mean a sign-in on one and the emailed link on the other | the user; `vercel env` and the Supabase dashboard are not an agent's to run. See _Custom domain_                                                           |
+| **Item 7** — custom SMTP, now the only phase left                    | ⛔ **Blocked on ACQUIRING A DOMAIN** — `vercel domains ls` is 0 and `vercel.app` cannot be verified in Resend. Runbook has the DNS records and the traps, plus three values to READ AND RECORD while in the dashboard: the allow-list entry for `/auth/confirm?next=…`, the password length, and `secure_password_change`. Phases 2-3 merged 2026-09-06; the email leg is what nobody can test until this is done                                                                                                                                                                                                           | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
+| **`NEXT_PUBLIC_SITE_URL` is missing on Preview**                     | `vercel env ls` 2026-09-05: Production only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run     |
+| ✅ **`supabase db push` for migration `0044`**                       | **DONE 2026-09-06, watched.** `--dry-run` first showed exactly one pending file; the push applied it and `supabase migration list --linked` now shows `0044` in the remote history. ⚠️ The columns themselves were NOT read back — this checkout's `.env.local` points at the LOCAL stack, so there is no production key here to query with. A `create or replace view` has no partial state, and a failure would have aborted before the history row, so the reading is that all four views are widened                                                                                                                    | done; #39 is now free to merge in either order                                                                                                             |
+| **The schedule write path has no transaction**                       | Compensation only — a runtime dying mid-batch leaves writes applied and uncompensated, publicly visible. Four review rounds each found a bug in the machinery that exists _because_ there is no `pg_advisory_xact_lock` RPC                                                                                                                                                                                                                                                                                                                                                                                                 | **the user, decided 2026-09-06: SHIP NOW, build the RPC first thing after launch.** See §5                                                                 |
 
 ---
 
@@ -220,7 +223,7 @@ in git and always will be; a fresh `npm run seed:users` against a production
 database re-opens this door in one command. It is safe only because nobody runs
 it there.
 
-**3. `0033`** swapped `manager write profiles` from *sharing* a league — which a
+**3. `0033`** swapped `manager write profiles` from _sharing_ a league — which a
 manager can arrange — to containment. Both steps of that escalation were once
 watched succeeding on the anon key. Pushed, along with `0034`-`0038`.
 
@@ -230,7 +233,7 @@ watched succeeding on the anon key. Pushed, along with `0034`-`0038`.
 below `0035`-`0038` which shipped first). **It changes no behaviour until someone
 is appointed:** `league_office` starts empty, so `my_office_tier()` is null for
 every account and `may_write_profile` reduces to exactly `0033`'s containment
-test. Appointing the first commissioner is *The first commissioner* below, and
+test. Appointing the first commissioner is _The first commissioner_ below, and
 until that is done nobody holds the tier.
 
 ## Member reads (`0042`/`0043`) — a staged league is no longer invisible to itself
@@ -263,14 +266,14 @@ Every exported action now writes an entry. The one exception is
 
 ⛔ **The trap stays, for whoever adds the next one.** `leagueOfEntity` in
 `src/lib/audit.ts` returns `null` for any `entity_type` it does not handle, and
-a null league is filtered out of every league-scoped view *and* hidden by RLS —
+a null league is filtered out of every league-scoped view _and_ hidden by RLS —
 so a `logAudit` call added alone writes an entry that is **correct and never
 appears**. Add the type to that switch in the same change, and prove it by
 knocking the case out and watching a test go red. `announcement` and `league`
 were watched failing that way; `office` and `player` were added later and are
 listed explicitly for the same reason — ⚠️ note that deleting either changes
 NOTHING, since `default` also returns null, so the regression to simulate is a
-case that starts *resolving* a league. That was watched too.
+case that starts _resolving_ a league. That was watched too.
 
 An action that DESTROYS what it logs cannot use the switch at all: pass
 `league_id` on the entry instead, resolved before the delete.
@@ -313,7 +316,7 @@ an auth user takes its role AND its league memberships with it, and the next
 magic link for that same address mints a **new** user id with neither. The hook
 then adds no claim at all (`0010` writes one only `if v_role is not null`), the
 fallback finds no row, and the person signs in successfully to an app that
-offers them nothing. Restoring the row is *The first manager* in `LAUNCH.md`
+offers them nothing. Restoring the row is _The first manager_ in `LAUNCH.md`
 Phase 4, plus a `profile_leagues` row per league.
 
 ⚠️ **A claim that is PRESENT but stale is not repaired either.** The resolution
@@ -332,25 +335,37 @@ fine.** Measured the same day: `profiles` carries `role = 'league_manager'` and
 `display_name`, created 2026-09-03, with one `profile_leagues` row. So this was
 NOT the missing-row case above, and not any of the three legs.
 
-✅ **Nothing was broken. It was the URL.** `src/app/page.tsx` says so in its own
-docstring: `/` is "what a bare domain, a role-denied redirect, and a completed
-sign-in all land on" — and `/` renders no `ManageNav`, because the nav and its
-badge live in `src/app/[league]/(manage)/layout.tsx`. A successful sign-in
-therefore lands on a page that shows no badge to anybody.
-`/lcc-old-boys-hockey-league/dashboard` shows it. ⛔ **Test the dashboard URL,
-never `/`** — this cost a full round of misdiagnosis on 2026-09-05, and the
-symptom of "signed in, no badge, no tools" is identical to a real lockout.
+✅ **Nothing was broken. It was the URL** — _as of 2026-09-05_.
+`src/app/page.tsx` says so in its own docstring: `/` is "what a bare domain, a
+role-denied redirect, and a completed sign-in all land on", and back then `/`
+rendered no `ManageNav`, because the nav and its badge lived in
+`src/app/[league]/(manage)/layout.tsx`. A successful sign-in therefore landed on
+a page that showed no badge to anybody, and
+`/lcc-old-boys-hockey-league/dashboard` was the URL that proved otherwise. That
+cost a full round of misdiagnosis, because "signed in, no badge, no tools" is
+the same symptom as a real lockout.
+
+⚠️ **THE FIX FOR THAT SHIPPED — do not re-diagnose it, and do not follow the old
+advice.** PR #39 (merged `9d57fbe`, 2026-09-06) deleted `ManageNav` entirely;
+there is one header for the whole site and staff get a row of links beneath it.
+`/` now renders `AccountCluster` (`page.tsx:93`), **so the badge IS there for a
+signed-in visitor**, and the picker also lists the leagues that account belongs
+to — badged "Not yet public" for one that is still staged. The old ⛔ "test the
+dashboard URL, never `/`" is therefore stale: `/` is now a _valid_ place to
+check a sign-in, and a missing badge there means something is genuinely wrong
+rather than that you picked the wrong page. Kept rather than deleted because the
+misdiagnosis is the lesson — the symptom is still identical to a real lockout.
 
 **`LAUNCH.md` Phase 2 is now verified; Phases 3-6 are not.** SMTP, the redirect
 allow-list, the role resolution and the manage tools were all exercised end to
-end on 2026-09-05 (see *Next action*), which is the whole of Phase 2's
+end on 2026-09-05 (see _Next action_), which is the whole of Phase 2's
 Supabase-dashboard column bar the hook itself. This file otherwise speaks only to
 Phase 1 (the test doors). ⚠️ **Production has ONE league, not two** — measured
 2026-09-05: `lcc-old-boys-hockey-league` ("LCC Old Boys Hockey League"),
 `is_public = true`, and it is the only row in `leagues`. Two is the goal this
 file is named for, not the current state, and `LAUNCH.md`'s verification step 1
 ("`/` lists both leagues") cannot pass until a second one exists. The site being
-live means some of the rest presumably happened — but *presumably* is the operative word: nobody has checked
+live means some of the rest presumably happened — but _presumably_ is the operative word: nobody has checked
 SMTP, the Supabase redirect allow-list, or that the Custom Access Token hook is
 still enabled. ⚠️ **The hook used to be the one that failed quietly; since #24
 it degrades instead** — sign-in falls back to `profiles.role` and the tools
@@ -365,7 +380,7 @@ outranks every item above.
 
 **PR #13 has now been reviewed** (50 files, +2545/-327, merged as `7c7c4a7`),
 2026-09-02. It found one thing, and it was the important kind: the RLS write
-policy on `profiles` tested *overlap* where it needed containment, so the
+policy on `profiles` tested _overlap_ where it needed containment, so the
 escalation the app had just closed still worked through PostgREST. That is item
 3 above, closed by 0033 and still to be pushed.
 
@@ -373,7 +388,7 @@ Everything else read as sound, and is recorded here so nobody re-derives it:
 every exported server action carries a league-scoped guard (the six in
 `schedule.ts` all route through `targetSeasonForManager`, the twelve in
 `games.ts` through `requireGameRole`); `requireLeagueManagerOf` requires the ids
-to *agree*, which per-id checks cannot; every guard fails closed on a null
+to _agree_, which per-id checks cannot; every guard fails closed on a null
 league, because `= null` is never true in SQL and `isLeagueMember` refuses an
 empty id; and the public feed routes read through RLS, so a staged league's
 schedule is empty rather than exposed — `publicLeagueOfSeason` decides only the
@@ -383,21 +398,21 @@ Two deliberate looks-wrong-reads-right spots, left alone: `manager write
 memberships` checks only `league_id`, so a manager may grant their own league to
 any profile — that is the flow the membership model exists for, and closing
 step two is what makes keeping it safe. And the manage dashboard checks
-membership only for a *roled* account, because the page that explains "you have
+membership only for a _roled_ account, because the page that explains "you have
 no role yet" would otherwise be unreachable; it renders no league data.
 
 ### Verified anonymously against production, 2026-09-05
 
-The half of `LAUNCH.md`'s *Verification* list that needs no session. Measured
+The half of `LAUNCH.md`'s _Verification_ list that needs no session. Measured
 with curl against `https://obhl.vercel.app`:
 
-| Check | Result |
-|---|---|
-| `/` lists the leagues | ✅ 200 — but **one** league, `lcc-old-boys-hockey-league`, not two |
-| `/<league>/standings` | ✅ 200 |
-| An unknown slug 404s | ✅ `/nosuchleague-zzz` → 404 |
-| `/api/schedule/team/<id>/feed.ics` resolves | ✅ 200, 36 events, calendar named for the league |
-| `/api/schedule/<season>` and `.../schedule.csv` | ✅ 200 |
+| Check                                           | Result                                                             |
+| ----------------------------------------------- | ------------------------------------------------------------------ |
+| `/` lists the leagues                           | ✅ 200 — but **one** league, `lcc-old-boys-hockey-league`, not two |
+| `/<league>/standings`                           | ✅ 200                                                             |
+| An unknown slug 404s                            | ✅ `/nosuchleague-zzz` → 404                                       |
+| `/api/schedule/team/<id>/feed.ics` resolves     | ✅ 200, 36 events, calendar named for the league                   |
+| `/api/schedule/<season>` and `.../schedule.csv` | ✅ 200                                                             |
 
 ⚠️ **Verification steps 1 and 2 cannot pass as written.** They assume two
 leagues; production has one. Steps 4, 5 and 6 (the badge, the league switcher,
@@ -406,7 +421,7 @@ confirmed on 2026-09-05, below.
 
 ### The deadline reading, and what it could not see
 
-⚠️ The Phase 6 date in *Next action* was derived from the public ICS feed, which by definition shows only
+⚠️ The Phase 6 date in _Next action_ was derived from the public ICS feed, which by definition shows only
 PUBLISHED games — it cannot see drafts. If a draft schedule is also sitting in
 that season, this reading will not have found it. The authoritative version
 needs the database:
@@ -448,24 +463,24 @@ therefore no longer the whole guard: the surviving redirect list still holds
 `/<league>/teams/<team>` is guarded by `canManageLeague` deciding whether to
 RENDER it, not by the route refusing to serve. Scoring on `/<league>/schedule`
 is the same shape. ⛔ Re-probing this list would report green while saying
-nothing about either. `ACCESS_CONTROL_HANDOFF.md`'s *Traps* section carries the
+nothing about either. `ACCESS_CONTROL_HANDOFF.md`'s _Traps_ section carries the
 rule — `canManageLeague`/`canScoreLeague` are questions, not guards — and the
 server actions behind those sections are what actually refuse.
 
 **RLS, which is the half that matters.** Probed directly against PostgREST with
 the publishable key, bypassing the app entirely:
 
-| Probe | Result |
-|---|---|
-| `select` on `profiles`, `profile_leagues`, `audit_log`, `league_office` | `[]` each |
-| `select` on `leagues`, `seasons`, `team_players` | rows — public, as designed |
-| `insert` into `announcements` | `401`, `42501 new row violates row-level security policy` |
-| `update` on `leagues`, `profiles`, `team_players` | `200` with `[]` — zero rows matched |
+| Probe                                                                   | Result                                                    |
+| ----------------------------------------------------------------------- | --------------------------------------------------------- |
+| `select` on `profiles`, `profile_leagues`, `audit_log`, `league_office` | `[]` each                                                 |
+| `select` on `leagues`, `seasons`, `team_players`                        | rows — public, as designed                                |
+| `insert` into `announcements`                                           | `401`, `42501 new row violates row-level security policy` |
+| `update` on `leagues`, `profiles`, `team_players`                       | `200` with `[]` — zero rows matched                       |
 
 ⛔ **The public reads are the load-bearing part of that table, not filler.** Had
 everything returned `[]`, a wrong key or a wrong URL would look exactly like
 working RLS. Public data coming back is what proves the probe reached the
-database as an anonymous caller and *then* got refused. Every write was a
+database as an anonymous caller and _then_ got refused. Every write was a
 deliberate no-op (setting a column to the value it already held) except the
 `announcements` insert, which was refused; a follow-up read confirmed no probe
 row landed.
@@ -492,8 +507,8 @@ Both outcomes were seen on CI:
 - the original value is forbidden too → no refusal happens, the test fails
   somewhere confusing (`a roster add cannot name another league's team`);
 - the original value is **permitted** → the action quietly succeeds and the test
-  passes *with the attack never having happened* (`a manager can be removed from
-  a league, but never yourself`, whose "self is still a member" check held
+  passes _with the attack never having happened_ (`a manager can be removed from
+a league, but never yourself`, whose "self is still a member" check held
   vacuously). This is the dangerous half: a green tick over an untested guard.
 
 All six sites in `e2e/16-league-membership.spec.ts` now go through one
@@ -531,6 +546,7 @@ Replace the address, run it in the Supabase SQL editor, and expect exactly one
 row back. If it returns none, the account does not exist or is not a manager.
 
 COPY FROM HERE
+
 ```sql
 insert into league_office (profile_id, tier)
 select p.id, 'commissioner'
@@ -540,7 +556,104 @@ where u.email = 'REPLACE@example.com'
   and p.role = 'league_manager'
 returning profile_id, tier;
 ```
+
 END COPY
+
+## Custom domain — `lccalumnihockey.ca`, DECIDED 2026-09-06
+
+⛔ **THE DOMAIN IS CHOSEN: `lccalumnihockey.ca`.** Not yet purchased as of
+2026-09-06. This is the site's address AND the mail sender's
+(`noreply@lccalumnihockey.ca`), so it is the one value item 7 and everything below
+share. ⚠️ `.ca` has CIRA's Canadian Presence Requirements — a registrar will ask;
+it is a formality for a Canadian registrant and a hard stop for anyone else.
+
+✅ **`obhl.vercel.app` REDIRECTS to the new host.** Decided 2026-09-06, revising
+the same day's earlier "leave it as is" — only two or three people know that host,
+so nothing is being migrated either way, and redirecting is both easier and safer.
+
+⛔ **THE REASON IS AUTH, NOT TIDINESS. A SESSION IS SCOPED TO AN ORIGIN.** Two
+hosts serving the app are two origins with two separate sessions. Sign in on
+`obhl.vercel.app`, and every emailed magic link and reset link points at
+`lccalumnihockey.ca` — because that is what `NEXT_PUBLIC_SITE_URL` and Supabase's
+Site URL say — so the viewer lands on the new host **signed out**, with a working
+session sitting on an origin they cannot see. ⚠️ That is indistinguishable from a
+broken login, and it is the SAME symptom this file already records as costing a
+full round of misdiagnosis on 2026-09-05: "signed in, no badge, no tools". One
+origin makes it unreachable.
+
+**How:** Vercel → project → Domains: add `lccalumnihockey.ca`, make it the
+production domain, then set `obhl.vercel.app` to **Redirect to** it. No code, no
+deploy. ⚠️ **A reading, not a measurement** — that the redirect option is offered
+for the `.vercel.app` domain itself has not been checked on this project. If it is
+not, the fallback is a host-based redirect in middleware, which is a few lines and
+does need a deploy.
+
+⛔ **ORDER: verify the new domain SERVES THE SITE first, then set the redirect.**
+Redirecting before DNS resolves points the only working host at one that is not
+answering yet.
+
+⚠️ Per-deployment URLs (`obhl-<hash>-….vercel.app`) always resolve and cannot be
+redirected — that is how preview deploys work, and it is fine.
+
+⚠️ **The user wants the SITE on a custom domain, not only the mail.** Everything
+below §7 was written on the assumption that a domain was needed _only_ so Resend
+had something to verify, and it says explicitly that "the domain does not have to
+be the site's address" and that mail can come from `noreply@<domain>` while every
+link still points at `obhl.vercel.app`. **That is no longer the plan.** The
+site moves too. §7's runbook is still correct about the mail half; this section is
+the part it does not cover.
+
+**Measured 2026-09-06, and it is better news than it sounds:** `grep -rn
+"vercel\.app" src/ e2e/ supabase/config.toml` returns **nothing**. No host is
+hardcoded anywhere in the app. The site's address reaches the code through exactly
+one variable, `NEXT_PUBLIC_SITE_URL`, in exactly three places:
+
+| Where                                    | What it does if it is wrong                                                                          |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `src/app/layout.tsx:19` (`metadataBase`) | Open Graph and canonical URLs point at the old host. Cosmetic, invisible until someone shares a link |
+| `src/lib/actions/auth.ts:50`             | the magic-link `emailRedirectTo`                                                                     |
+| `src/lib/actions/auth.ts:95`             | the password-reset `redirectTo`                                                                      |
+
+So the code change is **none**. The work is a purchase, DNS, one env var per
+environment, and the Supabase settings that must agree with it.
+
+**The order matters, and the last two steps are the ones that bite:**
+
+1. **Buy the domain.** ⛔ Still the only thing with a lead time; nothing else here
+   can start. `vercel domains ls` was **0 Domains**, re-measured 2026-09-06 with a
+   control (`vercel teams ls` shows exactly one scope, so it is not hiding under
+   another team).
+2. `vercel domains add` and point the DNS. The `vercel.app` host keeps working as
+   an alias afterwards — see the trap below.
+3. **`vercel env` — set `NEXT_PUBLIC_SITE_URL` on Production AND Preview.** Preview
+   is already an open item in the table above for a different reason; the domain
+   makes it the same job. ⚠️ An agent may not run `vercel env`.
+4. **Supabase → Authentication → URL Configuration → Site URL.** This is the value
+   Supabase substitutes when a redirect is not on the allow-list.
+5. **The redirect allow-list — every entry, including the query-string one.** ⛔
+   The trap already documented for `/auth/confirm?next=/set-password` applies
+   again here in full: a redirect that is not on the list does **not** error. The
+   mail still sends, `redirect_to` is silently rewritten to the Site URL, and
+   under PKCE the route receives `?code=…` with no `type`, so there is no code fix
+   for it. Re-add every entry against the new host.
+6. **Resend** (item 7 phase 1) now verifies this same domain. That is the one part
+   §7 already covers end to end.
+
+⛔ **THE TRAP, AND WHAT THE REDIRECT DOES TO IT: UNTIL THE REDIRECT IS IN PLACE,
+`obhl.vercel.app` KEEPS SERVING THE APP.** In that window a stale allow-list
+entry, a missed env var, or an old bookmark all keep working, and the flow looks
+healthy right up until somebody arrives on the new host. ✅ Setting the redirect
+closes it and **turns it into a positive test**: visit the old host, land on the
+new one, and the move is proven. Until then nothing can prove it — so treat the
+redirect as part of the move, not as tidying up afterwards. ⚠️ **Verify from the NEW host in a fresh private window**, not from a tab you
+already had open, and check that the emailed link's `redirect_to` names the new
+domain rather than assuming it does.
+
+⚠️ **The e2e note in `.env.local` gains a second meaning.** It pins
+`NEXT_PUBLIC_SITE_URL=http://localhost:3000`, which is why `24-password-auth.spec.ts`
+fails with `ERR_CONNECTION_REFUSED` in any worktree on another port. That stays
+true and unrelated to production — do not "fix" it by putting the new domain in
+`.env.local`.
 
 ## 7 — The other half of auth: only the email is left
 
@@ -561,11 +674,11 @@ every decision behind the code are archived** in
 `docs/worklists/2026-09-06-22b5bab5-item-7-password-auth.md` (262 lines).
 Do **not** read it to do the work below — nothing outstanding depends on it.
 
-| Step in a password flow | State |
-|---|---|
+| Step in a password flow                        | State                                                                                                             |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | A commissioner **sets** a password for someone | ✅ `setStaffPassword` (`office.ts`, `requireCommissioner`) — the no-email path, and the only one that works today |
-| A user **sets their own** password | ✅ `/set-password` → `auth.ts:updateOwnPassword`, reached by `sendPasswordReset`. ⛔ The email leg is unproven |
-| A user **signs in** with it | ✅ `auth.ts:signInWithPassword`, second form on `/login`. Only useful to an account that already has a password |
+| A user **sets their own** password             | ✅ `/set-password` → `auth.ts:updateOwnPassword`, reached by `sendPasswordReset`. ⛔ The email leg is unproven    |
+| A user **signs in** with it                    | ✅ `auth.ts:signInWithPassword`, second form on `/login`. Only useful to an account that already has a password   |
 
 **What closes this — one phase, and it is not code:**
 
@@ -587,71 +700,79 @@ Do **not** read it to do the work below — nothing outstanding depends on it.
    records at the domain's authoritative nameservers. Someone has to **acquire a
    domain** before step (a) below is reachable at all.
 
+   ⚠️ **SUPERSEDED IN PART, 2026-09-06 — read _Custom domain_ above first.** The
+   paragraph below is still TRUE of what item 7 alone requires, and it stays
+   because it is the fallback if the move is ever deferred: mail can be sent from
+   a domain that does not serve the app. But the user has since decided the site
+   moves onto the custom URL too, so in practice the same domain does both jobs
+   and the extra steps (env var, Supabase Site URL, the whole redirect
+   allow-list) are in that section, not here.
+
    ✅ Two things make that smaller than it sounds. **The domain does not have to
-   serve the app** — Resend needs records at the registrar, nothing requires
-   moving off `obhl.vercel.app`, and mail can come from `noreply@<domain>` while
-   every link still points at the vercel.app host; this is not a domain
-   migration. And Resend's shared `onboarding@resend.dev` sender needs no DNS at
+   serve the app** — Resend needs records at the registrar, nothing _in item 7_
+   requires moving off `obhl.vercel.app`, and mail can come from
+   `noreply@<domain>` while every link still points at the vercel.app host; item
+   7 on its own is not a domain migration. And Resend's shared `onboarding@resend.dev` sender needs no DNS at
    all: it delivers **ONLY** to the address that owns the Resend account, which
    is enough to prove the (b) and (c) wiring and ⛔ **not** enough to unblock
    staff sign-in. Do not mark phase 1 done on it.
 
    a. **Verify a sending domain** in Resend, then create an API key. Unverified
-      domains fail at send time, not at setup time.
+   domains fail at send time, not at setup time.
    b. **Authentication → Emails → SMTP Settings**: host `smtp.resend.com`, port
-      `465`, username **the literal string `resend`**, password the API key,
-      sender an address at the domain from (a).
+   `465`, username **the literal string `resend`**, password the API key,
+   sender an address at the domain from (a).
    c. **Authentication → Rate Limits**: raise "emails per hour" off its default
-      of `2`. ⛔ Skipping this is the failure that looks like a bug in the app —
-      links stop arriving for everyone at once, with nothing in the app's logs.
+   of `2`. ⛔ Skipping this is the failure that looks like a bug in the app —
+   links stop arriving for everyone at once, with nothing in the app's logs.
    d. Confirm Site URL and the redirect allow-list still name production, then
-      send one real magic link and watch it arrive.
+   send one real magic link and watch it arrive.
    ⛔ **THE ALLOW-LIST NEEDS A NEW ENTRY, AND ITS ABSENCE IS SILENT.** The reset
-      link asks Supabase to return to `/auth/confirm?next=/set-password` — a
-      QUERY STRING the magic link never had, and the allow-list is a list of
-      exact URLs with wildcards. **Measured 2026-09-05** against the local
-      stack: a `redirectTo` that is not listed returns **no error at all**, the
-      mail still arrives, and its `redirect_to` is silently rewritten to the
-      Site URL. So the person lands signed-in on `/` with the token spent, no
-      way to finish, and nothing in the app's logs — while the action reports
-      success. Locally this passes only because `config.toml` allows
-      `http://localhost:3000/**`; production's list is unread from here. **Add a
-      pattern covering `https://<prod host>/auth/confirm?**` (or the equivalent
-      wildcard) before sending the first reset**, and add the preview pattern in
-      the same visit — see the `NEXT_PUBLIC_SITE_URL` note below.
-      ⚠️ There is no code fix for this: under PKCE `/auth/confirm` receives
-      `?code=…` with **no `type`**, so it cannot recognise a recovery link and
-      reuse the bare URL that is already listed. Measured the same day, by
-      watching the navigation chain.
+   link asks Supabase to return to `/auth/confirm?next=/set-password` — a
+   QUERY STRING the magic link never had, and the allow-list is a list of
+   exact URLs with wildcards. **Measured 2026-09-05** against the local
+   stack: a `redirectTo` that is not listed returns **no error at all**, the
+   mail still arrives, and its `redirect_to` is silently rewritten to the
+   Site URL. So the person lands signed-in on `/` with the token spent, no
+   way to finish, and nothing in the app's logs — while the action reports
+   success. Locally this passes only because `config.toml` allows
+   `http://localhost:3000/**`; production's list is unread from here. **Add a
+   pattern covering `https://<prod host>/auth/confirm?**` (or the equivalent
+   wildcard) before sending the first reset**, and add the preview pattern in
+   the same visit — see the `NEXT_PUBLIC_SITE_URL` note below.
+   ⚠️ There is no code fix for this: under PKCE `/auth/confirm` receives
+   `?code=…` with **no `type`**, so it cannot recognise a recovery link and
+   reuse the bare URL that is already listed. Measured the same day, by
+   watching the navigation chain.
    e. **Read production's minimum password length and set it to 8**, while you
-      are already in this dashboard. See the layering note under phase 2.
+   are already in this dashboard. See the layering note under phase 2.
    ⚠️ **(e) and (f) need no domain and no SMTP — do them on the next dashboard
-      visit rather than waiting.** They are reads of values recorded nowhere in
-      this repository, and the recording is the point. **(c) may not be
-      available yet**: this is a READING of Supabase's documented behaviour, not
-      a measurement — the emails-per-hour limit is understood to be raisable
-      only once custom SMTP is configured, so expect it to still say `2` while
-      the built-in sender is in use. Try it, and if it refuses, that is expected
-      and not a second blocker.
+   visit rather than waiting.** They are reads of values recorded nowhere in
+   this repository, and the recording is the point. **(c) may not be
+   available yet**: this is a READING of Supabase's documented behaviour, not
+   a measurement — the emails-per-hour limit is understood to be raisable
+   only once custom SMTP is configured, so expect it to still say `2` while
+   the built-in sender is in use. Try it, and if it refuses, that is expected
+   and not a second blocker.
    f. **Read and record `secure_password_change` and the password-changed
-      notification.** Both govern what a stolen session can do: with
-      `secure_password_change` off, a session cookie alone — 7 days — is enough
-      to set a password and keep access that outlives the session, and with the
-      notification template off nobody is told. `config.toml` has
-      `secure_password_change = false` and the `password_changed` template
-      commented out, and ⛔ **both of those govern the LOCAL stack only** —
-      production's values live in the dashboard and are **recorded nowhere**,
-      exactly like the password length was. Turning them on is a judgement call;
-      leaving them unrecorded is not.
+   notification.** Both govern what a stolen session can do: with
+   `secure_password_change` off, a session cookie alone — 7 days — is enough
+   to set a password and keep access that outlives the session, and with the
+   notification template off nobody is told. `config.toml` has
+   `secure_password_change = false` and the `password_changed` template
+   commented out, and ⛔ **both of those govern the LOCAL stack only** —
+   production's values live in the dashboard and are **recorded nowhere**,
+   exactly like the password length was. Turning them on is a judgement call;
+   leaving them unrecorded is not.
    ⚠️ **Password sign-in has no throttle the app can see.** `signInWithPassword`
-      counts nothing itself, and GoTrue's per-IP limit on `/token` sees the
-      Next.js server's address rather than the caller's — every sign-in in the
-      instance arrives from one IP. So the limit neither slows a guess-the-
-      password run against one account nor keeps one attacker from spending the
-      whole budget and locking everybody out of the password door. The magic link
-      is unaffected and remains the way back in, which is why this is recorded
-      rather than built: if it ever needs fixing, the fix is a per-email attempt
-      count in a table, not a dashboard setting.
+   counts nothing itself, and GoTrue's per-IP limit on `/token` sees the
+   Next.js server's address rather than the caller's — every sign-in in the
+   instance arrives from one IP. So the limit neither slows a guess-the-
+   password run against one account nor keeps one attacker from spending the
+   whole budget and locking everybody out of the password door. The magic link
+   is unaffected and remains the way back in, which is why this is recorded
+   rather than built: if it ever needs fixing, the fix is a per-email attempt
+   count in a table, not a dashboard setting.
 
    ⚠️ **`NEXT_PUBLIC_SITE_URL` is set on Production ONLY** (`vercel env ls`,
    2026-09-05). `sendMagicLink` falls back to `http://localhost:3000` when it is
@@ -675,7 +796,7 @@ real message has been **watched to arrive**.
 section because the residual risk is real even after it merged, and because the
 reproduction is the useful part.
 
-**What it does.** A first game night before *today* is refused at GENERATE, so
+**What it does.** A first game night before _today_ is refused at GENERATE, so
 no new draft can carry a past date:
 
 - `src/lib/schedule/startDate.ts` — `isPastGameNight({ startDate, today })`,
@@ -696,17 +817,17 @@ would refuse a legitimate same-day generate every evening after 7pm.
 
 ⛔ **The residual risk, and it is not theoretical: PUBLISH IS STILL UNGUARDED.**
 `publishSchedule` checks no dates. The guard stops a past-dated draft being
-*created*; a draft that already exists from before it can still be published and
+_created_; a draft that already exists from before it can still be published and
 still locks the season for good. Guarding publish was rejected deliberately —
 by then the manager has a reviewed draft they can do nothing with, and the
 message arrives too late to act on cheaply — but that argument covers where the
-*message* goes, not whether publish should refuse at all. If a past-dated draft
+_message_ goes, not whether publish should refuse at all. If a past-dated draft
 is ever found in the wild, discard it; do not press Publish to "see".
 
 **The reproduction, which is why this stopped being a code reading.** With the
 guard temporarily removed, a first game night of `2020-01-06` generated a
 12-game draft and offered a live "Publish 12 games" button. The hazard note in
-the protocol used to say *verified in the code, not reproduced*; it has now been
+the protocol used to say _verified in the code, not reproduced_; it has now been
 reproduced against the fixture.
 
 ⚠️ **PR #23 was CLOSED on 2026-09-05, and its branch
@@ -720,6 +841,43 @@ design on that branch — not from the plan, which needs rewriting against the
 current URL space.
 
 ## 5 — Smaller, deliberately deferred
+
+### ⛔ FIRST POST-LAUNCH JOB — the schedule-write RPC (decided 2026-09-06)
+
+Everything in `src/lib/schedule/gameWrites.ts` is damage control for a missing
+transaction. It pre-flights, writes each row conditionally so it cannot clobber a
+concurrent edit, and compensates on failure — but a runtime dying mid-batch leaves
+the written rows written, and the public schedule, both iCal feeds and the CSV all
+read `games` live.
+
+**The decision, made deliberately rather than by default:** ship without it, because
+new SQL against production days before a permanent season lock is the larger risk;
+then build it as the first job after both leagues are running. Adding it later needs
+no redesign — the repair path already works on a locked season.
+
+**⛔ THE SPEC AND THE PLAN ARE BOTH WRITTEN — do not re-derive either.**
+`docs/superpowers/plans/2026-09-06-schedule-write-rpc.md` is where the work starts:
+its §0 pre-flight is a GATE — re-measure, state the season's live status, rehearse
+the rollback, and get the user's dated go-ahead BEFORE any code. The design is
+`docs/superpowers/specs/2026-09-06-schedule-write-rpc-design.md`, which is self-contained
+and carries the four hazards, the signature, what gets deleted, and the two-psql
+test that is the only thing which actually exercises the lock. Its §2.1 is the one
+to read first: `0026` is the precedent you will have open, and copying its
+`season_is_started` gate along with its lock pattern would silently disable repair
+the moment the first game is played — with every test still passing.
+
+**What it is:** a `plpgsql` function taking `pg_advisory_xact_lock(hashtext(p_season::text))`
+and doing the whole batch in one transaction, following `bfe0400`'s precedent — that
+commit fixed a two-session race which left a season with **zero games** while
+reporting success. It closes two things at once: multi-row atomicity, and the
+season-level serialisation that lets two managers' repairs interleave and drift pair
+balance with no drift report.
+
+⚠️ **The evidence for doing it is the review history, not a hunch.** Round 1 found the
+write paths raced; round 2 found the compensator was itself a lost-update writer;
+round 3 (mutation testing) found only the first failure in each 25-way chunk was kept,
+so an ordinary multi-request network fault left games half-changed while reporting
+"Nothing was written". Each fix was correct. The next layer is where the next bug was.
 
 ### From the sixth review of #24 — open, never triaged
 
@@ -763,7 +921,7 @@ explicit go-ahead before any code changes.
 
 - **`saveRules` read-then-upsert is not atomic** — two concurrent saves both
   read the same previous document, so one audit entry's `old_data` names
-  something it did not overwrite. *A reading of the code; not reproduced.*
+  something it did not overwrite. _A reading of the code; not reproduced._
   Left alone: closing it means a plpgsql function and a migration, a bad trade
   for an unmeasured race on a page edited a few times a season.
 - **`save_rules` entries are not revertible.** `old_data` holds what a revert
@@ -774,7 +932,7 @@ explicit go-ahead before any code changes.
   controls: it is not dev-only, `loading.tsx` is not the cause (removed it, still
   200), and a `(public)` page throwing before any `await` returns a clean 404 —
   so the cause is that awaiting suspends and starts the stream, which Next 16
-  documents under `loading.tsx`'s *Status Codes*. Next emits
+  documents under `loading.tsx`'s _Status Codes_. Next emits
   `<meta name="robots" content="noindex">` on every such body, so the soft-404
   concern is handled; what is left is monitors reading the status line. The
   documented remedy is a check in `proxy`, i.e. a database round trip on every
@@ -784,7 +942,7 @@ explicit go-ahead before any code changes.
 - **No `.nvmrc` or `engines`** — `.github/workflows/ci.yml` is the de-facto
   source of truth for the Node version (22).
 - **The generator has TWO bounds, and which one binds depends on where it
-  runs.** Phase S ends at `OBHL_SLOT_RESTARTS` restarts *or*
+  runs.** Phase S ends at `OBHL_SLOT_RESTARTS` restarts _or_
   `OBHL_SLOT_BUDGET_MS`, whichever comes first (`assignNights.ts:140-141`).
   Production and the dev server take the defaults — 20,000 restarts against a
   5 s budget, so the **budget** is what ends it, which is why the e2e lever
@@ -798,7 +956,7 @@ explicit go-ahead before any code changes.
   `expect` is 15s and the per-test `timeout` is 60s
   (`playwright.config.ts`). The generator is wall-clock budgeted at
   `OBHL_SLOT_BUDGET_MS` (default 5s, `src/lib/schedule/assignNights.ts`), which
-  is exactly Playwright's *default* assertion timeout — so the default left a
+  is exactly Playwright's _default_ assertion timeout — so the default left a
   wait with no headroom and it passed only where the search converged early.
   `expect` must stay above the generator's budget, and well below `timeout`, or
   a failed assertion eats the whole test budget and reports "Test timeout

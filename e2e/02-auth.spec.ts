@@ -68,7 +68,10 @@ async function signedInAs(
 
 async function signOut(page: Page) {
   await page.getByRole("button", { name: "Sign out" }).click();
-  await page.waitForURL("/login");
+  // The league's public home, not `/login`. See `signOut` in
+  // `lib/actions/auth.ts` and `e2e/26-sign-out-destination.spec.ts`, which owns
+  // the destination rules including the fallback and the tampered-slug case.
+  await page.waitForURL("/obhl");
 }
 
 test.describe("Path 6 — Auth / Login / Session", () => {
@@ -90,13 +93,16 @@ test.describe("Path 6 — Auth / Login / Session", () => {
     await expect(page.getByText("Seasons").first()).toBeVisible();
   });
 
-  test("sign out returns to /login", async ({ page }) => {
+  test("sign out returns to the league's public home, not the sign-in screen", async ({
+    page,
+  }) => {
     await signedInAs(page, "Manager");
     await signOut(page);
-    await expect(page).toHaveURL("/login");
+    await expect(page).toHaveURL("/obhl");
     await expect(
-      page.getByRole("heading", { name: "Staff sign in" }),
+      page.getByRole("heading", { name: "Oceanview Beer Hockey League" }),
     ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
   });
 
   test("unauthenticated access to a manage route redirects to /login", async ({
@@ -134,9 +140,11 @@ const badge = (page: Page) =>
   page.locator('[data-slot="badge"]', { hasText: "Manager" });
 
 /**
- * The chrome outside the manage tools. A signed-in manager used to see exactly
- * what a stranger saw on every public page — no badge, no route to their tools,
- * no way out — which is the confusion the account cluster exists to end.
+ * The chrome. A signed-in manager used to see exactly what a stranger saw on
+ * every public page — no badge, no way out — which is the confusion the account
+ * cluster exists to end. There is now ONE header for every page under
+ * `/<league>`; `e2e/27-one-chrome.spec.ts` owns that claim, and this block keeps
+ * the account half of it.
  */
 test.describe("Path 6b — Auth-aware chrome", () => {
   test("a signed-in manager carries their badge onto the public site", async ({
@@ -150,20 +158,13 @@ test.describe("Path 6b — Auth-aware chrome", () => {
     // league in its URL.
     await expect(badge(page)).toBeVisible();
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
-    await page.getByRole("link", { name: "Manage" }).click();
-    await expect(page).toHaveURL(/\/dashboard$/);
 
-    // And a public league page, which has its own header — plus, for a manager,
-    // the staff link row beneath it, so the merged pages are not a dead end.
+    // A public league page: same header, plus the staff link row beneath it.
     await page.goto("/obhl/standings");
     await expect(badge(page)).toBeVisible();
     const staff = page.getByRole("navigation", { name: "Staff tools" });
     await expect(staff).toBeVisible();
     await expect(staff.getByRole("link", { name: "Seasons" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Manage" })).toHaveAttribute(
-      "href",
-      "/obhl/dashboard",
-    );
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   });
 
@@ -173,7 +174,6 @@ test.describe("Path 6b — Auth-aware chrome", () => {
       await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(
         0,
       );
-      await expect(page.getByRole("link", { name: "Manage" })).toHaveCount(0);
       await expect(badge(page)).toHaveCount(0);
       await expect(
         page.getByRole("navigation", { name: "Staff tools" }),
@@ -209,19 +209,54 @@ test.describe("Path 6b — Auth-aware chrome", () => {
     // The bar is stronger, but `NavLinks` is an `overflow-x-auto` scroller, and a
     // scroll container contributes zero min-content — so its wrapper can shrink
     // to nothing and CLIP THE LINKS while the bar still reports no overflow.
-    // Asserting on the nav's own scroller is what closes that, and it is the
-    // mechanism `manage-nav.tsx` documents.
+    // Asserting on the nav's own scroller is what closes that.
+    //
+    // ⛔ THE NAV TERM USED TO BE VACUOUS FOR A SIGNED-IN VIEWER, and that is why
+    // it is written out at this length. `SiteHeader` renders `NavLinks` TWICE —
+    // once inside the bar behind `hidden lg:block`, once below it behind
+    // `lg:hidden` — and exactly one is ever displayed. A bare
+    // `querySelector("header nav")` takes the FIRST, so signed in below `lg` it
+    // took the `display:none` one, measured 0 <= 0, and passed without looking at
+    // anything.
+    //
+    // ⚠️ BUT "assert over every visible nav" IS THE WRONG REPAIR, and measuring
+    // says so. Watched 2026-09-06, `scrollWidth/clientWidth` of the visible nav:
+    //
+    //             in the bar        below the bar
+    //   anon 1280   444/444           (hidden)
+    //   anon  768   444/444           (hidden)
+    //   anon  390   (hidden)          444/374   ← scrolls, by design
+    //   member 768  (hidden)          752/752
+    //   member 390  (hidden)          444/374   ← scrolls, by design
+    //
+    // The row below the bar is a full-width scroller and is MEANT to scroll on a
+    // phone; asserting it never does would pin a false claim. The two navs are
+    // different subjects and get different assertions:
+    //
+    //   in the bar — a flex item competing with the account cluster, so its
+    //     wrapper can be squeezed and clip. `scrollWidth <= clientWidth`.
+    //   below the bar — has the full width, so what matters is that it does not
+    //     take MORE than the viewport. `clientWidth <= documentElement`.
+    //
+    // `visible` is required to be non-empty so the whole term cannot go quiet
+    // again if both class strings change at once.
     const fits = () =>
       page.evaluate(() => {
         const bar = document.querySelector("header > div");
         if (!bar) throw new Error("header bar not found");
-        const nav = document.querySelector("header nav");
-        if (!nav) throw new Error("header nav not found");
+        const visible = [...document.querySelectorAll("header nav")].filter(
+          (n) => n.clientWidth > 0,
+        );
+        if (visible.length === 0)
+          throw new Error("no VISIBLE header nav — the term would be vacuous");
+        const inBar = visible.filter((n) => bar.contains(n));
+        const belowBar = visible.filter((n) => !bar.contains(n));
+        const doc = document.documentElement;
         return (
           bar.scrollWidth <= bar.clientWidth &&
-          nav.scrollWidth <= nav.clientWidth &&
-          document.documentElement.scrollWidth <=
-            document.documentElement.clientWidth
+          inBar.every((n) => n.scrollWidth <= n.clientWidth) &&
+          belowBar.every((n) => n.clientWidth <= doc.clientWidth) &&
+          doc.scrollWidth <= doc.clientWidth
         );
       });
 
@@ -235,6 +270,55 @@ test.describe("Path 6b — Auth-aware chrome", () => {
     await page.goto("/obhl/standings");
     expect(await fits()).toBe(true);
     await expect(badge(page)).toBeVisible();
+
+    // ⚠️ RE-MEASURED, not assumed. This bar now draws on the STAFF pages too —
+    // the second header that used to serve them is gone — and a staff page is
+    // where the widest link set lives. The bar itself is unchanged and the staff
+    // row sits BELOW it, outside `<header>`, so `fits()` still measures the same
+    // three subjects it always did; this leg is what demonstrates that rather
+    // than asserting it. Measured 2026-09-06: true at 768px on the dashboard and
+    // on the ten-link manager pages.
+    for (const url of ["/obhl/dashboard", "/obhl/seasons"]) {
+      await page.goto(url);
+      await expect(
+        page.getByRole("navigation", { name: "Staff tools" }),
+      ).toBeVisible();
+      expect(await fits()).toBe(true);
+    }
+
+    // ── 390px: the staff row, which `fits()` above does NOT see ──────────────
+    //
+    // ⛔ THIS LEG HAS A CONTROL AND IT CAUGHT A REAL DEFECT. `fits()` measures
+    // the header bar, the header's nav, and the document. The staff row lives
+    // outside `<header>`, so only the DOCUMENT term can see it — and at 768px
+    // there is enough room that it never does.
+    //
+    // At 390px it does. Watched 2026-09-06 with the row's scroller as plain
+    // `min-w-0` (no `flex-1`): `documentElement` 399/390 signed in, because both
+    // flex children shrank in proportion and the league switcher's wrapper was
+    // handed 55px while `LeagueSwitcher` puts its `min-w-[5rem]` floor on the
+    // SELECT — which then painted to x=399. An anonymous visitor measured
+    // 390/390 on the same URLs, which is the control: the row is the difference.
+    //
+    // Both signed-in states are asserted because they differ in what the row
+    // holds: a member of two leagues gets the switcher, and it is the switcher
+    // that overflowed.
+    //
+    // ⚠️ RE-CONTROLLED 2026-09-06 after `fits()` was rewritten to stop measuring
+    // a `display:none` nav: reverting the row's scroller to plain `min-w-0` turns
+    // THIS leg red again, and restoring `flex-1` turns it green. The term that
+    // catches it is the DOCUMENT one — the staff row is not inside `<header>`, so
+    // no nav term sees it — which is exactly why the document term is still here
+    // after the nav terms were tightened.
+    await page.setViewportSize({ width: 390, height: 800 });
+    for (const url of ["/obhl/standings", "/obhl/seasons"]) {
+      await page.goto(url);
+      await expect(
+        page.getByRole("navigation", { name: "Staff tools" }),
+      ).toBeVisible();
+      await expect(page.getByLabel("Select league")).toBeVisible();
+      expect(await fits()).toBe(true);
+    }
   });
 });
 /**

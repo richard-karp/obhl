@@ -16,11 +16,28 @@ import type { DbClient } from "@/lib/db/helpers";
 // one guarded helper among several reads as though the others were judged safe.
 
 // Shared select for a game with both teams embedded (disambiguated by FK).
+//
+// `logo_path` and `logo_text_color` are read here rather than at each screen
+// because this is the ONE place a game's teams are named: the schedule, the
+// dashboard's captain panel, the calendar feed and the recent-results widget all
+// come through it. `TeamLogo`'s fallbacks — white initials — are silent, so a
+// column missing from this list looks like a team that chose the default rather
+// than like a read that never asked.
 const GAME_SELECT = `
   id, scheduled_at, postponed_from, status, week, round, home_goals, away_goals, result_type, is_draft, label,
-  home_team:teams!games_home_team_id_fkey(id, name, slug, color),
-  away_team:teams!games_away_team_id_fkey(id, name, slug, color)
+  home_team:teams!games_home_team_id_fkey(id, name, slug, color, logo_path, logo_text_color),
+  away_team:teams!games_away_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)
 `;
+
+/** The half of `teams` a game carries: identity, and how to draw its chip. */
+export type GameTeam = {
+  id: string;
+  name: string;
+  slug: string;
+  color: string | null;
+  logo_path: string | null;
+  logo_text_color: string | null;
+};
 
 export type GameWithTeams = {
   id: string;
@@ -35,18 +52,8 @@ export type GameWithTeams = {
   result_type: "regulation" | "overtime" | "shootout";
   is_draft: boolean;
   label: string | null;
-  home_team: {
-    id: string;
-    name: string;
-    slug: string;
-    color: string | null;
-  } | null;
-  away_team: {
-    id: string;
-    name: string;
-    slug: string;
-    color: string | null;
-  } | null;
+  home_team: GameTeam | null;
+  away_team: GameTeam | null;
 };
 
 /**

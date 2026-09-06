@@ -1,5 +1,11 @@
 # Schedule — keep the form, move a night, pin a team, repair around it
 
+> **Built 2026-09-06.** The record of what actually shipped — commit shas, the
+> measured reproduction of the form reset, test counts, and the three things this
+> spec got wrong about the code — is
+> `docs/superpowers/plans/2026-09-06-schedule-repair-and-reschedule.md`. Read that
+> one if you are picking this up after the fact; this file is the design.
+
 **Protocol — read this and nothing else to resume.**
 
 1. This file is self-contained: the ask, the measurements, the one architectural
@@ -62,7 +68,7 @@ Watched on 2026-09-06 by reading the files named:
 | Churn is a **tiebreaker**, never a reason to leave a constraint unrepaired: `CHURN_W = { FEWEST: 5_000, SPACING: 1, SOONEST: 200 }`, all far below Phase M's `MULT_W` (50_000) | `src/lib/schedule/oneOff.ts` |
 | Six constraint kinds exist and are stored per season: `bye_on`, `bye_week`, `bye_in_week`, `play_on`, `slot_on`, `slot_bias` | `src/lib/schedule/constraints.ts`; `schedule-generate-form.tsx:87` |
 | The repair honours `slot_on` but **takes no view on `slot_bias`** — it does not re-run Phase P, so `biasCost: 0` for every plan it compares | `src/lib/schedule/oneOff.ts`, `outcomeOf` |
-| The generate form's inputs are **uncontrolled** (`defaultValue`); `skips` and `mode` are React state | `schedule-generate-form.tsx:460-570` |
+| The generate form's inputs are **uncontrolled** (`defaultValue`); `skips` and `mode` are React state | `schedule-generate-form.tsx` ~500–620 (⚠️ re-measured; this said 460-570) |
 | Versions: **next 16.2.7, react 19.2.4** | `package.json` |
 | The locked-season card already points at the one-off planner and at per-game Reschedule/Postpone/Cancel | `schedule-builder-panel.tsx:294-340` |
 
@@ -232,9 +238,11 @@ then the minimal code. Commit per step.
    new timestamps preserving slot order and inter-slot gaps. Cover DST.
 2. Action with `requireLeagueManager`, refusing a locked source night and a
    non-empty target night, each with its own message.
-3. Register it in `league-guards.test.ts` — ⛔ **a new exported action that
-   resolves a league and is not registered fails that suite**, with
-   `expected [ 'schedule.ts:rescheduleNight' ] to deeply equal []`.
+3. ~~Register it in `league-guards.test.ts`~~ — ⛔ **WRONG, measured 2026-09-06.
+   Do NOT add a name to that allowlist.** `targetSeasonForManager(` is already in
+   the file's `GUARD_CALLS` list, so an action using `schedule.ts`'s own wrapper
+   passes unregistered; the suite is green with nothing added. The file warns
+   against reflexive additions, and this instruction invited one.
 4. UI on the schedule builder and on the season's schedule view.
 
 ### Step 3 — pin and repair
