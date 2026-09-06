@@ -90,6 +90,7 @@ export default async function PlayerProfilePage({
                 name={bio.team_name}
                 color={bio.team_color}
                 logoPath={bio.team_logo_path}
+                textColor={bio.team_logo_text_color}
                 className="size-12 text-base"
               />
             </Link>
@@ -361,6 +362,8 @@ export default async function PlayerProfilePage({
                               <TeamLogo
                                 name={row.opponent_name}
                                 color={row.opponent_color}
+                                logoPath={row.opponent_logo_path}
+                                textColor={row.opponent_logo_text_color}
                               />
                               <span className="text-sm">
                                 {row.opponent_name}
@@ -435,6 +438,8 @@ export default async function PlayerProfilePage({
                           <TeamLogo
                             name={row.opponent_name}
                             color={row.opponent_color}
+                            logoPath={row.opponent_logo_path}
+                            textColor={row.opponent_logo_text_color}
                           />
                           <span className="text-sm">{row.opponent_name}</span>
                         </Link>

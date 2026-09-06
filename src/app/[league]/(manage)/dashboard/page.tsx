@@ -5,7 +5,7 @@ import { isLeagueMember } from "@/lib/auth/membership";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 import { createClient } from "@/utils/supabase/server";
 import { getManageContext } from "@/lib/queries/season";
-import { getSchedule } from "@/lib/queries/schedule";
+import { getSchedule, type GameTeam } from "@/lib/queries/schedule";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TeamLogo } from "@/components/shared/team-logo";
@@ -172,16 +172,16 @@ async function CaptainPanel({
     ) : null;
   }
 
-  let team: {
-    id: string;
-    name: string;
-    slug: string;
-    color: string | null;
-  } | null = null;
+  // The same shape a game carries its teams in, so the chip on this card and the
+  // chips on the games below it are fed from one description of "enough of a
+  // team to draw it".
+  let team: GameTeam | null = null;
   if (seasonId) {
     const { data } = await supabase
       .from("team_players")
-      .select("team_id, teams!team_players_team_id_fkey(id, name, slug, color)")
+      .select(
+        "team_id, teams!team_players_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)",
+      )
       .eq("player_id", profile.player_id)
       .eq("is_captain", true)
       .eq("season_id", seasonId)
@@ -189,13 +189,7 @@ async function CaptainPanel({
       // captain who changed teams mid-season matches their old row too.
       .is("left_on", null)
       .maybeSingle();
-    team =
-      (data?.teams as unknown as {
-        id: string;
-        name: string;
-        slug: string;
-        color: string | null;
-      }) ?? null;
+    team = (data?.teams as unknown as GameTeam) ?? null;
   }
 
   if (!team) {
@@ -215,7 +209,12 @@ async function CaptainPanel({
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <TeamLogo name={team.name} color={team.color} />
+          <TeamLogo
+            name={team.name}
+            color={team.color}
+            logoPath={team.logo_path}
+            textColor={team.logo_text_color}
+          />
           <CardTitle className="text-base">
             You captain the {team.name}
           </CardTitle>
@@ -244,7 +243,12 @@ async function CaptainPanel({
                       {formatGameDateTime(g.scheduled_at)}
                     </span>
                     <span className="text-muted-foreground">{homeAway}</span>
-                    <TeamLogo name={opp?.name ?? "TBD"} color={opp?.color} />
+                    <TeamLogo
+                      name={opp?.name ?? "TBD"}
+                      color={opp?.color}
+                      logoPath={opp?.logo_path}
+                      textColor={opp?.logo_text_color}
+                    />
                     <span className="font-medium">{opp?.name ?? "TBD"}</span>
                   </span>
                   <Button asChild size="sm">

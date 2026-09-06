@@ -15,8 +15,21 @@ export type RankedStanding = StandingRow & {
    * of shared read surface, and a lot of regenerated row types, for a
    * presentational string. One more small indexed read here buys the same thing
    * without touching a view.
+   *
+   * ⚠️ 0044 did widen four of those stats views, and this stayed as it is. The
+   * reason is the row count, not consistency: the read below is one row per team
+   * in the season, while a leaderboard would need the same join per PLAYER. The
+   * standings are the case this shape suits; the leaderboards are the case the
+   * view suits.
    */
   team_logo_text_color: string | null;
+  /**
+   * `teams.logo_path` — the uploaded crest, from the same read. It travels with
+   * the ink because it OVERRIDES it: `TeamLogo` renders the image and draws no
+   * letters at all, so plumbing the ink alone changes nothing for a team that
+   * has a crest, which is the case the branding is most visible in.
+   */
+  team_logo_path: string | null;
 };
 
 /** Fetches raw standings + finalized games, returns them fully ranked. */
@@ -43,7 +56,9 @@ export async function getStandings(
     // than waiting on `raw` for a list of team ids.
     supabase
       .from("season_teams")
-      .select("team_id, teams!season_teams_team_id_fkey(logo_text_color)")
+      .select(
+        "team_id, teams!season_teams_team_id_fkey(logo_text_color, logo_path)",
+      )
       .eq("season_id", seasonId),
   ]);
   if (rawErr || finErr) {
@@ -54,14 +69,24 @@ export async function getStandings(
   // already treats anything that is not "dark" as the white letters it always
   // drew, so a failed branding read degrades to today's rendering rather than
   // to a blank chip.
-  const inkOf = new Map<string, string | null>(
-    (branding ?? []).map((r) => [r.team_id, r.teams?.logo_text_color ?? null]),
+  const brandOf = new Map<
+    string,
+    { textColor: string | null; logoPath: string | null }
+  >(
+    (branding ?? []).map((r) => [
+      r.team_id,
+      {
+        textColor: r.teams?.logo_text_color ?? null,
+        logoPath: r.teams?.logo_path ?? null,
+      },
+    ]),
   );
 
   const enriched = (raw ?? []).map((r) => ({
     ...r,
     teamId: r.team_id ?? "",
-    team_logo_text_color: inkOf.get(r.team_id ?? "") ?? null,
+    team_logo_text_color: brandOf.get(r.team_id ?? "")?.textColor ?? null,
+    team_logo_path: brandOf.get(r.team_id ?? "")?.logoPath ?? null,
     points: r.points ?? 0,
     wins: r.wins ?? 0,
     gd: r.gd ?? 0,

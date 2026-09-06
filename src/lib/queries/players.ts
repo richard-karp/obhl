@@ -21,6 +21,13 @@ export type PlayerBio = {
   team_slug: string;
   team_color: string | null;
   team_logo_path: string | null;
+  /**
+   * The ink for the monogram chip. Read beside `team_logo_path` because the two
+   * are one decision: the crest wins when it is set, and the ink is what the
+   * chip falls back to — so a caller that plumbs only one of them still shows
+   * the wrong thing for half the teams.
+   */
+  team_logo_text_color: string | null;
 };
 
 export type PlayerGameLogRow = {
@@ -29,6 +36,8 @@ export type PlayerGameLogRow = {
   opponent_name: string;
   opponent_slug: string;
   opponent_color: string | null;
+  opponent_logo_path: string | null;
+  opponent_logo_text_color: string | null;
   team_goals: number;
   opp_goals: number;
   goals: number;
@@ -42,6 +51,8 @@ export type PlayerVsOpponent = {
   opponent_name: string;
   opponent_slug: string;
   opponent_color: string | null;
+  opponent_logo_path: string | null;
+  opponent_logo_text_color: string | null;
   gp: number;
   g: number;
   a: number;
@@ -59,7 +70,7 @@ export async function getPlayerBio(
     .select(
       "jersey_number, position, is_captain, is_rookie, injury_notes, is_suspended, player_id, " +
         "players!team_players_player_id_fkey(first_name, last_name), " +
-        "teams!team_players_team_id_fkey(id, name, slug, color, logo_path)",
+        "teams!team_players_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)",
     )
     .eq("player_id", playerId)
     .eq("season_id", seasonId)
@@ -89,6 +100,7 @@ export async function getPlayerBio(
       team_slug: d.teams?.slug ?? "",
       team_color: d.teams?.color ?? null,
       team_logo_path: d.teams?.logo_path ?? null,
+      team_logo_text_color: d.teams?.logo_text_color ?? null,
     };
   }
 
@@ -113,7 +125,10 @@ export async function getPlayerBio(
     supabase
       .from("v_skater_stats")
       .select(
-        "team_id, team_name, team_slug, team_color, position, jersey_number",
+        // The branding columns are 0044's; before it, this fallback could only
+        // ever hand back a monogram in the default ink, whatever the team had
+        // chosen.
+        "team_id, team_name, team_slug, team_color, team_logo_path, team_logo_text_color, position, jersey_number",
       )
       .eq("player_id", playerId)
       .eq("season_id", seasonId)
@@ -138,7 +153,8 @@ export async function getPlayerBio(
     team_name: stat?.team_name ?? "",
     team_slug: stat?.team_slug ?? "",
     team_color: stat?.team_color ?? null,
-    team_logo_path: null,
+    team_logo_path: stat?.team_logo_path ?? null,
+    team_logo_text_color: stat?.team_logo_text_color ?? null,
   };
 }
 
@@ -235,8 +251,8 @@ export async function getPlayerGameLog(
     .from("games")
     .select(
       "id, scheduled_at, home_goals, away_goals, home_team_id, away_team_id, " +
-        "home_team:teams!games_home_team_id_fkey(id, name, slug, color), " +
-        "away_team:teams!games_away_team_id_fkey(id, name, slug, color)",
+        "home_team:teams!games_home_team_id_fkey(id, name, slug, color, logo_path, logo_text_color), " +
+        "away_team:teams!games_away_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)",
     )
     .in("id", gameIds)
     .eq("season_id", seasonId)
@@ -264,6 +280,8 @@ export async function getPlayerGameLog(
         opponent_name: opp?.name ?? "Unknown",
         opponent_slug: opp?.slug ?? "",
         opponent_color: opp?.color ?? null,
+        opponent_logo_path: opp?.logo_path ?? null,
+        opponent_logo_text_color: opp?.logo_text_color ?? null,
         team_goals: isHome ? g.home_goals : g.away_goals,
         opp_goals: isHome ? g.away_goals : g.home_goals,
         goals: r.goals,
@@ -297,8 +315,8 @@ export async function getPlayerStatsByOpponent(
     .from("games")
     .select(
       "id, home_team_id, away_team_id, " +
-        "home_team:teams!games_home_team_id_fkey(id, name, slug, color), " +
-        "away_team:teams!games_away_team_id_fkey(id, name, slug, color)",
+        "home_team:teams!games_home_team_id_fkey(id, name, slug, color, logo_path, logo_text_color), " +
+        "away_team:teams!games_away_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)",
     )
     .in("id", gameIds)
     .eq("season_id", seasonId)
@@ -334,6 +352,8 @@ export async function getPlayerStatsByOpponent(
         opponent_name: opp.name,
         opponent_slug: opp.slug,
         opponent_color: opp.color ?? null,
+        opponent_logo_path: opp.logo_path ?? null,
+        opponent_logo_text_color: opp.logo_text_color ?? null,
         gp: 1,
         g: r.goals,
         a: r.assists,

@@ -32,6 +32,10 @@ export type TeamBoard = {
   side: "home" | "away";
   name: string;
   color: string | null;
+  /** `teams.logo_path` — the uploaded crest, or null for the monogram chip. */
+  logoPath: string | null;
+  /** `teams.logo_text_color` — which ink the monogram uses. */
+  logoTextColor: string | null;
   dressed: DressedLine[];
   roster: RosterCheck[];
   /** Rostered goalies (position='G') — the only choices for goalie of record. */
@@ -286,7 +290,12 @@ function TeamPanel({
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-base">
-            <TeamLogo name={board.name} color={board.color} />
+            <TeamLogo
+              name={board.name}
+              color={board.color}
+              logoPath={board.logoPath}
+              textColor={board.logoTextColor}
+            />
             {board.name}
           </CardTitle>
           {data.canScore ? (
