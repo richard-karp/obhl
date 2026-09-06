@@ -18,11 +18,53 @@
    `npx prettier --check src e2e supabase/migrations`, then the schedule e2e
    (specs 11, 14, 23, 26, 27) under `scripts/e2e-locked.sh`. **And the two-psql
    race in §6, which is the only thing that actually tests the lock.**
+5. ⛔ **A PLAN IS REQUIRED BEFORE ANY CODE. It already exists — do not write a
+   second one.** `docs/superpowers/plans/2026-09-06-schedule-write-rpc.md` is the
+   working file: the step list, the record of what was measured, and the place the
+   two-psql transcripts get pasted. Open it first and follow §0 below.
 
 **Status: NOT STARTED. This is the first post-launch job**, decided 2026-09-06
 after four review rounds. ⛔ **Do not start it before both leagues are running
 live.** The whole reason it was deferred is that new SQL against production days
 before a permanent season lock is a larger risk than the thing it fixes.
+
+---
+
+## 0. ⛔ The plan comes first — this is a gate, not a suggestion
+
+**No code, no migration, no test is written until the plan file has been filled
+in and the user has said go.** The plan is
+`docs/superpowers/plans/2026-09-06-schedule-write-rpc.md`; it is created and
+carries its steps already, but it opens with a **Pre-flight** section whose
+answers cannot be written from this spec — they have to be measured against the
+tree and the database as they are on the day.
+
+Why a gate rather than a nicety: this spec was written on **2026-09-06**, before
+the season locked and before either league went live. By the time the work starts,
+the season has started, real games have been played, and the file being replaced
+may have moved. **A spec ages against the tree it was written for.** The pre-flight
+is what catches that, and it is cheap — it is four commands and a paragraph.
+
+The plan must contain, before its first step is ticked:
+
+1. **Re-measured facts.** `gameWrites.ts`'s current line count and the current
+   line numbers in §3 and §2.4 of this spec, re-checked. If any has drifted,
+   correct this spec in the same commit rather than working around it.
+2. **The state of the season.** Whether `season_is_started` is true for the live
+   seasons — it should be, and that makes §2.1 a live hazard rather than a
+   theoretical one. Say which seasons and how many played games, because that is
+   what a mistake here would damage.
+3. **A statement of what is NOT being changed**, in the author's own words, not
+   copied from §8 — the three call sites, the planner, the one-way door.
+4. **The rollback rehearsal.** Confirm the two-commit split (migration, then
+   swap) still applies, and name the exact revert command for the swap commit.
+5. **The user's go-ahead**, dated, recorded in the file.
+
+Then, and only then, the steps. As the work proceeds the same file becomes the
+record: commit shas, the two-psql transcripts pasted verbatim, measured test
+counts, and anything this spec turned out to be wrong about — every previous spec
+in this directory was wrong about something, and the plan is where that is
+written down.
 
 ---
 

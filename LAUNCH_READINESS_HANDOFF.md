@@ -738,8 +738,11 @@ new SQL against production days before a permanent season lock is the larger ris
 then build it as the first job after both leagues are running. Adding it later needs
 no redesign — the repair path already works on a locked season.
 
-**⛔ THE SPEC IS WRITTEN — do not re-derive it.**
-`docs/superpowers/specs/2026-09-06-schedule-write-rpc-design.md` is self-contained
+**⛔ THE SPEC AND THE PLAN ARE BOTH WRITTEN — do not re-derive either.**
+`docs/superpowers/plans/2026-09-06-schedule-write-rpc.md` is where the work starts:
+its §0 pre-flight is a GATE — re-measure, state the season's live status, rehearse
+the rollback, and get the user's dated go-ahead BEFORE any code. The design is
+`docs/superpowers/specs/2026-09-06-schedule-write-rpc-design.md`, which is self-contained
 and carries the four hazards, the signature, what gets deleted, and the two-psql
 test that is the only thing which actually exercises the lock. Its §2.1 is the one
 to read first: `0026` is the precedent you will have open, and copying its
