@@ -491,6 +491,10 @@ export async function ScheduleBuilderPanel({
                 date: n.date,
                 games: n.games.length,
               }))}
+              // Computed here, on the server, in the league's zone — see the
+              // prop's own note for why the browser's clock will not do.
+              minDate={leagueDateKey(new Date().toISOString())}
+              maxDate={season?.ends_on ?? null}
             />
             {/*
               ⚠️ Suppressed in locked mode, where the card above already carries

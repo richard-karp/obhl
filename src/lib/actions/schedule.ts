@@ -43,7 +43,7 @@ import {
   leagueTimeKey,
   leagueDateKey,
 } from "@/lib/format";
-import type { TablesInsert } from "@/lib/db/helpers";
+import type { TablesUpdate } from "@/lib/db/helpers";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -897,6 +897,142 @@ export async function discardSchedule(formData: FormData) {
   revalidatePath("/[league]/seasons/[seasonId]", "page");
 }
 
+/* ------------------------------------------------- the one game-write shape */
+
+/**
+ * One game row to rewrite in place.
+ *
+ * `expect` is the optimistic-concurrency half: the values the plan was computed
+ * against. A row that has moved on since the read simply does not match, so the
+ * write touches nothing and the caller finds out.
+ */
+type GameWrite = {
+  id: string;
+  /** Columns to set. Never `scheduled_at` unless moving the game is the point. */
+  next: TablesUpdate<"games">;
+  /** `scheduled_at` as it was read. The write applies only while it still holds. */
+  expectScheduledAt: string;
+  /** The same columns as `next`, holding what they held before. */
+  prev: TablesUpdate<"games">;
+};
+
+/**
+ * ⛔ **EVERY IN-PLACE GAME REWRITE GOES THROUGH HERE, AND IT IS AN `UPDATE`,
+ * NEVER AN `UPSERT`. THIS IS THE DECISION — read it before changing the shape.**
+ *
+ * `upsert(rows, { onConflict: "id" })` looks like the safer, more atomic choice
+ * — one statement, so a plan cannot land half-applied — and it is the wrong one.
+ * PostgREST's upsert **INSERTS when no row matches the id**, and a row can stop
+ * matching between the read and the write (a replace, a removal, a discard). The
+ * inserted row takes column defaults for everything the payload omits, and
+ * `0004_games.sql` defaults `is_draft` to **false**, `status` to `'scheduled'`
+ * and both goal columns to 0. So a game deleted a moment ago comes back as a
+ * LIVE, unplayed fixture that nobody scheduled, in the public schedule, both
+ * calendar feeds and the CSV. Fabricating a row is strictly worse than failing
+ * to write one: a partial write is visible and repairable, an invented game is
+ * neither.
+ *
+ * `UPDATE` cannot insert, which is the whole point. What it gives up is
+ * single-statement atomicity, and that is bought back three ways:
+ *
+ *  1. **A pre-flight pass.** Every row is checked against `expect` before any
+ *     write, so a mid-sequence failure needs a genuine database or network
+ *     fault rather than a concurrent edit.
+ *  2. **Every write is conditional** — on the id, the season, `status =
+ *     'scheduled'`, and the `scheduled_at` the plan was computed against. A
+ *     concurrent `rescheduleGame`, `postponeGame` or `finalizeGame` makes the
+ *     update match zero rows instead of silently rolling that edit back, which
+ *     is the lost-update this replaced.
+ *  3. **Compensation.** If a write fails partway, the ones already applied are
+ *     put back, each conditional on the value this function just wrote. Whole or
+ *     not at all, modulo a double fault — and a double fault is reported with
+ *     the exact game ids rather than swallowed.
+ *
+ * ⚠️ An affected-row count of anything but 1 is a REFUSAL, not a retry. Zero
+ * means the row moved, was scored, or is gone; the plan was computed against a
+ * schedule that no longer exists and re-previewing is the only safe answer.
+ *
+ * Returns null on success, else the message to show.
+ */
+async function applyGameWrites(
+  admin: Admin,
+  seasonId: string,
+  writes: GameWrite[],
+): Promise<string | null> {
+  if (writes.length === 0) return null;
+
+  /** One conditional write. Null when it touched exactly the row it meant to. */
+  const put = async (
+    id: string,
+    values: TablesUpdate<"games">,
+    expectAt: string,
+  ): Promise<string | null> => {
+    const { data, error } = await admin
+      .from("games")
+      .update(values)
+      .eq("id", id)
+      .eq("season_id", seasonId)
+      // A game somebody has started scoring is not ours to rewrite. The read
+      // said the night was unlocked; this says so at the moment of the write.
+      .eq("status", "scheduled")
+      .eq("scheduled_at", expectAt)
+      .select("id");
+    if (error) return error.message;
+    return data?.length === 1 ? null : "changed";
+  };
+
+  // 1. Pre-flight. One read, so a concurrent edit is caught before anything is
+  //    written rather than halfway through.
+  const { data: current, error: readError } = await admin
+    .from("games")
+    .select("id, scheduled_at, status")
+    .eq("season_id", seasonId)
+    .in(
+      "id",
+      writes.map((w) => w.id),
+    );
+  if (readError) return readError.message;
+  const seen = new Map((current ?? []).map((g) => [g.id, g] as const));
+  for (const w of writes) {
+    const row = seen.get(w.id);
+    if (
+      !row ||
+      row.status !== "scheduled" ||
+      row.scheduled_at !== w.expectScheduledAt
+    ) {
+      return "The schedule changed while this was on screen — preview it again.";
+    }
+  }
+
+  // 2. Write, remembering what to undo.
+  const applied: GameWrite[] = [];
+  for (const w of writes) {
+    const failed = await put(w.id, w.next, w.expectScheduledAt);
+    if (!failed) {
+      applied.push(w);
+      continue;
+    }
+
+    // 3. Compensate, newest first. Each undo is conditional on the value this
+    //    function wrote, so it cannot clobber somebody else's later edit.
+    const stuck: string[] = [];
+    for (const done of applied.reverse()) {
+      const at =
+        (done.next.scheduled_at as string | undefined) ??
+        done.expectScheduledAt;
+      if (await put(done.id, done.prev, at)) stuck.push(done.id);
+    }
+    if (stuck.length > 0) {
+      return `Couldn't finish, and couldn't fully undo it. These games are half-changed and need checking by hand: ${stuck.join(", ")}.`;
+    }
+    return failed === "changed"
+      ? "The schedule changed while this was on screen — preview it again. Nothing was written."
+      : `Couldn't save that. ${failed} Nothing was written.`;
+  }
+
+  return null;
+}
+
 /* ------------------------------------------------------- reschedule a night */
 
 export type RescheduleNightState = { ok: boolean; message: string } | null;
@@ -948,18 +1084,35 @@ export async function rescheduleNight(
     return { ok: false, message: "Pick a date to move it to." };
   }
 
-  const [nights, teams] = await Promise.all([
+  const [nights, teams, season] = await Promise.all([
     getSeasonNights(seasonId, { client: admin }),
     getEnrolledTeams(seasonId, { client: admin }),
+    admin
+      .from("seasons")
+      .select("starts_on, ends_on")
+      .eq("id", seasonId)
+      .maybeSingle(),
   ]);
   const nameOf = (id: string) =>
     teams.find((t) => t.id === id)?.name ?? "a removed team";
 
   // Every refusal, in one pure and separately tested place — see
   // `checkNightMove`. Re-read here rather than trusted from the form: the
-  // picker only offers unlocked nights, but a stale tab's option list is not a
-  // guarantee about the schedule as it is now.
-  const refusal = checkNightMove({ nights, from, to, nameOf });
+  // picker only offers unlocked nights and the date input carries a `min`, but
+  // a stale tab's option list is not a guarantee about the schedule as it is
+  // now, and a client can drop an attribute.
+  const refusal = checkNightMove({
+    nights,
+    from,
+    to,
+    // The league's zone, not the server's — see `checkNightMove`'s note.
+    today: leagueDateKey(new Date().toISOString()),
+    season: {
+      startsOn: season.data?.starts_on ?? null,
+      endsOn: season.data?.ends_on ?? null,
+    },
+    nameOf,
+  });
   if (refusal) return { ok: false, message: refusal };
 
   const source = nights.find((n) => n.date === from)!;
@@ -973,18 +1126,21 @@ export async function rescheduleNight(
     };
   }
 
-  // One statement per row rather than an upsert: these rows exist, and an
-  // `upsert` would silently INSERT a dateless game if one were deleted between
-  // the read and the write. `.eq("season_id")` keeps a stale id from another
-  // season out of the update even though the ids came from this season's read.
-  for (const m of moves) {
-    const { error } = await admin
-      .from("games")
-      .update({ scheduled_at: m.scheduledAt })
-      .eq("id", m.id)
-      .eq("season_id", seasonId);
-    if (error) return { ok: false, message: error.message };
-  }
+  // Moving the night IS moving `scheduled_at`, so it is the one column this
+  // path sets — and each write still holds against the time the read saw, so a
+  // game somebody rescheduled or postponed in the meantime refuses instead of
+  // being dragged along. See `applyGameWrites` for why this is not an upsert.
+  const problem = await applyGameWrites(
+    admin,
+    seasonId,
+    moves.map((m) => ({
+      id: m.id,
+      next: { scheduled_at: m.scheduledAt },
+      expectScheduledAt: m.from,
+      prev: { scheduled_at: m.from },
+    })),
+  );
+  if (problem) return { ok: false, message: problem };
 
   await logAudit({
     user_id: manager.id,
@@ -1213,24 +1369,25 @@ export async function applyOneOffGame(
   // Everything standing between a client payload and the write. Pure and
   // tested in oneOff.test.ts; see `checkOneOffWrite` for why it validates
   // rather than re-solves.
-  const problem = checkOneOffWrite({
+  const rejected = checkOneOffWrite({
     nights: nights.map((n) => ({
       date: n.date,
       locked: n.locked,
       games: n.games.map(
         (g) => [g.homeTeamId, g.awayTeamId] as [string, string],
       ),
+      gameIds: n.games.map((g) => g.id),
     })),
     teamIds,
     date: input.date,
     forcedPairs: input.matchups,
     changes: input.changes,
   });
-  if (problem) return { ok: false, message: problem };
+  if (rejected) return { ok: false, message: rejected };
 
   // Which rows the plan writes, and what goes in them — pure, and tested in
   // oneOff.test.ts. Everything left here is the I/O either side of it.
-  const rows: TablesInsert<"games">[] = buildOneOffRows({
+  const rows = buildOneOffRows({
     nights,
     teamIds,
     date: input.date,
@@ -1238,30 +1395,37 @@ export async function applyOneOffGame(
     label: input.label,
     forcedPairs: input.matchups,
     changes: input.changes,
-  }).map((r) => ({
-    id: r.id,
-    season_id: seasonId,
-    home_team_id: r.homeTeamId,
-    away_team_id: r.awayTeamId,
-    label: r.label,
-    // The game's own scheduled_at as we just read it, so this is a no-op for the
-    // row it targets. It's here because `upsert` *inserts* when no row matches
-    // the id, and if this game were deleted between the read and the write that
-    // insert would otherwise create a game with no date at all.
-    //
-    // Deliberately not the date the night was derived from: a postponed game's
-    // is null, and writing back postponed_from would restore a date that was
-    // cleared on purpose.
-    scheduled_at: r.scheduledAt,
-  }));
+  });
 
-  if (rows.length > 0) {
-    // One statement, so a plan can't land half-applied.
-    const { error } = await admin
-      .from("games")
-      .upsert(rows, { onConflict: "id" });
-    if (error) return { ok: false, message: error.message };
-  }
+  // Through the same writer as the repair — see `applyGameWrites` for why this
+  // is an UPDATE and not the upsert it used to be. This path had both of the
+  // faults that writer exists to close: an upsert INSERTS when the id is gone,
+  // resurrecting a deleted game as a live fixture (`is_draft` defaults false),
+  // and writing `scheduled_at` back "unchanged" silently rolled back any
+  // `rescheduleGame` that landed between preview and apply. The time is now the
+  // condition rather than part of the payload.
+  const problem = await applyGameWrites(
+    admin,
+    seasonId,
+    rows.map((r) => ({
+      id: r.id,
+      next: {
+        home_team_id: r.homeTeamId,
+        away_team_id: r.awayTeamId,
+        label: r.label,
+      },
+      // Non-null by construction: `checkOneOffWrite` has passed every night
+      // these rows come from, and a game with no time of its own is postponed,
+      // which locks its night.
+      expectScheduledAt: r.scheduledAt!,
+      prev: {
+        home_team_id: r.prevHomeTeamId,
+        away_team_id: r.prevAwayTeamId,
+        label: r.prevLabel,
+      },
+    })),
+  );
+  if (problem) return { ok: false, message: problem };
 
   revalidatePath("/[league]/schedule-builder", "page");
   revalidatePath("/[league]/schedule-builder/one-off", "page");
@@ -1286,11 +1450,25 @@ export async function applyOneOffGame(
 export type RepairPreview = {
   /** Index-aligned with the planner's team indices. */
   teams: { id: string; name: string }[];
-  /** Index-aligned with the planner's night indices. */
-  nights: { date: string; times: string[]; locked: boolean }[];
+  /**
+   * Index-aligned with the planner's night indices.
+   *
+   * ⛔ `gameIds` travels back with the plan and is checked at apply — see
+   * `PlannedNight.gameIds`. Without it a `rescheduleGame` between preview and
+   * apply re-sorts the night and the previewed matchups land on the wrong ice
+   * slots with every other check passing.
+   *
+   * ⚠️ No `times` here. It used to carry `formatGameTime` strings that nothing
+   * read, in a different format from the `leagueTimeKey` the pin actually
+   * resolves against — two representations of the same thing, one of them dead,
+   * which is how the wrong one gets wired in later.
+   */
+  nights: { date: string; gameIds: string[]; locked: boolean }[];
   plans: OneOffPlan[];
   /** Why the pin could not be honoured — shown instead of plans. */
   unmet: string | null;
+  /** True when the published schedule already satisfied the pin. */
+  pinAlreadyMet: boolean;
   /** True when the season is already as good as the search can make it. */
   nothingToImprove: boolean;
 };
@@ -1387,7 +1565,8 @@ function readRepairPin(
   const wanted = normalizeTime(pin.time);
   if (!wanted) return { error: "Enter the ice time as HH:MM." };
   const slot = publishedSlots(nights)[night].slots.indexOf(wanted);
-  if (slot < 0) return { error: `${wanted} isn't one of that night's ice times.` };
+  if (slot < 0)
+    return { error: `${wanted} isn't one of that night's ice times.` };
   return { pin: { kind: "slot_on", team, night, slot } };
 }
 
@@ -1434,11 +1613,12 @@ export async function previewScheduleRepair(
       teams,
       nights: nights.map((n) => ({
         date: n.date,
-        times: n.games.map((g) => formatGameTime(g.scheduledAt)),
+        gameIds: n.games.map((g) => g.id),
         locked: n.locked,
       })),
       plans: result.plans,
       unmet: result.unmet,
+      pinAlreadyMet: result.pinAlreadyMet,
       nothingToImprove: result.nothingToImprove,
     },
   };
@@ -1465,7 +1645,7 @@ export async function previewScheduleRepair(
  */
 export async function applyScheduleRepair(input: {
   seasonId: string;
-  changes: { date: string; to: [number, number][] }[];
+  changes: { date: string; to: [number, number][]; gameIds: string[] }[];
 }): Promise<RepairState> {
   const admin = createAdminClient();
   const target = await targetSeasonForManager(admin, input.seasonId);
@@ -1479,13 +1659,14 @@ export async function applyScheduleRepair(input: {
   const { teams, nights } = await loadContext(seasonId, admin);
   const teamIds = teams.map((t) => t.id);
 
-  const problem = checkOneOffWrite({
+  const rejected = checkOneOffWrite({
     nights: nights.map((n) => ({
       date: n.date,
       locked: n.locked,
       games: n.games.map(
         (g) => [g.homeTeamId, g.awayTeamId] as [string, string],
       ),
+      gameIds: n.games.map((g) => g.id),
     })),
     teamIds,
     // No labelled game on this path — see `CheckWriteOptions.date`.
@@ -1493,9 +1674,9 @@ export async function applyScheduleRepair(input: {
     forcedPairs: [],
     changes: input.changes,
   });
-  if (problem) return { ok: false, message: problem };
+  if (rejected) return { ok: false, message: rejected };
 
-  const rows: TablesInsert<"games">[] = buildOneOffRows({
+  const rows = buildOneOffRows({
     nights,
     teamIds,
     date: null,
@@ -1503,28 +1684,39 @@ export async function applyScheduleRepair(input: {
     label: "",
     forcedPairs: [],
     changes: input.changes,
-  }).map((r) => ({
-    id: r.id,
-    season_id: seasonId,
-    home_team_id: r.homeTeamId,
-    away_team_id: r.awayTeamId,
-    label: r.label,
-    // The game's own scheduled_at as just read, so this is a no-op for the row
-    // it targets — it is here only because `upsert` INSERTS when no row matches,
-    // and a game deleted between the read and the write would otherwise be
-    // recreated with no date at all.
-    scheduled_at: r.scheduledAt,
-  }));
+  });
 
   if (rows.length === 0) {
     return { ok: false, message: "That plan changes nothing." };
   }
 
-  // One statement, so a plan can't land half-applied.
-  const { error } = await admin
-    .from("games")
-    .upsert(rows, { onConflict: "id" });
-  if (error) return { ok: false, message: error.message };
+  // ⛔ `scheduled_at` IS NOT WRITTEN. A repair moves who plays whom, the ice
+  // slot a matchup sits on, and the home side — never a game's time. Writing the
+  // time back "unchanged" is how the old upsert silently rolled back a
+  // `rescheduleGame` that landed between preview and apply; here it is the
+  // CONDITION instead, so that edit refuses the repair rather than losing to it.
+  const problem = await applyGameWrites(
+    admin,
+    seasonId,
+    rows.map((r) => ({
+      id: r.id,
+      next: {
+        home_team_id: r.homeTeamId,
+        away_team_id: r.awayTeamId,
+        label: r.label,
+      },
+      // Non-null by construction: `buildOneOffRows` only emits rows for nights
+      // `checkOneOffWrite` has passed, and a game with no time of its own is
+      // postponed, which locks its night.
+      expectScheduledAt: r.scheduledAt!,
+      prev: {
+        home_team_id: r.prevHomeTeamId,
+        away_team_id: r.prevAwayTeamId,
+        label: r.prevLabel,
+      },
+    })),
+  );
+  if (problem) return { ok: false, message: problem };
 
   await logAudit({
     user_id: manager.id,

@@ -30,9 +30,20 @@ const SELECT =
 export function RescheduleNightForm({
   seasonId,
   nights,
+  minDate,
+  maxDate,
 }: {
   seasonId: string;
   nights: MovableNight[];
+  /**
+   * The earliest date the picker offers: today in the LEAGUE's zone, computed
+   * on the server. Not `new Date()` in the browser — that is the viewer's zone,
+   * which disagrees by a day for anyone travelling, and this bound is the
+   * browser half of a guard whose other half is `checkNightMove`.
+   */
+  minDate: string;
+  /** The season's last day, when it has one. */
+  maxDate: string | null;
 }) {
   const [state, action, pending] = useActionState<
     RescheduleNightState,
@@ -99,7 +110,25 @@ export function RescheduleNightForm({
         </div>
         <div className="space-y-1">
           <Label htmlFor="to_date">New date</Label>
-          <Input id="to_date" name="to_date" type="date" required />
+          <Input
+            id="to_date"
+            name="to_date"
+            type="date"
+            required
+            /*
+              ⛔ The browser half of the one-way-door guard, and it is only the
+              half: a client can drop the attribute, so `checkNightMove` refuses
+              the same date server-side. Moving live games into the past trips
+              `season_is_started` permanently and cannot be undone through this
+              form, because the night then reads as locked.
+
+              Today, in the LEAGUE's zone — not the browser's, which would
+              disagree by a day for anyone travelling. Same call the generate
+              form's first-game-night field makes.
+            */
+            min={minDate}
+            max={maxDate ?? undefined}
+          />
         </div>
         <Button type="submit" disabled={pending}>
           {pending ? "Moving…" : "Move night"}
@@ -107,9 +136,10 @@ export function RescheduleNightForm({
       </div>
       <p className="text-muted-foreground text-xs">
         Every game on that night keeps its ice time and its opponents — only the
-        date changes, and the games keep their ids, so team calendar feeds update
-        rather than resubscribe. A date that already has games is refused:
-        combining two nights is an ice-booking decision this can&apos;t make.
+        date changes, and the games keep their ids, so team calendar feeds
+        update rather than resubscribe. A date that already has games is
+        refused: combining two nights is an ice-booking decision this can&apos;t
+        make.
       </p>
     </form>
   );

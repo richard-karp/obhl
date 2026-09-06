@@ -73,11 +73,12 @@ export function ScheduleRepairForm({
       }
       if (res.kind !== "preview") return;
       setPreview(res.preview);
-      // The best resulting schedule, when there is a choice — the same default
-      // the one-off planner offers.
-      setChosen(
-        res.preview.plans[res.preview.plans.length > 1 ? 1 : 0]?.id ?? null,
-      );
+      // ⛔ Index 0, NOT index 1. The one-off form skips its first plan because
+      // that one is the zero-change "leave the season alone" baseline;
+      // `planRepair` filters that baseline out before returning, so copying the
+      // skip here quietly defaulted to the SECOND repair ("disturb the fewest
+      // games") while the comment claimed it was picking the best.
+      setChosen(res.preview.plans[0]?.id ?? null);
     });
   };
 
@@ -94,6 +95,10 @@ export function ScheduleRepairForm({
         changes: plan.changes.map((c) => ({
           date: preview.nights[c.night].date,
           to: c.to,
+          // ⛔ The ids this plan was computed against, in slot order. Apply
+          // re-reads the schedule and refuses if they have moved — see
+          // `PlannedNight.gameIds`.
+          gameIds: preview.nights[c.night].gameIds,
         })),
       });
       if (!res) return;
@@ -288,7 +293,18 @@ function RepairPlans({
         <CardHeader>
           <CardTitle className="text-base">Nothing to improve</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-2">
+          {/*
+            ⚠️ "Already true" and "the search could not do it" are different
+            answers, and telling a manager the wrong one is how they conclude
+            the feature is broken when it simply had no work to do.
+          */}
+          {preview.pinAlreadyMet ? (
+            <p className="text-sm">
+              That team is already where you asked for it, so the pin needed no
+              change.
+            </p>
+          ) : null}
           <p className="text-muted-foreground text-sm">
             The search couldn&apos;t find a rearrangement of the remaining
             nights that beats the one already published, so there is nothing
@@ -305,11 +321,24 @@ function RepairPlans({
         <CardTitle className="text-base">Pick a repair</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/*
+          ⛔ A `play_on` pin that IS satisfiable is one the published schedule
+          already meets — repair cannot add a team to a night, so there is no
+          other kind it can honour. Saying so stops the manager reading these
+          plans as something their pin produced.
+        */}
+        {preview.pinAlreadyMet ? (
+          <p className="text-sm">
+            That team is already where you asked for it. These plans are an
+            ordinary repair of the nights still to come, not a consequence of
+            the pin.
+          </p>
+        ) : null}
         <p className="text-muted-foreground text-sm">
           Games played, byes and the weekday split are identical in every option
           — those can&apos;t move. What differs is how much of the rest of the
           season is disturbed putting opponent balance, ice time and home/away
-          back. No game is re-created, so team calendar feeds update in place.
+          back. No game gets a new id, so team calendar feeds update in place.
         </p>
 
         <div className="space-y-3">
