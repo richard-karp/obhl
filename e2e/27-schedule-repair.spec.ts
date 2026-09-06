@@ -348,4 +348,71 @@ test.describe("Path 27 — changing a live schedule", () => {
     // And it points at what the manager CAN do instead.
     await expect(page.getByText(/Reschedule/)).toBeVisible();
   });
+
+  /**
+   * Item 4: the same engine with no pin at all — what a manager reaches for
+   * after a run of manual reschedules has left the ice-time share lopsided.
+   */
+  test("repair with no pin either improves the schedule or says there is nothing to do", async ({
+    page,
+  }) => {
+    test.slow();
+    await signedInAsManager(page);
+    await seedFutureSeason(page);
+
+    // ⛔ The entry point is on the builder, and it has to be there in the mode
+    // this feature exists for. This fixture's season has not started, so it is
+    // reachable here in `published` mode; the locked card carries the same link,
+    // asserted below on the seeded season, which HAS started.
+    await page.goto("/obhl/schedule-builder");
+    await page.getByRole("link", { name: "repair the schedule" }).click();
+    await expect(page).toHaveURL(/\/schedule-builder\/repair/);
+
+    const before = await publishedGameIds();
+    await page.getByRole("button", { name: "Just repair the schedule" }).click();
+
+    const plans = page.getByText("Pick a repair");
+    const idle = page.getByText("Nothing to improve");
+    await expect(plans.or(idle)).toBeVisible(AFTER_GENERATE);
+
+    if (await idle.isVisible()) {
+      // ⚠️ A real outcome, not a failure: the season is already as good as the
+      // search can make it, and it says so instead of offering churn.
+      await expect(page.getByText(/nothing worth applying/)).toBeVisible();
+      return;
+    }
+
+    await page.getByRole("button", { name: "Apply this plan" }).click();
+    await expect(page.getByText(/^Repaired \d+ nights?/)).toBeVisible(
+      AFTER_GENERATE,
+    );
+    expect(await publishedGameIds()).toEqual(before);
+  });
+
+  /**
+   * ⛔ `locked` IS THE MODE THIS FEATURE EXISTS FOR. The seeded season's games
+   * are all in the past, so its builder renders the locked card — which used to
+   * offer per-game edits and the one-off planner and stop there.
+   */
+  test("the locked builder offers repair alongside the one-off planner", async ({
+    page,
+  }) => {
+    await signedInAsManager(page);
+    // The seeded season, explicitly: `seedFutureSeason` may have left this
+    // spec's own 2027 season active.
+    await page.goto("/obhl/seasons");
+    await page
+      .getByRole("row", { name: /Spring 2026/ })
+      .getByRole("link", { name: "Setup" })
+      .click();
+    await page.waitForURL(/\/seasons\//);
+
+    await expect(page.getByText("The season is under way")).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "schedule a one-off game" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "repair the schedule" }),
+    ).toBeVisible();
+  });
 });

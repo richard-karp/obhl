@@ -493,22 +493,25 @@ export async function ScheduleBuilderPanel({
               }))}
             />
             {/*
-              Rendered in published mode too, not only when locked. A manager
-              who has just published still reaches for this after a few manual
-              per-game reschedules, and the locked card carries its own link for
-              the mode where it is the only lever left.
+              ⚠️ Suppressed in locked mode, where the card above already carries
+              this link inside the sentence that explains what a started season
+              can still be changed. Two identical links a few elements apart read
+              as a seam rather than as emphasis — the same call the "generate a
+              new one above" guidance makes below.
             */}
-            <p className="text-muted-foreground text-sm">
-              To put a team on a particular night or ice time, or to even out
-              the nights still to come,{" "}
-              <Link
-                href={`/${league}/schedule-builder/repair`}
-                className="text-foreground font-medium underline"
-              >
-                repair the schedule
-              </Link>
-              .
-            </p>
+            {mode === "locked" ? null : (
+              <p className="text-muted-foreground text-sm">
+                To put a team on a particular night or ice time, or to even out
+                the nights still to come,{" "}
+                <Link
+                  href={`/${league}/schedule-builder/repair`}
+                  className="text-foreground font-medium underline"
+                >
+                  repair the schedule
+                </Link>
+                .
+              </p>
+            )}
           </CardContent>
         </Card>
       ) : null}

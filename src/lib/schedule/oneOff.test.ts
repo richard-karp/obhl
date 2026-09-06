@@ -1085,22 +1085,41 @@ describe("planRepair", () => {
   });
 
   /**
-   * ⚠️ Item 4 must be able to say "nothing to improve" rather than churn nights
-   * for a score that did not move. A season with one unlocked night has nothing
-   * the search can trade.
+   * ⚠️ ITEM 4 MUST BE ABLE TO SAY "NOTHING TO IMPROVE" rather than churn nights
+   * for a score that did not move — so this asserts the branch outright, on a
+   * fixture built to reach it, rather than accepting whichever answer came back.
+   *
+   * The construction: two played nights and one unlocked night running a single
+   * game. Participation is frozen, so there is no second game on that night to
+   * swap an opponent with and no second ice time to move between — nothing the
+   * three phases are allowed to change. Hand-built rather than generated,
+   * because a generated season's search runs under a wall clock and "found
+   * nothing" would be a timing claim rather than a structural one.
    */
   it("says there is nothing to improve when no plan changes anything", () => {
-    const allButOneLocked = nights.map((n, i) => ({
-      ...n,
-      locked: i !== nights.length - 1,
-    }));
     const res = planRepair({
-      teamCount: T,
-      nights: allButOneLocked,
+      teamCount: 4,
+      nights: [
+        { date: "2026-09-01", games: [[0, 1]], locked: true },
+        { date: "2026-09-03", games: [[2, 3]], locked: true },
+        { date: "2026-09-08", games: [[1, 0]], locked: false },
+      ],
       pin: null,
     });
     if (!res.ok) throw new Error(res.reason);
-    expect(res.nothingToImprove).toBe(res.plans.length === 0);
+    expect(res.nothingToImprove).toBe(true);
+    expect(res.plans).toEqual([]);
+  });
+
+  it("refuses a repair on a season with every night played", () => {
+    const res = planRepair({
+      teamCount: T,
+      nights: nights.map((n) => ({ ...n, locked: true })),
+      pin: null,
+    });
+    // ⛔ Not "nothing to improve": there is nothing it is ALLOWED to look at,
+    // which is a different answer and deserves a different sentence.
+    expect(res.ok).toBe(false);
   });
 
   /**
