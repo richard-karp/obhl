@@ -1,17 +1,21 @@
 "use client";
 
+// ⛔ `"use client"` STAYS THE FIRST LINE — a directive prologue may be preceded
+// only by comments, and this file's notes are below it for that reason.
+//
+// The staff link row. Once half of a second header — `ManageNav`, a whole brand
+// bar with its own account cluster and league switcher — now only the content,
+// because there is one header for the whole site and this sits beneath it. The
+// file moved out of `components/manage/` with the rest of that header: it is
+// drawn by `[league]/layout.tsx` on every page, public ones included, so it is
+// no longer a manage-only component.
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { LeagueSwitcher } from "@/components/shared/league-switcher";
 import type { AppRole } from "@/lib/auth/session";
 import type { LeagueOption } from "@/lib/league/current";
-
-/**
- * The staff link row. Once half of a second header — `ManageNav`, a whole brand
- * bar with its own account cluster and league switcher — now only the content,
- * because there is one header for the whole site and this sits beneath it.
- */
 
 /** Paths relative to `/<league>`. */
 const LINKS: Record<AppRole, { path: string; label: string }[]> = {
@@ -34,23 +38,23 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
   captain: [{ path: "/dashboard", label: "Dashboard" }],
 };
 
-/**
- * ⚠️ WHERE `MAX_INLINE_LINKS = 5` WENT, and why nothing replaced it.
- *
- * It decided whether `ManageNav`'s links sat inline in that header's brand bar
- * or took a full-width row beneath it, and it was measured: capped at
- * `max-w-6xl` (1152px), the inline nav's share was what remained after the brand
- * and the account controls took ~594px — about 526px, five links of the
- * manager's average width. The manager's ten never fitted at any viewport, so
- * they always took the row.
- *
- * That bar is gone. This row is now the only shape the staff links have, at
- * every width, so there is no threshold left to cross and no number to keep
- * true. ⛔ Do not reintroduce an inline variant of these links without measuring
- * again: the number above described a bar that no longer exists, and the one bar
- * that does — `site-header.tsx`'s — carries its own measurement, which this row
- * sits BELOW and therefore does not disturb.
- */
+// ⚠️ WHERE `MAX_INLINE_LINKS = 5` WENT, and why nothing replaced it. Written as
+// line comments rather than a docblock deliberately: it documents a deletion,
+// and as a `/** */` block it bound itself to whatever declaration came next.
+//
+// It decided whether `ManageNav`'s links sat inline in that header's brand bar
+// or took a full-width row beneath it, and it was measured: capped at
+// `max-w-6xl` (1152px), the inline nav's share was what remained after the brand
+// and the account controls took ~594px — about 526px, five links of the
+// manager's average width. The manager's ten never fitted at any viewport, so
+// they always took the row.
+//
+// That bar is gone. This row is now the only shape the staff links have, at
+// every width, so there is no threshold left to cross and no number to keep
+// true. ⛔ Do not reintroduce an inline variant of these links without measuring
+// again: the number above described a bar that no longer exists, and the one bar
+// that does — `site-header.tsx`'s — carries its own measurement, which this row
+// sits BELOW and therefore does not disturb.
 
 type NavLink = { path: string; label: string; absolute?: boolean };
 
@@ -100,6 +104,33 @@ function Links({ links, base }: { links: NavLink[]; base: string }) {
  * `navigation` landmarks on every page now rather than on three, and two unnamed
  * ones are indistinguishable to a screen reader.
  *
+ * ⚠️ THE DUPLICATION IS KNOWN AND ACCEPTED, and it is stated here rather than
+ * discovered. A manager sees this row's "Games", "Teams" and "Rules" beside the
+ * public nav's "Schedule", "Teams" and "Rules" — three of these links name URLs
+ * the header already names, two of them under a different word. `99f44d1`
+ * recorded that cost when the row served three shared pages; it now applies to
+ * every page, because the row does. On `/<league>/schedule` it also means TWO
+ * links carry `aria-current="page"` — the public nav's "Schedule" and this row's
+ * "Games" — which is valid but is the same duplication heard rather than seen.
+ *
+ * The alternative offered and not chosen was per-page inline staff controls
+ * instead of a row (see the design doc's *Out of scope*). Do not "fix" the
+ * duplication by pruning `LINKS`: the labels differ because the staff view of a
+ * URL is not the public view of it, and the row is what makes every tool
+ * reachable without a mode.
+ *
+ * ⚠️ THIS ROW DOES NOT STICK, AND THAT IS A KNOWN LOSS RATHER THAN AN OVERSIGHT.
+ * `ManageNav`'s deleted shell was `sticky top-0 z-40`, so a manager's links
+ * stayed pinned down a long audit or season page; they now scroll away.
+ * Restoring it as `sticky top-14` was measured on 2026-09-06 and does NOT work:
+ * the header is 57px tall at `lg` and above (the `h-14` bar plus its 1px border)
+ * but 98px at `md` and below, where a signed-in viewer's league links take their
+ * own row inside the header — so a row pinned at 56px slides underneath the
+ * header and, being 41px tall, disappears entirely after ~42px of scroll. An
+ * `lg:`-only sticky measures correctly, but pinning a `bg-muted/30` band over
+ * scrolling content needs a background-opacity decision this change did not have
+ * a mandate for. Recorded in the plan; do not re-derive the numbers.
+ *
  * ⚠️ The CALLER gates this on membership, never on `user.role` — the role is
  * instance-wide, so a manager of another league would otherwise be offered tools
  * that every page behind them refuses.
@@ -127,15 +158,29 @@ export function StaffLinks({
     <div className="bg-muted/30 border-b">
       <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-1">
         {/*
-          `min-w-0` on the scroller so the switcher beside it keeps its width:
-          without it this nav's automatic minimum is its content, and the select
-          is what gets squeezed off the screen instead.
+          ⛔ `flex-1`, NOT JUST `min-w-0`, AND THE DIFFERENCE WAS MEASURED. With
+          `min-w-0` alone both children shrink in proportion to their content, so
+          at 390px the switcher's wrapper was handed 55px — and `LeagueSwitcher`
+          puts its `min-w-[5rem]` floor on the SELECT, not on that wrapper, so the
+          select painted 80px inside a 55px box and pushed the document 9px past
+          the viewport. Watched 2026-09-06: `documentElement` 399/390 signed in,
+          399 traced to the select's right edge; 390/390 for an anonymous visitor,
+          who has no row.
+
+          `flex-1` gives this scroller a flex-basis of 0, so the switcher is
+          served its content width first and the nav absorbs whatever is left,
+          scrolling its links. That is also what `LeagueSwitcher`'s own docblock
+          asks for — it documents a horizontal-scroll incident from being pinned
+          at its cap — and it is why nothing here overrides its `min-w-0`.
         */}
         <nav
           aria-label="Staff tools"
-          className="flex min-w-0 gap-1 overflow-x-auto"
+          className="flex min-w-0 flex-1 gap-1 overflow-x-auto"
         >
-          <Links links={staffLinks(role, officeTier)} base={`/${currentSlug}`} />
+          <Links
+            links={staffLinks(role, officeTier)}
+            base={`/${currentSlug}`}
+          />
         </nav>
         {/*
           Outside the `nav`, so the "Staff tools" landmark stays a list of links.
@@ -144,12 +189,19 @@ export function StaffLinks({
           Still lands on `/<slug>/dashboard` rather than the league home: it is a
           staff control, and the equivalent sub-path never survives the crossing
           — `/obhl/seasons/<uuid>` names a season that belongs to Oceanview.
+
+          ⛔ NO `className` OVERRIDES HERE. No `shrink-0` — `LeagueSwitcher`'s own
+          `min-w-0` is what lets it give way, and its docblock names the incident:
+          pinned at its capped 11rem it pushed a header past the screen and put
+          the whole page into horizontal scrolling. And no `ml-auto` either: the
+          `flex-1` scroller above already fills the row, so this sits at the right
+          end by construction. `ml-auto` on a flex item whose sibling has flex
+          grow does nothing, and it read as though something depended on it.
         */}
         <LeagueSwitcher
           leagues={leagues}
           currentSlug={currentSlug}
           rootPath="/dashboard"
-          className="ml-auto shrink-0"
         />
       </div>
     </div>

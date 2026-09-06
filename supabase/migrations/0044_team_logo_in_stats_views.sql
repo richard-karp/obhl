@@ -1,3 +1,24 @@
+-- ⛔ THIS MIGRATION IS A DEPLOY GATE. PUSH IT WITH OR BEFORE THE CODE.
+--
+-- The branch that adds it (`refactor/one-site-chrome-and-logo-ink`) reads the two
+-- columns below by name, and against a database where this has not run PostgREST
+-- answers 42703 for the WHOLE request rather than for the missing column. The
+-- shipped consequences, in order of how quiet they are:
+--
+--   * `src/lib/queries/players.ts` — `getPlayerBio`'s substitute-player fallback
+--     names these columns explicitly on `v_skater_stats`. It degrades to a blank
+--     team, blank position and no jersey number, which reads as a player with no
+--     history rather than as an error. It logs, since this migration's review;
+--     it does not throw.
+--   * `getSkaterLeaders` / `getGoalieLeaders` and the stats tables read
+--     `select("*")`, so they keep working and simply draw the old monogram — the
+--     defect this change exists to fix, silently un-fixed.
+--
+-- Deploying the code first therefore does not break the site; it produces one
+-- page that lies. Deploying this first is harmless at any time: the columns are
+-- additive and nothing reads them until the code lands.
+--
+-- ---------------------------------------------------------------------------
 -- Team branding on the stats screens.
 --
 -- `TeamLogo` takes `logoPath` (an uploaded crest) and `textColor`

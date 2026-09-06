@@ -37,7 +37,11 @@ const signOut = (page: Page) => page.getByRole("button", { name: "Sign out" });
  * other order, the picker test passed against the `/login` redirect this change
  * replaces.
  */
-async function assertLandedSignedOutOn(page: Page, url: string, heading: string) {
+async function assertLandedSignedOutOn(
+  page: Page,
+  url: string,
+  heading: string,
+) {
   await expect(signOut(page)).toHaveCount(0);
   await expect(page.getByRole("heading", { name: heading })).toBeVisible();
   await expect(page).toHaveURL(url);

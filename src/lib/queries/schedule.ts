@@ -29,6 +29,16 @@ const GAME_SELECT = `
   away_team:teams!games_away_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)
 `;
 
+/** The half of `teams` a game carries: identity, and how to draw its chip. */
+export type GameTeam = {
+  id: string;
+  name: string;
+  slug: string;
+  color: string | null;
+  logo_path: string | null;
+  logo_text_color: string | null;
+};
+
 export type GameWithTeams = {
   id: string;
   scheduled_at: string | null;
@@ -44,16 +54,6 @@ export type GameWithTeams = {
   label: string | null;
   home_team: GameTeam | null;
   away_team: GameTeam | null;
-};
-
-/** The half of `teams` a game carries: identity, and how to draw its chip. */
-export type GameTeam = {
-  id: string;
-  name: string;
-  slug: string;
-  color: string | null;
-  logo_path: string | null;
-  logo_text_color: string | null;
 };
 
 /**

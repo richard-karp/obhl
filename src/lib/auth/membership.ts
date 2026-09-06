@@ -59,13 +59,22 @@ export async function isLeagueMember(
 }
 
 /**
- * The leagues this profile belongs to, for the manage switcher.
+ * The leagues this profile belongs to, for the staff row's switcher and for the
+ * picker's "leagues you can reach" list.
  *
  * The office is answered directly rather than through `memberLeagueIds`, which
  * for an office member selects every league id only for this function to ask the
  * same table again for the rows behind them.
+ *
+ * ⚠️ MEMOIZED PER REQUEST, and that is no longer a nicety. `[league]/layout.tsx`
+ * calls this for every member on EVERY page under `/<league>`, public pages
+ * included — it used to run only on the manage pages, where one uncached admin
+ * query per render was invisible. `memberLeagueIds` and `officeTierOf` beneath
+ * it are already `cache()`-wrapped, so without this the surrounding comment's
+ * claim that "both lookups are memoized" was true of the lookups and false of
+ * this.
  */
-export async function getMemberLeagues(
+export const getMemberLeagues = cache(async function getMemberLeagues(
   profileId: string,
 ): Promise<LeagueOption[]> {
   const admin = createAdminClient();
@@ -84,7 +93,7 @@ export async function getMemberLeagues(
   if (ids.length === 0) return [];
   const { data } = await select().in("id", ids);
   return data ?? [];
-}
+});
 
 /**
  * May this actor rewrite the profile of an account that already exists?

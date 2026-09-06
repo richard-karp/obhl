@@ -250,6 +250,33 @@ test.describe("Path 6b — Auth-aware chrome", () => {
       ).toBeVisible();
       expect(await fits()).toBe(true);
     }
+
+    // ── 390px: the staff row, which `fits()` above does NOT see ──────────────
+    //
+    // ⛔ THIS LEG HAS A CONTROL AND IT CAUGHT A REAL DEFECT. `fits()` measures
+    // the header bar, the header's nav, and the document. The staff row lives
+    // outside `<header>`, so only the DOCUMENT term can see it — and at 768px
+    // there is enough room that it never does.
+    //
+    // At 390px it does. Watched 2026-09-06 with the row's scroller as plain
+    // `min-w-0` (no `flex-1`): `documentElement` 399/390 signed in, because both
+    // flex children shrank in proportion and the league switcher's wrapper was
+    // handed 55px while `LeagueSwitcher` puts its `min-w-[5rem]` floor on the
+    // SELECT — which then painted to x=399. An anonymous visitor measured
+    // 390/390 on the same URLs, which is the control: the row is the difference.
+    //
+    // Both signed-in states are asserted because they differ in what the row
+    // holds: a member of two leagues gets the switcher, and it is the switcher
+    // that overflowed.
+    await page.setViewportSize({ width: 390, height: 800 });
+    for (const url of ["/obhl/standings", "/obhl/seasons"]) {
+      await page.goto(url);
+      await expect(
+        page.getByRole("navigation", { name: "Staff tools" }),
+      ).toBeVisible();
+      await expect(page.getByLabel("Select league")).toBeVisible();
+      expect(await fits()).toBe(true);
+    }
   });
 });
 /**

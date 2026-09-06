@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 import { SiteHeader } from "@/components/shared/site-header";
-import { StaffLinks } from "@/components/manage/manage-nav";
+import { StaffLinks } from "@/components/shared/staff-links";
 import { getSessionUser } from "@/lib/auth/session";
 import { isLeagueMember, getMemberLeagues } from "@/lib/auth/membership";
 import { officeTierOf } from "@/lib/auth/office";
@@ -57,11 +57,20 @@ export async function generateMetadata({
  * pages beneath. A page that stops being named by a nav is still reachable by
  * typing its URL; its own guard is the only thing between that URL and the data.
  *
- * ⚠️ The one visible consequence of resolving the header up here: a staged
- * league 404s in `(public)/layout.tsx`, which is BELOW this, so the 404 now
- * renders inside this header instead of on a bare page. It exposes nothing new —
- * the header names no league, and `generateMetadata` above has always titled the
- * tab with the league's name.
+ * ⚠️ DRAWING THE HEADER HERE DOES NOT EXPOSE A STAGED LEAGUE, and the reason is
+ * one layer above the visibility gate rather than in it. `resolveLeagueBySlug`
+ * reads through RLS, and `leagues` has exactly three SELECT policies — `is_public`
+ * (0008), `manages_league(id)` (0032) and `is_league_member(id)` (0042). Their
+ * disjunction is `decideLeagueVisible(is_public, member)` restated, so anyone who
+ * resolves the league at all already passes `(public)/layout.tsx`'s gate, and
+ * anyone who does not gets `null` and the `notFound()` below — before this
+ * function renders anything.
+ *
+ * ⛔ THAT DOES NOT MAKE `requireVisibleLeague` REDUNDANT. It is the app half of a
+ * mirrored pair (see `lib/league/visibility.ts`), and it is what fires the day
+ * the halves disagree — a widened policy, a divergence between SQL
+ * `is_league_member` and TypeScript `isLeagueMember`. It fires today only in that
+ * case, which is exactly when it is worth having. Do not delete it as dead code.
  */
 export default async function LeagueLayout({ children, params }: Props) {
   const { league: slug } = await params;

@@ -45,7 +45,9 @@ test.describe("One chrome everywhere", () => {
       // which is the whole change.
       await expect(leagueNav(page).first()).toBeVisible();
       await expect(staffRow(page)).toBeVisible();
-      await expect(staffRow(page).getByRole("link", { name: "Seasons" })).toBeVisible();
+      await expect(
+        staffRow(page).getByRole("link", { name: "Seasons" }),
+      ).toBeVisible();
       // The URL is untouched by any of this. `(public)` and `(manage)` are route
       // groups and never appear in a path; moving the chrome moves no page.
       await expect(page).toHaveURL(url);
@@ -58,7 +60,9 @@ test.describe("One chrome everywhere", () => {
     await signInAs(page, "Manager");
     for (const url of ["/", "/obhl", "/obhl/standings", "/obhl/dashboard"]) {
       await page.goto(url);
-      await expect(page.getByRole("link", { name: "Manage", exact: true })).toHaveCount(0);
+      await expect(
+        page.getByRole("link", { name: "Manage", exact: true }),
+      ).toHaveCount(0);
       await expect(
         page.getByRole("link", { name: "View site", exact: true }),
       ).toHaveCount(0);
@@ -72,7 +76,9 @@ test.describe("One chrome everywhere", () => {
       await page.goto(url);
       await expect(leagueNav(page).first()).toBeVisible();
       await expect(staffRow(page)).toHaveCount(0);
-      await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(
+        0,
+      );
     }
   });
 

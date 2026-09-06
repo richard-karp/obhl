@@ -33,6 +33,8 @@ export default async function ManageLayout({
   if (!league) notFound();
 
   return (
-    <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">{children}</main>
+    <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
+      {children}
+    </main>
   );
 }

@@ -94,8 +94,8 @@ export function AccountCluster({
         // ⚠️ Inside the `user` branch, like everything else here: with no
         // session this component must still render `children` and the toggle and
         // nothing else, or the "signed out is unchanged" bar breaks for every
-        // anonymous visitor. Hidden below `sm` for the same reason the badge and
-        // the cross-link are — the header has an overflow test at `md`.
+        // anonymous visitor. Hidden below `sm` for the same reason the badge is
+        // — the header has an overflow test at `md`.
         <Link
           href="/set-password"
           className="text-muted-foreground hidden text-sm hover:underline sm:inline"

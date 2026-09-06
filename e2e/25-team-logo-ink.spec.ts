@@ -28,43 +28,65 @@ function admin() {
 }
 
 /**
- * Resolved once in `beforeAll` and held here, so the restore in `afterAll` needs
- * no lookup of its own — a second round trip there is a second chance to fail
- * and leave the whole league dark-inked for every spec that runs after this one.
+ * The rows exactly as they were before this file touched them, captured in
+ * `beforeAll` and held here so `afterAll` needs no lookup of its own — a second
+ * round trip there is a second chance to fail.
+ *
+ * ⛔ THE PRIOR VALUES, NOT THE SCHEMA DEFAULTS. Restoring to `'light'` / `null`
+ * is right only for a freshly seeded database, and this one is NOT freshly
+ * seeded per spec: worktrees share ONE local Supabase, and a parallel session's
+ * branch or an earlier spec may legitimately have set a team's branding. Writing
+ * the defaults back would then be this file silently overwriting somebody else's
+ * fixture — damage that outlives the run, on a database no `db reset` of ours is
+ * going to undo for them.
  */
-let teamIds: string[] = [];
+let before: {
+  id: string;
+  logo_text_color: string | null;
+  logo_path: string | null;
+}[] = [];
 
 test.describe("Team logo ink and crests reach every screen", () => {
   test.beforeAll(async () => {
     const db = admin();
     const { data: teams, error } = await db
       .from("teams")
-      .select("id, leagues!inner(slug)")
+      .select("id, logo_text_color, logo_path, leagues!inner(slug)")
       .eq("leagues.slug", "obhl")
       .order("id", { ascending: true });
-    if (error) throw new Error(`could not read Oceanview teams: ${error.message}`);
-    teamIds = (teams ?? []).map((t) => t.id);
-    if (teamIds.length === 0) throw new Error("Oceanview has no teams — is the seed loaded?");
+    if (error)
+      throw new Error(`could not read Oceanview teams: ${error.message}`);
+    before = (teams ?? []).map((t) => ({
+      id: t.id,
+      logo_text_color: t.logo_text_color,
+      logo_path: t.logo_path,
+    }));
+    if (before.length === 0)
+      throw new Error("Oceanview has no teams — is the seed loaded?");
 
     // Every Oceanview team gets the dark ink, so no assertion below depends on
     // which teams happen to be playing tonight or leading the scoring race.
-    await db
-      .from("teams")
-      .update({ logo_text_color: "dark" })
-      .in("id", teamIds);
+    const ids = before.map((t) => t.id);
+    await db.from("teams").update({ logo_text_color: "dark" }).in("id", ids);
     // Exactly one crest. The file need not exist in storage — what is being
     // asserted is that the caller read the column and chose the image branch.
-    await db.from("teams").update({ logo_path: LOGO_PATH }).eq("id", teamIds[0]);
+    await db.from("teams").update({ logo_path: LOGO_PATH }).eq("id", ids[0]);
   });
 
   test.afterAll(async () => {
-    // Restored through the same admin client that set it: leaving the whole
-    // league dark-inked would change what every other spec renders.
-    if (teamIds.length === 0) return;
-    await admin()
-      .from("teams")
-      .update({ logo_text_color: "light", logo_path: null })
-      .in("id", teamIds);
+    // Row by row, because the captured values differ per team. Six statements
+    // against one shared database is a price worth paying to put back exactly
+    // what was there.
+    const db = admin();
+    for (const row of before) {
+      await db
+        .from("teams")
+        .update({
+          logo_text_color: row.logo_text_color ?? "light",
+          logo_path: row.logo_path,
+        })
+        .eq("id", row.id);
+    }
   });
 
   test("the schedule shows dark letters and the uploaded crest", async ({

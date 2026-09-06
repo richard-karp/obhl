@@ -107,35 +107,52 @@ export async function getPlayerBio(
   // Fallback: player appeared in game_rosters (e.g. as a substitute) but has
   // no team_players row for this season. Pull name from players table and
   // team/position from v_skater_stats; status flags default to safe values.
-  const [{ data: player }, { data: stat }] = await Promise.all([
-    supabase
-      .from("players")
-      .select("first_name, last_name")
-      .eq("id", playerId)
-      .maybeSingle(),
-    // Still the PER-TEAM view, deliberately. This fallback runs for a player
-    // with no `team_players` row at all, and the totals view gets its team from
-    // exactly that row — so it would hand back nulls for every player who
-    // reaches here, which is all of them.
-    //
-    // Ordered and limited rather than `maybeSingle()`: a player who moved teams
-    // has a row per team, and `maybeSingle()` treats two rows as an error and
-    // returns nothing — the whole bio would fall back to blanks. The team they
-    // played most for is the best single answer this shape can give.
-    supabase
-      .from("v_skater_stats")
-      .select(
-        // The branding columns are 0044's; before it, this fallback could only
-        // ever hand back a monogram in the default ink, whatever the team had
-        // chosen.
-        "team_id, team_name, team_slug, team_color, team_logo_path, team_logo_text_color, position, jersey_number",
-      )
-      .eq("player_id", playerId)
-      .eq("season_id", seasonId)
-      .order("gp", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
+  const [{ data: player, error: playerErr }, { data: stat, error: statErr }] =
+    await Promise.all([
+      supabase
+        .from("players")
+        .select("first_name, last_name")
+        .eq("id", playerId)
+        .maybeSingle(),
+      // Still the PER-TEAM view, deliberately. This fallback runs for a player
+      // with no `team_players` row at all, and the totals view gets its team
+      // from exactly that row — so it would hand back nulls for every player who
+      // reaches here, which is all of them.
+      //
+      // Ordered and limited rather than `maybeSingle()`: a player who moved
+      // teams has a row per team, and `maybeSingle()` treats two rows as an
+      // error and returns nothing — the whole bio would fall back to blanks. The
+      // team they played most for is the best single answer this shape can give.
+      supabase
+        .from("v_skater_stats")
+        .select(
+          // ⛔ THIS SELECT IS A DEPLOY GATE ON MIGRATION 0044. It is the only
+          // place in the app that names `team_logo_path` / `team_logo_text_color`
+          // EXPLICITLY — everywhere else reads `select("*")` or a `teams` column
+          // that has existed since 0002. Against a database where 0044 has not
+          // run, PostgREST answers 42703 ("column does not exist") for the whole
+          // request, `stat` is null, and this bio degrades to blank team, blank
+          // position and no number for every substitute player. Ship 0044 with or
+          // before this code; the `console.error` below is what makes the
+          // mismatch say so instead of looking like a player with no history.
+          "team_id, team_name, team_slug, team_color, team_logo_path, team_logo_text_color, position, jersey_number",
+        )
+        .eq("player_id", playerId)
+        .eq("season_id", seasonId)
+        .order("gp", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+  // Logged the way the read above this one already logs, and for a stronger
+  // reason: both of these degrade to a *plausible* bio rather than to an error,
+  // so a failure here is invisible in the page it produces.
+  if (playerErr || statErr) {
+    console.error(
+      "getPlayerBio fallback failed:",
+      (playerErr ?? statErr)?.message,
+    );
+  }
 
   if (!player) return null;
 

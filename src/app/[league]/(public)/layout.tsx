@@ -8,9 +8,17 @@ import { requireVisibleLeague } from "@/lib/auth/guards";
  *
  * ⛔ THE VISIBILITY GATE IS THE POINT OF THIS FILE, and it is the reason the
  * file still exists now that the chrome has moved up to `[league]/layout.tsx`.
- * `requireVisibleLeague` is what makes a staged league indistinguishable from a
- * slug nobody has taken, for everyone except its own people. It is not chrome
- * and it did not move.
+ * It is not chrome and it did not move.
+ *
+ * ⚠️ BUT DO NOT READ IT AS THE THING KEEPING A STAGED LEAGUE HIDDEN TODAY. RLS
+ * does that one layer above: `leagues` has three SELECT policies — `is_public`,
+ * `manages_league(id)`, `is_league_member(id)` — whose disjunction is
+ * `decideLeagueVisible(is_public, member)` restated, so a viewer who cannot see
+ * the league gets `null` from `resolveLeagueBySlug` and a 404 in
+ * `[league]/layout.tsx` before this file runs. `requireVisibleLeague` is the app
+ * half of that mirrored pair (`lib/league/visibility.ts`), kept because the day
+ * the two halves disagree is the day it is the only thing left. Defence in
+ * depth, stated as such rather than overstated.
  *
  * The header, and the staff link row beneath it, are drawn once in
  * `[league]/layout.tsx` for every page under `/<league>` — public and staff
