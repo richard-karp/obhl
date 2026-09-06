@@ -12,10 +12,11 @@ own, and both have traps that look like tidying. Read the relevant handoff
 front which section matters for which kind of change.
 
 - **`LAUNCH_READINESS_HANDOFF.md`** — the outstanding work between here and two
-  live leagues: two open production doors, the claims in `LAUNCH.md` that went
-  false, and the actions the audit log still does not cover. **Read this one
-  first** if you are picking the project up cold; it says which of the others
-  you actually need.
+  live leagues: the schedule rebuild and its one-way door, the `LAUNCH.md` phases
+  nobody has verified, and the half of the auth work that needs a domain and a
+  dashboard rather than a checkout. **Read this one first** if you are picking
+  the project up cold; it says which of the others you actually need, and its
+  first 130 lines are written to be the only thing you need to resume.
 - **`SCHEDULE_HANDOFF.md`** — the schedule generator: weekday balance, bye
   spacing, ice-time share, and why the phases are ordered as they are.
 - **`EXPORTS_HANDOFF.md`** — the CSV and calendar exports, the single read path

@@ -147,6 +147,20 @@ audit page returns false, so the UI does not offer it.
 
 ## Already decided — do not re-file
 
+**The password actions have no league, and that is not a hole** (added
+2026-09-06, #36). `auth.ts` now exports `sendPasswordReset`, `updateOwnPassword`
+and `signInWithPassword`, all three listed in `league-guards.test.ts`'s
+`NO_LEAGUE_ACTIONS`. Sign-in happens before any league is known, and
+`updateOwnPassword` writes through the CALLER's own session via
+`auth.updateUser` — not the admin client — so the session IS the authorisation
+and there is no league or role to check. ⚠️ The same reasoning does NOT extend to
+`office.ts:setStaffPassword`, which writes somebody else's credential on the
+admin client and is guarded by `requireCommissioner`; the office test in that
+file still forces it. **`/set-password` is deliberately not a manage page**: it
+lives at the app root, outside `[league]/(manage)`, so the manage-page guard
+sweep does not cover it and should not — a session with no `profiles` row and no
+role must be able to set a password.
+
 **`previewEsportsdeskImport` is not an SSRF** (closed 2026-09-01). It never
 fetches the pasted string; it regexes two numeric ids out of it and fetches a
 hardcoded esportsdesk host with one of four literal paths. It reads like SSRF

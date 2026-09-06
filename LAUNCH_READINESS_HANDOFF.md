@@ -52,8 +52,8 @@
    exist only on your branch. Copy those two files into the worktree's
    `supabase/.temp/` instead, or re-run `supabase link` there.
 5. Verify code changes with `npm test && npm run test:e2e`. Measured on CI at
-   `f131d6c` (`main`, the #31 merge), 2026-09-05: **28 unit files / 365 tests;
-   183 e2e passed / 1 skipped / 0 failed** in 7.5m, across 23 spec files. The
+   `2bcaf8c` (PR #36, merged as `32262b5`), 2026-09-06: **30 unit files / 374
+   tests; 193 e2e passed / 1 skipped / 0 failed** in 10.4m, across 24 spec files. The
    skip is the AI-summary test, gated on an API key — not a regression.
    ⚠️ The counts move with every merge; re-measure rather than quoting them.
    ⛔ **Run e2e against a dev server belonging to YOUR worktree.** Playwright's
@@ -72,16 +72,16 @@ which fixed GAA being inflated by empty-net goals on live pages; `0039`-`0041`,
 which #24's manage tools read; and `0042`/`0043`, which let a league's own
 scorekeepers and captains read it before it is public (*Member reads*, below).
 
-✅ **THIS FILE IS ON `main`, and there are NO open PRs** (2026-09-05: #33, #34
-and #35 merged; #23 and issue #30 closed). ⚠️ **Check anyway** — this line goes
+✅ **THIS FILE IS ON `main`, and there are NO open PRs** (2026-09-06: #36
+merged; before it #33-#35; #23 and issue #30 closed). ⚠️ **Check anyway** — this line goes
 stale the moment someone branches, and a stale copy in a worktree misled a
 reader today. Everything waiting on a person rather than on work is listed
 under *Open — waiting on a person* below, and nothing outstanding is elsewhere.
 
 **What remains is item 4: the `LAUNCH.md` phases — and it now has a date on
 it.** The published season's first game night is **2026-09-10**, after which its
-schedule is locked for good. Item 5 is deferred odds and ends, item 7 is the
-half of the auth work that a checkout cannot do.
+schedule is locked for good. Item 5 is deferred odds and ends. Item 7's CODE is
+now on `main` (#36); what is left of it is a domain and a dashboard.
 
 ## Next action
 
@@ -121,7 +121,6 @@ from a checkout.
 that cost a round of misdiagnosis here. ⚠️ That URL was `/<slug>/manage/dashboard`
 when it was verified; #31 removed the `/manage/` prefix the day after, and
 `next.config.ts` redirects the old one.
-
 
 ## The rule item 6 leaves behind — push migrations BEFORE merging their code
 
@@ -167,7 +166,7 @@ design, so assume the gap and check the list rather than the flag.
 | 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | ⛔ **OPEN, AND ON A CLOCK** — Phase 6's first game night is 2026-09-10; sign-in, access control and the anonymous half of *Verification* are done; steps 4-6 of that list need a session |
 | 5 | Smaller deferred items | below | open |
 | 6 | `0039`-`0043` not pushed | `supabase db push` | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides |
-| 7 | Staff can set a password, but only a commissioner can give them one | a domain, then Supabase dashboard | **OPEN, and what is left is phase 1: a DOMAIN BOUGHT FIRST** — ✅ phases 2-3 (reset trigger, `/set-password`, password field on `/login`) are built and green; ⛔ no production email has ever been sent, so the reset half is unproven. Runbook in *The other half of auth*. ⚠️ No app env key is involved |
+| 7 | Staff can set a password, but only a commissioner can give them one | a domain, then Supabase dashboard | **OPEN — only phase 1 is left, and it needs a DOMAIN BOUGHT FIRST** — ✅ phases 2-3 merged 2026-09-06 (#36, `32262b5`): reset trigger, `/set-password`, password field on `/login`. ⛔ No production email has ever been sent, so the reset half is unproven and nobody should be told it works. Runbook in *The other half of auth*. ⚠️ No app env key is involved |
 | 8 | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code | ✅ **closed 2026-09-05** — steps 1-6 shipped as #31 (which collapsed #25-#29); step 7, the prose, is this commit. Spec: `docs/superpowers/specs/2026-09-05-unified-url-space-design.md` |
 | 9 | **A past first-game-night locks the season on publish** | code | ✅ **closed 2026-09-05 — PR #35, on `main` as `72b4148`** — reproduced, then guarded at generate. ⛔ Publish stays unguarded regardless — see *Item 9 — the guard, built* |
 
@@ -198,7 +197,7 @@ is one command and is always right.
 |---|---|---|
 | ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in *Next action* |
 | **`LAUNCH.md` Verification steps 4, 5, 6** | The manager badge, the league switcher, an announcement in one league only | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written |
-| **Item 7** — custom SMTP, now the only phase left | ⛔ **Blocked on ACQUIRING A DOMAIN** — `vercel domains ls` is 0 and `vercel.app` cannot be verified in Resend. Runbook has the DNS records and the traps. Phases 2-3 built 2026-09-05; the email leg is what nobody can test until this is done | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
+| **Item 7** — custom SMTP, now the only phase left | ⛔ **Blocked on ACQUIRING A DOMAIN** — `vercel domains ls` is 0 and `vercel.app` cannot be verified in Resend. Runbook has the DNS records and the traps, plus three values to READ AND RECORD while in the dashboard: the allow-list entry for `/auth/confirm?next=…`, the password length, and `secure_password_change`. Phases 2-3 merged 2026-09-06; the email leg is what nobody can test until this is done | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
 | **`NEXT_PUBLIC_SITE_URL` is missing on Preview** | `vercel env ls` 2026-09-05: Production only | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run |
 
 ---
@@ -543,51 +542,32 @@ returning profile_id, tier;
 ```
 END COPY
 
-## 7 — The other half of auth: the code is built, the email is not
+## 7 — The other half of auth: only the email is left
 
-⛔ **NOTHING HERE IS VERIFIED AGAINST REAL EMAIL.** The code for phases 2 and 3
-is on the branch and green in unit tests and e2e, but the reset link's whole
-purpose is to ARRIVE, and delivery is phase 1 — dashboard SMTP, which a checkout
-cannot do. Until step 1 lands, treat the reset half as unproven: e2e drives the
-local Supabase stack, which accepts `resetPasswordForEmail` and mails into
-Inbucket. **Production has never sent one of these.** Password SIGN-IN and
-setting a password on an existing session need no email and were driven in a
-browser (`e2e/24-password-auth.spec.ts`, 6 tests, green 2026-09-06).
+✅ **THE CODE IS ON `main`** — PR #36, merged 2026-09-06 as `32262b5`. A staff
+member can set their own password (`/set-password`), sign in with it (`/login`,
+under the magic link), and reach that page from the `Password` link in any
+signed-in header. The floor is 8, enforced by every writer before Supabase is
+called, so the dashboard's own number cannot make two doors disagree.
+
+⛔ **AND IT HAS NEVER SENT A PRODUCTION EMAIL.** The reset link's whole purpose
+is to ARRIVE, and delivery is phase 1 below — dashboard SMTP, blocked on
+acquiring a domain. **Do not tell anyone the reset flow works.** Until it does,
+`setStaffPassword` in the League Office is the only way to give someone a first
+password, and the magic link is still the primary way in.
+
+⚠️ **The build narrative, the measured absences, the oracle measurements and
+every decision behind the code are archived** in
+`docs/worklists/2026-09-06-22b5bab5-item-7-password-auth.md` (262 lines).
+Do **not** read it to do the work below — nothing outstanding depends on it.
 
 | Step in a password flow | State |
 |---|---|
-| A commissioner **sets** a password for someone | ✅ `setStaffPassword` (`src/lib/actions/office.ts`, `requireCommissioner`, `admin.auth.admin.updateUserById`) |
-| A user **sets their own** password | ✅ `/set-password` → `auth.ts:updateOwnPassword` (`auth.updateUser`), reached by `auth.ts:sendPasswordReset` → `/auth/confirm?next=/set-password`. ⚠️ The email leg is unproven — see above |
-| A user **signs in** with it on production | ✅ `auth.ts:signInWithPassword`, second form on `/login`. ⚠️ Only useful to an account that HAS a password: `setStaffPassword` is the way to give the first one out without email |
+| A commissioner **sets** a password for someone | ✅ `setStaffPassword` (`office.ts`, `requireCommissioner`) — the no-email path, and the only one that works today |
+| A user **sets their own** password | ✅ `/set-password` → `auth.ts:updateOwnPassword`, reached by `sendPasswordReset`. ⛔ The email leg is unproven |
+| A user **signs in** with it | ✅ `auth.ts:signInWithPassword`, second form on `/login`. Only useful to an account that already has a password |
 
-**So magic link is not the primary way into the staff tools — it is the ONLY
-way, with no fallback.** Supabase's built-in sender allows two emails an hour,
-which a handful of simultaneous sign-ins exhausts; at that point every staff
-member is locked out at once and the tool built to rescue them cannot be used.
-That is the risk this item closes, and it is why phase 1 is worth doing alone.
-
-⚠️ **Measured 2026-09-05, not read**: the auth-call inventory, both absences and
-the `config.toml` scope below were produced by full-repository greps run with
-two controls — one proving the grep shape finds a call that does exist
-(`signInWithOtp` at `src/lib/actions/auth.ts:20`), one proving the missing
-methods exist in the installed SDK (`@supabase/auth-js/GoTrueClient`). ⚠️ **No
-probe was made against production.** Every claim about the production Supabase
-project is a reading of the dashboard's documented behaviour, not an observation.
-
-**Every `supabase.auth.*` call in `src/`** — so the next session need not grep:
-
-```
-2 getClaims            1 verifyOtp       1 signInWithPassword (devSignIn only)
-2 admin.createUser     1 uid             1 signInWithOtp
-1 admin.updateUserById 1 signOut         1 exchangeCodeForSession
-1 admin.listUsers      1 admin.getUserById
-```
-
-`signInWithPassword` appears once, inside `devSignIn`, gated on
-`ENABLE_DEV_LOGIN` — absent from every Vercel environment (item 1) and it should
-stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
-
-**What closes this, in order:**
+**What closes this — one phase, and it is not code:**
 
 1. **Custom SMTP (Resend).** ⛔ Dashboard work — cannot be done from a checkout.
    ⚠️ **The app needs no new env key.** Nothing in `src/` reads a Resend
@@ -598,7 +578,11 @@ stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
 
    ⛔ **THERE IS NO DOMAIN TO VERIFY. THIS IS THE REAL BLOCKER, AND IT HAS A
    LEAD TIME NOTHING ELSE HERE HAS.** `vercel domains ls` returned **0 Domains**
-   (measured 2026-09-05); production is `https://obhl.vercel.app`. `vercel.app`
+   — measured 2026-09-05 and **re-measured 2026-09-06**, still 0. That second
+   reading carries a control the first did not: `vercel teams ls` shows exactly
+   ONE scope (`richard-karp-s-projects`), so there is no other team a domain
+   could be hiding under, and every entry in `vercel alias ls` is a
+   `*.vercel.app` host. Production is `https://obhl.vercel.app`. `vercel.app`
    **cannot** be verified in Resend — it is not ours, and verification needs DNS
    records at the domain's authoritative nameservers. Someone has to **acquire a
    domain** before step (a) below is reachable at all.
@@ -641,6 +625,14 @@ stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
       watching the navigation chain.
    e. **Read production's minimum password length and set it to 8**, while you
       are already in this dashboard. See the layering note under phase 2.
+   ⚠️ **(e) and (f) need no domain and no SMTP — do them on the next dashboard
+      visit rather than waiting.** They are reads of values recorded nowhere in
+      this repository, and the recording is the point. **(c) may not be
+      available yet**: this is a READING of Supabase's documented behaviour, not
+      a measurement — the emails-per-hour limit is understood to be raisable
+      only once custom SMTP is configured, so expect it to still say `2` while
+      the built-in sender is in use. Try it, and if it refuses, that is expected
+      and not a second blocker.
    f. **Read and record `secure_password_change` and the password-changed
       notification.** Both govern what a stolen session can do: with
       `secure_password_change` off, a session cookie alone — 7 days — is enough
@@ -670,112 +662,9 @@ stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
    too, or the app builds a correct preview link that Supabase then refuses as
    unlisted. Both halves, or neither.
 
-2. ✅ **BUILT (2026-09-05), unverified against real email.** A self-serve
-   set/reset flow, riding on that SMTP. The hard part was already built: `/auth/confirm` (`src/app/auth/confirm/route.ts`) verifies a
-   `token_hash` for ANY `EmailOtpType`, `recovery` included, sets the
-   audit-session cookie, and redirects to a sanitised `next` path.
-
-   ✅ **BUILT 2026-09-05** — `resetPasswordForEmail` and `auth.updateUser` in
-   `src/lib/actions/auth.ts`, the `src/app/set-password/` route, the shared
-   `src/lib/auth/password.ts`, the `NO_LEAGUE_ACTIONS` entries below and
-   `e2e/24-password-auth.spec.ts`. **The absences this section described are
-   true of `main` before that branch merges** — `git log --all` before trusting
-   them, and do not start this work a second time. ⛔ Still unproven end to end:
-   no production email has been sent, because phase 1 is blocked on the domain.
-
-   **Two calls and one route are missing — not one.** An earlier draft of this
-   file said "a `resetPasswordForEmail` trigger", which undercounted it:
-
-   - **The trigger.** An action calling `resetPasswordForEmail`. It must name
-     its landing page in the email, because `/auth/confirm` redirects to `next`:
-     ``resetPasswordForEmail(email, { redirectTo: `${base}/auth/confirm?next=/set-password` })``
-   - **The landing.** A page calling `auth.updateUser({ password })` against the
-     session `/auth/confirm` just established. ⛔ **`admin.updateUserById`
-     cannot be reused for this** — it needs the admin client and sits behind
-     `requireCommissioner`, and the whole point of the flow is that the person
-     resetting their own password is not a commissioner.
-   - **The route.** `find src/app` matches nothing on reset, recovery or
-     password.
-
-   ⚠️ **The 8-vs-6 password length is LAYERING, not a conflict — and it becomes
-   one the moment this phase ships.** `MIN_PASSWORD = 8` (`office.ts`, chosen
-   deliberately, with its reasoning in a comment) is checked *before* Supabase
-   is called, so Supabase's floor never gets a say. A reset flow goes through
-   Supabase Auth instead, so it would enforce Supabase's number: same account,
-   two doors, two rules. ⛔ **`supabase/config.toml`'s `minimum_password_length
-   = 6` is the stock scaffold default from the first commit and governs the
-   LOCAL stack only** — there is no `supabase config push` in CI, `package.json`
-   or `scripts/`. Production's real floor is whatever the dashboard says and is
-   **recorded nowhere in this repository**, which is what step 1e is for.
-
-   **What was built, and the decisions inside it.**
-
-   | Piece | Where it landed |
-   |---|---|
-   | The reset trigger | `auth.ts:sendPasswordReset` — `resetPasswordForEmail(email, { redirectTo: `${base}/auth/confirm?next=/set-password` })`, same `(_prev, formData)` shape as `sendMagicLink`, same address-oracle-free reply |
-   | The set-password page | `src/app/set-password/` — page + `SetPasswordForm`/`RequestResetForm`. **One URL is both halves**: with a session it sets the password, without one it offers the form that sends a fresh link, because a bookmark or a used link is the ordinary way to arrive |
-   | The password field | `src/app/login/login-form.tsx:PasswordSignInForm`, a second form under the magic link, plus `auth.ts:signInWithPassword` (sets `audit_session`, lands on the picker like `devSignIn`) |
-   | The floor | `src/lib/auth/password.ts` — `MIN_PASSWORD = 8` moved out of `office.ts`, now shared by both writers, with `password.test.ts` failing the build if either grows its own literal again |
-   | The way back to it | `components/shared/account-cluster.tsx` — a `Password` link in every signed-in header, the ONLY in-app route to `/set-password`. It is also the recovery for the allow-list trap in step (d): someone dropped on `/` signed-in can still finish |
-   | The audit entry | `auth.ts:updateOwnPassword` logs `set_own_password` under `entity_type: "office"`, with a sentence in `office-audit-notice.tsx`. ⚠️ "office" is not a claim that this is an office act — it is the only entity type whose entries are VISIBLE with a null league; anything else would be written correctly and hidden forever |
-
-   ✅ **The 8-vs-6 layering is settled, and it did NOT need the dashboard.**
-   Both password writers check 8 **before** Supabase is called, so Supabase's
-   floor — 6 locally, unknown-and-unrecorded on production — never decides which
-   rule an account gets. Step 1e is still worth doing, but the two doors can no
-   longer disagree if it is never done.
-
-   ⛔ **A FORM WHOSE ACTION IS A CLIENT FUNCTION EATS SUBMITS BEFORE HYDRATION,
-   SILENTLY.** The first version of the login block put sign-in and reset in one
-   form and chose between them in a client dispatcher, to avoid asking for the
-   address twice. A Playwright click straight after `goto` reproduced the failure
-   every time — the browser posts the form natively, there is no endpoint,
-   /login reloads with the fields cleared and nothing said — while the same
-   click after `networkidle` signed in fine. Both forms post to server actions
-   now, and the reset trigger is a LINK to `/set-password` rather than a second
-   button. ⚠️ Any test of these forms must wait for hydration or it is testing
-   the race, not the page.
-
-   ⛔ **NEITHER EMAIL ACTION REPORTS THE PROVIDER'S ERROR, AND THAT IS LOAD-
-   BEARING.** Measured 2026-09-06 against the local stack: `signInWithOtp` with
-   `shouldCreateUser: false` answers `422 otp_disabled` for an address with no
-   account and succeeds for one with — **one request enumerates staff
-   addresses** — and `resetPasswordForEmail` returns `200` either way but `429
-   over_email_send_rate_limit` on a second request **only** for an address that
-   exists, because the throttle it trips is per user. Both actions now answer
-   with one sentence on every outcome, rate-limit advice included
-   unconditionally, and log the real error server-side. ⚠️ An earlier version of
-   this branch passed the message through and justified it in a comment with the
-   claim that the limit was per project. That claim was false; a fresh-context
-   review measured it.
-
-   ✅ **THE WHOLE LOOP IS DRIVEN LOCALLY**, through a real message:
-   `e2e/24-password-auth.spec.ts`'s last test requests a reset, reads it out of
-   Mailpit, opens the link and finishes — covering every hop except production's
-   SMTP. It skips itself when the local mail API is not answering rather than
-   reddening a run over someone's environment.
-
-   ⚠️ `league-guards.test.ts` went red exactly as this section predicted
-   (`expected [ 'auth.ts:sendPasswordReset' ] to deeply equal []`). All three new
-   actions are in `NO_LEAGUE_ACTIONS` with reasons; the file's baseline is
-   **still 7 passed** — the entries are data, not cases, so the count does not
-   move — and `e2e/02-auth.spec.ts`'s "no password field" test was
-   rewritten — it asserted the absence this item exists to end, and now asserts
-   the magic link SURVIVES alongside the field.
-
-3. ✅ **BUILT (2026-09-05).** A password field on `/login`. ⚠️ Magic link stays
-   the PRIMARY path — it is drawn first, and it is the only one that submits
-   with no JavaScript. Removing it would replace one sole way in with a different
-   sole way in, which is not progress — and the entire point of this item is not
-   having a single one of those.
-
-⛔ **1 IS THE ONLY THING LEFT, AND IT IS STILL THE GATE.** The reset flow's
-email has never been sent by production, so do not tell anyone the reset link
-works until step 1 is done and one real message has been watched to arrive. An
-unverified sign-in path is worse than a missing one: it looks like a way back in,
-right up to the moment someone needs it. Password sign-in itself is not in that
-category — it needs no email — but until people have passwords, the only way to
-give someone a first one is `setStaffPassword`.
+⚠️ An unverified sign-in path is worse than a missing one: it looks like a way
+back in, right up to the moment someone needs it. Step 1 is not done until one
+real message has been **watched to arrive**.
 
 **Runbook with the dashboard steps as a tickable checklist:**
 <https://claude.ai/code/artifact/b92f802a-1a8f-4e0a-8599-3d601b9bc482>
@@ -871,7 +760,6 @@ explicit go-ahead before any code changes.
    makes it a **scale** question (`src/components/manage/roster-editor.tsx`),
    not a correctness one, and it now runs only for a manager rather than on
    every view of the team page.
-
 
 - **`saveRules` read-then-upsert is not atomic** — two concurrent saves both
   read the same previous document, so one audit entry's `old_data` names
