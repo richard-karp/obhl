@@ -33,26 +33,44 @@ async function goToFallSeasonSetup(page: Page) {
 
 /**
  * Wait for the generate form, and fail IMMEDIATELY and by name if the builder
- * came up in its read-failed state instead.
+ * came up in either state that has no form on the page.
  *
- * ⛔ NOT A RETRY, AND NOT A LOOSENED ASSERTION. `getPublishState` fails closed:
- * if any of its reads errors it reports `readFailed`, `publishMode` returns
- * `locked`, and the panel renders "This season's games couldn't be read" with
- * NO generate form on the page at all. A plain `fill()` then waits on a locator
- * that can never resolve and reports only "waiting for getByLabel('First game
- * night')", which tells the next person nothing about what actually happened.
+ * ⛔ NOT A RETRY, AND NOT A LOOSENED ASSERTION. `publishMode` returns `locked`
+ * for TWO reasons, and neither renders a generate form:
  *
- * Racing the two locators is what makes the message honest: whichever the page
- * settled on is the one reported, in seconds. A read failure still fails the
- * run — it is a real condition and must not be swallowed — it just says so.
+ *   - `readFailed` — `getPublishState` fails closed, so any of its six reads
+ *     erroring locks the panel and renders "This season's games couldn't be
+ *     read". Transient, usually a database error under load.
+ *   - `started` — the season is legitimately under way. Permanent, and it means
+ *     this spec is pointed at the wrong season, not that anything broke.
  *
- * Copied from `29-schedule-repair.spec.ts` rather than shared: there is no
- * helper module under `e2e/` and no spec imports another.
+ * A plain `fill()` in either state waits on a locator that can never resolve
+ * and reports only "waiting for getByLabel('First game night')" — on CI (run
+ * 34055032836) that was a 12-minute `Test timeout of 720000ms exceeded`, which
+ * tells the next person nothing about what actually happened.
+ *
+ * Racing the three locators is what makes the message honest: whichever the
+ * page settled on is the one reported, in seconds. Both failures still fail the
+ * run — they are real conditions and must not be swallowed — they just say so.
+ *
+ * ⛔ CALL IT BEFORE ANY GATE THAT READS THE PANEL, not inside the branch the
+ * gate picks. Both locked cards make a `count()` probe answer wrongly, so a
+ * guard behind one either never runs or runs too late to help.
+ *
+ * ⚠️ COPIED INTO EACH SPEC THAT NEEDS IT, AND IT HAS TO BE. A shared
+ * `e2e/schedule-helpers.ts` was built and measured on 2026-09-06: every
+ * relative TypeScript import dies at load with `context.conditions?.includes is
+ * not a function`, sibling or not, with or without a `.js` specifier
+ * (Playwright 1.61.0, Node 22.18.0). It is not "no module exists yet" and not
+ * "only `src` is out of reach" — relative TS imports do not work here at all.
+ * Change one copy, change them all; there are five.
  */
 async function expectGenerateFormUsable(page: Page) {
   const firstNight = page.getByLabel("First game night");
   const readFailed = page.getByText("This season's games couldn't be read");
-  await expect(firstNight.or(readFailed).first()).toBeVisible();
+  const started = page.getByText("The season is under way");
+  await expect(firstNight.or(readFailed).or(started).first()).toBeVisible();
+
   if (await readFailed.isVisible()) {
     throw new Error(
       "The schedule builder is in its read-failed state: getPublishState " +
@@ -60,6 +78,16 @@ async function expectGenerateFormUsable(page: Page) {
         "generate form to fill. One of its parallel reads errored — check the " +
         "server log for 'publish state read failed'. This is usually a " +
         "transient database error under load, not a broken query.",
+    );
+  }
+
+  if (await started.isVisible()) {
+    throw new Error(
+      "The schedule builder is locked because the season has STARTED, so " +
+        "there is no generate form to fill. Not transient: a season is started " +
+        "once it holds a published, non-draft game whose date has passed. " +
+        "Either this spec is pointed at the wrong season, or its fixture " +
+        "season has aged into the past — check the dates it seeds.",
     );
   }
 }
@@ -181,8 +209,6 @@ test.describe("Path 17 — Schedule Builder", () => {
     // generates (drafts aren't bounded by the season start), so this reads as
     // passing while drafting a schedule months before the season it belongs to.
 
-    // The builder has no generate form at all when a read failed, and a bare
-    // `fill` then waits on a locator that can never resolve — see the helper.
     await expectGenerateFormUsable(page);
     await page.getByLabel("First game night").fill("2026-09-15");
     await page.getByLabel("Games per team").fill("4");
@@ -226,8 +252,6 @@ test.describe("Path 17 — Schedule Builder", () => {
     // entirely: generateSchedule returned void, so a refusal and a slow run
     // were indistinguishable.
 
-    // The builder has no generate form at all when a read failed, and a bare
-    // `fill` then waits on a locator that can never resolve — see the helper.
     await expectGenerateFormUsable(page);
     await page.getByLabel("First game night").fill("2026-09-15");
     await page.getByLabel("Games per team").fill("4");
@@ -251,8 +275,6 @@ test.describe("Path 17 — Schedule Builder", () => {
     // button simply went back to idle and the manager was left guessing
     // whether the generator had run and failed or never started.
 
-    // The builder has no generate form at all when a read failed, and a bare
-    // `fill` then waits on a locator that can never resolve — see the helper.
     await expectGenerateFormUsable(page);
     await page.getByLabel("First game night").fill("2026-09-15");
     await page.getByLabel("Games per team").fill("4");
@@ -279,8 +301,6 @@ test.describe("Path 17 — Schedule Builder", () => {
       day: "2-digit",
     }).format(new Date());
 
-    // The builder has no generate form at all when a read failed, and a bare
-    // `fill` then waits on a locator that can never resolve — see the helper.
     await expectGenerateFormUsable(page);
     await expect(page.getByLabel("First game night")).toHaveAttribute(
       "min",
@@ -301,6 +321,8 @@ test.describe("Path 17 — Schedule Builder", () => {
     // browser-side and a client can drop it, so what is under test here is the
     // half that cannot be bypassed. Without the server check this generates a
     // draft and reports success.
+
+    await expectGenerateFormUsable(page);
     await page
       .getByLabel("First game night")
       .evaluate((el) => el.removeAttribute("min"));
@@ -330,8 +352,6 @@ test.describe("Path 17 — Schedule Builder", () => {
     // are its own. What is asserted is that each check reaches the screen, which
     // is what nothing covered before.
 
-    // The builder has no generate form at all when a read failed, and a bare
-    // `fill` then waits on a locator that can never resolve — see the helper.
     await expectGenerateFormUsable(page);
     await page.getByLabel("First game night").fill("2026-09-15");
     await page.getByLabel("Games per team").fill("4");
@@ -376,8 +396,6 @@ test.describe("Path 17 — Schedule Builder", () => {
     // The reported bug: generate + publish twice left the season holding two
     // complete overlapping schedules, both live in the exports and standings.
     const generate = async () => {
-      // The builder has no generate form at all when a read failed, and a bare
-      // `fill` then waits on a locator that can never resolve — see the helper.
       await expectGenerateFormUsable(page);
       await page.getByLabel("First game night").fill("2026-09-15");
       await page.getByLabel("Games per team").fill("4");
@@ -503,7 +521,16 @@ test.describe("Path 17 — Schedule Builder", () => {
         .locator('label:has-text("Thu") input[name="weekdays"]')
         .check();
       await page.getByRole("button", { name: "Generate schedule" }).click();
-      await page.getByRole("button", { name: /Publish \d+ games/ }).click();
+      // ⛔ The generate has to LAND before this button can be clicked — it does
+      // not exist until the draft renders. Without this wait the click's own
+      // actionability wait covers the whole search, which `actionTimeout`
+      // (playwright.config.ts) now caps at 20s — under the ~25s Phase S can
+      // spend on a loaded runner, and the only reason it never fired is that
+      // this branch is skipped whenever the test above it ran first. Every
+      // other generate site in the suite waits like this; this one didn't.
+      const publish = page.getByRole("button", { name: /Publish \d+ games/ });
+      await expect(publish).toBeVisible(AFTER_GENERATE);
+      await publish.click();
     }
 
     await expect(removeButton).toBeVisible();
