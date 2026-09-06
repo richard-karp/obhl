@@ -26,6 +26,10 @@ function fakeDb(rows: GameRow[]) {
   const faults = new Map<string, UpdateOutcome>();
   /** Rows whose update reports an error but commits anyway — a lost response. */
   const lostResponses = new Set<string>();
+  /** Rows whose update THROWS — postgrest-js rethrows AbortError. */
+  const throwers = new Set<string>();
+  /** Rows deleted the moment their update is attempted. */
+  const vanishOnUpdate = new Set<string>();
   /** How many update calls each row has seen, so a fault can target the undo. */
   const calls = new Map<string, number>();
   /** Runs before a given call — lets a test slip another manager's write in. */
@@ -53,6 +57,15 @@ function fakeDb(rows: GameRow[]) {
         (Object.keys(expect) as (keyof typeof expect)[]).every(
           (k) => row[k as keyof GameRow] === expect[k],
         );
+      if (throwers.has(id)) {
+        throwers.delete(id);
+        throw new Error("AbortError: the operation was aborted");
+      }
+      if (vanishOnUpdate.has(id)) {
+        vanishOnUpdate.delete(id);
+        table.delete(id);
+        return { error: "network went away" };
+      }
       if (lostResponses.has(id)) {
         lostResponses.delete(id);
         if (matches) apply();
@@ -76,6 +89,9 @@ function fakeDb(rows: GameRow[]) {
     failNext: (id: string, outcome: UpdateOutcome) =>
       faults.set(`${id}#1`, outcome),
     loseResponse: (id: string) => lostResponses.add(id),
+    throwOn: (id: string) => throwers.add(id),
+    vanishOn: (id: string) => vanishOnUpdate.add(id),
+    reads: () => log.filter((l) => l.startsWith("read:")),
     /** Run `fn` just before a numbered update call — another session's write. */
     before: (fn: (id: string, nth: number) => void) => {
       interpose = fn;
@@ -242,13 +258,6 @@ describe("applyGameWrites", () => {
      * the columns THIS function wrote, or it cannot tell "still as I left it"
      * from "somebody else's completed apply sits here now" — and it reverts
      * them. Conditioned the old way (id + season + status + scheduled_at only)
-     * this undo would have overwritten the intervening write.
-     */
-    /**
-     * ⛔ THE COMPENSATOR MUST NOT BE A LOST-UPDATE WRITER. Its WHERE has to name
-     * the columns THIS function wrote, or it cannot tell "still as I left it"
-     * from "somebody else's completed apply sits here now" — and it reverts
-     * them. Conditioned the old way (id + season + status + scheduled_at only)
      * the undo below matched happily and overwrote the intervening write.
      */
     it("refuses to undo a row somebody else has since re-pointed", async () => {
@@ -367,5 +376,255 @@ describe("applyGameWrites", () => {
     expect(res.ok).toBe(false);
     expect(db.row("g1").scheduled_at).toBe(AT);
     expect(db.row("g2").scheduled_at).toBe(AT);
+  });
+
+  /**
+   * ⛔ THE BATCH IS BIGGER THAN ONE CHUNK, AND NOTHING ELSE HERE TESTED THAT.
+   *
+   * Every other test in this file writes at most three rows, so `CHUNK` was
+   * entirely uncovered: a mutation changing the stride to `i += CHUNK + 1`
+   * silently SKIPS one game per chunk and still returns `ok: true`, and the
+   * whole suite stayed green while a repair reported "24 games rewritten"
+   * having written 23. Real repairs are 20-40 rows.
+   */
+  describe("across more than one chunk", () => {
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) => row(`g${i}`));
+
+    it("writes every row of a 60-row batch, and no more", async () => {
+      const rows = many(60);
+      const db = fakeDb(rows);
+      const res = await applyGameWrites(
+        db.deps,
+        rows.map((r) =>
+          repoint(r.id, { home_team_id: "X" }, { home_team_id: "A" }),
+        ),
+      );
+      expect(res.ok).toBe(true);
+      // Not "most of them": all sixty, and exactly sixty update calls.
+      expect(rows.every((r) => db.row(r.id).home_team_id === "X")).toBe(true);
+      expect(db.updates().length).toBe(60);
+    });
+
+    it("restores every row of a 60-row batch when the last one fails", async () => {
+      const rows = many(60);
+      const db = fakeDb(rows);
+      db.failNext("g59", { error: "boom" });
+      const res = await applyGameWrites(
+        db.deps,
+        rows.map((r) =>
+          repoint(r.id, { home_team_id: "X" }, { home_team_id: "A" }),
+        ),
+      );
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.stuck).toEqual([]);
+      expect(rows.every((r) => db.row(r.id).home_team_id === "A")).toBe(true);
+    });
+
+    it("reads in request-sized pages rather than one huge id list", async () => {
+      // PostgREST takes the ids in the query string; 200 UUIDs is ~7.8KB, which
+      // is the wrong side of an 8KB request line on most proxies.
+      const rows = many(120);
+      const db = fakeDb(rows);
+      await applyGameWrites(
+        db.deps,
+        rows.map((r) =>
+          repoint(r.id, { home_team_id: "X" }, { home_team_id: "A" }),
+        ),
+      );
+      expect(db.reads().length).toBe(3); // 120 ids at 50 per read
+      for (const r of db.reads())
+        expect(r.split(",").length).toBeLessThanOrEqual(50);
+    });
+  });
+
+  /**
+   * ⛔ MORE THAN ONE FAILURE IN A CHUNK. The loop used to keep only the first
+   * and drop the rest — never re-read, never compensated, never reported. With
+   * 25 PATCHes in flight, one network blip hitting several of them is the
+   * ordinary shape of the fault, not a double fault.
+   */
+  describe("several failures in one chunk", () => {
+    it("finds and undoes BOTH lost-but-committed writes", async () => {
+      const db = fakeDb([row("g1"), row("g2"), row("g3")]);
+      db.loseResponse("g2");
+      db.loseResponse("g3");
+      const res = await applyGameWrites(db.deps, [
+        repoint("g1", { home_team_id: "X" }, { home_team_id: "A" }),
+        repoint("g2", { home_team_id: "Y" }, { home_team_id: "A" }),
+        repoint("g3", { home_team_id: "Z" }, { home_team_id: "A" }),
+      ]);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.stuck).toEqual([]);
+      // The old loop kept g2 only and left g3 changed while reporting
+      // "Nothing was written."
+      expect(db.row("g1").home_team_id).toBe("A");
+      expect(db.row("g2").home_team_id).toBe("A");
+      expect(db.row("g3").home_team_id).toBe("A");
+    });
+
+    it("does not let a conflict at index 0 hide a committed write behind it", async () => {
+      const db = fakeDb([row("g1"), row("g2")]);
+      db.failNext("g1", { matched: 0 }); // a genuine refusal
+      db.loseResponse("g2"); // …and a write that committed
+      const res = await applyGameWrites(db.deps, [
+        repoint("g1", { home_team_id: "X" }, { home_team_id: "A" }),
+        repoint("g2", { home_team_id: "Y" }, { home_team_id: "A" }),
+      ]);
+      expect(res.ok).toBe(false);
+      // Reported `conflict` with an empty `stuck` before — which `writeGames`
+      // does not even audit, so the half-applied game had no record anywhere.
+      expect(db.row("g2").home_team_id).toBe("A");
+    });
+
+    it("survives a thrown AbortError instead of letting it escape", async () => {
+      const db = fakeDb([row("g1"), row("g2")]);
+      db.throwOn("g2");
+      const res = await applyGameWrites(db.deps, [
+        repoint("g1", { home_team_id: "X" }, { home_team_id: "A" }),
+        repoint("g2", { home_team_id: "Y" }, { home_team_id: "A" }),
+      ]);
+      // `Promise.all` let this out of the function entirely, leaving the rest of
+      // the chunk committed with no compensation and no audit.
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.message).toMatch(/AbortError/);
+      expect(db.row("g1").home_team_id).toBe("A");
+    });
+  });
+
+  describe("the night move", () => {
+    const to = "2027-01-12T19:00:00-05:00";
+    const move = (id: string): GameWrite => ({
+      id,
+      next: { scheduled_at: to },
+      prev: { scheduled_at: AT },
+      expectScheduledAt: AT,
+    });
+
+    /**
+     * ⚠️ The failure test below asserts both rows hold their STARTING time,
+     * which is also true when the write path is completely broken. A mutation
+     * making `expected()` condition on `next.scheduled_at` refuses every night
+     * move forever and left that test green. This is the one that notices.
+     */
+    it("actually moves the night when nothing is in the way", async () => {
+      const db = fakeDb([row("g1"), row("g2")]);
+      const res = await applyGameWrites(db.deps, [move("g1"), move("g2")]);
+      expect(res.ok).toBe(true);
+      expect(db.row("g1").scheduled_at).toBe(to);
+      expect(db.row("g2").scheduled_at).toBe(to);
+    });
+
+    it("conditions its undo on the time it wrote, not the one it found", async () => {
+      const db = fakeDb([row("g1"), row("g2")]);
+      db.failNext("g2", { error: "boom" });
+      // Somebody re-times g1 after we moved it: the undo must refuse.
+      db.before((id, nth) => {
+        if (id === "g1" && nth === 2) {
+          db.row("g1").scheduled_at = "2027-03-03T19:00:00-05:00";
+        }
+      });
+      const res = await applyGameWrites(db.deps, [move("g1"), move("g2")]);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.stuck).toEqual(["g1"]);
+      expect(db.row("g1").scheduled_at).toBe("2027-03-03T19:00:00-05:00");
+    });
+  });
+
+  /**
+   * ⛔ THE PRE-FLIGHT IS NOT THE GUARD. It is a read, and the writes come after
+   * it; only the conditional UPDATE closes the window between them. Nothing
+   * tested that, so a mutation dropping `expected()` from the update — leaving
+   * the pre-flight to "cover" it — passed.
+   */
+  it("refuses a row edited between the pre-flight and the write", async () => {
+    const db = fakeDb([row("g1")]);
+    db.before((id, nth) => {
+      if (id === "g1" && nth === 1) db.row("g1").home_team_id = "THEIRS";
+    });
+    const res = await applyGameWrites(db.deps, [
+      repoint("g1", { home_team_id: "X" }, { home_team_id: "A" }),
+    ]);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.kind).toBe("conflict");
+      expect(res.stuck).toEqual([]);
+    }
+    expect(db.row("g1").home_team_id).toBe("THEIRS");
+  });
+
+  it("reports a failed pre-flight read rather than proceeding", async () => {
+    // A mutation swallowing this error and carrying on returned `ok: true`
+    // without writing anything, which nothing noticed.
+    const deps: GameWriteDeps = {
+      read: async () => ({ error: "read timed out" }),
+      update: async () => ({ matched: 1 }),
+    };
+    const res = await applyGameWrites(deps, [
+      repoint("g1", { home_team_id: "X" }, { home_team_id: "A" }),
+    ]);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.kind).toBe("failed");
+      expect(res.message).toBe("read timed out");
+    }
+  });
+
+  it("accepts a batch of exactly the ceiling", async () => {
+    const rows = Array.from({ length: MAX_GAME_WRITES }, (_, i) =>
+      row(`g${i}`),
+    );
+    const db = fakeDb(rows);
+    const res = await applyGameWrites(
+      db.deps,
+      rows.map((r) =>
+        repoint(r.id, { home_team_id: "X" }, { home_team_id: "A" }),
+      ),
+    );
+    expect(res.ok).toBe(true);
+  });
+
+  describe("a row the re-read cannot account for", () => {
+    it("treats a vanished row as stuck rather than putting it back", async () => {
+      const db = fakeDb([row("g1"), row("g2")]);
+      db.vanishOn("g2");
+      const res = await applyGameWrites(db.deps, [
+        repoint("g1", { home_team_id: "X" }, { home_team_id: "A" }),
+        repoint("g2", { home_team_id: "Y" }, { home_team_id: "A" }),
+      ]);
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.kind).toBe("indeterminate");
+        expect(res.stuck).toEqual(["g2"]);
+      }
+      // g1 still gets put back — one unaccountable row does not strand the rest.
+      expect(db.row("g1").home_team_id).toBe("A");
+    });
+
+    it("treats a row holding neither state as stuck", async () => {
+      const db = fakeDb([row("g1")]);
+      db.loseResponse("g1");
+      // The lost write commits "X", then somebody else writes "THIRD" — so the
+      // re-read finds neither what we sent nor what was there.
+      db.before(() => {});
+      const deps: GameWriteDeps = {
+        read: async (ids) => {
+          const out = await db.deps.read(ids);
+          if ("rows" in out && db.updates().length > 0) {
+            for (const r of out.rows) r.home_team_id = "THIRD";
+          }
+          return out;
+        },
+        update: db.deps.update,
+      };
+      const res = await applyGameWrites(deps, [
+        repoint("g1", { home_team_id: "X" }, { home_team_id: "A" }),
+      ]);
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.kind).toBe("indeterminate");
+        expect(res.stuck).toEqual(["g1"]);
+      }
+    });
   });
 });

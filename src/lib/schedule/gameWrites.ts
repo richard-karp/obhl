@@ -140,6 +140,31 @@ const KEYS: (keyof GameFields)[] = [
 /** How many rows go out at once — see the parallelism note in the header. */
 const CHUNK = 25;
 
+/**
+ * How many ids one read asks for.
+ *
+ * ⚠️ PostgREST takes an id list as `in.(…)` in the QUERY STRING, and a UUID
+ * costs ~39 bytes there. At `MAX_GAME_WRITES` that is ~7.8KB of request line,
+ * which is close enough to the 8KB default in nginx, Node and most proxies that
+ * a big repair would start failing on the pre-flight with something unhelpful.
+ * Chunked here rather than in the Supabase adapter so the behaviour is testable.
+ */
+const READ_CHUNK = 50;
+
+/** `deps.read` over any number of ids, in request-sized batches. */
+async function readRows(
+  deps: GameWriteDeps,
+  ids: string[],
+): Promise<{ rows: GameRow[] } | { error: string }> {
+  const rows: GameRow[] = [];
+  for (let i = 0; i < ids.length; i += READ_CHUNK) {
+    const page = await deps.read(ids.slice(i, i + READ_CHUNK));
+    if ("error" in page) return page;
+    rows.push(...page.rows);
+  }
+  return { rows };
+}
+
 const sameKeys = (a: GameFields, b: GameFields) => {
   const ka = KEYS.filter((k) => k in a);
   const kb = KEYS.filter((k) => k in b);
@@ -204,10 +229,14 @@ export async function applyGameWrites(
     }
   }
 
-  // 1. Pre-flight. One read, so a concurrent edit is caught before ANY row is
-  //    written rather than halfway through — which is what keeps compensation
-  //    a rare path rather than a routine one.
-  const before = await deps.read(writes.map((w) => w.id));
+  // 1. Pre-flight, so a concurrent edit is caught before ANY row is written
+  //    rather than halfway through. It keeps compensation a rare path — it is
+  //    NOT the guard: it is a read, the writes come after it, and only the
+  //    conditional UPDATE below closes that window.
+  const before = await readRows(
+    deps,
+    writes.map((w) => w.id),
+  );
   if ("error" in before) return fail("failed", before.error);
   const seen = new Map(before.rows.map((r) => [r.id, r] as const));
   for (const w of writes) {
@@ -226,69 +255,103 @@ export async function applyGameWrites(
   }
 
   // 2. Write, in parallel chunks, remembering what to undo.
+  //
+  // ⛔ EVERY NON-MATCH IN THE CHUNK IS KEPT, NOT JUST THE FIRST. This loop used
+  // to record one failure per batch and drop outcomes 2..25 on the floor —
+  // never re-read, never compensated, never reported. The parallelism above is
+  // exactly what made that likely rather than exotic: one network blip across
+  // 25 concurrent PATCHes hits several of them, which is the ORDINARY shape of
+  // the fault. Two lost-but-committed responses in one chunk returned "Nothing
+  // was written." with a game permanently changed; a genuine conflict at index
+  // 0 alongside a committed lost response returned `conflict` with an empty
+  // `stuck`, which the caller does not even audit.
   const applied: GameWrite[] = [];
-  let failure: { w: GameWrite; outcome: UpdateOutcome } | null = null;
+  const failures: { w: GameWrite; outcome: UpdateOutcome }[] = [];
 
-  for (let i = 0; i < writes.length && !failure; i += CHUNK) {
+  for (let i = 0; i < writes.length && failures.length === 0; i += CHUNK) {
     const chunk = writes.slice(i, i + CHUNK);
-    const outcomes = await Promise.all(
+    // ⛔ `allSettled`, not `all`. postgrest-js RETHROWS an `AbortError` rather
+    // than returning it as `{ error }`, and `Promise.all` would let it escape
+    // this function entirely — leaving the other 24 in-flight PATCHes to commit
+    // with no compensation, no audit and no message.
+    const settled = await Promise.allSettled(
       chunk.map((w) => deps.update(w.id, w.next, expected(w))),
     );
-    outcomes.forEach((outcome, j) => {
+    settled.forEach((s, j) => {
       const w = chunk[j];
+      const outcome: UpdateOutcome =
+        s.status === "fulfilled" ? s.value : { error: String(s.reason) };
       if ("matched" in outcome && outcome.matched === 1) applied.push(w);
-      else if (!failure) failure = { w, outcome };
+      else failures.push({ w, outcome });
     });
   }
-  if (!failure) return { ok: true };
+  if (failures.length === 0) return { ok: true };
 
-  // 3. Did the failed write actually land?
+  // 3. Which of the failures actually landed?
   //
   // ⛔ A LOST RESPONSE IS NOT A FAILED WRITE. postgrest-js retries GET, HEAD and
   // OPTIONS only, and a rejected fetch comes back as `{ error }` rather than
   // throwing — so a PATCH that COMMITTED and whose response was lost is
   // indistinguishable here from one that never left. Rolling back and reporting
   // "nothing was written" would be a lie about a row that has in fact changed.
-  // Re-read before deciding.
-  const { w: hurt, outcome } = failure as {
-    w: GameWrite;
-    outcome: UpdateOutcome;
-  };
-  let indeterminate = false;
-  if ("error" in outcome) {
-    const after = await deps.read([hurt.id]);
+  // Re-read every one of them before deciding.
+  //
+  // A `matched` that is not 1 needs no re-read: PostgREST counts the rows it
+  // wrote, so zero means the WHERE did not match and nothing happened.
+  const errored = failures.filter((f) => "error" in f.outcome);
+  const indeterminate = new Set<string>();
+  if (errored.length > 0) {
+    const after = await readRows(
+      deps,
+      errored.map((f) => f.w.id),
+    );
     if ("error" in after) {
-      indeterminate = true;
+      // Cannot tell for any of them. All of these rows are now suspect.
+      for (const f of errored) indeterminate.add(f.w.id);
     } else {
-      const row = after.rows.find((r) => r.id === hurt.id);
-      if (!row) indeterminate = true;
-      else if (holds(row, hurt.next))
-        applied.push(hurt); // it landed after all
-      else if (!holds(row, hurt.prev)) indeterminate = true; // neither state
+      const now = new Map(after.rows.map((r) => [r.id, r] as const));
+      for (const f of errored) {
+        const row = now.get(f.w.id);
+        if (!row)
+          indeterminate.add(f.w.id); // vanished; nothing to put back
+        else if (holds(row, f.w.next))
+          applied.push(f.w); // it landed after all
+        else if (!holds(row, f.w.prev)) indeterminate.add(f.w.id); // neither state
+      }
     }
   }
 
   // 4. Compensate, newest first. Each undo is conditional on what this function
   //    wrote (see `written`), so it refuses rather than clobbering a later edit
   //    by somebody else — and a refused undo is STUCK, not success.
-  const stuck: string[] = indeterminate ? [hurt.id] : [];
+  const stuck: string[] = [...indeterminate];
   for (const done of [...applied].reverse()) {
-    if (done.id === hurt.id && indeterminate) continue;
+    // ⚠️ Unreachable by construction, and kept as a floor rather than as a
+    // branch that fires: the classification above is an if/else chain over one
+    // entry per id, so a write lands in `applied` or in `indeterminate` and
+    // never both. No test covers it for that reason — a mutation removing it
+    // survives the suite, which is the honest signal that it is dead. It stays
+    // because the alternative, if the two ever did overlap, is writing to a row
+    // whose state we just admitted we cannot establish.
+    if (indeterminate.has(done.id)) continue;
     const undo = await deps.update(done.id, done.prev, written(done));
     if ("error" in undo || undo.matched !== 1) stuck.push(done.id);
   }
 
   if (stuck.length > 0) {
     return fail(
-      indeterminate ? "indeterminate" : "stuck",
+      indeterminate.size > 0 ? "indeterminate" : "stuck",
       `Couldn't finish, and couldn't fully undo it. These games are half-changed and need checking by hand: ${stuck.join(", ")}.`,
       stuck,
     );
   }
-  return "error" in outcome
+  // Everything is back where it started. Say WHY it stopped: a refusal the
+  // manager can act on by re-previewing, or a database failure they cannot.
+  const firstError = errored[0]?.outcome as { error: string } | undefined;
+  return firstError
     ? fail(
         "failed",
-        `Couldn't save that. ${outcome.error} Nothing was written.`,
+        `Couldn't save that. ${firstError.error} Nothing was written.`,
       )
     : fail(
         "conflict",

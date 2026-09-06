@@ -969,6 +969,18 @@ async function writeGames(
   //
   // Awaited, and only on a failure: a success is evident from the games
   // themselves, while this record cannot be reconstructed from anything.
+  if (result.stuck.length > 0) {
+    // ⛔ AND THE PLATFORM LOG TOO. `logAudit` swallows its own errors by design
+    // — an audit failure must not turn a successful action into a reported one
+    // — which means the audit row is not a guarantee. These ids are the only
+    // way to find out which games are half-changed, so they go somewhere that
+    // does not depend on the database being reachable.
+    console.error(
+      `${action}: games left half-changed in season ${seasonId}:`,
+      result.stuck.join(", "),
+      result.message,
+    );
+  }
   if (result.stuck.length > 0 || result.kind === "failed") {
     await logAudit({
       user_id: userId,
