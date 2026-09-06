@@ -1,0 +1,171 @@
+/**
+ * Path 26: what the generate form does with what it was told.
+ *
+ * Two opposite requirements, which is why they share a spec: **generate is
+ * iterative** — a manager regenerates repeatedly, changing one field — so it
+ * must keep every field it was given; **publish is terminal**, so it returns the
+ * form to defaults and clears the season's stored manager requests.
+ *
+ * Driven through Fall 2026's setup page for the same reason
+ * `11-schedule-builder` and `23-schedule-constraints` are: the generate flow
+ * only exists on a season that has not started, and the active season is in the
+ * past. Both pages render the same `ScheduleBuilderPanel`.
+ */
+import { test, expect } from "@playwright/test";
+import type { Page } from "@playwright/test";
+
+async function signedInAsManager(page: Page) {
+  await page.goto("/login");
+  await page.getByRole("button", { name: "Manager" }).click();
+  await page.waitForURL("/");
+  await page.goto("/obhl/dashboard");
+}
+
+async function goToFallSeasonSetup(page: Page) {
+  await page.goto("/obhl/seasons");
+  await page
+    .getByRole("row", { name: /Fall 2026/ })
+    .getByRole("link", { name: "Setup" })
+    .click();
+  await page.waitForURL(/\/seasons\//);
+}
+
+/** See `11-schedule-builder.spec.ts` — Phase S runs five candidates. */
+const AFTER_GENERATE = { timeout: 45_000 };
+
+/** The first game night of the window these tests generate over. */
+const FIRST_NIGHT = "2026-09-15";
+
+/** Non-default ice times, so "still what I typed" cannot pass by accident. */
+const SLOT_TIMES = "18:45, 20:00";
+
+/** A Thursday inside the season, skipped — far enough out to not starve it. */
+const SKIP_DAY = "24";
+const SKIP_CHIP = "Sep 24";
+
+/** The listed manager requests, and only those — see `23-schedule-constraints`. */
+function requestList(page: Page) {
+  return page
+    .locator("li")
+    .filter({ has: page.getByRole("button", { name: /^Remove request:/ }) });
+}
+
+/** Fill every field on the generate form with something that is not its default. */
+async function fillEverything(page: Page) {
+  await page.getByLabel("First game night").fill(FIRST_NIGHT);
+  await page.getByLabel("Games per team").fill("4");
+  await page.getByLabel(/Ice-time slots/).fill(SLOT_TIMES);
+  await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
+  await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
+
+  // The skip chips are React state, not an input — the discriminator the
+  // reproduction turns on. If these survive a generate and the inputs above do
+  // not, the cause is React's form reset rather than a remount.
+  await page.getByRole("button", { name: "Pick dates" }).click();
+  const popover = page.locator('[data-slot="popover-content"]');
+  await popover
+    .locator("button")
+    .filter({ hasText: new RegExp(`^${SKIP_DAY}$`) })
+    .first()
+    .click();
+  await popover.getByRole("button", { name: "Add", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByText(SKIP_CHIP)).toBeVisible();
+}
+
+test.describe("Path 26 — the generate form's state", () => {
+  // A generate can be ~25 s of search, and every test here runs one.
+  test.describe.configure({ timeout: 150_000 });
+
+  test.beforeEach(async ({ page }) => {
+    await signedInAsManager(page);
+    await goToFallSeasonSetup(page);
+  });
+
+  test("a generate leaves every field holding what was submitted", async ({
+    page,
+  }) => {
+    await fillEverything(page);
+    await page.getByRole("button", { name: "Generate schedule" }).click();
+    await expect(page.getByText("Balance report")).toBeVisible(AFTER_GENERATE);
+
+    // Uncontrolled inputs.
+    await expect(page.getByLabel("First game night")).toHaveValue(FIRST_NIGHT);
+    await expect(page.getByLabel("Games per team")).toHaveValue("4");
+    await expect(page.getByLabel(/Ice-time slots/)).toHaveValue(SLOT_TIMES);
+    await expect(
+      page.locator('label:has-text("Tue") input[name="weekdays"]'),
+    ).toBeChecked();
+    await expect(
+      page.locator('label:has-text("Thu") input[name="weekdays"]'),
+    ).toBeChecked();
+
+    // React state.
+    await expect(page.getByText(SKIP_CHIP)).toBeVisible();
+
+    await page.getByRole("button", { name: "Discard draft" }).click();
+    await expect(page.getByText("No draft schedule")).toBeVisible();
+  });
+
+  test("a publish returns the form to defaults and clears the stored requests", async ({
+    page,
+  }) => {
+    // A request to be cleared. `slot_on` for the reason `23-schedule-constraints`
+    // gives: this seeded league has no bye budget at all.
+    const teamSelect = page.getByLabel("Team", { exact: true });
+    const teamValue = await teamSelect
+      .locator("option")
+      .nth(1)
+      .getAttribute("value");
+    await teamSelect.selectOption(teamValue!);
+    await page.getByLabel("Request", { exact: true }).selectOption("slot_on");
+    await page.getByLabel("Date", { exact: true }).fill("2026-09-22");
+    await page.getByLabel("Ice time").fill("20:00");
+    await page.getByRole("button", { name: "Add request" }).click();
+    await expect(requestList(page)).toHaveCount(1);
+
+    await fillEverything(page);
+    await page.getByRole("button", { name: "Generate schedule" }).click();
+    await expect(page.getByText("Balance report")).toBeVisible(AFTER_GENERATE);
+
+    await page.getByRole("button", { name: /^Publish/ }).click();
+    // ⛔ The page, not the toast. A successful publish takes `draftCount` to 0,
+    // and PublishControls is keyed on it — so it remounts, and its success toast
+    // races that remount and often never renders at all. The live count is the
+    // durable evidence.
+    await expect(page.getByText(/^Published: \d+ games$/)).toBeVisible(
+      AFTER_GENERATE,
+    );
+
+    // Everything back to its default: the chips gone, the ice times back to the
+    // seeded three, the weekdays unchecked.
+    await expect(page.getByText(SKIP_CHIP)).toHaveCount(0);
+    await expect(page.getByLabel(/Ice-time slots/)).toHaveValue(
+      "19:00, 20:15, 21:30",
+    );
+    await expect(
+      page.locator('label:has-text("Tue") input[name="weekdays"]'),
+    ).not.toBeChecked();
+
+    // Server state, not form state: the rows are gone from the season.
+    await expect(requestList(page)).toHaveCount(0);
+    await page.reload();
+    await expect(requestList(page)).toHaveCount(0);
+
+    // ⛔ Put the fixture back. Fall 2026 is the season every schedule spec
+    // generates against, and leaving it with a live schedule turns the builder's
+    // mode from `published` to `replace` for the next run of `11` and `23`.
+    // Removed through the app, not SQL — the seed's guards are the point.
+    await page
+      .getByRole("button", { name: "Remove published schedule" })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Remove", exact: true })
+      .click();
+    await expect(page.getByText(/^Published: \d+ games$/)).toHaveCount(
+      0,
+      AFTER_GENERATE,
+    );
+  });
+});

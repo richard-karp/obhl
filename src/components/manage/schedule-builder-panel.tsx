@@ -348,6 +348,23 @@ export async function ScheduleBuilderPanel({
             </CardHeader>
             <CardContent>
               <ScheduleGenerateForm
+                /*
+                  ⛔ PUBLISH IS THE OTHER HALF OF "generate keeps my fields".
+                  The form now holds everything it was given across a generate
+                  (see its `onSubmit`), which is right while the manager is still
+                  iterating and wrong the moment they publish: publishing ends
+                  the setup, and the next thing done here is a different season's
+                  schedule. Remounting on a new key is what returns the inputs to
+                  their `defaultValue`s and empties the skip chips — the same
+                  trick RemoveControls and PublishControls below already use.
+
+                  ⚠️ Keyed on the LIVE schedule, never on `draftCount`.
+                  `draftCount` also moves on a generate (0 → N), so keying on it
+                  would remount on exactly the submit this whole change exists to
+                  survive. `liveScheduleKey` moves only when the published games
+                  are replaced — see its note in queries/schedule.ts.
+                */
+                key={publish.liveScheduleKey}
                 seasonId={seasonId}
                 seasonStart={season?.starts_on ?? null}
                 seasonEnd={season?.ends_on ?? null}

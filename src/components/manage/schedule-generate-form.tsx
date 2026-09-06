@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  startTransition,
   useActionState,
   useEffect,
   useMemo,
@@ -348,9 +349,17 @@ function ConstraintsCard({
   );
 }
 
+/**
+ * The generate button.
+ *
+ * `data-generate` is load-bearing, not a test hook: this form holds a SECOND
+ * submit button (the constraints card's "Add request", which posts through
+ * `formAction`), and the form's `onSubmit` has to tell them apart. See the
+ * comment on `onSubmit` below.
+ */
 function SubmitButton({ pending }: { pending: boolean }) {
   return (
-    <Button type="submit" disabled={pending}>
+    <Button type="submit" data-generate="true" disabled={pending}>
       {pending ? "Generating…" : "Generate schedule"}
     </Button>
   );
@@ -500,8 +509,47 @@ export function ScheduleGenerateForm({
   if (seasonStart) disabled.push({ before: parseKey(seasonStart) });
   if (seasonEnd) disabled.push({ after: parseKey(seasonEnd) });
 
+  /**
+   * ⛔ THE ACTION IS DISPATCHED HERE, NOT THROUGH `<form action={…}>`, AND THAT
+   * IS THE WHOLE FIX FOR "generate cleared my fields".
+   *
+   * React 19 resets a form's uncontrolled inputs on every submit that goes
+   * through the `action` prop — `startHostTransition` in react-dom calls
+   * `requestFormReset` before it ever runs the action, with no opt-out
+   * (react-dom 19.2.4, `react-dom-client.development.js`). Generate is
+   * ITERATIVE: a manager regenerates five or six times, changing one field
+   * each pass, and every pass was throwing away the other five. Measured
+   * 2026-09-06 on Fall 2026 — after a generate, `games_per_team` went back to
+   * 10, `slot_times` to "19:00, 20:15, 21:30" and every weekday checkbox to
+   * unchecked, while the skip chips and the length mode (React state, not
+   * inputs) survived untouched. That split is what identifies the cause: a
+   * remount would have taken the state with it.
+   *
+   * `preventDefault` is what stops React's reset. Its "action" listener is
+   * queued after this `onSubmit` and bails when the event is already
+   * default-prevented, so the reset never runs — and the action is then ours to
+   * dispatch. `startTransition` is required, not decorative: `useActionState`'s
+   * dispatcher only raises its `isPending` flag when it is called inside one,
+   * so without it the button never says "Generating…" and the progress bar
+   * never mounts.
+   *
+   * ⛔ THE SUBMITTER CHECK IS NOT OPTIONAL. The constraints card lives inside
+   * this form (it has to — see its own header) and its "Add request" button is
+   * a submit button carrying `formAction`. React reads that off the submitter
+   * in the same listener that this `preventDefault` disarms, so preventing
+   * unconditionally would make every Add silently do nothing while looking
+   * exactly like it worked.
+   */
+  const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    const submitter = (e.nativeEvent as SubmitEvent).submitter;
+    if (submitter?.dataset.generate !== "true") return;
+    e.preventDefault();
+    const body = new FormData(e.currentTarget);
+    startTransition(() => action(body));
+  };
+
   return (
-    <form action={action} className="space-y-4">
+    <form onSubmit={onSubmit} className="space-y-4">
       <input type="hidden" name="season_id" value={seasonId} />
       <input type="hidden" name="length_mode" value={mode} />
       <input type="hidden" name="excluded_dates" value={excludedValue} />

@@ -246,6 +246,18 @@ export type SchedulePublishState = {
   firstLiveDate: string | null;
   lastLiveDate: string | null;
   /**
+   * A fingerprint of the *published* schedule, for callers that must remount
+   * when it is replaced rather than merely changed.
+   *
+   * The count alone will not do: replacing a 144-game schedule with another
+   * 144-game one leaves it identical. `replace_published_schedule` promotes the
+   * draft rows, so every game gets a NEW id and the first one's id moves — while
+   * an in-place repair (`applyOneOffGame`, `rescheduleNight`) upserts by id and
+   * deliberately leaves this alone, which is exactly the distinction its one
+   * consumer needs.
+   */
+  liveScheduleKey: string;
+  /**
    * `game_rosters` rows hanging off live games. They cascade on game delete
    * (0004_games.sql), so a replace silently discards lineups a captain set in
    * advance — the confirm dialog names this when it is non-zero.
@@ -268,7 +280,10 @@ export async function getPublishState(
   const liveGames = () =>
     supabase
       .from("games")
-      .select("scheduled_at")
+      // `id` alongside the date: the first live game's id is half of
+      // `liveScheduleKey` below, and it rides along on a query that was already
+      // fetching that exact row.
+      .select("id, scheduled_at")
       .eq("season_id", seasonId)
       .eq("is_draft", false);
 
@@ -356,6 +371,7 @@ export async function getPublishState(
     started: failure ? true : started.data === true,
     firstLiveDate: firstAt ? leagueDateKey(firstAt) : null,
     lastLiveDate: lastAt ? leagueDateKey(lastAt) : null,
+    liveScheduleKey: `${live.count ?? 0}:${firstLive.data?.[0]?.id ?? ""}`,
     lineupsAtRisk: lineups.count ?? 0,
     readFailed: !!failure,
   };

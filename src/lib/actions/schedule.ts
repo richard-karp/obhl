@@ -739,6 +739,43 @@ export async function publishSchedule(
     return { ok: false, message: "There's no draft to publish." };
   }
 
+  // ⛔ PUBLISH IS TERMINAL, SO THE SEASON'S MANAGER REQUESTS GO WITH IT.
+  //
+  // They are instructions to the *generator*, and after a publish there is
+  // nothing left for the generator to do on this season — `season_is_started`
+  // shuts generate and replace the moment the first game is played. Leaving them
+  // behind means the next season's setup starts under last season's requests,
+  // which is how a forced bye outlives the reason it was asked for.
+  //
+  // ⚠️ These are shared rows: another manager may have added one. So this is a
+  // scoped delete of THIS season's rows, audited with the count and the rows
+  // themselves — never a truncate, and never silent. Awaited for the same reason
+  // `removeSchedule`'s audit is: a `void` promise can be dropped when the
+  // runtime freezes the function after the response, and this is the record of
+  // rows nobody else can reconstruct. `logAudit` swallows its own errors, so
+  // awaiting cannot turn a successful publish into a reported failure.
+  const { data: cleared, error: clearError } = await admin
+    .from("season_schedule_constraints")
+    .delete()
+    .eq("season_id", seasonId)
+    .select("id, team_id, kind, params");
+  // Reported, not fatal. The publish itself has already committed, so failing
+  // the whole action here would tell the manager their schedule did not go live
+  // when it did.
+  if (clearError) {
+    console.error("clearing schedule constraints failed:", clearError.message);
+  }
+  if (cleared && cleared.length > 0) {
+    await logAudit({
+      user_id: user.id,
+      action: "clear_schedule_constraints",
+      entity_type: "season",
+      entity_id: seasonId,
+      old_data: { count: cleared.length, constraints: cleared },
+      new_data: { count: 0 },
+    });
+  }
+
   // A replace deletes live games, which is the most destructive thing a manager
   // can do here. A first publish deletes nothing and stays unaudited, matching
   // the bar the rest of games.ts sets.
