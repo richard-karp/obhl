@@ -167,7 +167,7 @@ design, so assume the gap and check the list rather than the flag.
 | 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | ⛔ **OPEN, AND ON A CLOCK** — Phase 6's first game night is 2026-09-10; sign-in, access control and the anonymous half of *Verification* are done; steps 4-6 of that list need a session |
 | 5 | Smaller deferred items | below | open |
 | 6 | `0039`-`0043` not pushed | `supabase db push` | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides |
-| 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard | **OPEN** — ⛔ `setStaffPassword` is WRITE-ONLY: no door on production accepts what it sets, so magic link is the only way in with no fallback. Runbook + the two missing calls in *The other half of auth*. ⚠️ No app env key is involved |
+| 7 | Staff can set a password, but only a commissioner can give them one | a domain, then Supabase dashboard | **OPEN, and phase 1 needs a DOMAIN BOUGHT FIRST** — ⛔ `setStaffPassword` is WRITE-ONLY: no door on production accepts what it sets, so magic link is the only way in with no fallback. Runbook + the two missing calls in *The other half of auth*. ⚠️ No app env key is involved |
 | 8 | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code | ✅ **closed 2026-09-05** — steps 1-6 shipped as #31 (which collapsed #25-#29); step 7, the prose, is this commit. Spec: `docs/superpowers/specs/2026-09-05-unified-url-space-design.md` |
 | 9 | **A past first-game-night locks the season on publish** | code | ✅ **closed 2026-09-05 — PR #35, on `main` as `72b4148`** — reproduced, then guarded at generate. ⛔ Publish stays unguarded regardless — see *Item 9 — the guard, built* |
 
@@ -198,7 +198,7 @@ is one command and is always right.
 |---|---|---|
 | ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in *Next action* |
 | **`LAUNCH.md` Verification steps 4, 5, 6** | The manager badge, the league switcher, an announcement in one league only | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written |
-| **Item 7** — custom SMTP, then a set/reset flow, then a password field | Runbook written 2026-09-05 with the exact SMTP values and a 5th step; nothing run. Phase 2's two missing calls are named and measured | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
+| **Item 7** — custom SMTP, then a set/reset flow, then a password field | ⛔ **Blocked on ACQUIRING A DOMAIN** — `vercel domains ls` is 0 and `vercel.app` cannot be verified in Resend. Runbook has the DNS records and the traps. Phases 2-3 in flight uncommitted 2026-09-05 | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
 | **`NEXT_PUBLIC_SITE_URL` is missing on Preview** | `vercel env ls` 2026-09-05: Production only | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run |
 
 ---
@@ -591,6 +591,22 @@ stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
    `vercel integration add resend/resend-email` is optional — it buys unified
    billing and puts `RESEND_API_KEY` somewhere the app will never read it.
 
+   ⛔ **THERE IS NO DOMAIN TO VERIFY. THIS IS THE REAL BLOCKER, AND IT HAS A
+   LEAD TIME NOTHING ELSE HERE HAS.** `vercel domains ls` returned **0 Domains**
+   (measured 2026-09-05); production is `https://obhl.vercel.app`. `vercel.app`
+   **cannot** be verified in Resend — it is not ours, and verification needs DNS
+   records at the domain's authoritative nameservers. Someone has to **acquire a
+   domain** before step (a) below is reachable at all.
+
+   ✅ Two things make that smaller than it sounds. **The domain does not have to
+   serve the app** — Resend needs records at the registrar, nothing requires
+   moving off `obhl.vercel.app`, and mail can come from `noreply@<domain>` while
+   every link still points at the vercel.app host; this is not a domain
+   migration. And Resend's shared `onboarding@resend.dev` sender needs no DNS at
+   all: it delivers **ONLY** to the address that owns the Resend account, which
+   is enough to prove the (b) and (c) wiring and ⛔ **not** enough to unblock
+   staff sign-in. Do not mark phase 1 done on it.
+
    a. **Verify a sending domain** in Resend, then create an API key. Unverified
       domains fail at send time, not at setup time.
    b. **Authentication → Emails → SMTP Settings**: host `smtp.resend.com`, port
@@ -608,12 +624,23 @@ stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
    2026-09-05). `sendMagicLink` falls back to `http://localhost:3000` when it is
    absent, so a magic link requested from a PREVIEW deployment mails a localhost
    link. Production is unaffected. `vercel env add NEXT_PUBLIC_SITE_URL preview`
-   is the whole fix, and an agent may not run it.
+   is the whole fix, and an agent may not run it. ⛔ **That key alone is NOT
+   sufficient** — Supabase's redirect allow-list must carry the preview pattern
+   too, or the app builds a correct preview link that Supabase then refuses as
+   unlisted. Both halves, or neither.
 
 2. **A self-serve set/reset flow**, riding on that SMTP. ✅ **The hard part is
    already built**: `/auth/confirm` (`src/app/auth/confirm/route.ts`) verifies a
    `token_hash` for ANY `EmailOtpType`, `recovery` included, sets the
    audit-session cookie, and redirects to a sanitised `next` path.
+
+   ⚠️ **IN FLIGHT, UNCOMMITTED, 2026-09-05.** Another session is building
+   phases 2 and 3 in the working tree: `resetPasswordForEmail` and
+   `auth.updateUser` in `src/lib/actions/auth.ts`, a `src/app/set-password/`
+   route, a shared `src/lib/auth/password.ts`, and the `NO_LEAGUE_ACTIONS` entry
+   below. **The absences described here are true of `main`, not of the tree** —
+   `git status` before trusting any of it, and do not start this work a second
+   time.
 
    **Two calls and one route are missing — not one.** An earlier draft of this
    file said "a `resetPasswordForEmail` trigger", which undercounted it:
