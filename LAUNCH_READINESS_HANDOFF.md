@@ -923,7 +923,14 @@ these three still seed it bare:
 | `14-one-off-game` | `if (count("No draft schedule") > 0)` | does **not** hang — skips the seed, then fails later on an unrelated assertion |
 
 ⛔ **The polarity of the seeding gate decides whether a read failure hangs or
-misleads, and neither is legible.** Copy `expectGenerateFormUsable` out of
+misleads, and neither is legible.** `27-` gated on
+`count("Published: N games") === 0`, which is *true* while the error card is
+showing — so it entered the seeding branch and waited out its whole budget.
+`14-`'s condition is *false* while that card shows, so it skips the seed and
+misreports the failure an assertion later. A guarded seed is not optional just
+because a spec happens to have the safer polarity.
+
+Copy `expectGenerateFormUsable` out of
 `e2e/27-schedule-repair.spec.ts`: there is no shared helper module in `e2e/` and
 no spec imports another, so duplicating it is the house style here.
 

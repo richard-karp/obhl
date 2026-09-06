@@ -166,6 +166,24 @@ lives at the app root, outside `[league]/(manage)`, so the manage-page guard
 sweep does not cover it and should not — a session with no `profiles` row and no
 role must be able to set a password.
 
+**#38's five schedule actions needed no entry here, and the reason is the
+sweep** (verified 2026-09-06 at `c87764e`). `rescheduleNight`,
+`previewOneOffGame`, `applyOneOffGame`, `previewScheduleRepair` and
+`applyScheduleRepair` all resolve their season through
+`targetSeasonForManager` (`src/lib/actions/schedule.ts:93`), which guards with
+`requireLeagueManager(() => leagueOfSeason(seasonId, admin))` — the league comes
+from the SEASON, never from caller input, so a hand-made request naming another
+league's season is refused rather than obeyed. ⚠️ **`league-guards.test.ts` is a
+`readdirSync` sweep over `src/lib/actions`, not a list**, so a newly exported
+action is covered the moment it exists and an author who adds one has nothing to
+remember. That is the design: `NO_LEAGUE_ACTIONS` is an *exemption* list, and the
+only way to fall out of coverage is to be added to it deliberately.
+⛔ **The null-league audit trap is NOT triggered by these** — each files
+`entity_type: "season"`, and `leagueOfEntity` (`src/lib/audit.ts:56`) has a
+`case "season"`, so `league_id` resolves and the entries appear in the league's
+own audit view. Checked, not assumed; the trap in _Traps_ is about the types that
+have no case.
+
 **`previewEsportsdeskImport` is not an SSRF** (closed 2026-09-01). It never
 fetches the pasted string; it regexes two numeric ids out of it and fetches a
 hardcoded esportsdesk host with one of four literal paths. It reads like SSRF

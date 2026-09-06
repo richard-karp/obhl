@@ -1,6 +1,6 @@
 # Schedule — keep the form, move a night, pin a team, repair around it
 
-> **Built 2026-09-06.** The record of what actually shipped — commit shas, the
+> **Shipped 2026-09-06 — PR #38, merged to `main` as `c87764e`.** The record of what actually shipped — commit shas, the
 > measured reproduction of the form reset, test counts, and the three things this
 > spec got wrong about the code — is
 > `docs/superpowers/plans/2026-09-06-schedule-repair-and-reschedule.md`. Read that
