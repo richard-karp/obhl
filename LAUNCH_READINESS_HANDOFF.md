@@ -167,7 +167,7 @@ design, so assume the gap and check the list rather than the flag.
 | 4 | **`LAUNCH.md` Phases 2-6 never verified** | production | ⛔ **OPEN, AND ON A CLOCK** — Phase 6's first game night is 2026-09-10; sign-in, access control and the anonymous half of *Verification* are done; steps 4-6 of that list need a session |
 | 5 | Smaller deferred items | below | open |
 | 6 | `0039`-`0043` not pushed | `supabase db push` | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides |
-| 7 | Staff can set a password, but only a commissioner can give them one | a domain, then Supabase dashboard | **OPEN, and phase 1 needs a DOMAIN BOUGHT FIRST** — ⛔ `setStaffPassword` is WRITE-ONLY: no door on production accepts what it sets, so magic link is the only way in with no fallback. Runbook + the two missing calls in *The other half of auth*. ⚠️ No app env key is involved |
+| 7 | Staff can set a password, but only a commissioner can give them one | a domain, then Supabase dashboard | **OPEN, and what is left is phase 1: a DOMAIN BOUGHT FIRST** — ✅ phases 2-3 (reset trigger, `/set-password`, password field on `/login`) are built and green; ⛔ no production email has ever been sent, so the reset half is unproven. Runbook in *The other half of auth*. ⚠️ No app env key is involved |
 | 8 | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code | ✅ **closed 2026-09-05** — steps 1-6 shipped as #31 (which collapsed #25-#29); step 7, the prose, is this commit. Spec: `docs/superpowers/specs/2026-09-05-unified-url-space-design.md` |
 | 9 | **A past first-game-night locks the season on publish** | code | ✅ **closed 2026-09-05 — PR #35, on `main` as `72b4148`** — reproduced, then guarded at generate. ⛔ Publish stays unguarded regardless — see *Item 9 — the guard, built* |
 
@@ -198,7 +198,7 @@ is one command and is always right.
 |---|---|---|
 | ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in *Next action* |
 | **`LAUNCH.md` Verification steps 4, 5, 6** | The manager badge, the league switcher, an announcement in one league only | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written |
-| **Item 7** — custom SMTP, then a set/reset flow, then a password field | ⛔ **Blocked on ACQUIRING A DOMAIN** — `vercel domains ls` is 0 and `vercel.app` cannot be verified in Resend. Runbook has the DNS records and the traps. Phases 2-3 in flight uncommitted 2026-09-05 | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
+| **Item 7** — custom SMTP, now the only phase left | ⛔ **Blocked on ACQUIRING A DOMAIN** — `vercel domains ls` is 0 and `vercel.app` cannot be verified in Resend. Runbook has the DNS records and the traps. Phases 2-3 built 2026-09-05; the email leg is what nobody can test until this is done | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
 | **`NEXT_PUBLIC_SITE_URL` is missing on Preview** | `vercel env ls` 2026-09-05: Production only | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run |
 
 ---
@@ -543,17 +543,22 @@ returning profile_id, tier;
 ```
 END COPY
 
-## 7 — The other half of auth: a password can be SET but not USED
+## 7 — The other half of auth: the code is built, the email is not
 
-⛔ **`setStaffPassword` is a WRITE-ONLY FEATURE.** A commissioner can put a real
-password on a real account and there is no door on production that accepts it.
-Do not reach for it in a lockout expecting it to work.
+⛔ **NOTHING HERE IS VERIFIED AGAINST REAL EMAIL.** The code for phases 2 and 3
+is on the branch and green in unit tests and e2e, but the reset link's whole
+purpose is to ARRIVE, and delivery is phase 1 — dashboard SMTP, which a checkout
+cannot do. Until step 1 lands, treat the reset half as unproven: e2e drives the
+local Supabase stack, which accepts `resetPasswordForEmail` and mails into
+Inbucket. **Production has never sent one of these.** Password SIGN-IN and
+setting a password on an existing session need no email and were driven in a
+browser (`e2e/24-password-auth.spec.ts`, 6 tests, green 2026-09-06).
 
 | Step in a password flow | State |
 |---|---|
 | A commissioner **sets** a password for someone | ✅ `setStaffPassword` (`src/lib/actions/office.ts`, `requireCommissioner`, `admin.auth.admin.updateUserById`) |
-| A user **sets their own** password | ❌ nothing — see phase 2 below for the two calls and the route |
-| A user **signs in** with it on production | ❌ `/login` is one field and one button, both `sendMagicLink` |
+| A user **sets their own** password | ✅ `/set-password` → `auth.ts:updateOwnPassword` (`auth.updateUser`), reached by `auth.ts:sendPasswordReset` → `/auth/confirm?next=/set-password`. ⚠️ The email leg is unproven — see above |
+| A user **signs in** with it on production | ✅ `auth.ts:signInWithPassword`, second form on `/login`. ⚠️ Only useful to an account that HAS a password: `setStaffPassword` is the way to give the first one out without email |
 
 **So magic link is not the primary way into the staff tools — it is the ONLY
 way, with no fallback.** Supabase's built-in sender allows two emails an hour,
@@ -617,8 +622,44 @@ stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
       links stop arriving for everyone at once, with nothing in the app's logs.
    d. Confirm Site URL and the redirect allow-list still name production, then
       send one real magic link and watch it arrive.
+   ⛔ **THE ALLOW-LIST NEEDS A NEW ENTRY, AND ITS ABSENCE IS SILENT.** The reset
+      link asks Supabase to return to `/auth/confirm?next=/set-password` — a
+      QUERY STRING the magic link never had, and the allow-list is a list of
+      exact URLs with wildcards. **Measured 2026-09-05** against the local
+      stack: a `redirectTo` that is not listed returns **no error at all**, the
+      mail still arrives, and its `redirect_to` is silently rewritten to the
+      Site URL. So the person lands signed-in on `/` with the token spent, no
+      way to finish, and nothing in the app's logs — while the action reports
+      success. Locally this passes only because `config.toml` allows
+      `http://localhost:3000/**`; production's list is unread from here. **Add a
+      pattern covering `https://<prod host>/auth/confirm?**` (or the equivalent
+      wildcard) before sending the first reset**, and add the preview pattern in
+      the same visit — see the `NEXT_PUBLIC_SITE_URL` note below.
+      ⚠️ There is no code fix for this: under PKCE `/auth/confirm` receives
+      `?code=…` with **no `type`**, so it cannot recognise a recovery link and
+      reuse the bare URL that is already listed. Measured the same day, by
+      watching the navigation chain.
    e. **Read production's minimum password length and set it to 8**, while you
       are already in this dashboard. See the layering note under phase 2.
+   f. **Read and record `secure_password_change` and the password-changed
+      notification.** Both govern what a stolen session can do: with
+      `secure_password_change` off, a session cookie alone — 7 days — is enough
+      to set a password and keep access that outlives the session, and with the
+      notification template off nobody is told. `config.toml` has
+      `secure_password_change = false` and the `password_changed` template
+      commented out, and ⛔ **both of those govern the LOCAL stack only** —
+      production's values live in the dashboard and are **recorded nowhere**,
+      exactly like the password length was. Turning them on is a judgement call;
+      leaving them unrecorded is not.
+   ⚠️ **Password sign-in has no throttle the app can see.** `signInWithPassword`
+      counts nothing itself, and GoTrue's per-IP limit on `/token` sees the
+      Next.js server's address rather than the caller's — every sign-in in the
+      instance arrives from one IP. So the limit neither slows a guess-the-
+      password run against one account nor keeps one attacker from spending the
+      whole budget and locking everybody out of the password door. The magic link
+      is unaffected and remains the way back in, which is why this is recorded
+      rather than built: if it ever needs fixing, the fix is a per-email attempt
+      count in a table, not a dashboard setting.
 
    ⚠️ **`NEXT_PUBLIC_SITE_URL` is set on Production ONLY** (`vercel env ls`,
    2026-09-05). `sendMagicLink` falls back to `http://localhost:3000` when it is
@@ -629,18 +670,18 @@ stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
    too, or the app builds a correct preview link that Supabase then refuses as
    unlisted. Both halves, or neither.
 
-2. **A self-serve set/reset flow**, riding on that SMTP. ✅ **The hard part is
-   already built**: `/auth/confirm` (`src/app/auth/confirm/route.ts`) verifies a
+2. ✅ **BUILT (2026-09-05), unverified against real email.** A self-serve
+   set/reset flow, riding on that SMTP. The hard part was already built: `/auth/confirm` (`src/app/auth/confirm/route.ts`) verifies a
    `token_hash` for ANY `EmailOtpType`, `recovery` included, sets the
    audit-session cookie, and redirects to a sanitised `next` path.
 
-   ⚠️ **IN FLIGHT, UNCOMMITTED, 2026-09-05.** Another session is building
-   phases 2 and 3 in the working tree: `resetPasswordForEmail` and
-   `auth.updateUser` in `src/lib/actions/auth.ts`, a `src/app/set-password/`
-   route, a shared `src/lib/auth/password.ts`, and the `NO_LEAGUE_ACTIONS` entry
-   below. **The absences described here are true of `main`, not of the tree** —
-   `git status` before trusting any of it, and do not start this work a second
-   time.
+   ✅ **BUILT 2026-09-05** — `resetPasswordForEmail` and `auth.updateUser` in
+   `src/lib/actions/auth.ts`, the `src/app/set-password/` route, the shared
+   `src/lib/auth/password.ts`, the `NO_LEAGUE_ACTIONS` entries below and
+   `e2e/24-password-auth.spec.ts`. **The absences this section described are
+   true of `main` before that branch merges** — `git log --all` before trusting
+   them, and do not start this work a second time. ⛔ Still unproven end to end:
+   no production email has been sent, because phase 1 is blocked on the domain.
 
    **Two calls and one route are missing — not one.** An earlier draft of this
    file said "a `resetPasswordForEmail` trigger", which undercounted it:
@@ -667,41 +708,74 @@ stay absent. `auth.updateUser` and `resetPasswordForEmail` appear **nowhere**.
    or `scripts/`. Production's real floor is whatever the dashboard says and is
    **recorded nowhere in this repository**, which is what step 1e is for.
 
-   **The code gaps, and where they land.** §7 named the missing calls but not
-   the files, which left the shape of the work unsaid:
+   **What was built, and the decisions inside it.**
 
-   | Piece | Where it goes | Bound by |
-   |---|---|---|
-   | The reset trigger | `src/lib/actions/auth.ts`, beside `sendMagicLink` | the `AuthActionState` / `(_prev, formData)` server-action signature used by every action in that file |
-   | The set-password page | a new route under `src/app/` — nothing matches reset/recovery/password today | — |
-   | The password field | `src/app/login/login-form.tsx` (page is `src/app/login/page.tsx`) | model it on `src/components/manage/office-password-form.tsx`, the only `type="password"` in the repo |
+   | Piece | Where it landed |
+   |---|---|
+   | The reset trigger | `auth.ts:sendPasswordReset` — `resetPasswordForEmail(email, { redirectTo: `${base}/auth/confirm?next=/set-password` })`, same `(_prev, formData)` shape as `sendMagicLink`, same address-oracle-free reply |
+   | The set-password page | `src/app/set-password/` — page + `SetPasswordForm`/`RequestResetForm`. **One URL is both halves**: with a session it sets the password, without one it offers the form that sends a fresh link, because a bookmark or a used link is the ordinary way to arrive |
+   | The password field | `src/app/login/login-form.tsx:PasswordSignInForm`, a second form under the magic link, plus `auth.ts:signInWithPassword` (sets `audit_session`, lands on the picker like `devSignIn`) |
+   | The floor | `src/lib/auth/password.ts` — `MIN_PASSWORD = 8` moved out of `office.ts`, now shared by both writers, with `password.test.ts` failing the build if either grows its own literal again |
+   | The way back to it | `components/shared/account-cluster.tsx` — a `Password` link in every signed-in header, the ONLY in-app route to `/set-password`. It is also the recovery for the allow-list trap in step (d): someone dropped on `/` signed-in can still finish |
+   | The audit entry | `auth.ts:updateOwnPassword` logs `set_own_password` under `entity_type: "office"`, with a sentence in `office-audit-notice.tsx`. ⚠️ "office" is not a claim that this is an office act — it is the only entity type whose entries are VISIBLE with a null league; anything else would be written correctly and hidden forever |
 
-   ⛔ **The unit suite goes RED the moment you add the trigger, and the fix is
-   not obvious from the failure.** `src/lib/actions/league-guards.test.ts`
-   requires every exported action in `src/lib/actions/` to reach a league guard
-   unless it is listed in that file's `NO_LEAGUE_ACTIONS`. A reset action has no
-   league — sign-in happens before any league is known, exactly as
-   `auth.ts:sendMagicLink` already records — so **add it to `NO_LEAGUE_ACTIONS`
-   with that reason**. ⚠️ **Measured 2026-09-05**, not read: a stub action
-   appended to `auth.ts` produced
+   ✅ **The 8-vs-6 layering is settled, and it did NOT need the dashboard.**
+   Both password writers check 8 **before** Supabase is called, so Supabase's
+   floor — 6 locally, unknown-and-unrecorded on production — never decides which
+   rule an account gets. Step 1e is still worth doing, but the two doors can no
+   longer disagree if it is never done.
 
-   ```
-   × reaches a league guard from every action that has a league
-   AssertionError: expected [ 'auth.ts:__probeSendPasswordReset' ] to deeply equal []
-   ```
+   ⛔ **A FORM WHOSE ACTION IS A CLIENT FUNCTION EATS SUBMITS BEFORE HYDRATION,
+   SILENTLY.** The first version of the login block put sign-in and reset in one
+   form and chose between them in a client dispatcher, to avoid asking for the
+   address twice. A Playwright click straight after `goto` reproduced the failure
+   every time — the browser posts the form natively, there is no endpoint,
+   /login reloads with the fields cleared and nothing said — while the same
+   click after `networkidle` signed in fine. Both forms post to server actions
+   now, and the reset trigger is a LINK to `/set-password` rather than a second
+   button. ⚠️ Any test of these forms must wait for hydration or it is testing
+   the race, not the page.
 
-   and the file was restored. The allowlist is a convention guard, not a hole —
-   do not reach for it without the reason, and do not "fix" the red by bolting a
-   league guard onto an action that has no league.
+   ⛔ **NEITHER EMAIL ACTION REPORTS THE PROVIDER'S ERROR, AND THAT IS LOAD-
+   BEARING.** Measured 2026-09-06 against the local stack: `signInWithOtp` with
+   `shouldCreateUser: false` answers `422 otp_disabled` for an address with no
+   account and succeeds for one with — **one request enumerates staff
+   addresses** — and `resetPasswordForEmail` returns `200` either way but `429
+   over_email_send_rate_limit` on a second request **only** for an address that
+   exists, because the throttle it trips is per user. Both actions now answer
+   with one sentence on every outcome, rate-limit advice included
+   unconditionally, and log the real error server-side. ⚠️ An earlier version of
+   this branch passed the message through and justified it in a comment with the
+   claim that the limit was per project. That claim was false; a fresh-context
+   review measured it.
 
-3. **Only then**, a password field on `/login`. ⚠️ Magic link stays as the
-   secondary path. Removing it would replace one sole way in with a different
+   ✅ **THE WHOLE LOOP IS DRIVEN LOCALLY**, through a real message:
+   `e2e/24-password-auth.spec.ts`'s last test requests a reset, reads it out of
+   Mailpit, opens the link and finishes — covering every hop except production's
+   SMTP. It skips itself when the local mail API is not answering rather than
+   reddening a run over someone's environment.
+
+   ⚠️ `league-guards.test.ts` went red exactly as this section predicted
+   (`expected [ 'auth.ts:sendPasswordReset' ] to deeply equal []`). All three new
+   actions are in `NO_LEAGUE_ACTIONS` with reasons; the file's baseline is
+   **still 7 passed** — the entries are data, not cases, so the count does not
+   move — and `e2e/02-auth.spec.ts`'s "no password field" test was
+   rewritten — it asserted the absence this item exists to end, and now asserts
+   the magic link SURVIVES alongside the field.
+
+3. ✅ **BUILT (2026-09-05).** A password field on `/login`. ⚠️ Magic link stays
+   the PRIMARY path — it is drawn first, and it is the only one that submits
+   with no JavaScript. Removing it would replace one sole way in with a different
    sole way in, which is not progress — and the entire point of this item is not
    having a single one of those.
 
-Until 1 lands, 2 and 3 cannot be verified, so none of it should ship. An
-unverified sign-in path is worse than a missing one: it looks like a way back
-in, right up to the moment someone needs it.
+⛔ **1 IS THE ONLY THING LEFT, AND IT IS STILL THE GATE.** The reset flow's
+email has never been sent by production, so do not tell anyone the reset link
+works until step 1 is done and one real message has been watched to arrive. An
+unverified sign-in path is worse than a missing one: it looks like a way back in,
+right up to the moment someone needs it. Password sign-in itself is not in that
+category — it needs no email — but until people have passwords, the only way to
+give someone a first one is `setStaffPassword`.
 
 **Runbook with the dashboard steps as a tickable checklist:**
 <https://claude.ai/code/artifact/b92f802a-1a8f-4e0a-8599-3d601b9bc482>

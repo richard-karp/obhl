@@ -116,6 +116,27 @@ export type OfficeAuditEntry = {
 };
 
 /**
+ * ⛔ TWO FEEDS SHARE `entity_type: "office"`, AND THEY MUST NOT SHARE A LIMIT.
+ *
+ * Everything with no league is filed under this one type, because a null league
+ * is hidden by RLS and filtered out of every league-scoped view — so any other
+ * type would be written correctly and be invisible forever. That makes the type
+ * a bucket, not a subject, and the two things in it move at completely
+ * different rates:
+ *
+ * - **Oversight** — appointments, removals, and a commissioner setting someone
+ *   else's password. Rare, and the reason the band exists.
+ * - **Self-serve** — `set_own_password`. User-driven and unbounded; at launch
+ *   most of the staff will do it in the same week.
+ *
+ * Reading both through one `limit` means five people setting their own passwords
+ * hides every appointment from the band on every league's audit page. So the
+ * queries are split by ACTION, and each surface asks for the feed it wants.
+ */
+const OVERSIGHT_ACTIONS = ["appoint_deputy", "remove_deputy", "set_password"];
+const SELF_SERVE_ACTIONS = ["set_own_password"];
+
+/**
  * Recent League Office appointments and removals.
  *
  * Read on the admin client on purpose: these entries carry no league, and a null
@@ -129,11 +150,34 @@ export type OfficeAuditEntry = {
 export async function recentOfficeAudit(
   limit = 5,
 ): Promise<OfficeAuditEntry[]> {
+  return officeEntries(OVERSIGHT_ACTIONS, limit);
+}
+
+/**
+ * Recent self-serve password changes, as their own feed.
+ *
+ * Read only on `/manage/office`: these are instance-wide account events, and a
+ * league's manager can neither act on them nor be expected to care that a
+ * scorekeeper in another league chose a password. Kept OUT of the shared band
+ * for the reason above, and kept visible somewhere because an entry nobody can
+ * read is the same as no entry at all.
+ */
+export async function recentPasswordAudit(
+  limit = 10,
+): Promise<OfficeAuditEntry[]> {
+  return officeEntries(SELF_SERVE_ACTIONS, limit);
+}
+
+async function officeEntries(
+  actions: string[],
+  limit: number,
+): Promise<OfficeAuditEntry[]> {
   const admin = createAdminClient();
   const { data: rows } = await admin
     .from("audit_log")
     .select("id, created_at, user_id, action, entity_id, old_data, new_data")
     .eq("entity_type", "office")
+    .in("action", actions)
     .order("created_at", { ascending: false })
     .limit(limit);
   if (!rows?.length) return [];

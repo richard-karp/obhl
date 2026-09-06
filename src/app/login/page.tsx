@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { LoginForm } from "./login-form";
+import { LoginForm, PasswordSignInForm } from "./login-form";
 import { devSignIn } from "@/lib/actions/auth";
 import { devLoginEnabled } from "@/lib/auth/dev-login";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,17 @@ export default async function LoginPage({
           </p>
         ) : null}
         <LoginForm />
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <span className="bg-border h-px flex-1" />
+            <span className="text-muted-foreground text-xs">
+              or use a password
+            </span>
+            <span className="bg-border h-px flex-1" />
+          </div>
+          <PasswordSignInForm />
+        </div>
 
         {showDevLogin ? (
           <div className="space-y-2 rounded-lg border border-dashed p-3">

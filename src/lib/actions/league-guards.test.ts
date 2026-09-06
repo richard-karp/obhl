@@ -58,6 +58,13 @@ const GUARD_CALLS = [
  */
 const NO_LEAGUE_ACTIONS: Record<string, string> = {
   "auth.ts:sendMagicLink": "sign-in happens before any league is known",
+  "auth.ts:sendPasswordReset": "sign-in happens before any league is known",
+  "auth.ts:signInWithPassword": "sign-in happens before any league is known",
+  // Writes through the caller's OWN session via `auth.updateUser`, so the
+  // session is the authorisation. No league is known at this point, and there
+  // is no role to check: a captain resetting their own password is the case.
+  "auth.ts:updateOwnPassword":
+    "sets the caller's own password; touches no league data",
   "auth.ts:signOut": "ends a session; touches no league data",
   "auth.ts:devSignIn": "sign-in happens before any league is known",
   "import.ts:previewEsportsdeskImport":
