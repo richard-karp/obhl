@@ -103,11 +103,24 @@ const CONSTRAINT_OPTIONS: { value: ConstraintKind; label: string }[] = [
  * and nothing about them is stored. A card rendered elsewhere on the page would
  * have no calendar to offer.
  *
- * Adding posts through `formAction` on its button. HTML forbids nested forms, so
- * that is the only way a control inside the generate form can post somewhere
- * else, and `useActionState`'s dispatcher is a valid `formAction`.
+ * ⛔ NEITHER BUTTON HERE IS A SUBMIT BUTTON, AND BOTH REASONS ARE LOAD-BEARING.
  *
- * ⛔ REMOVING CANNOT USE `formAction`, AND THIS IS NOT A STYLE CHOICE. A remove
+ * Adding used to post through `formAction` on a submit button — the only way a
+ * control inside the generate form can post somewhere else, since HTML forbids
+ * nested forms. It worked, and it took the whole generate form down with it:
+ * React 19 resets every uncontrolled input on a submit that reaches its form
+ * action, so adding one manager request wiped the first game night, the games
+ * per team, the ice times and every weekday checkbox the manager had just
+ * typed. Measured 2026-09-06 on Fall 2026. It was also this form's FIRST submit
+ * button in tree order, which made it what Enter did from any text field.
+ *
+ * So Add is an ordinary `type="button"` that builds its own `FormData` from the
+ * form it sits in and calls the action in a transition — the same shape Remove
+ * has always had, for the different reason below. With no submit button but
+ * Generate left in the form, the form's own `onSubmit` can prevent the default
+ * unconditionally, which is what stops the reset.
+ *
+ * ⛔ REMOVING CANNOT USE `formAction` EITHER, AND THIS IS NOT A STYLE CHOICE. A remove
  * has to say WHICH request, and the obvious way — `name="constraint_id"
  * value={c.id}` on the submit button — is silently broken. React uses a submit
  * button's `name` to encode which action to invoke when `formAction` is a
@@ -123,9 +136,8 @@ const CONSTRAINT_OPTIONS: { value: ConstraintKind; label: string }[] = [
  * Measured 2026-09-04 — every ✕ on this card was inert, and a request once added
  * could not be removed at all.
  *
- * So removal is an ordinary `type="button"` that builds its own `FormData` and
- * calls the action in a transition. `type="button"` also stops the ✕ submitting
- * the generate form by accident, which a bare `<button>` in a form otherwise does.
+ * `type="button"` also stops the ✕ submitting the generate form by accident,
+ * which a bare `<button>` in a form otherwise does.
  *
  * The date fields are plain dates, deliberately unvalidated here: this component
  * cannot know which dates become game nights until the generator runs, so a
@@ -140,10 +152,10 @@ function ConstraintsCard({
   constraints: ScheduleConstraint[];
 }) {
   const [kind, setKind] = useState<ConstraintKind>("bye_on");
-  const [addState, addAction] = useActionState<ConstraintState, FormData>(
-    saveScheduleConstraint,
-    null,
-  );
+  const [addState, addAction, adding] = useActionState<
+    ConstraintState,
+    FormData
+  >(saveScheduleConstraint, null);
   // Not `useActionState` — see the ⛔ above. The id has to travel in the
   // FormData this builds, because a submit button's `name` cannot carry it.
   //
@@ -335,14 +347,27 @@ function ConstraintsCard({
           </>
         ) : null}
 
+        {/*
+          ⛔ `type="button"`, NOT a submit carrying `formAction` — see the ⛔ in
+          this component's header. As a submit it took React 19's form-reset
+          path and emptied the generate form above on every request added.
+
+          `formNoValidate` went with it: a plain button never triggers the
+          form's native validation, so there is nothing left to opt out of.
+        */}
         <Button
-          type="submit"
-          formAction={addAction}
-          formNoValidate
+          type="button"
           variant="outline"
           size="sm"
+          disabled={adding}
+          onClick={(e) => {
+            const form = e.currentTarget.form;
+            if (!form) return;
+            const body = new FormData(form);
+            startTransition(() => addAction(body));
+          }}
         >
-          Add request
+          {adding ? "Adding…" : "Add request"}
         </Button>
       </div>
     </div>
@@ -350,16 +375,17 @@ function ConstraintsCard({
 }
 
 /**
- * The generate button.
+ * The generate button — the ONLY submit button in this form.
  *
- * `data-generate` is load-bearing, not a test hook: this form holds a SECOND
- * submit button (the constraints card's "Add request", which posts through
- * `formAction`), and the form's `onSubmit` has to tell them apart. See the
- * comment on `onSubmit` below.
+ * That is worth keeping true. It carried a `data-generate` marker while the
+ * constraints card's "Add request" was also a submit, so the form's `onSubmit`
+ * could tell them apart; the marker is gone because the discrimination was
+ * itself the bug (see `onSubmit`). Adding a second submit button here would
+ * bring back React 19's form reset for whatever it submits.
  */
 function SubmitButton({ pending }: { pending: boolean }) {
   return (
-    <Button type="submit" data-generate="true" disabled={pending}>
+    <Button type="submit" disabled={pending}>
       {pending ? "Generating…" : "Generate schedule"}
     </Button>
   );
@@ -533,16 +559,22 @@ export function ScheduleGenerateForm({
    * so without it the button never says "Generating…" and the progress bar
    * never mounts.
    *
-   * ⛔ THE SUBMITTER CHECK IS NOT OPTIONAL. The constraints card lives inside
-   * this form (it has to — see its own header) and its "Add request" button is
-   * a submit button carrying `formAction`. React reads that off the submitter
-   * in the same listener that this `preventDefault` disarms, so preventing
-   * unconditionally would make every Add silently do nothing while looking
-   * exactly like it worked.
+   * ⛔ UNCONDITIONAL, AND THAT TOOK A SECOND FIX TO EARN. This used to bail
+   * unless the submitter carried `data-generate`, because the constraints
+   * card's "Add request" was a submit button posting through `formAction` and
+   * preventing here would have made every Add silently do nothing. The bail was
+   * the bug: React still took the reset path for that submitter, so adding one
+   * manager request wiped every field the manager had typed — the half of the
+   * original complaint that the first fix missed.
+   *
+   * Add is a plain `type="button"` now (see the ConstraintsCard header), so
+   * Generate is the only submit button left in this form and there is nothing
+   * left to discriminate. Preventing unconditionally also closes the hole the
+   * submitter check opened: a submit with a null submitter — `requestSubmit()`
+   * with no argument, or implicit submission with no default button — fell
+   * through to a native browser navigation that discarded the whole form.
    */
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    const submitter = (e.nativeEvent as SubmitEvent).submitter;
-    if (submitter?.dataset.generate !== "true") return;
     e.preventDefault();
     const body = new FormData(e.currentTarget);
     startTransition(() => action(body));

@@ -107,6 +107,59 @@ test.describe("Path 26 — the generate form's state", () => {
     await expect(page.getByText("No draft schedule")).toBeVisible();
   });
 
+  /**
+   * ⛔ THE OTHER SUBMIT BUTTON IN THE SAME FORM, AND THE ONE THE USER ACTUALLY
+   * COMPLAINED ABOUT.
+   *
+   * "Add request" is a submit button inside the generate form — it has to be,
+   * because the season's game nights don't exist until the form above is filled
+   * in. So adding a manager request submits the generate form, React 19 resets
+   * every uncontrolled input on the way through, and the manager loses the five
+   * fields they had just typed. Fixing only the Generate button left this half
+   * of the bug in place.
+   *
+   * It is also the form's FIRST submit button in tree order, which makes it what
+   * Enter does from any text field in the form.
+   */
+  test("adding a manager request keeps the fields already filled in", async ({
+    page,
+  }) => {
+    await fillEverything(page);
+
+    const teamSelect = page.getByLabel("Team", { exact: true });
+    const teamValue = await teamSelect
+      .locator("option")
+      .nth(1)
+      .getAttribute("value");
+    await teamSelect.selectOption(teamValue!);
+    await page.getByLabel("Request", { exact: true }).selectOption("slot_on");
+    await page.getByLabel("Date", { exact: true }).fill("2026-09-22");
+    await page.getByLabel("Ice time").fill("20:00");
+    await page.getByRole("button", { name: "Add request" }).click();
+
+    // The request landed…
+    await expect(requestList(page)).toHaveCount(1);
+
+    // …and took nothing with it.
+    await expect(page.getByLabel("First game night")).toHaveValue(FIRST_NIGHT);
+    await expect(page.getByLabel("Games per team")).toHaveValue("4");
+    await expect(page.getByLabel(/Ice-time slots/)).toHaveValue(SLOT_TIMES);
+    await expect(
+      page.locator('label:has-text("Tue") input[name="weekdays"]'),
+    ).toBeChecked();
+    await expect(
+      page.locator('label:has-text("Thu") input[name="weekdays"]'),
+    ).toBeChecked();
+    await expect(page.getByText(SKIP_CHIP)).toBeVisible();
+
+    // Clean up: the season's stored requests outlive the test otherwise.
+    await page
+      .getByRole("button", { name: /^Remove request:/ })
+      .first()
+      .click();
+    await expect(requestList(page)).toHaveCount(0);
+  });
+
   test("a publish returns the form to defaults and clears the stored requests", async ({
     page,
   }) => {
