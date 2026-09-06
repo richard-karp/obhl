@@ -472,6 +472,7 @@ describe("checkOneOffWrite", () => {
           ["A", "B"],
           ["C", "D"],
         ],
+        gameIds: ["n5-0", "n5-1"],
       },
       {
         date: "2027-01-07",
@@ -480,6 +481,7 @@ describe("checkOneOffWrite", () => {
           ["A", "D"],
           ["B", "C"],
         ],
+        gameIds: ["n7-0", "n7-1"],
       },
     ],
     // Force A–C onto the 7th, leaving B and D to each other; swap the 5th to
@@ -554,6 +556,35 @@ describe("checkOneOffWrite", () => {
     const o = base();
     o.changes[0].to = [[0, 2]];
     expect(checkOneOffWrite(o)).toMatch(/schedule changed/);
+  });
+
+  /**
+   * ⛔ THE POSITIONAL HAZARD, CLOSED.
+   *
+   * Everything else about a change is by position: `to[i]` is written onto the
+   * i-th ice time of the night AS READ AT APPLY. Preview and apply read the
+   * schedule independently and `groupIntoNights` sorts a night by time — so one
+   * `rescheduleGame` in between reorders the night, every other check still
+   * passes (same teams, same count, same night), and the previewed matchups land
+   * on the wrong ice slots. The ids the plan was computed against are the only
+   * thing that can see it.
+   */
+  it("rejects a night whose games have been re-timed since the preview", () => {
+    const o = base();
+    o.changes[0].gameIds = ["n7-1", "n7-0"]; // the same two games, re-ordered
+    expect(checkOneOffWrite(o)).toMatch(/re-timed/);
+  });
+
+  it("rejects a night whose games are no longer the ones previewed", () => {
+    const o = base();
+    o.changes[0].gameIds = ["n7-0", "someone-elses-game"];
+    expect(checkOneOffWrite(o)).toMatch(/re-timed/);
+  });
+
+  it("accepts a plan whose game ids still match, in order", () => {
+    const o = base();
+    o.changes[0].gameIds = ["n7-0", "n7-1"];
+    expect(checkOneOffWrite(o)).toBeNull();
   });
 
   it("rejects an out-of-range team index", () => {
@@ -690,9 +721,56 @@ describe("buildOneOffRows", () => {
 
   const byId = (rows: OneOffRow[]) => new Map(rows.map((r) => [r.id, r]));
 
+  /**
+   * ⛔ THE LABEL-WIPE REGRESSION, ASSERTED.
+   *
+   * A repair permutes ice times for a living, and every night it touches is an
+   * ordinary night. The old code read a label off `night.games[i]` — the row on
+   * the i-th ice time — so when two games on a night swapped slots neither was
+   * `kept` at its own index and BOTH labels came out null. A season with a
+   * scheduled Final could have it silently erased by an unrelated repair.
+   *
+   * Labels follow the MATCHUP, which is what the header always claimed.
+   */
+  it("keeps a night's labels when a repair only swaps their ice times", () => {
+    const o = base();
+    // No one-off game at all — the repair path — over the 5th, whose two games
+    // carry the semifinal labels. Same two matchups, opposite ice times.
+    o.date = null;
+    o.forcedPairs = [];
+    o.changes = [
+      {
+        date: "2027-01-05",
+        to: [
+          [2, 3],
+          [0, 1],
+        ],
+      },
+    ];
+    const rows = byId(buildOneOffRows(o));
+    // g1 (19:00) now hosts C–D, which carried "Semifinal 2"; g2 hosts A–B,
+    // which carried "Semifinal 1". Both labels moved with their matchup.
+    expect(rows.get("g1")?.label).toBe("Semifinal 2");
+    expect(rows.get("g2")?.label).toBe("Semifinal 1");
+  });
+
+  it("still clears a label whose matchup left the night entirely", () => {
+    const o = base();
+    o.date = null;
+    o.forcedPairs = [];
+    // The 7th's games re-paired; neither new pair was on that night before, and
+    // neither carried a label, so nothing is invented.
+    const rows = byId(buildOneOffRows(o));
+    expect(rows.get("g3")?.label).toBeNull();
+    expect(rows.get("g4")?.label).toBeNull();
+  });
+
   it("rewrites a night's games in place, keeping each row's ice time", () => {
     const rows = buildOneOffRows(base());
-    expect(rows).toEqual([
+    // `toMatchObject`, because every row also carries the `prev*` values the
+    // write path needs to undo a half-applied batch — asserted on their own
+    // below rather than repeated in every expectation here.
+    expect(rows).toMatchObject([
       {
         id: "g3",
         homeTeamId: "A",
@@ -708,6 +786,20 @@ describe("buildOneOffRows", () => {
         scheduledAt: at("2027-01-07", "20:15"),
       },
     ]);
+  });
+
+  /**
+   * ⛔ The undo payload. `applyGameWrites` writes rows one at a time — an upsert
+   * would resurrect a deleted game as a live fixture — so a failure partway
+   * through has to put the earlier ones back, and it does that from these
+   * fields rather than by re-reading a schedule that is already half-changed.
+   */
+  it("carries what each row held before, for the undo", () => {
+    const rows = buildOneOffRows(base());
+    const g3 = rows.find((r) => r.id === "g3")!;
+    expect(g3.prevHomeTeamId).toBe("A");
+    expect(g3.prevAwayTeamId).toBe("D");
+    expect(g3.prevLabel).toBeNull();
   });
 
   it("takes the i-th planned game onto the i-th ice time", () => {
@@ -832,7 +924,7 @@ describe("buildOneOffRows", () => {
     o.forcedPairs = [["A", "D"]];
     o.changes = [];
     const rows = buildOneOffRows(o);
-    expect(rows).toEqual([
+    expect(rows).toMatchObject([
       {
         id: "g3",
         homeTeamId: "A",
@@ -1001,6 +1093,71 @@ describe("planRepair", () => {
   });
 
   /**
+   * ⚠️ A satisfiable `play_on` is BY DEFINITION already satisfied — repair
+   * cannot add a team to a night, so the only such pin it can honour is one the
+   * published schedule already meets. Without saying so, the page shows plans
+   * beside a pin the manager believes produced them, when the run was an
+   * ordinary repair.
+   */
+  it("reports a satisfiable play_on pin as already met", () => {
+    const res = planRepair({
+      teamCount: T,
+      nights,
+      pin: { kind: "play_on", team: playing[0], night: openNight },
+    });
+    if (!res.ok) throw new Error(res.reason);
+    expect(res.pinAlreadyMet).toBe(true);
+  });
+
+  it("reports a slot_on pin as already met when the game is on that ice time", () => {
+    const team = playing[0];
+    const current = nights[openNight].games.findIndex((g) => g.includes(team));
+    const res = planRepair({
+      teamCount: T,
+      nights,
+      pin: { kind: "slot_on", team, night: openNight, slot: current },
+    });
+    if (!res.ok) throw new Error(res.reason);
+    expect(res.pinAlreadyMet).toBe(true);
+    expect(res.unmet).toBeNull();
+  });
+
+  /**
+   * ⛔ THE PIN IS CHECKED, NOT ASSUMED. `slotForce` reaches Phase S as an
+   * `initial` packing plus a pinned index, and if the pinned team's game cannot
+   * be located the pin quietly becomes `undefined` — plans come back, none of
+   * them honour the instruction, and `unmet` still says null. Every plan this
+   * returns has to put the team on the slot it was asked for.
+   */
+  it("returns only plans that actually honour a slot_on pin", () => {
+    const team = playing[0];
+    const slots = nights[openNight].games.length;
+    const currently = nights[openNight].games.findIndex((g) =>
+      g.includes(team),
+    );
+    const wanted = (currently + 1) % slots;
+    const res = planRepair({
+      teamCount: T,
+      nights,
+      pin: { kind: "slot_on", team, night: openNight, slot: wanted },
+    });
+    if (!res.ok) throw new Error(res.reason);
+    if (res.unmet) {
+      // A legitimate outcome, and it must be the honest one — never plans that
+      // silently ignore the pin.
+      expect(res.plans).toEqual([]);
+      return;
+    }
+    expect(res.plans.length).toBeGreaterThan(0);
+    for (const plan of res.plans) {
+      const after = applyPlan(nights, plan);
+      expect(after[openNight].games.findIndex((g) => g.includes(team))).toBe(
+        wanted,
+      );
+    }
+  });
+
+  /**
    * ⛔ THE MOST LIKELY THING TO BE GOT WRONG. "X needs to play that night" reads
    * as though repair will ADD them to it. It will not: participation is frozen
    * by the published schedule, and adding a team to a night changes byes, which
@@ -1146,7 +1303,9 @@ describe("planRepair", () => {
         label: null,
       })),
     }));
-    const existing = new Set(rowNights.flatMap((n) => n.games.map((g) => g.id)));
+    const existing = new Set(
+      rowNights.flatMap((n) => n.games.map((g) => g.id)),
+    );
 
     const rows = buildOneOffRows({
       nights: rowNights,
@@ -1183,6 +1342,7 @@ describe("planRepair", () => {
           games: n.games.map(
             (g) => [teamIds[g[0]], teamIds[g[1]]] as [string, string],
           ),
+          gameIds: n.games.map((_, i) => `${n.date}-${i}`),
         })),
         teamIds,
         date: null,

@@ -367,6 +367,30 @@ export type WriteNight = {
   date: string;
   locked: boolean;
   games: [string, string][];
+  /** The night's game ids, in the same ice-time order as `games`. */
+  gameIds: string[];
+};
+
+/**
+ * One night's new arrangement, as the client sends it back.
+ *
+ * ⛔ `gameIds` IS THE IDENTITY CHECK, AND IT IS NOT OPTIONAL DECORATION.
+ * Everything else in a change is positional: `to[i]` is written onto the i-th
+ * ice time of the night as read at APPLY. Preview and apply read the schedule
+ * independently, and `groupIntoNights` sorts a night by time — so a single
+ * `rescheduleGame` between the two steps reorders the night, and every other
+ * check still passes (same teams, same count, same night) while the previewed
+ * matchups land on the wrong ice slots. Sending the ids the plan was computed
+ * against, in slot order, is what makes that reordering visible.
+ */
+export type PlannedNight = {
+  date: string;
+  to: [number, number][];
+  /**
+   * The night's game ids in slot order at PREVIEW time. Optional only because
+   * the one-off planner does not send them yet; when present it is enforced.
+   */
+  gameIds?: string[];
 };
 
 export type CheckWriteOptions = {
@@ -382,7 +406,7 @@ export type CheckWriteOptions = {
    */
   date: string | null;
   forcedPairs: [string, string][];
-  changes: { date: string; to: [number, number][] }[];
+  changes: PlannedNight[];
 };
 
 const idKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
@@ -441,6 +465,15 @@ export function checkOneOffWrite(opts: CheckWriteOptions): string | null {
     }
     if (c.to.length !== night.games.length) {
       return "The schedule changed — preview it again.";
+    }
+    // ⛔ The identity check — see `PlannedNight.gameIds`. Same games, same
+    // order, or the slot mapping this plan was computed against no longer holds.
+    if (
+      c.gameIds &&
+      (c.gameIds.length !== night.gameIds.length ||
+        c.gameIds.some((id, i) => id !== night.gameIds[i]))
+    ) {
+      return `${night.date} has been re-timed since this plan was made — preview it again.`;
     }
     const after: string[] = [];
     for (const pair of c.to) {
@@ -523,8 +556,18 @@ export type RowGame = {
 
 export type RowNight = { date: string; games: RowGame[] };
 
-/** One game to write: the same row, re-pointed at its new matchup. */
-export type OneOffRow = RowGame;
+/**
+ * One game to write: the same row, re-pointed at its new matchup.
+ *
+ * The `prev*` fields are what the row held before, so a write path that has to
+ * undo a half-applied batch can put it back without re-reading — see
+ * `applyGameWrites` in `actions/schedule.ts`.
+ */
+export type OneOffRow = RowGame & {
+  prevHomeTeamId: string;
+  prevAwayTeamId: string;
+  prevLabel: string | null;
+};
 
 export type BuildRowsOptions = {
   /** The season's nights as read back, each night's games in ice-time order. */
@@ -604,19 +647,39 @@ export function buildOneOffRows(opts: BuildRowsOptions): OneOffRow[] {
     // `checkOneOffWrite` rejects a change naming a night that isn't there, so
     // reaching this means it was bypassed. Loud beats a half-written plan.
     if (!night) throw new Error(`No game night on ${c.date}.`);
+    /**
+     * ⛔ LABELS FOLLOW THE MATCHUP, NOT THE ROW — which is what the header has
+     * always claimed and what the code did not do.
+     *
+     * It used to read the label off `night.games[i]`, the row that happens to
+     * sit on the i-th ice time. That is only the same thing while a plan never
+     * permutes a night's slots. A one-off's plan rarely does on a night that
+     * carries a label, so it survived; a REPAIR permutes slots for a living and
+     * every night it touches is an ordinary night, so a season with a scheduled
+     * Final could have that label silently wiped by an unrelated repair — the
+     * two games swap ice times, neither is `kept` at its own index, and both
+     * come out null. Keyed by pair, a matchup that is still on this night keeps
+     * its label wherever it lands.
+     */
+    const labelOfPair = new Map(
+      night.games.map((g) => [idKey(g.homeTeamId, g.awayTeamId), g.label]),
+    );
     c.to.forEach(([h, a], i) => {
       const row = night.games[i];
       const home = teamIds[h];
       const away = teamIds[a];
       const key = idKey(home, away);
       const kept = key === idKey(row.homeTeamId, row.awayTeamId);
+      // What this MATCHUP carried on this night, null if it wasn't here at all
+      // — which is the honest replacement for the old "not kept, so clear it".
+      const carried = labelOfPair.get(key) ?? null;
       const labelIndex = c.date === date ? forced.indexOf(key) : -1;
       const next =
         labelIndex >= 0
           ? labelFor(round, label, labelIndex)
-          : !kept || (c.date === date && roundOwnsLabel(round, row.label))
+          : c.date === date && roundOwnsLabel(round, carried)
             ? null
-            : row.label;
+            : carried;
       if (kept && row.homeTeamId === home && row.label === next) return;
       rows.push({
         id: row.id,
@@ -624,6 +687,9 @@ export function buildOneOffRows(opts: BuildRowsOptions): OneOffRow[] {
         awayTeamId: away,
         label: next,
         scheduledAt: row.scheduledAt,
+        prevHomeTeamId: row.homeTeamId,
+        prevAwayTeamId: row.awayTeamId,
+        prevLabel: row.label,
       });
     });
   }
@@ -802,7 +868,9 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
     const forcedGame =
       slotForce === undefined
         ? -1
-        : pairsByNight[forcedNight].findIndex((p) => p.includes(slotForce.team));
+        : pairsByNight[forcedNight].findIndex((p) =>
+            p.includes(slotForce.team),
+          );
     const forcedInitial =
       forcedGame < 0
         ? undefined
@@ -826,7 +894,9 @@ export function planOneOff(opts: PlanOneOffOptions): OneOffResult {
       restarts: Number.MAX_SAFE_INTEGER,
       timeBudgetMs: 600,
       initial: pairsByNight.map((ps, n) =>
-        n === forcedNight && forcedInitial ? forcedInitial : ps.map((_, gi) => gi),
+        n === forcedNight && forcedInitial
+          ? forcedInitial
+          : ps.map((_, gi) => gi),
       ),
       frozen,
       pinned: nights.map((_, n) => {
@@ -1067,6 +1137,17 @@ export type RepairResult =
        */
       unmet: string | null;
       /**
+       * True when the published schedule ALREADY satisfied the pin, so the pin
+       * did not steer anything.
+       *
+       * ⚠️ A `play_on` pin that is satisfiable is by definition already met —
+       * repair cannot add a team to a night, so the only pin it can honour is
+       * one that is already true. Without this the page shows plans next to a
+       * pin the manager believes produced them, when the run was an ordinary
+       * repair. Same for a `slot_on` whose game is already on that ice time.
+       */
+      pinAlreadyMet: boolean;
+      /**
        * True when the search found nothing worth doing — every candidate came
        * back identical to the published schedule. ⚠️ Item 4 must be able to say
        * this rather than offer a plan that churns nights for a score that did
@@ -1128,6 +1209,7 @@ export function planRepair(opts: PlanRepairOptions): RepairResult {
       return {
         ok: true,
         plans: [],
+        pinAlreadyMet: false,
         nothingToImprove: false,
         unmet:
           "That team has a bye that night, and a repair can't add it to one — that would change who plays, which changes every team's byes. Move a single game with Reschedule instead, or regenerate the schedule if the season hasn't started.",
@@ -1141,6 +1223,7 @@ export function planRepair(opts: PlanRepairOptions): RepairResult {
       return {
         ok: true,
         plans: [],
+        pinAlreadyMet: false,
         nothingToImprove: false,
         unmet: `That night runs ${n} game${n === 1 ? "" : "s"}, so that isn't one of its ice times.`,
       };
@@ -1167,5 +1250,70 @@ export function planRepair(opts: PlanRepairOptions): RepairResult {
   // is not a choice, and offering one alongside real ones reads as though the
   // search found two answers.
   const plans = result.plans.filter((p) => p.changes.length > 0);
-  return { ok: true, plans, unmet: null, nothingToImprove: plans.length === 0 };
+
+  /**
+   * ⛔ CHECK THE PIN ACTUALLY LANDED. DO NOT ASSUME IT.
+   *
+   * `slotForce` reaches Phase S as an `initial` packing plus a `pinned` index,
+   * and if the pinned team's game cannot be located on that night the pin
+   * quietly becomes `undefined` — the search runs, plans come back, and every
+   * one of them ignores the instruction the manager typed while `unmet` still
+   * says null. That is the silent failure this whole feature is supposed not to
+   * have, and it was reasoned away ("Phase M preserves participation, so the
+   * game is always found") rather than asserted. Asserted now.
+   *
+   * A plan that did not honour the pin is dropped, not shown with a warning: the
+   * manager asked for one specific thing, and a list of plans that all decline
+   * it is worse than being told it could not be done.
+   */
+  if (pin?.kind === "slot_on") {
+    // Was it already true before any plan? That is a different answer from
+    // "the search could not do it", and saying the wrong one of the two is how
+    // a manager concludes the feature is broken when it simply had no work.
+    const already =
+      nights[pin.night].games.findIndex((g) => g.includes(pin.team)) ===
+      pin.slot;
+    const landed = plans.filter((p) => {
+      const after =
+        p.changes.find((c) => c.night === pin.night)?.to ??
+        nights[pin.night].games;
+      return after.findIndex((g) => g.includes(pin.team)) === pin.slot;
+    });
+    if (landed.length === 0) {
+      return already
+        ? {
+            ok: true,
+            plans: [],
+            unmet: null,
+            pinAlreadyMet: true,
+            nothingToImprove: true,
+          }
+        : {
+            ok: true,
+            plans: [],
+            pinAlreadyMet: false,
+            nothingToImprove: false,
+            unmet:
+              "The repair couldn't put that team on that ice time without changing something it isn't allowed to — who plays that night is fixed by the published schedule. Try another ice time on that night, or move the single game with Reschedule.",
+          };
+    }
+    return {
+      ok: true,
+      plans: landed,
+      unmet: null,
+      pinAlreadyMet: already,
+      nothingToImprove: false,
+    };
+  }
+
+  return {
+    ok: true,
+    plans,
+    unmet: null,
+    // A `play_on` pin that got this far is satisfiable, which means the team
+    // already plays that night — so it is met, and the repair it triggered is an
+    // ordinary one. The UI has to say that rather than imply the pin steered it.
+    pinAlreadyMet: pin?.kind === "play_on",
+    nothingToImprove: plans.length === 0,
+  };
 }
