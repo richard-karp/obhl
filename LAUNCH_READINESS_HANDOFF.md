@@ -76,11 +76,11 @@ stale the moment someone branches, and a stale copy in a worktree misled a
 reader today. Everything waiting on a person rather than on work is listed
 under _Open — waiting on a person_ below, and nothing outstanding is elsewhere.
 
-**What remains splits into two lanes, and neither blocks the other.**
+**Only one lane is left; the code lane is finished.**
 
-- **CODE — an agent, from a checkout: 4 items.** All in the test harness; none
-  can reach a manager or a player. §5 _The final pre-launch pass_ carries each
-  one with its fix, and they are listed nowhere else.
+- ✅ **CODE — all 4 harness items are FIXED and merged into the tree
+  (2026-09-06, uncommitted on `main` at `03c5308`).** §5 _The final pre-launch
+  pass_ carries what each was and how it was verified. Nothing code-side remains.
 - **A PERSON — the user, and no agent can do any of them: 5 items**, under
   _Open — waiting on a person_. ⛔ Exactly one is dated: **rebuild the schedule
   before 2026-09-10 23:00 UTC**, the published season's first game night, after
@@ -889,7 +889,32 @@ round 3 (mutation testing) found only the first failure in each 25-way chunk was
 so an ordinary multi-request network fault left games half-changed while reporting
 "Nothing was written". Each fix was correct. The next layer is where the next bug was.
 
-### The final pre-launch pass — found 2026-09-06, not fixed
+### The final pre-launch pass — found 2026-09-06, ✅ ALL FOUR FIXED
+
+✅ **Done 2026-09-06, in this order: 1 first (it is the root cause under 2),
+then 2, 3, 4.** Verified by the full suite behind the config change, not a spec:
+`npm test` **32 unit files / 444 tests**; `PORT=3013 scripts/e2e-locked.sh`
+**213 passed / 1 skipped / 0 failed in 4.8m across 29 spec files** — the same
+numbers as the 2026-09-06 baseline, so `actionTimeout` cost the suite nothing.
+The skip is still the API-key-gated AI-summary test in `03-seasons`.
+Each item below now records what was done; the diagnosis is kept because it is
+the reason the fix looks the way it does.
+
+- **1** — `actionTimeout: 20_000` added to `use:` in `playwright.config.ts`,
+  with the reasoning inline.
+- **2** — `expectGenerateFormUsable` copied into `11-schedule-builder`,
+  `23-schedule-constraints` and `14-one-off-game`. ⚠️ In the two specs whose
+  seed sits behind a gate — `14-`'s `count("No draft schedule") > 0` and `11-`'s
+  `removeButton.count() === 0` — the guard went **before** the gate, not inside
+  the branch: the read-failed card makes both conditions pick the wrong branch,
+  so guarding inside would still have misreported.
+- **3** — `03-seasons` now asserts the destination heading
+  `Season setup — <name>`; `PageHeader` renders it as an `h1`.
+- **4** — renamed to `28-schedule-form-state` and `29-schedule-repair` via
+  `git mv`, order relative to each other kept. `28-`'s one cross-reference to
+  "`27`'s seeding" was repointed at `29-schedule-repair`. The `Path 26`/`Path 27`
+  labels inside them are QA-path names, not filenames, and were left alone —
+  file numbers and path numbers have never matched in this suite.
 
 ⛔ **All four are in the test harness, not the app.** Nothing here can reach a
 manager or a player. What they cost is a session's time, and two of them spend it
@@ -918,7 +943,8 @@ the budget of every action in the suite. Run the full suite behind it, not a spe
 (Watched, CI run `34055032836`.) `getPublishState` fails closed: any of its seven
 parallel reads erroring locks the panel and renders "This season's games couldn't
 be read", with **no generate form on the page at all**. #38 added
-`expectGenerateFormUsable` to `26-schedule-form-state` and `27-schedule-repair`;
+`expectGenerateFormUsable` to what are now `28-schedule-form-state` and
+`29-schedule-repair` (item 4 renumbered them);
 these three still seed it bare:
 
 | Spec | Seeding shape | What a read failure costs |
@@ -936,7 +962,7 @@ misreports the failure an assertion later. A guarded seed is not optional just
 because a spec happens to have the safer polarity.
 
 Copy `expectGenerateFormUsable` out of
-`e2e/27-schedule-repair.spec.ts`: there is no shared helper module in `e2e/` and
+`e2e/29-schedule-repair.spec.ts` (`27-` before item 4 renumbered it): there is no shared helper module in `e2e/` and
 no spec imports another, so duplicating it is the house style here.
 
 **3 — `03-seasons.spec.ts` races a redirect.** (Watched — this is the failure
