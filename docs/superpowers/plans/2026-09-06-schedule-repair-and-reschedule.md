@@ -14,37 +14,41 @@
    `generateSchedule`, `replace_published_schedule` and `removeSchedule` once the
    season starts — **2026-09-10**, with 144 games published. Everything in this
    work has to survive that, which is why repair goes through the one-off
-   planner's engine and an in-place `games` upsert by id, **never** through
-   `generateSchedule`. Spec §3 is the decision; do not relitigate it in code.
+   planner's engine and an in-place `games` write by id, **never** through
+   `generateSchedule`.
+   ⚠️ *Written as "upsert" here and in step 3, and that turned out to be the
+   wrong verb.* It shipped as an **UPDATE**: an upsert INSERTs when the id is
+   gone, resurrecting a deleted game as a live fixture. `EXPORTS_HANDOFF.md` §2
+   carries the decision. Spec §3 is the decision; do not relitigate it in code.
 3. Claims are marked. **Watched** means a command was run and its output read.
    **A reading** means it follows from the code and has not been executed.
 4. Verify with `npm run typecheck && npm test`, then `PORT=<yours> npm run test:e2e`.
    ⚠️ Re-measure the baseline; do not quote one.
 
-**Status: IN FLIGHT as of 2026-09-06.** Built by a subagent in its own worktree on
-`PORT=3101`, against spec `19adb22`. Not merged, no PR.
+**Status: SHIPPED — merged to `main` 2026-09-06 as `c87764e`, PR #38.** Built by
+a subagent in its own worktree on `PORT=3101`, against spec `19adb22`.
 
 ## The four items, one line each
 
 Detail, traps and acceptance for every one of these is in spec §6.
 
-- [ ] **1 — the form keeps its fields on generate; publish clears them.** ⚠️ Step 1
+- [x] **1 — the form keeps its fields on generate; publish clears them.** ⚠️ Step 1
       REPRODUCES before it fixes: the React 19 auto-reset mechanism is a
       hypothesis, not a measurement, and a different failure shape means a
       different fix.
-- [ ] **2 — `rescheduleNight`.** Move a whole night, preserving slot order. Refuses
+- [x] **2 — `rescheduleNight`.** Move a whole night, preserving slot order. Refuses
       a locked source night and a non-empty target.
-- [ ] **3 — pin a team to a night (or night + time), then repair around it.**
-      Ranked plans, per-night diff shown before applying, in-place upsert.
-- [ ] **4 — repair with no pin.** Same engine, empty constraint set; must be able
+- [x] **3 — pin a team to a night (or night + time), then repair around it.**
+      Ranked plans, per-night diff shown before applying, in-place UPDATE.
+- [x] **4 — repair with no pin.** Same engine, empty constraint set; must be able
       to answer "nothing to improve".
 
 ## What was built
 
-**Status: BUILT 2026-09-06** on branch `worktree-agent-a984c7aff0e5b2c5b`
-(worktree `.claude/worktrees/agent-a984c7aff0e5b2c5b`, `PORT=3101`), against spec
-`19adb22`. **Not merged, no PR, and no migration** — zero files under
-`supabase/migrations`, as §3 predicted.
+**Status: MERGED to `main` 2026-09-06 as `c87764e` (PR #38).** Built by a subagent
+in its own worktree (`PORT=3101`) against spec `19adb22`. **No migration** — zero
+files under `supabase/migrations`, as §3 predicted, so there is nothing to
+`db push` for this work.
 
 | Step | SHA | What |
 |---|---|---|
@@ -52,6 +56,23 @@ Detail, traps and acceptance for every one of these is in spec §6.
 | 2 — `rescheduleNight` | `51f417e` | move a whole night on a live season |
 | 3 — pin a team to a night or ice time | `94b5ff3` | ranked plans, repair around the pin |
 | 4 — repair with no pin | `cff7366` | same engine, empty constraint set |
+| review — every failure in a chunk kept | `2aa03fe` | found by mutation testing, round 3 |
+| the e2e read-failed guard | `af62f33` | see *Still open* below |
+| merge `main` in | `dcd10b1` | #39 landed mid-review; see below |
+
+⛔ **CI tested a state that never existed locally, and this is the reusable part.**
+#39 (one chrome) merged to `main` while this was in review, and CI builds the PR
+*merged with `main`* rather than the branch head. So its counts — 444 unit / 214
+e2e — never matched the 439 / 202 measured on the branch, and its one failure had
+never been reproduced here. The fix was to merge `main` in for real (`dcd10b1`)
+and re-run: **213 passed, 1 skipped, 0 failed (4.8 min)**, watched 2026-09-06.
+⚠️ A green local suite on a branch whose base has moved is evidence about nothing.
+Check `git log --oneline $(git merge-base HEAD origin/main)..origin/main` before
+trusting one.
+
+⚠️ **The CI failure that prompted all this was not ours** — `03-seasons.spec.ts`
+racing a redirect. Mechanism, evidence and fix are in
+`LAUNCH_READINESS_HANDOFF.md` §5, under the final pre-launch pass.
 
 ### Step 1: the hypothesis held, and here is the measurement that settled it
 

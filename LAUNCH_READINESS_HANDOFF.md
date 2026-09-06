@@ -203,6 +203,11 @@ is one command and is always right.
 | ✅ **`supabase db push` for migration `0044`**                       | **DONE 2026-09-06, watched.** `--dry-run` first showed exactly one pending file; the push applied it and `supabase migration list --linked` now shows `0044` in the remote history. ⚠️ The columns themselves were NOT read back — this checkout's `.env.local` points at the LOCAL stack, so there is no production key here to query with. A `create or replace view` has no partial state, and a failure would have aborted before the history row, so the reading is that all four views are widened                                                                                                                    | done; #39 is now free to merge in either order                                                                                                             |
 | **The schedule write path has no transaction**                       | Compensation only — a runtime dying mid-batch leaves writes applied and uncompensated, publicly visible. Four review rounds each found a bug in the machinery that exists _because_ there is no `pg_advisory_xact_lock` RPC                                                                                                                                                                                                                                                                                                                                                                                                 | **the user, decided 2026-09-06: SHIP NOW, build the RPC first thing after launch.** See §5                                                                 |
 
+⚠️ **One class is missing from that table on purpose, because nothing in it
+waits on a person:** four test-harness defects found 2026-09-06 while merging #38
+and #39. None of them affects the app, and all of them cost a session's time when
+they fire. They are the final pre-launch pass — §5, _The final pre-launch pass_.
+
 ---
 
 ## Closed doors — 1, 2 and 3, and why they mattered
@@ -878,6 +883,79 @@ write paths raced; round 2 found the compensator was itself a lost-update writer
 round 3 (mutation testing) found only the first failure in each 25-way chunk was kept,
 so an ordinary multi-request network fault left games half-changed while reporting
 "Nothing was written". Each fix was correct. The next layer is where the next bug was.
+
+### The final pre-launch pass — found 2026-09-06, not fixed
+
+⛔ **All four are in the test harness, not the app.** Nothing here can reach a
+manager or a player. What they cost is a session's time, and two of them spend it
+as a multi-minute hang with a message that names the locator and not the cause.
+⚠️ Each says whether it was **watched** or is **a reading**.
+
+**1 — `playwright.config.ts` sets no `actionTimeout`.** (Watched.) Its `use:`
+block sets `baseURL`, `trace` and `screenshot` only, so `fill`, `click` and
+`check` fall back to the whole test budget. An action that can never resolve
+therefore burns the test's entire timeout and reports `waiting for <locator>`
+with no clue why. This is the root cause under defect 2, not a separate item:
+
+```ts
+use: {
+  baseURL: `http://localhost:${PORT}`,
+  actionTimeout: 20_000, // above expect's 15 s, below the 60 s test budget
+  trace: "on-first-retry",
+  screenshot: "only-on-failure",
+},
+```
+
+⚠️ **A reading, not a measurement, on its blast radius.** One line, but it changes
+the budget of every action in the suite. Run the full suite behind it, not a spec.
+
+**2 — three specs seed the schedule builder with no read-failed guard.**
+(Watched, CI run `34055032836`.) `getPublishState` fails closed: any of its seven
+parallel reads erroring locks the panel and renders "This season's games couldn't
+be read", with **no generate form on the page at all**. #38 added
+`expectGenerateFormUsable` to `26-schedule-form-state` and `27-schedule-repair`;
+these three still seed it bare:
+
+| Spec | Seeding shape | What a read failure costs |
+|---|---|---|
+| `11-schedule-builder` | bare `fill` | waits out its 150 s budget |
+| `23-schedule-constraints` | bare `fill` | the same, 150 s |
+| `14-one-off-game` | `if (count("No draft schedule") > 0)` | does **not** hang — skips the seed, then fails later on an unrelated assertion |
+
+⛔ **The polarity of the seeding gate decides whether a read failure hangs or
+misleads, and neither is legible.** Copy `expectGenerateFormUsable` out of
+`e2e/27-schedule-repair.spec.ts`: there is no shared helper module in `e2e/` and
+no spec imports another, so duplicating it is the house style here.
+
+**3 — `03-seasons.spec.ts` races a redirect.** (Watched — this is the failure
+that failed PR #38's CI, and the artifact settles it.) The test asserts
+`Season "<name>" created.` is visible after clicking **Create season**. But
+`CreateSeasonForm` renders that message and, in a `useEffect` on the same state,
+calls `router.push` to the new season's page — so the assertion is racing the
+navigation. The failure snapshot from run `34057995109` shows the browser already
+on `Season setup — Audit Probe Season …`: the action succeeded, the season was
+created, and the message was simply gone.
+
+Fix — assert the destination rather than the vanishing message:
+
+```ts
+await expect(
+  page.getByRole("heading", { name: `Season setup — ${seasonName}` }),
+).toBeVisible();
+```
+
+⚠️ **Pre-existing, and rare.** `create-season-form.tsx` last changed three commits
+before the schedule work started, and the test passed on the very next full local
+run. Rare is what makes it worth fixing rather than watching: it will fire again,
+on someone else's branch, and look like their bug.
+
+**4 — two specs each answer to `26-` and `27-`.** (Watched.) #38 and #39 were
+built in parallel worktrees and both numbered new specs from the same free slot:
+`26-schedule-form-state` / `26-sign-out-destination`, and `27-one-chrome` /
+`27-schedule-repair`. Nothing is broken — Playwright orders by filename, so the
+run is still deterministic — but the number no longer identifies a spec, and #38's
+own ordering note ("the spec that ran before it") is now ambiguous. Renumber #38's
+pair to `28-` and `29-`, which keeps their order relative to each other.
 
 ### From the sixth review of #24 — open, never triaged
 
