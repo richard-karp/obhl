@@ -578,7 +578,11 @@ Do **not** read it to do the work below — nothing outstanding depends on it.
 
    ⛔ **THERE IS NO DOMAIN TO VERIFY. THIS IS THE REAL BLOCKER, AND IT HAS A
    LEAD TIME NOTHING ELSE HERE HAS.** `vercel domains ls` returned **0 Domains**
-   (measured 2026-09-05); production is `https://obhl.vercel.app`. `vercel.app`
+   — measured 2026-09-05 and **re-measured 2026-09-06**, still 0. That second
+   reading carries a control the first did not: `vercel teams ls` shows exactly
+   ONE scope (`richard-karp-s-projects`), so there is no other team a domain
+   could be hiding under, and every entry in `vercel alias ls` is a
+   `*.vercel.app` host. Production is `https://obhl.vercel.app`. `vercel.app`
    **cannot** be verified in Resend — it is not ours, and verification needs DNS
    records at the domain's authoritative nameservers. Someone has to **acquire a
    domain** before step (a) below is reachable at all.
@@ -621,6 +625,14 @@ Do **not** read it to do the work below — nothing outstanding depends on it.
       watching the navigation chain.
    e. **Read production's minimum password length and set it to 8**, while you
       are already in this dashboard. See the layering note under phase 2.
+   ⚠️ **(e) and (f) need no domain and no SMTP — do them on the next dashboard
+      visit rather than waiting.** They are reads of values recorded nowhere in
+      this repository, and the recording is the point. **(c) may not be
+      available yet**: this is a READING of Supabase's documented behaviour, not
+      a measurement — the emails-per-hour limit is understood to be raisable
+      only once custom SMTP is configured, so expect it to still say `2` while
+      the built-in sender is in use. Try it, and if it refuses, that is expected
+      and not a second blocker.
    f. **Read and record `secure_password_change` and the password-changed
       notification.** Both govern what a stolen session can do: with
       `secure_password_change` off, a session cookie alone — 7 days — is enough
