@@ -493,6 +493,7 @@ describe("checkOneOffWrite", () => {
           [0, 2],
           [1, 3],
         ],
+        gameIds: ["n7-0", "n7-1"],
       },
       {
         date: "2027-01-05",
@@ -500,6 +501,7 @@ describe("checkOneOffWrite", () => {
           [0, 3],
           [1, 2],
         ],
+        gameIds: ["n5-0", "n5-1"],
       },
     ],
   });
@@ -544,6 +546,7 @@ describe("checkOneOffWrite", () => {
     const o = base();
     o.changes.push({
       date: "2027-01-05",
+      gameIds: ["n5-0", "n5-1"],
       to: [
         [0, 1],
         [2, 3],
@@ -620,10 +623,21 @@ describe("checkOneOffWrite", () => {
     // B would hand C a game and take one off B.
     const o = base();
     o.nights[0].games = [["A", "B"]];
-    o.changes[1] = { date: "2027-01-05", to: [[0, 2]] };
+    // The night's ids shrink with it, or the identity check fires first and
+    // this stops testing the participation rule it was written for.
+    o.nights[0].gameIds = ["n5-0"];
+    o.changes[1] = {
+      date: "2027-01-05",
+      to: [[0, 2]],
+      gameIds: ["n5-0"],
+    };
     expect(checkOneOffWrite(o)).toMatch(/changes who plays that night/);
     // The same night left alone is fine.
-    o.changes[1] = { date: "2027-01-05", to: [[1, 0]] };
+    o.changes[1] = {
+      date: "2027-01-05",
+      to: [[1, 0]],
+      gameIds: ["n5-0"],
+    };
     expect(checkOneOffWrite(o)).toBeNull();
   });
 
@@ -1059,7 +1073,7 @@ describe("buildOneOffRows", () => {
  * `generateSchedule`. `season_is_started` shuts generate and
  * `replace_published_schedule` permanently once a season is under way, and this
  * is the feature that has to keep working after that — so it plans over the
- * unlocked nights and applies as an in-place upsert by id, exactly as
+ * unlocked nights and applies as an in-place UPDATE by id, exactly as
  * `applyOneOffGame` does.
  */
 describe("planRepair", () => {
@@ -1350,6 +1364,9 @@ describe("planRepair", () => {
         changes: plan.changes.map((c) => ({
           date: nights[c.night].date,
           to: c.to,
+          gameIds: nights[c.night].games.map(
+            (_, i) => `${nights[c.night].date}-${i}`,
+          ),
         })),
       }),
     ).toBeNull();

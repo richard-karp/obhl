@@ -15,12 +15,25 @@
 # on; the trap releases it however the script exits, including Ctrl-C.
 set -u
 LOCK=/tmp/obhl-e2e.lock
-until mkdir "$LOCK" 2>/dev/null; do
-  echo "waiting for the shared e2e database lock..."
+
+# ⛔ STALENESS, OR ONE SIGKILL LOCKS EVERY FUTURE RUN FOREVER. The trap does not
+# run for SIGKILL, a crashed shell or a rebooted machine, so the holder's PID
+# goes in the lock and a lock whose holder is gone is broken rather than waited
+# on. Racy in principle — two waiters could break the same dead lock — and that
+# is fine: the loser simply loops and takes it on the next pass.
+while ! mkdir "$LOCK" 2>/dev/null; do
+  holder=$(cat "$LOCK/pid" 2>/dev/null || echo "")
+  if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+    echo "e2e lock held by dead pid $holder — breaking it"
+    rm -rf "$LOCK"
+    continue
+  fi
+  echo "waiting for the shared e2e database lock (held by pid ${holder:-unknown})..."
   sleep 20
 done
-trap 'rmdir "$LOCK"' EXIT
-echo "e2e lock taken"
+echo $$ > "$LOCK/pid"
+trap 'rm -rf "$LOCK"' EXIT
+echo "e2e lock taken by pid $$"
 
 # PORT is the worktree's own; playwright.config.ts derives both the baseURL and
 # the dev-server port from it, and `reuseExistingServer` will otherwise hand this

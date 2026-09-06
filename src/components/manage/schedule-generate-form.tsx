@@ -208,7 +208,28 @@ function ConstraintsCard({
   const needsWeek = kind === "bye_week" || kind === "bye_in_week";
 
   return (
-    <div className="space-y-2 rounded-lg border p-3">
+    <div
+      className="space-y-2 rounded-lg border p-3"
+      /*
+        ⚠️ ENTER INSIDE THIS CARD MEANS "ADD REQUEST", NOT "GENERATE".
+        A form has one default submit button, and now that Add is a plain
+        button that is Generate — so Enter from the date or ice-time field
+        started a 25-second generate instead of adding the request the manager
+        was in the middle of typing. It used to do the right thing only by
+        accident, because Add happened to be the first submit button in tree
+        order. Handled here rather than left to the browser.
+      */
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" || e.shiftKey) return;
+        const el = e.target as HTMLElement;
+        if (el.tagName !== "INPUT" && el.tagName !== "SELECT") return;
+        e.preventDefault();
+        const form = (el as HTMLInputElement).form;
+        if (!form) return;
+        const body = new FormData(form);
+        startTransition(() => addAction(body));
+      }}
+    >
       <div className="space-y-0.5">
         <Label>Manager requests (optional)</Label>
         <p className="text-muted-foreground text-xs">

@@ -387,10 +387,13 @@ export type PlannedNight = {
   date: string;
   to: [number, number][];
   /**
-   * The night's game ids in slot order at PREVIEW time. Optional only because
-   * the one-off planner does not send them yet; when present it is enforced.
+   * The night's game ids in slot order at PREVIEW time.
+   *
+   * ⛔ REQUIRED. It was optional while only the repair sent it, and the one-off
+   * path — the shipped one — simply opted out and kept the hole. A guard every
+   * caller may decline is not a guard.
    */
-  gameIds?: string[];
+  gameIds: string[];
 };
 
 export type CheckWriteOptions = {
@@ -469,9 +472,8 @@ export function checkOneOffWrite(opts: CheckWriteOptions): string | null {
     // ⛔ The identity check — see `PlannedNight.gameIds`. Same games, same
     // order, or the slot mapping this plan was computed against no longer holds.
     if (
-      c.gameIds &&
-      (c.gameIds.length !== night.gameIds.length ||
-        c.gameIds.some((id, i) => id !== night.gameIds[i]))
+      c.gameIds.length !== night.gameIds.length ||
+      c.gameIds.some((id, i) => id !== night.gameIds[i])
     ) {
       return `${night.date} has been re-timed since this plan was made — preview it again.`;
     }
@@ -1137,6 +1139,12 @@ export type RepairResult =
        */
       unmet: string | null;
       /**
+       * True when the pin is already met AND the only repairs the search found
+       * would move the team off it — so there is something to improve, and
+       * honouring the instruction is what costs it.
+       */
+      pinBlocksImprovement?: boolean;
+      /**
        * True when the published schedule ALREADY satisfied the pin, so the pin
        * did not steer anything.
        *
@@ -1162,6 +1170,8 @@ export type PlanRepairOptions = {
   /** The manager's instruction, or null to simply repair what is there. */
   pin: RepairPin | null;
   seed?: number;
+  /** The season's stored `slot_on` constraints — preserved, never dragged back. */
+  slotPins?: { night: number; team: number; slot: number }[];
 };
 
 /**
@@ -1188,7 +1198,7 @@ export type PlanRepairOptions = {
  * reference every plan's `worseThan` is measured against.
  */
 export function planRepair(opts: PlanRepairOptions): RepairResult {
-  const { teamCount, nights, pin, seed } = opts;
+  const { teamCount, nights, pin, seed, slotPins } = opts;
 
   // Participation first, because it is the one thing no plan can change — and
   // saying so before spending the search budget is both faster and clearer.
@@ -1236,10 +1246,7 @@ export function planRepair(opts: PlanRepairOptions): RepairResult {
     forcedPairs: [],
     featureSlot: false,
     seed,
-    // ⚠️ No stored `slot_on` pins. Publishing deletes a season's manager
-    // requests, so a season this can act on has none — a parameter that cannot
-    // fire reads as a working feature until somebody relies on it. The caller
-    // says the same thing at greater length.
+    slotPins,
     slotForce:
       pin?.kind === "slot_on"
         ? { night: pin.night, team: pin.team, slot: pin.slot }
@@ -1287,7 +1294,13 @@ export function planRepair(opts: PlanRepairOptions): RepairResult {
             plans: [],
             unmet: null,
             pinAlreadyMet: true,
-            nothingToImprove: true,
+            // ⚠️ NOT `nothingToImprove`. The search DID find improvements —
+            // they were dropped because every one of them moved the pinned
+            // team off the ice time it was asked to keep. Saying "nothing to
+            // improve" about a season with repairs available is a different
+            // claim, and a false one.
+            nothingToImprove: plans.length === 0,
+            pinBlocksImprovement: plans.length > 0,
           }
         : {
             ok: true,

@@ -293,6 +293,31 @@ function RepairPlans({
     );
   }
 
+  // ⚠️ A third answer, and not "nothing to improve": repairs DO exist, and the
+  // pin is what rules them out. Collapsing this into the branch below would
+  // tell the manager their season is as good as it gets when it is not.
+  if (preview.pinBlocksImprovement) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            The pin rules out the repairs
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <p className="text-sm">
+            That team is already on the ice time you asked for. There are ways
+            to improve the rest of the season, but every one of them moves that
+            game off it.
+          </p>
+          <p className="text-muted-foreground text-sm">
+            Repair without the pin to see them.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   // ⚠️ Item 4 has to be able to say this, rather than offer a plan that churns
   // nights for a score that did not move.
   if (preview.nothingToImprove) {

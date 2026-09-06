@@ -20,7 +20,9 @@ import { leagueTimeKey } from "@/lib/format";
  * ⛔ Deliberately not part of the schedule builder's generate flow. Generate,
  * replace and remove all refuse permanently once `season_is_started` trips, and
  * this page is the one that has to keep working afterwards: it plans over the
- * unlocked nights and applies the plan as an in-place upsert by id.
+ * unlocked nights and applies the plan as an in-place UPDATE of the rows that
+ * change — never an upsert, which would re-create a deleted game as a live
+ * fixture. See `applyGameWrites`.
  */
 export default async function ScheduleRepairPage({
   params,

@@ -126,6 +126,10 @@ export function OneOffGameForm({
         changes: plan.changes.map((c) => ({
           date: preview.nights[c.night].date,
           to: c.to,
+          // ⛔ The ids this plan was computed against, in slot order. Apply
+          // re-reads the schedule and refuses if they have moved — see
+          // `PlannedNight.gameIds`.
+          gameIds: preview.nights[c.night].gameIds,
         })),
       });
       if (!res) return;
