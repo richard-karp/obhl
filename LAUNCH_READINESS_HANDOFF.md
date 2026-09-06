@@ -78,9 +78,9 @@ under _Open — waiting on a person_ below, and nothing outstanding is elsewhere
 
 **Only one lane is left; the code lane is finished.**
 
-- ✅ **CODE — all 4 harness items are FIXED and merged into the tree
-  (2026-09-06, uncommitted on `main` at `03c5308`).** §5 _The final pre-launch
-  pass_ carries what each was and how it was verified. Nothing code-side remains.
+- ✅ **CODE — the 4 harness items are FIXED** (2026-09-06, PR #40, CI green).
+  §5 _The final pre-launch pass_ carries each one and how it was verified. ⛔ One
+  harness item is left and it is DATED: §5 _The fixture dates_, 2026-09-16.
 - **A PERSON — the user, and no agent can do any of them: 5 items**, under
   _Open — waiting on a person_. ⛔ Exactly one is dated: **rebuild the schedule
   before 2026-09-10 23:00 UTC**, the published season's first game night, after
@@ -209,9 +209,11 @@ is one command and is always right.
 | **The schedule write path has no transaction**                       | Compensation only — a runtime dying mid-batch leaves writes applied and uncompensated, publicly visible. Four review rounds each found a bug in the machinery that exists _because_ there is no `pg_advisory_xact_lock` RPC                                                                                                                                                                                                                                                                                                                                                                                                 | **the user, decided 2026-09-06: SHIP NOW, build the RPC first thing after launch.** See §5                                                                 |
 
 ⚠️ **One class is missing from that table on purpose, because nothing in it
-waits on a person:** four test-harness defects found 2026-09-06 while merging #38
-and #39. None of them affects the app, and all of them cost a session's time when
-they fire. They are the final pre-launch pass — §5, _The final pre-launch pass_.
+waits on a person:** test-harness defects. None affects the app; each costs a
+session's time when it fires. The four found on 2026-09-06 while merging #38 and
+#39 are ✅ **fixed** (PR #40) — §5, _The final pre-launch pass_. ⛔ **One is
+open and it is DATED: `11-` and `23-` break from 2026-09-16** — §5, _The fixture
+dates_. It is the only outstanding code item anywhere in this file.
 
 ---
 
@@ -994,6 +996,35 @@ built in parallel worktrees and both numbered new specs from the same free slot:
 run is still deterministic — but the number no longer identifies a spec, and #38's
 own ordering note ("the spec that ran before it") is now ambiguous. Renumber #38's
 pair to `28-` and `29-`, which keeps their order relative to each other.
+
+### The fixture dates — ⛔ `11-` and `23-` break from 2026-09-16, OPEN
+
+⛔ **Dated, and it is the only outstanding code item in this file.** Found
+2026-09-06 during the review of PR #40; not fixed there, because fixing it means
+changing how those specs seed rather than editing a line.
+
+**What happens.** `11-schedule-builder` and `23-schedule-constraints` both drive
+Fall 2026 and both hardcode a first game night of **`2026-09-15`** — `11-` at
+seven call sites, `23-` in its `FIRST_NIGHT` constant. Item 9's guard refuses a
+first night in the past at GENERATE, with "That first game night has already
+passed — pick tonight or a later date." `11-` has a test asserting exactly that
+refusal, so the mechanism is not in doubt. From **2026-09-16** every generate in
+both specs is refused and both files fail. Nothing about the app is wrong.
+
+⚠️ **A reading of the dates and the guard, not a measurement** — the clock has
+not reached it. Everything else about the two specs is measured; this is
+arithmetic on today's date.
+
+**Why it was left.** The fix is to compute a date instead of pinning one, which
+touches the seeding of every test in both files, and it lands six days after the
+schedule window shuts on 2026-09-10 — so it is genuinely not launch-blocking.
+⛔ **But it will fire on someone else's branch and look like their bug**, which
+is the same failure mode the four items above existed to prevent.
+
+**When it fires, the guard now says so.** `expectGenerateFormUsable` races a
+third locator as of PR #40: a started season renders "The season is under way",
+and the guard names it and says it is permanent, not transient, and to check the
+dates the spec seeds. That is a legible failure, not a fix.
 
 ### From the sixth review of #24 — open, never triaged
 
