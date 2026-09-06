@@ -19,13 +19,13 @@
      FOR GOOD.** `season_is_started` (`0026`) counts only `not is_draft`, so a
      past-dated DRAFT is invisible to the gate and looks completely fine — until
      it is published, at which point generate, replace and remove all refuse
-     permanently. ⚠️ **The generate guard is BUILT BUT NOT MERGED** (item 9): it
-     lives in PR #35, so on `main` today the input still has no
-     `min` and `generateSchedule` still does not check. ⛔ **PUBLISH is
-     unguarded either way.** **Read the date before publishing.**
+     permanently. ✅ **The generate guard is MERGED** (item 9, PR #35): a past
+     first game night is now refused at generate. ⛔ **PUBLISH is unguarded
+     either way, and a draft generated before 2026-09-05 never met the guard —
+     discard it, do not publish it.** **Read the date before publishing.**
    - **Mutating** `gh` (`pr create`, `pr merge`) and `vercel env` are denied to
-     an agent under the auto-mode classifier — ask a human, do not work around
-     it. **Read-only `gh` works**: `run list`, `run view`, `run download`. On a
+     an agent under the auto-mode classifier — ask a human; one authorised
+     them 2026-09-05. **Read-only `gh` works**: `run list`, `run view`, `run download`. On a
      red CI run, pull the artifact and read `error-context.md` yourself; its
      page snapshot has twice settled in seconds what guessing got wrong.
 3. ⛔ **The hot tier — everything above *The items* — is capped at 130 lines.**
@@ -170,7 +170,7 @@ design, so assume the gap and check the list rather than the flag.
 | 6 | `0039`-`0043` not pushed | `supabase db push` | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides |
 | 7 | Staff can set a password, but only a commissioner can give them one | Supabase dashboard | **OPEN** — needs a human; runbook with the exact SMTP values is in *The other half of auth*. ⚠️ No app env key is involved — that line was wrong |
 | 8 | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code | ✅ **closed 2026-09-05** — steps 1-6 shipped as #31 (which collapsed #25-#29); step 7, the prose, is this commit. Spec: `docs/superpowers/specs/2026-09-05-unified-url-space-design.md` |
-| 9 | **A past first-game-night locks the season on publish** | code | ⚠️ **BUILT, NOT MERGED — PR #35** — reproduced, then guarded at generate; unreachable from `main` until that merges. ⛔ Publish stays unguarded regardless — see *Item 9 — the guard, built* |
+| 9 | **A past first-game-night locks the season on publish** | code | ✅ **closed 2026-09-05 — PR #35, on `main` as `72b4148`** — reproduced, then guarded at generate. ⛔ Publish stays unguarded regardless — see *Item 9 — the guard, built* |
 
 ⛔ **Do not re-file 1-3.** They are kept as rows, rather than deleted, because a
 reader who knows this file by its old shape will otherwise assume they were
@@ -200,7 +200,6 @@ is one command and is always right.
 | ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in *Next action* |
 | **PR #33** — this file, the URL spec, the production verification | Mergeable; docs only | merge it; `main` is misleading until then |
 | **PR #34** — exports 404 an unknown id instead of an empty file | Mergeable; one test, watched failing then passing | merge it |
-| **PR #35** — item 9's guard | 5 unit tests + 2 e2e, watched failing first; rebased onto `main`, so it is the guard alone | ⛔ **merge it before the rebuild** — it is the only thing standing between the builder and the one irreversible mistake. Kept off PR #33 on purpose so that stays docs-only |
 | **`LAUNCH.md` Verification steps 4, 5, 6** | The manager badge, the league switcher, an announcement in one league only | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written |
 | **Item 7** — custom SMTP, then a set/reset flow, then a password field | Runbook written 2026-09-05 with the exact SMTP values; nothing run | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel |
 | **`NEXT_PUBLIC_SITE_URL` is missing on Preview** | `vercel env ls` 2026-09-05: Production only | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run |
@@ -611,9 +610,9 @@ why the sequence is written down rather than left to whoever picks it up.
 
 ## Item 9 — the guard, built
 
-⚠️ **Built 2026-09-05, PR #35, and NOT merged** — nothing
-below is true of `main` yet. Kept as a section because the residual risk is real
-even after it merges, and because the reproduction is the useful part.
+✅ **Built and merged 2026-09-05 — PR #35, on `main` as `72b4148`.** Kept as a
+section because the residual risk is real even after it merged, and because the
+reproduction is the useful part.
 
 **What it does.** A first game night before *today* is refused at GENERATE, so
 no new draft can carry a past date:
