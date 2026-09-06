@@ -50,9 +50,89 @@ Recorded here because they are the kind of thing a later session re-opens:
 
 ## What was built
 
-*Filled in when the work lands: branch, commit shas, measured test counts, whether
-a view migration was needed and what it does, what the call-site audit turned out
-to be wrong about, and anything deliberately not done.*
+**Status: BUILT 2026-09-06** on branch `worktree-agent-a9825f0d016f4749d`
+(worktree `.claude/worktrees/agent-a9825f0d016f4749d`, `PORT=3102`), against spec
+`19adb22`. **Not merged, no PR.** All three steps done, in the planned order.
 
-⚠️ **Also add the back-link then.** The spec does not yet point at this file — see
-the note in the schedule plan for why.
+| Step | SHA | Files | What |
+|---|---|---|---|
+| 1 — logo ink & crests | `553b42d` | 20 | the 15 bad call sites, plus migration `0044` |
+| 3 — sign-out | `6ada257` | 6 | slug as a validated hidden field, `/` fallback |
+| 2 — one chrome | `8455541` | 10 | `ManageNav`'s shell and `crossLink` deleted |
+
+**Measured** (the agent ran these and read the output): unit **379 tests / 31
+files** green; full e2e **205 passed, 1 skipped, 0 failed** in 4.3 min after step 2;
+typecheck and `eslint src e2e` clean. 12 new e2e tests across
+`e2e/25-team-logo-ink.spec.ts`, `e2e/26-sign-out-destination.spec.ts`,
+`e2e/27-one-chrome.spec.ts`, plus a 5-test `src/components/shared/team-logo.test.ts`
+**that passed on its first run** — the control confirming `TeamLogo` itself was
+never the bug.
+
+### The migration — one was needed
+
+`supabase/migrations/0044_team_logo_in_stats_views.sql` re-issues `v_skater_stats`,
+`v_goalie_stats`, `v_skater_season_totals` and `v_goalie_season_totals` with
+`team_logo_path` and `team_logo_text_color` **appended** — `create or replace view`
+can only add columns at the end, and the totals views select the per-team ones by
+name, so widening those first is safe. Every other line is verbatim from 0024/0037.
+⚠️ **Applied `--local` only.** Never `db push`ed. `npm run gen-types` was re-run and
+its output prettier-formatted, which also picked up one pre-existing drift:
+`player_in_my_league` was missing from the committed types.
+
+### What the audit got wrong
+
+The 19-row call-site table was **exactly right** — no missing rows, no spurious
+ones. Four things around it were not:
+
+1. **§3's claim that the standings view carries `team_logo_text_color` is false.**
+   It does not. `getStandings` side-reads it from `teams` via `season_teams`, a
+   decision documented in `src/lib/queries/standings.ts` and left standing;
+   `logo_path` was added to that same read. The migration was for the four *stats*
+   views only.
+2. **`crossLink` had three callers, not two** — `src/app/page.tsx` (the league
+   picker) passed one too. Removed.
+3. **`/set-password` renders no `AccountCluster`**, so it has no sign-out control
+   and cannot test the `/` fallback. The league picker is the page that draws the
+   cluster with no league; `26-sign-out-destination.spec.ts` uses that instead.
+4. **§4 omits the league switcher**, which lived inside the deleted `ManageNav`
+   shell and had three e2e tests across specs 15/16/20. It moved into the staff
+   row, member-gated and **below** the measured overflow bar. It cannot go in
+   `AccountCluster`'s `children` slot — that slot sits outside the `user` branch
+   and would render for anonymous visitors.
+
+### The measurements (hard stop 3, honoured)
+
+`site-header.tsx`'s numbers and its overflow bar are untouched. `MAX_INLINE_LINKS`
+was deleted **together with the bar it measured**, its rationale preserved as a
+`⛔ do not reintroduce without measuring` note. Because that bar now draws on staff
+pages for the first time, the existing overflow test re-runs `fits()` at 768px on
+`/obhl/dashboard` and `/obhl/seasons` with the staff row and switcher present —
+true on both.
+
+### ⚠️ One thing left for the user to decide
+
+Removing the picker's "Manage" link means **a staged league is no longer listed for
+the manager staging it** — the public list is public-only. Adding member leagues to
+that list is a visible design change the spec did not authorise, so it was not done.
+Flagged in the code and here.
+
+### Deliberately not done
+
+- In `schedule-builder-panel.tsx`, only the `select` column list and the two
+  `<TeamLogo>` calls. Nothing in `actions/schedule.ts`, `lib/schedule/*`, the
+  generate/publish/remove/one-off forms, or `actions/games.ts`.
+- No toggle for the staff row; no page moved between route groups; no guard
+  touched. No `db push`, no PR, no merge, no mutating `gh`.
+
+### Two environment facts worth keeping
+
+- `.env.local` pins `NEXT_PUBLIC_SITE_URL=http://localhost:3000`. In any worktree
+  **not** on port 3000, `24-password-auth.spec.ts` fails with
+  `ERR_CONNECTION_REFUSED` — the emailed recovery link redirects to :3000. Not a
+  code failure: export `NEXT_PUBLIC_SITE_URL=http://localhost:<your port>` beside
+  `PORT`. That is how the green full run above was produced.
+- Three transient `global-setup` failures (`relation "public.leagues" does not
+  exist`, PostgREST schema-cache misses, `profile_leagues` FK violations) came from
+  the parallel session resetting the **shared** database. Retried, not "fixed".
+  ⚠️ The parallel worktree has no `0044`, so a `db reset` from there drops the new
+  view columns until this branch's migrations are re-applied.
