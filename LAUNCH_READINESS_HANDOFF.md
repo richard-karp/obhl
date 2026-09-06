@@ -193,14 +193,15 @@ it was finished, and the commit that finished it says so.
 and a stale green is worse than none — `gh run list --branch <branch> --limit 1`
 is one command and is always right.
 
-| What                                                                 | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Who                                                                                                                                                        |
-| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played                                                                                                                                                                                                                                                                                                                                                                                                                                               | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in _Next action_                                      |
-| **`LAUNCH.md` Verification steps 4, 5, 6**                           | The manager badge, the league switcher, an announcement in one league only                                                                                                                                                                                                                                                                                                                                                                                                                               | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written                                                                         |
-| **Item 7** — custom SMTP, now the only phase left                    | ⛔ **Blocked on ACQUIRING A DOMAIN** — `vercel domains ls` is 0 and `vercel.app` cannot be verified in Resend. Runbook has the DNS records and the traps, plus three values to READ AND RECORD while in the dashboard: the allow-list entry for `/auth/confirm?next=…`, the password length, and `secure_password_change`. Phases 2-3 merged 2026-09-06; the email leg is what nobody can test until this is done                                                                                        | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
-| **`NEXT_PUBLIC_SITE_URL` is missing on Preview**                     | `vercel env ls` 2026-09-05: Production only                                                                                                                                                                                                                                                                                                                                                                                                                                                              | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run     |
-| ✅ **`supabase db push` for migration `0044`**                       | **DONE 2026-09-06, watched.** `--dry-run` first showed exactly one pending file; the push applied it and `supabase migration list --linked` now shows `0044` in the remote history. ⚠️ The columns themselves were NOT read back — this checkout's `.env.local` points at the LOCAL stack, so there is no production key here to query with. A `create or replace view` has no partial state, and a failure would have aborted before the history row, so the reading is that all four views are widened | done; #39 is now free to merge in either order                                                                                                             |
-| **The schedule write path has no transaction**                       | Compensation only — a runtime dying mid-batch leaves writes applied and uncompensated, publicly visible. Four review rounds each found a bug in the machinery that exists _because_ there is no `pg_advisory_xact_lock` RPC                                                                                                                                                                                                                                                                              | **the user, decided 2026-09-06: SHIP NOW, build the RPC first thing after launch.** See §5                                                                 |
+| What                                                                 | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Who                                                                                                                                                        |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in _Next action_                                      |
+| **`LAUNCH.md` Verification steps 4, 5, 6**                           | The manager badge, the league switcher, an announcement in one league only                                                                                                                                                                                                                                                                                                                                                                                                                                                          | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written                                                                         |
+| ⛔ **Buy a domain, and MOVE THE SITE ONTO IT**                       | **Decided 2026-09-06: the user wants the site on a custom domain, not only the mail** — which widens §7, whose runbook assumes the site stays on `obhl.vercel.app`. No code change: `grep vercel.app src/ e2e/` is empty and the host reaches the app through `NEXT_PUBLIC_SITE_URL` alone, in three places. The work is purchase → DNS → env var on Production AND Preview → Supabase Site URL → the whole redirect allow-list → Resend. ⚠️ The old `vercel.app` host keeps working as an alias and will hide a half-finished move | the user; `vercel env` and the Supabase dashboard are not an agent's to run. See _Custom domain_                                                           |
+| **Item 7** — custom SMTP, now the only phase left                    | ⛔ **Blocked on ACQUIRING A DOMAIN** — `vercel domains ls` is 0 and `vercel.app` cannot be verified in Resend. Runbook has the DNS records and the traps, plus three values to READ AND RECORD while in the dashboard: the allow-list entry for `/auth/confirm?next=…`, the password length, and `secure_password_change`. Phases 2-3 merged 2026-09-06; the email leg is what nobody can test until this is done                                                                                                                   | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
+| **`NEXT_PUBLIC_SITE_URL` is missing on Preview**                     | `vercel env ls` 2026-09-05: Production only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run     |
+| ✅ **`supabase db push` for migration `0044`**                       | **DONE 2026-09-06, watched.** `--dry-run` first showed exactly one pending file; the push applied it and `supabase migration list --linked` now shows `0044` in the remote history. ⚠️ The columns themselves were NOT read back — this checkout's `.env.local` points at the LOCAL stack, so there is no production key here to query with. A `create or replace view` has no partial state, and a failure would have aborted before the history row, so the reading is that all four views are widened                            | done; #39 is now free to merge in either order                                                                                                             |
+| **The schedule write path has no transaction**                       | Compensation only — a runtime dying mid-batch leaves writes applied and uncompensated, publicly visible. Four review rounds each found a bug in the machinery that exists _because_ there is no `pg_advisory_xact_lock` RPC                                                                                                                                                                                                                                                                                                         | **the user, decided 2026-09-06: SHIP NOW, build the RPC first thing after launch.** See §5                                                                 |
 
 ---
 
@@ -558,6 +559,66 @@ returning profile_id, tier;
 
 END COPY
 
+## Custom domain — DECIDED 2026-09-06, and it widens item 7
+
+⚠️ **The user wants the SITE on a custom domain, not only the mail.** Everything
+below §7 was written on the assumption that a domain was needed _only_ so Resend
+had something to verify, and it says explicitly that "the domain does not have to
+be the site's address" and that mail can come from `noreply@<domain>` while every
+link still points at `obhl.vercel.app`. **That is no longer the plan.** The
+site moves too. §7's runbook is still correct about the mail half; this section is
+the part it does not cover.
+
+**Measured 2026-09-06, and it is better news than it sounds:** `grep -rn
+"vercel\.app" src/ e2e/ supabase/config.toml` returns **nothing**. No host is
+hardcoded anywhere in the app. The site's address reaches the code through exactly
+one variable, `NEXT_PUBLIC_SITE_URL`, in exactly three places:
+
+| Where                                    | What it does if it is wrong                                                                          |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `src/app/layout.tsx:19` (`metadataBase`) | Open Graph and canonical URLs point at the old host. Cosmetic, invisible until someone shares a link |
+| `src/lib/actions/auth.ts:50`             | the magic-link `emailRedirectTo`                                                                     |
+| `src/lib/actions/auth.ts:95`             | the password-reset `redirectTo`                                                                      |
+
+So the code change is **none**. The work is a purchase, DNS, one env var per
+environment, and the Supabase settings that must agree with it.
+
+**The order matters, and the last two steps are the ones that bite:**
+
+1. **Buy the domain.** ⛔ Still the only thing with a lead time; nothing else here
+   can start. `vercel domains ls` was **0 Domains**, re-measured 2026-09-06 with a
+   control (`vercel teams ls` shows exactly one scope, so it is not hiding under
+   another team).
+2. `vercel domains add` and point the DNS. The `vercel.app` host keeps working as
+   an alias afterwards — see the trap below.
+3. **`vercel env` — set `NEXT_PUBLIC_SITE_URL` on Production AND Preview.** Preview
+   is already an open item in the table above for a different reason; the domain
+   makes it the same job. ⚠️ An agent may not run `vercel env`.
+4. **Supabase → Authentication → URL Configuration → Site URL.** This is the value
+   Supabase substitutes when a redirect is not on the allow-list.
+5. **The redirect allow-list — every entry, including the query-string one.** ⛔
+   The trap already documented for `/auth/confirm?next=/set-password` applies
+   again here in full: a redirect that is not on the list does **not** error. The
+   mail still sends, `redirect_to` is silently rewritten to the Site URL, and
+   under PKCE the route receives `?code=…` with no `type`, so there is no code fix
+   for it. Re-add every entry against the new host.
+6. **Resend** (item 7 phase 1) now verifies this same domain. That is the one part
+   §7 already covers end to end.
+
+⛔ **THE TRAP THAT WILL HIDE A MISTAKE: `obhl.vercel.app` KEEPS WORKING.** Vercel
+leaves it as an alias, so a stale allow-list entry, a missed env var, or a link
+someone bookmarked all keep functioning — and the flow appears healthy right up
+until somebody arrives on the new host and gets silently redirected to the old
+one. ⚠️ **Verify from the NEW host in a fresh private window**, not from a tab you
+already had open, and check that the emailed link's `redirect_to` names the new
+domain rather than assuming it does.
+
+⚠️ **The e2e note in `.env.local` gains a second meaning.** It pins
+`NEXT_PUBLIC_SITE_URL=http://localhost:3000`, which is why `24-password-auth.spec.ts`
+fails with `ERR_CONNECTION_REFUSED` in any worktree on another port. That stays
+true and unrelated to production — do not "fix" it by putting the new domain in
+`.env.local`.
+
 ## 7 — The other half of auth: only the email is left
 
 ✅ **THE CODE IS ON `main`** — PR #36, merged 2026-09-06 as `32262b5`. A staff
@@ -603,11 +664,19 @@ Do **not** read it to do the work below — nothing outstanding depends on it.
    records at the domain's authoritative nameservers. Someone has to **acquire a
    domain** before step (a) below is reachable at all.
 
+   ⚠️ **SUPERSEDED IN PART, 2026-09-06 — read _Custom domain_ above first.** The
+   paragraph below is still TRUE of what item 7 alone requires, and it stays
+   because it is the fallback if the move is ever deferred: mail can be sent from
+   a domain that does not serve the app. But the user has since decided the site
+   moves onto the custom URL too, so in practice the same domain does both jobs
+   and the extra steps (env var, Supabase Site URL, the whole redirect
+   allow-list) are in that section, not here.
+
    ✅ Two things make that smaller than it sounds. **The domain does not have to
-   serve the app** — Resend needs records at the registrar, nothing requires
-   moving off `obhl.vercel.app`, and mail can come from `noreply@<domain>` while
-   every link still points at the vercel.app host; this is not a domain
-   migration. And Resend's shared `onboarding@resend.dev` sender needs no DNS at
+   serve the app** — Resend needs records at the registrar, nothing _in item 7_
+   requires moving off `obhl.vercel.app`, and mail can come from
+   `noreply@<domain>` while every link still points at the vercel.app host; item
+   7 on its own is not a domain migration. And Resend's shared `onboarding@resend.dev` sender needs no DNS at
    all: it delivers **ONLY** to the address that owns the Resend account, which
    is enough to prove the (b) and (c) wiring and ⛔ **not** enough to unblock
    staff sign-in. Do not mark phase 1 done on it.
