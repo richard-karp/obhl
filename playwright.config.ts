@@ -42,6 +42,14 @@ export default defineConfig({
 
   use: {
     baseURL: `http://localhost:${PORT}`,
+    // Per-action budget for `fill`, `click`, `check` and friends. Without it
+    // an action falls back to the whole test budget, so one that can never
+    // resolve — a locator on an element the page never renders, say — burns
+    // every remaining second and reports only `waiting for <locator>`, naming
+    // what it waited on and nothing about why. Above `expect`'s 15s so a slow
+    // page still settles, and well below the 60s test budget so the action is
+    // what fails, by name, with time left to report it.
+    actionTimeout: 20_000,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
