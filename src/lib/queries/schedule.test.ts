@@ -31,12 +31,19 @@ const GATEWAY_502 = "An invalid response was received from the upstream server";
  * its query from the factory, so it lands as a *new* call — which is exactly
  * how these tests tell a first attempt from a second one.
  */
-function fakeClient(failsOnCall: (call: number) => boolean) {
+function fakeClient(
+  shouldFail: (read: { label: string; nth: number; call: number }) => boolean,
+) {
   const calls: string[] = [];
+  const perLabel = new Map<string, number>();
 
   const build = (label: string) => {
     const call = calls.push(label); // push returns the new 1-based length
-    const failed = failsOnCall(call);
+    // Per-label attempt number, so a test can say "the first time the RPC is
+    // read" without knowing where in the `Promise.all` that read sits.
+    const nth = (perLabel.get(label) ?? 0) + 1;
+    perLabel.set(label, nth);
+    const failed = shouldFail({ label, nth, call });
     const settle = () =>
       Promise.resolve(
         failed
@@ -91,9 +98,15 @@ describe("getPublishState — a lost response is not a failed read", () => {
   });
 
   it("absorbs a single gateway 502 on one read — the CI failure", async () => {
-    // Call 1 is the live-games count, the first entry in the `Promise.all` and
-    // one of the six that lock. Its retry is call 8, and it succeeds.
-    const { client, calls } = fakeClient((call) => call === 1);
+    // ⛔ TARGETED BY NAME, NOT BY POSITION. `season_is_started` is one of the
+    // six reads that lock, and naming it keeps this test testing what it claims
+    // if the `Promise.all` is ever reordered. Keyed off an index it could pass
+    // VACUOUSLY instead: `lowestId` is deliberately excluded from the failure
+    // list, so failing whichever read happened to sit first would leave
+    // `readFailed` false whether the retry worked or not.
+    const { client, calls } = fakeClient(
+      ({ label, nth }) => label === "rpc:season_is_started" && nth === 1,
+    );
 
     const state = await getPublishState(SEASON, { client });
 
@@ -103,7 +116,9 @@ describe("getPublishState — a lost response is not a failed read", () => {
   });
 
   it("absorbs a 502 on every read at once", async () => {
-    const { client, calls } = fakeClient((call) => call <= 7);
+    // The first seven calls are the seven reads' first attempts, whatever order
+    // they were built in — so this stays true under reordering too.
+    const { client, calls } = fakeClient(({ call }) => call <= 7);
 
     const state = await getPublishState(SEASON, { client });
 
