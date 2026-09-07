@@ -184,8 +184,13 @@ begin
   declare
     v_fall uuid;
   begin
+    -- ⛔ THIS IS THE SEASON THE WHOLE CHANGE EXISTS FOR. It must be UNSTARTED
+    -- for the builder specs to work: `season_is_started` flipping is what
+    -- locks the builder and falsifies `11-`'s stated premise. The anchor is a
+    -- Tuesday 9–15 days out for every possible weekday of "today".
+    -- ⚠️ The year in the name is not a claim about the dates.
     insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system)
-      values (v_league, 'Fall 2026', date '2026-09-15', date '2027-03-31', false,
+      values (v_league, 'Fall 2026', v_fall_anchor, v_fall_anchor + 197, false,
               '{"win":2,"tie":1,"loss":0}'::jsonb)
       returning id into v_fall;
 
