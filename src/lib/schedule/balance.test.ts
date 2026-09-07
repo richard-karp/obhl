@@ -136,6 +136,26 @@ describe("preserved", () => {
   });
 
   /**
+   * ⚠️ THIS TEST EXISTS BECAUSE THE PARAMETER WAS ADDED AND NEVER PASSED. The
+   * `nameOf` argument was written, `balance.ts` grew it, and the one production
+   * call site kept calling `preserved` with two arguments for a whole review
+   * cycle — every refusal still naming a UUID, with the full suite green,
+   * because nothing asserted the name ever reached the message. A parameter
+   * that no test observes is a parameter that can quietly go unwired.
+   */
+  it("names teams through nameOf when one is supplied", () => {
+    const after = countsFor([
+      row("g1", "A", "B", TUE),
+      row("g2", "C", "A", TUE_LATE),
+      row("g3", "A", "C", THU),
+      row("g4", "B", "D", THU),
+    ]);
+    const names: Record<string, string> = { A: "Falcons", D: "Otters" };
+    const why = preserved(before, after, (id) => names[id] ?? id);
+    expect(why).toMatch(/^(Falcons|Otters) would play \d+ games, not \d+\./);
+  });
+
+  /**
    * A team the schedule has never seen must be caught rather than crash on a
    * missing key — `Z` has no "before" count at all, and `B`, whom it replaced,
    * has no "after" one. Either name is a correct report; both are the same edit.

@@ -105,12 +105,24 @@ async function seasonRows(
   return (data ?? []) as SeasonRow[];
 }
 
-/** Team id → name, for messages a manager can act on. */
+/**
+ * Team id → name, for messages a manager can act on.
+ *
+ * ⚠️ A FAILED READ HERE IS SILENT BY DESIGN, AND THAT IS THE POINT OF THIS
+ * COMMENT. Names are cosmetic: every refusal below is still correct without
+ * them, just uglier, so a lookup failure must not turn a legal edit into a
+ * refusal. But it should not vanish either — `seasonRows` throws on the same
+ * condition, and a run where every message names a UUID is worth being able to
+ * find in the logs.
+ */
 async function namesFor(admin: Admin, seasonId: string) {
-  const { data } = await admin
+  const { data, error } = await admin
     .from("season_teams")
     .select("teams(id, name)")
     .eq("season_id", seasonId);
+  if (error) {
+    console.error("namesFor: falling back to team ids in messages", error);
+  }
   const map = new Map<string, string>();
   for (const r of (data ?? []) as {
     teams: { id: string; name: string } | null;
@@ -139,7 +151,8 @@ function refusal(
     if (why) return why;
   }
   return (
-    legalAfter(after, nameOf) ?? preserved(countsFor(rows), countsFor(after))
+    legalAfter(after, nameOf) ??
+    preserved(countsFor(rows), countsFor(after), nameOf)
   );
 }
 
@@ -279,6 +292,23 @@ export async function exchangeSlots(input: {
   }
   if (x0.id === y0.id)
     return { ok: false, message: "Pick two different games." };
+  // ⛔ THE SAME REFUSAL `exchangeTeams` MAKES, AND FOR THE SAME REASON. Every
+  // check below reads one side of the season (`seasonRows` is scoped by
+  // `is_draft`), so a cross-set pair puts the partner outside every list that
+  // reasons about it. It fails closed — the scoped write cannot find the row —
+  // but it fails as "the schedule changed while this was on screen", which is
+  // not what happened and tells the manager nothing. Say the real reason.
+  //
+  // ⚠️ This landed in `exchangeTeams` and NOT here, and the commit message
+  // claimed both. Nothing caught it: no test exercises a cross-set pair through
+  // this door. If you add a third exchange, add this guard to it too.
+  if (x0.is_draft !== y0.is_draft) {
+    return {
+      ok: false,
+      message:
+        "One of those games is a draft and the other is published. A trade has to be within one or the other.",
+    };
+  }
   if (!x0.scheduled_at || !y0.scheduled_at) {
     return {
       ok: false,
@@ -458,12 +488,20 @@ export async function replacementOptions(input: {
 
 /* ----------------------------------------------------------------- plumbing */
 
+/**
+ * ⛔ A FAILED READ IS NOT A MISSING GAME. Every caller turns `null` into "That
+ * game no longer exists", which is a confident answer to a question this never
+ * asked — the row may be there and the read may have failed. Throwing sends it
+ * to the caller's own catch, which says the honest thing ("that didn't go
+ * through, reload") instead of inventing a cause.
+ */
 async function oneRow(admin: Admin, id: string): Promise<SeasonRow | null> {
-  const { data } = await admin
+  const { data, error } = await admin
     .from("games")
     .select(ROW_COLS)
     .eq("id", id)
     .maybeSingle();
+  if (error) throw new Error(`Could not read game ${id}: ${error.message}`);
   return (data as SeasonRow) ?? null;
 }
 
