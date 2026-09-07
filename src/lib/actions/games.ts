@@ -5,7 +5,7 @@ import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireLeagueRole, type AppRoleList } from "@/lib/auth/guards";
 import { leagueOfGame } from "@/lib/league/of-entity";
-import { leagueOffset } from "@/lib/format";
+import { leagueDateKey, leagueOffset } from "@/lib/format";
 import { logAudit } from "@/lib/audit";
 import { check, revalidateAfterScore } from "@/lib/games/shared";
 import { finalizeGameById, reopenGameById } from "@/lib/games/finalize";
@@ -399,10 +399,27 @@ async function setStatus(
   revalidateAfterScore(game_id, true);
 }
 
+/* ---------------------------------------------------- schedule state, not scoring
+
+ ⛔ THE FOUR BELOW ARE MANAGER-ONLY, AND THEY USED TO ADMIT SCOREKEEPERS.
+ Changed 2026-09-07 on the user's instruction: "scorekeepers should not have
+ that power, they can only score games."
+
+ The line is scoring versus SCHEDULE STATE. A scorekeeper still runs a
+ scoresheet end to end — lineups, substitutes, stats, goalies, empty net,
+ finalize, reopen. What they no longer do is decide whether a game happens, or
+ when. Those are the manager's, and two of them (postpone, reschedule) move a
+ game off its night, which is exactly what the balance invariant in
+ `schedule-edits.ts` exists to govern.
+
+ ⚠️ The buttons must disappear too. A guard that refuses a control the user can
+ still see reads as a broken app, not a permission — see the score page.
+*/
+
 /** Mark a game cancelled (drops out of upcoming + standings; no result). */
 export async function cancelGame(formData: FormData) {
   const game_id = String(formData.get("game_id"));
-  await requireGameRole(game_id, "scorekeeper", "league_manager");
+  await requireGameRole(game_id, "league_manager");
   await setStatus(game_id, "cancelled");
 }
 
@@ -418,7 +435,7 @@ export async function cancelGame(formData: FormData) {
  */
 export async function postponeGame(formData: FormData) {
   const game_id = String(formData.get("game_id"));
-  await requireGameRole(game_id, "scorekeeper", "league_manager");
+  await requireGameRole(game_id, "league_manager");
   const supabase = await createClient();
   const { error } = await supabase.rpc("postpone_game", { p_game: game_id });
   check(error, "Postpone game");
@@ -433,20 +450,51 @@ export async function postponeGame(formData: FormData) {
  */
 export async function restoreGame(formData: FormData) {
   const game_id = String(formData.get("game_id"));
-  await requireGameRole(game_id, "scorekeeper", "league_manager");
+  await requireGameRole(game_id, "league_manager");
   const supabase = await createClient();
   const { error } = await supabase.rpc("restore_game", { p_game: game_id });
   check(error, "Restore game");
   revalidateAfterScore(game_id, true);
 }
 
-/** Move a game to a new date/time (and mark it scheduled). */
+/**
+ * Move a game to a new date/time (and mark it scheduled).
+ *
+ * ⛔ SAME NIGHT ONLY, ONCE A GAME IS `scheduled`. Moving a scheduled game to a
+ * different night takes a game off one night and gives it to another, which
+ * breaks the games-per-night count the user declared non-negotiable. That move
+ * is `exchangeSlots` in `schedule-edits.ts`, where it trades with a game on the
+ * target night and both counts survive.
+ *
+ * ⚠️ A POSTPONED GAME IS EXEMPT, AND HAS TO BE. Postponing takes the game off
+ * its night already — `balance.ts` stops counting it — so there is nothing left
+ * to trade with. Without this carve-out postponement would be a one-way trip:
+ * a rink closes, and the game could never be put back. Restoring it to any
+ * night is recovery, not an edit that unbalances anything.
+ */
 export async function rescheduleGame(formData: FormData) {
   const supabase = await createClient();
   const game_id = String(formData.get("game_id"));
-  await requireGameRole(game_id, "scorekeeper", "league_manager");
+  await requireGameRole(game_id, "league_manager");
   const dt = String(formData.get("scheduled_at") ?? "").trim();
   if (!dt) return;
+
+  const { data: current } = await supabase
+    .from("games")
+    .select("status, scheduled_at")
+    .eq("id", game_id)
+    .maybeSingle();
+  if (
+    current?.status === "scheduled" &&
+    current.scheduled_at &&
+    leagueDateKey(`${dt}:00${leagueOffset(dt)}`) !==
+      leagueDateKey(current.scheduled_at)
+  ) {
+    throw new Error(
+      "A scheduled game can only be moved to another time on the same night. " +
+        "To move it to a different night, trade nights with another game.",
+    );
+  }
   // datetime-local "YYYY-MM-DDTHH:MM" interpreted in the league zone (DST-aware).
   const { error } = await supabase
     .from("games")
