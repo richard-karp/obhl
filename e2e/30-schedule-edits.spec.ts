@@ -555,27 +555,23 @@ test.describe("Path 28 — manual schedule edits", () => {
    * server action — the action id is a build artefact — so what is asserted
    * here is the RLS half from `ACCESS_CONTROL_HANDOFF.md`.
    *
-   * ⛔ `fixme` BECAUSE IT FAILS, AND IT FAILS FOR A REAL REASON. Run it and a
-   * scorekeeper's own anon-key session cancels a published game outright, with
-   * no error. `0032`'s "scorekeeper update games" policy is `for update` over
-   * the WHOLE ROW — RLS cannot restrict columns — so a scorekeeper of that
-   * league may write `status`, `scheduled_at`, `home_team_id` and
-   * `away_team_id` as freely as they write goals.
+   * ⛔ THIS WAS A `fixme` FOR ONE COMMIT, AND THE REASON IS WORTH KEEPING. It
+   * failed when written: a scorekeeper's own anon-key session cancelled a
+   * published game outright, with no error. `0032`'s "scorekeeper update games"
+   * policy is `for update` over the WHOLE ROW — RLS cannot restrict columns —
+   * so a scorekeeper of that league wrote `status`, `scheduled_at` and both
+   * team ids as freely as goals.
    *
-   * The policy is PRE-EXISTING (0009, revised in 0032) and was correct while
-   * scorekeepers were legitimate cancellers. The user's 2026-09-07 rule —
-   * scorekeepers "can only score games" — is what makes it a hole: this branch
-   * removed scorekeepers from the four action guards, and there is nothing
-   * behind those guards. Closing it needs a BEFORE UPDATE trigger that refuses
-   * a non-manager changing the schedule columns (a `with check` cannot see
-   * OLD), which is a migration against production and the user's call to push.
+   * The policy was PRE-EXISTING (0009, revised in 0032) and correct while
+   * scorekeepers were legitimate cancellers. The 2026-09-07 rule — scorekeepers
+   * "can only score games" — is what made it a hole, by moving four actions to
+   * manager-only guards with nothing behind them.
    *
-   * ⚠️ LEAVE THIS AS `fixme`, DO NOT DELETE IT. It is the executable record of
-   * the hole and it turns green the day the trigger lands. Folded into
-   * `docs/superpowers/plans/2026-09-06-schedule-write-rpc.md` step 5 on
-   * 2026-09-07; the trap is written up in `ACCESS_CONTROL_HANDOFF.md`.
+   * `0046`'s BEFORE UPDATE trigger closes it. ⚠️ IF THIS TEST FAILS AGAIN, THE
+   * TRIGGER IS GONE OR HAS BEEN NARROWED — it is not a flake, and the fix is
+   * never to skip it.
    */
-  test.fixme("a scorekeeper's own session cannot change a game's schedule state", async () => {
+  test("a scorekeeper's own session cannot change a game's schedule state", async () => {
     const season = await seasonId();
     const { data: game } = await admin()
       .from("games")

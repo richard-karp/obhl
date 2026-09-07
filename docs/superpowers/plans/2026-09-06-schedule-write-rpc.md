@@ -130,7 +130,7 @@ commits, in this order, so the swap can be reverted without touching the databas
 - [x] **4 — the tests that replace the deleted ones.** The round-1 interleaving
       case (two repair plans, one season, concurrently) and a deliberate failure on
       row 40 of 60 asserting all 60 unchanged. Spec §6.2-6.3.
-- [ ] **5 — close the scorekeeper column hole.** ⛔ **FOLDED IN HERE 2026-09-07,
+- [x] **5 — close the scorekeeper column hole.** ⛔ **FOLDED IN HERE 2026-09-07,
       NOT PART OF THE ORIGINAL RPC DESIGN.** `0032`'s `"scorekeeper update games"`
       policy is `for update` over the WHOLE ROW, and RLS cannot restrict columns —
       so a scorekeeper of that league can write `status`, `scheduled_at`,
@@ -307,3 +307,51 @@ function now and every one of them is green.
 ⚠️ `src/lib/queries/schedule.test.ts` fails `prettier --check` on this branch.
 **Pre-existing and untouched by this work** — it arrives that way from below.
 Left alone rather than swept into this commit.
+
+### Step 5 — `0046_schedule_columns_are_managers_only.sql`, applied `--local` only
+
+A `before update` row trigger on `games`. A non-manager is refused when the
+update changes `scheduled_at`, `home_team_id`, `away_team_id`, `is_draft`,
+`season_id` or `postponed_from` — or moves `status` into or out of
+`{scheduled, in_progress, final}`.
+
+⚠️ **`status` COULD NOT BE BLANKET-PROTECTED, and finding that out changed the
+design.** The obvious trigger — "a non-manager may not change status" — breaks
+scoring outright: `finalizeGame` writes `final`, `reopenGame` and `bumpStat`
+write `in_progress`, all with the scorekeeper's own session
+(`src/lib/games/finalize.ts:72,102`, `src/lib/actions/games.ts:183`). The line is
+not the column, it is which statuses: `postponed` and `cancelled` are decisions
+about whether the game HAPPENS, and everything else is scoring.
+
+✅ **A second door, not in the plan and found while writing it.** `postpone_game`
+and `restore_game` (`0025`) are `security invoker` and granted to
+`authenticated`, so a scorekeeper could call them directly and get the same
+result without touching the table. Because they are invoker their UPDATE runs as
+the caller and lands in the trigger, so one check covers both.
+
+⛔ **THE FIRST CONTROL WAS INVALID AND IS RECORDED HERE SO IT IS NOT REPEATED.**
+Dropping the trigger and re-running the e2e showed the test STILL PASSING —
+`global-setup` resets the database on every run and had re-applied `0046` before
+the test executed. A green test proved nothing about the trigger.
+
+The valid control talks to PostgREST directly, signed in as the scorekeeper, no
+reset in the loop:
+
+```
+=== WITH the trigger (0046 applied) ===
+  update error : Only a league manager can change a game's schedule. Scoring a game is
+  status now   : scheduled  (was scheduled)
+  VERDICT      : REFUSED ✓
+
+=== WITHOUT the trigger — THE CONTROL ===
+  update error : NONE
+  status now   : cancelled  (was scheduled)
+  VERDICT      : CANCELLED — hole open ✗
+
+=== restored ===
+  VERDICT      : REFUSED ✓
+```
+
+`e2e/30-schedule-edits.spec.ts`'s `test.fixme` is now a live `test` and passes,
+and `05-scoring` is green — a scorekeeper still dresses players, records goals
+and finalizes.
