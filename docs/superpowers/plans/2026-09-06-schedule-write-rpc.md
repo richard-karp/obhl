@@ -23,10 +23,16 @@
    two-psql race in spec §6 does; the compensation this replaces passed three
    rounds of unit tests with a lost-update bug in it.
 
-**Status: NOT STARTED — blocked on launch, deliberately.** ⛔ Do not begin before
-both leagues are running live. Written 2026-09-06; decided the same day, after
-four review rounds, that shipping without the transaction and building it
-afterwards beat pushing new SQL days before a permanent season lock.
+**Status: STARTED 2026-09-07.**
+
+⚠️ **THE "BOTH LEAGUES LIVE" PRECONDITION IS NOT MET, AND IS BEING OVERRIDDEN
+DELIBERATELY.** One league is live; `LAUNCH.md` steps 5-6 are still deferred for
+want of a second. The gate's stated REASON was that new SQL days before a
+permanent season lock is a larger risk than the thing it fixes — and the user
+removed exactly that on 2026-09-07: "Forget about the launch. The season is ready
+to go. It's no longer a consideration." The risk the gate was pricing is gone; the
+gate itself is therefore stale rather than unmet. Recorded here rather than
+quietly ignored.
 
 ---
 
@@ -36,36 +42,73 @@ afterwards beat pushing new SQL days before a permanent season lock.
 before the season locked and before either league went live, and a spec ages
 against the tree it was written for. Four commands and a paragraph.
 
-- [ ] **Re-measure.** `wc -l src/lib/schedule/gameWrites.ts` (was **360**, watched
+- [x] **Re-measure.** `wc -l src/lib/schedule/gameWrites.ts` (was **360**, watched
       2026-09-06 at `2aa03fe`). Re-check the line references in spec §3
       (`schedule.ts:922-1000`) and §2.4 (`schedule.ts:955-961`). ⚠️ If any drifted,
       fix the SPEC in the same commit — do not work around a stale reference.
 
-      Measured: ______
+      Measured: **`gameWrites.ts` is still 360 lines — unchanged, matches.** ⛔
+      **But §3's `schedule.ts:922-1000` and §2.4's `schedule.ts:955-961` are
+      STALE.** That block — `writeGames`, the Supabase binding and its failure
+      audit — was extracted to `src/lib/schedule/writeGames.ts` (118 lines) in
+      `c541019` on `feat/manual-schedule-edits`, because `schedule-edits.ts`
+      needed it and a `"use server"` module cannot export it. Per the
+      instruction above, the SPEC is corrected in the same commit rather than
+      worked around. The adapter also gained a `statuses` parameter there, which
+      the RPC must carry forward — see the note under step 1.
 
-- [ ] **The state of the season.** Which seasons are live, whether
+- [x] **The state of the season.** Which seasons are live, whether
       `season_is_started` is true for them, and how many games have been played.
       This is what makes §2.1 a live hazard rather than a theoretical one, and it
       names what a mistake would damage.
 
-      Measured: ______
+      Measured (local stack, 2026-09-07 — ⚠️ PRODUCTION IS NOT READABLE FROM
+      THIS CHECKOUT; `.env.local` points at the local stack, so production's
+      state is taken on the user's report, not measured):
 
-- [ ] **What is NOT changing** — in your own words, not copied from spec §8. At
+      | Season | started | live games | played |
+      | --- | --- | --- | --- |
+      | Spring 2026 (league A) | **true** | 15 | 10 |
+      | Spring 2026 (league B) | **true** | 6 | 4 |
+      | Edit/One-Off/Repair test seasons | false | 18 each | 0 |
+
+      ✅ Two started seasons holding played games means §2.1 is a LIVE hazard in
+      the fixture, not a theoretical one: if the new function inherits `0026`'s
+      started-season gate, repair and night moves die on exactly these two and
+      the e2e still passes, because every spec seeds an unstarted season.
+
+- [x] **What is NOT changing** — in your own words, not copied from spec §8. At
       minimum: the three call sites, what a repair decides, the one-way door.
 
-      Stated: ______
+      Stated: The three callers — `rescheduleNight`, `applyScheduleRepair` and
+      `applyOneOffGame` — keep their signatures and keep deciding what to write;
+      this changes only HOW those writes land. A repair still chooses its own
+      plan, and nothing here re-ranks or re-computes one. Publish/replace stays
+      the one-way door it is, in `replace_published_schedule`, untouched. No
+      `season_is_started` check goes anywhere near the new function. The new
+      `schedule-edits.ts` actions become a fourth caller and are the reason the
+      function must accept a widened status set and an `is_draft` scope.
 
-- [ ] **Rollback rehearsal.** Confirm the two-commit split still applies
+- [x] **Rollback rehearsal.** Confirm the two-commit split still applies
       (migration first, then the TypeScript swap) and write the exact revert
       command for the swap commit here, before you need it.
 
-      Command: ______
+      Command: Two commits, migration first. Revert the swap alone with
+      `git revert --no-edit <swap-sha>`, which restores the TypeScript
+      compensation path and leaves `0045` in the database unused and harmless —
+      no down-migration, and nothing to undo on the database side.
 
-- [ ] **User's go-ahead**, dated. ⚠️ Also confirm who runs `supabase db push` —
+- [x] **User's go-ahead**, dated. ⚠️ Also confirm who runs `supabase db push` —
       it is the user's, never an agent's, and `db reset --linked` wipes
       production and must not appear anywhere in this work.
 
-      Given: ______
+      Given: **2026-09-07, by the user** — "A+B+C all in one PR", with the
+      launch explicitly removed as a consideration (quoted above).
+      ⛔ **`supabase db push` is the USER'S to run, never an agent's.** Every
+      migration here is applied `--local` only from this checkout.
+      `supabase db reset --linked` appears nowhere in this work and must not.
+      ⚠️ And the standing rule this triggers: the migration must reach production
+      BEFORE the code that calls it merges, or the deploy is the outage.
 
 ## The steps, one line each
 
