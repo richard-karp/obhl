@@ -4,7 +4,7 @@ import { resolveLeagueBySlug } from "@/lib/league/current";
 import { getActiveContext, getManageContext } from "@/lib/queries/season";
 import { getSchedule, type GameWithTeams } from "@/lib/queries/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
-import { canScoreLeague } from "@/lib/auth/guards";
+import { canManageLeague, canScoreLeague } from "@/lib/auth/guards";
 import Link from "next/link";
 import { ScheduleFilter } from "@/components/public/schedule-filter";
 import { GameRow } from "@/components/public/game-row";
@@ -13,7 +13,11 @@ import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { NoSeason } from "@/components/public/no-season";
 import { SeasonSwitcher } from "@/components/manage/season-switcher";
-import { formatLongDate, leagueDateKey } from "@/lib/format";
+import { formatLongDate, leagueDateKey, leagueTimeKey } from "@/lib/format";
+import {
+  ScheduleEditPanel,
+  type EditableGame,
+} from "@/components/manage/schedule-edit-panel";
 
 export const metadata: Metadata = { title: "Schedule" };
 
@@ -127,6 +131,27 @@ export default async function SchedulePage({
     ? groupByDate(games.filter((g) => g.status === "cancelled"))
     : [];
 
+  // ⛔ `canManageLeague`, NOT `canScore`. This page is shared — see the note in
+  // the header about the one-off button that was deliberately kept off it,
+  // because `canScore` admits scorekeepers, who cannot reach the builder. The
+  // edit panel is the same trap: drawing it on `canScore` would offer two of
+  // three entitled roles a control their own guard refuses.
+  const canManage = await canManageLeague(resolved.id);
+  const editable: EditableGame[] = canManage
+    ? games
+        .filter((g) => g.status !== "final" && g.scheduled_at)
+        .map((g) => ({
+          id: g.id,
+          label: `${g.away_team?.name ?? "?"} @ ${g.home_team?.name ?? "?"} — ${formatLongDate(g.scheduled_at!)}`,
+          night: leagueDateKey(g.scheduled_at!),
+          localAt: `${leagueDateKey(g.scheduled_at!)}T${leagueTimeKey(g.scheduled_at!)}`,
+          homeId: g.home_team?.id ?? "",
+          awayId: g.away_team?.id ?? "",
+          homeName: g.home_team?.name ?? "?",
+          awayName: g.away_team?.name ?? "?",
+        }))
+    : [];
+
   return (
     <div className="space-y-8">
       <PageHeader title="Schedule" description={ctx.season.name}>
@@ -164,6 +189,40 @@ export default async function SchedulePage({
         />
       ) : (
         <div className="space-y-10">
+          {canManage ? (
+            <div className="space-y-3">
+              <ScheduleEditPanel
+                games={editable}
+                teams={teams.map((t) => ({ id: t.id, name: t.name }))}
+              />
+              {/*
+                The other two in-season tools, reachable from where a manager
+                actually looks at games. ⚠️ They are NOT removed from the
+                builder: its locked card names them as the things still
+                possible once generate/replace/remove are gone, which is the
+                one place that message belongs. Reachable from both, hidden in
+                neither.
+              */}
+              <p className="text-muted-foreground text-sm">
+                Bigger changes:{" "}
+                <Link
+                  href={`/${slug}/schedule-builder/repair`}
+                  className="text-foreground font-medium underline"
+                >
+                  repair the schedule
+                </Link>{" "}
+                to even out the nights still to come, or{" "}
+                <Link
+                  href={`/${slug}/schedule-builder/one-off`}
+                  className="text-foreground font-medium underline"
+                >
+                  schedule a one-off game
+                </Link>{" "}
+                for a final or semifinal.
+              </p>
+            </div>
+          ) : null}
+
           <section className="space-y-4">
             <h2 className="text-lg font-bold tracking-tight">Upcoming</h2>
             {upcomingGroups.length === 0 ? (

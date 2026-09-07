@@ -31,6 +31,10 @@ import { Button } from "@/components/ui/button";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ScheduleGenerateForm } from "@/components/manage/schedule-generate-form";
+import {
+  ScheduleEditPanel,
+  type EditableGame,
+} from "@/components/manage/schedule-edit-panel";
 import { RescheduleNightForm } from "@/components/manage/reschedule-night-form";
 import { PublishControls } from "@/components/manage/publish-controls";
 import { RemoveControls } from "@/components/manage/remove-controls";
@@ -300,6 +304,28 @@ export async function ScheduleBuilderPanel({
     (d) => (byDate.get(d)?.length ?? 0) < fullestNight,
   ).length;
   const spareIceSlots = fullestNight * draftDates.length - placed.length;
+
+  /*
+    The same edit panel the Games page draws, over the DRAFT rows.
+
+    ⛔ A DRAFT NEEDS THESE AS MUCH AS A PUBLISHED SCHEDULE DOES — the user asked
+    for both explicitly. The actions do not care which they are working on (they
+    read a season's rows, published or not), so this is the same component with a
+    different source. Letting a draft drift unbalanced would only move the
+    problem to publish time.
+  */
+  const editableDrafts: EditableGame[] = (drafts ?? [])
+    .filter((g: any) => g.scheduled_at)
+    .map((g: any) => ({
+      id: g.id,
+      label: `${g.away?.name ?? "?"} @ ${g.home?.name ?? "?"} — ${formatLongDate(g.scheduled_at)}`,
+      night: leagueDateKey(g.scheduled_at),
+      localAt: `${leagueDateKey(g.scheduled_at)}T${leagueTimeKey(g.scheduled_at)}`,
+      homeId: g.home_team_id,
+      awayId: g.away_team_id,
+      homeName: g.home?.name ?? "?",
+      awayName: g.away?.name ?? "?",
+    }));
 
   return (
     <div className="space-y-6">
@@ -879,6 +905,19 @@ export async function ScheduleBuilderPanel({
               </section>
             ))}
           </div>
+
+          {/*
+            Adjust the draft before it goes live. Same component, same rules as
+            the Games page — a draft that drifts unbalanced would just carry the
+            problem across the publish.
+          */}
+          <ScheduleEditPanel
+            games={editableDrafts}
+            teams={enrolledTeams.map((t: { id: string; name: string }) => ({
+              id: t.id,
+              name: t.name,
+            }))}
+          />
         </>
       )}
     </div>

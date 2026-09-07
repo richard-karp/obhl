@@ -24,8 +24,14 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
     { path: "/people", label: "People & Roles" },
     { path: "/seasons", label: "Seasons" },
     { path: "/teams", label: "Teams" },
-    { path: "/schedule-builder", label: "Schedule Builder" },
-    { path: "/schedule", label: "Games" },
+    // ⛔ ORDER AND LABELS CHANGED 2026-09-07, on the user's observation that
+    // in-season editing "shouldn't be hidden in the Schedule Builder tab".
+    // `/schedule` is where a live schedule is now changed, so it comes first
+    // and is named for the thing rather than for a list; the builder keeps only
+    // generate / review / publish, which is what "Build" says and what its own
+    // lock permanently disables once the season starts.
+    { path: "/schedule", label: "Schedule" },
+    { path: "/schedule-builder", label: "Build Schedule" },
     { path: "/announcements", label: "Announcements" },
     { path: "/rules", label: "Rules" },
     { path: "/import", label: "Import" },
