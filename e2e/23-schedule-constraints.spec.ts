@@ -9,6 +9,50 @@
  */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+
+function admin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SECRET_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+}
+
+/**
+ * The seeded Fall season's first night, read from the database.
+ *
+ * ⛔ NEVER RESTATE THIS DATE. It used to be `const FIRST_NIGHT = "2026-09-15"`,
+ * which was the seed's own literal — and on 2026-09-16 that season would have
+ * STARTED, locking the builder and falsifying this spec's premise. The seed owns
+ * the date; a spec that repeats it can disagree with the fixture it runs against.
+ */
+async function fallStart(): Promise<string> {
+  const { data } = await admin()
+    .from("seasons")
+    .select("starts_on")
+    .eq("name", "Fall 2026")
+    .single();
+  return data!.starts_on as string;
+}
+
+/**
+ * The second Tuesday of the generated window — the first night's date plus
+ * seven days.
+ *
+ * ⛔ COMPUTED, NOT PINNED. This used to be the literal `"2026-09-22"`, which
+ * only worked because the old `FIRST_NIGHT` was the literal `"2026-09-15"` —
+ * exactly a week earlier and also a Tuesday. `fallStart()` is guaranteed a
+ * Tuesday (SCHEDULE_HANDOFF), so a week after it is always a Tuesday too, but
+ * the calendar date itself moves with the clock. A test that names a slot_on
+ * request by an absolute date has to derive that date from the same anchor
+ * the generate form uses, or the request lands outside the generated season.
+ */
+async function secondTuesday(): Promise<string> {
+  const d = new Date(`${await fallStart()}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 7);
+  return d.toISOString().slice(0, 10);
+}
 
 async function signedInAsManager(page: Page) {
   await page.goto("/login");
@@ -28,9 +72,6 @@ async function goToFallSeasonSetup(page: Page) {
 
 /** See `11-schedule-builder.spec.ts` — Phase S runs five candidates. */
 const AFTER_GENERATE = { timeout: 45_000 };
-
-/** The first game night of the window these tests generate over. */
-const FIRST_NIGHT = "2026-09-15";
 
 /** Pick the first real team in the constraints card's picker, and return its name. */
 async function firstTeamName(page: Page): Promise<string> {
@@ -217,11 +258,11 @@ test.describe("Path 24 — schedule constraints", () => {
   }) => {
     const name = await firstTeamName(page);
     await page.getByLabel("Request", { exact: true }).selectOption("bye_on");
-    await page.getByLabel("Date", { exact: true }).fill(FIRST_NIGHT);
+    await page.getByLabel("Date", { exact: true }).fill(await fallStart());
     await page.getByRole("button", { name: "Add request" }).click();
 
     await expect(
-      requestList(page).filter({ hasText: `${name} byes on ${FIRST_NIGHT}` }),
+      requestList(page).filter({ hasText: `${name} byes on ${await fallStart()}` }),
     ).toBeVisible();
 
     await page
@@ -229,7 +270,7 @@ test.describe("Path 24 — schedule constraints", () => {
       .first()
       .click();
     await expect(
-      requestList(page).filter({ hasText: `${name} byes on ${FIRST_NIGHT}` }),
+      requestList(page).filter({ hasText: `${name} byes on ${await fallStart()}` }),
     ).toHaveCount(0);
   });
 
@@ -238,7 +279,7 @@ test.describe("Path 24 — schedule constraints", () => {
   }) => {
     await firstTeamName(page);
     await page.getByLabel("Request", { exact: true }).selectOption("slot_on");
-    await page.getByLabel("Date", { exact: true }).fill(FIRST_NIGHT);
+    await page.getByLabel("Date", { exact: true }).fill(await fallStart());
     // No ice time.
     await page.getByRole("button", { name: "Add request" }).click();
     await expect(page.getByText("Enter the ice time as HH:MM.")).toBeVisible();
@@ -252,21 +293,21 @@ test.describe("Path 24 — schedule constraints", () => {
     // offending requests rather than saying "infeasible".
     const name = await firstTeamName(page);
     await page.getByLabel("Request", { exact: true }).selectOption("bye_on");
-    await page.getByLabel("Date", { exact: true }).fill(FIRST_NIGHT);
+    await page.getByLabel("Date", { exact: true }).fill(await fallStart());
     await page.getByRole("button", { name: "Add request" }).click();
     await expect(
-      requestList(page).filter({ hasText: `${name} byes on ${FIRST_NIGHT}` }),
+      requestList(page).filter({ hasText: `${name} byes on ${await fallStart()}` }),
     ).toBeVisible();
 
     await firstTeamName(page);
     await page.getByLabel("Request", { exact: true }).selectOption("play_on");
-    await page.getByLabel("Date", { exact: true }).fill(FIRST_NIGHT);
+    await page.getByLabel("Date", { exact: true }).fill(await fallStart());
     await page.getByRole("button", { name: "Add request" }).click();
     await expect(
-      requestList(page).filter({ hasText: `${name} plays on ${FIRST_NIGHT}` }),
+      requestList(page).filter({ hasText: `${name} plays on ${await fallStart()}` }),
     ).toBeVisible();
 
-    await page.getByLabel("First game night").fill(FIRST_NIGHT);
+    await page.getByLabel("First game night").fill(await fallStart());
     await page.getByLabel("Games per team").fill("4");
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
     await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
@@ -297,16 +338,17 @@ test.describe("Path 24 — schedule constraints", () => {
    */
   test("a honoured request shows as met on the preview", async ({ page }) => {
     const name = await firstTeamName(page);
+    const requestDate = await secondTuesday();
     await page.getByLabel("Request", { exact: true }).selectOption("slot_on");
-    await page.getByLabel("Date", { exact: true }).fill("2026-09-22");
+    await page.getByLabel("Date", { exact: true }).fill(requestDate);
     await page.getByLabel("Ice time").fill("21:30");
     await page.getByRole("button", { name: "Add request" }).click();
-    const description = `${name} plays at 21:30 on 2026-09-22`;
+    const description = `${name} plays at 21:30 on ${requestDate}`;
     await expect(
       requestList(page).filter({ hasText: description }),
     ).toBeVisible();
 
-    await page.getByLabel("First game night").fill(FIRST_NIGHT);
+    await page.getByLabel("First game night").fill(await fallStart());
     await page.getByLabel("Games per team").fill("4");
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
     await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
@@ -337,7 +379,7 @@ test.describe("Path 24 — schedule constraints", () => {
   test("the requests card is absent when nothing has been asked for", async ({
     page,
   }) => {
-    await page.getByLabel("First game night").fill(FIRST_NIGHT);
+    await page.getByLabel("First game night").fill(await fallStart());
     await page.getByLabel("Games per team").fill("4");
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
     await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
