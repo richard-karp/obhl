@@ -426,3 +426,113 @@ Append to this plan a short "What was built" section: the two suite results, whe
 git add docs/superpowers/plans/2026-09-07-clock-relative-fixture.md
 git commit -m "docs: record the clock-forward verification"
 ```
+
+---
+
+## What was built (Task 6, 2026-09-07)
+
+**Step 2's route: substitution, not the machine clock — and narrower than the
+brief.** Task 6 arrived amended: moving the OS clock was ruled out of scope
+(a side effect outside the repo), and the brief's own fallback — "substitute
+`current_date` in the seed, run the full suite" — was ruled out too, for a
+reason worth recording because it is not obvious from the spec: substituting
+only the seed's anchor inputs moves where the *fixture's* dates land, but
+`season_is_started()` and every `starts_on < current_date` comparison in the
+app still read the **real** wall clock. With the anchors computed against a
+substituted `2027-06-01` while the actual machine clock stayed at
+2026-09-07, league 1's Spring season (anchored ~2027-02-02) would read as a
+**future, unstarted** season to the app — exactly backwards from what the
+existing specs assume (an active, already-started Spring). Running the full
+suite under that substitution would not have exercised "does the fixture
+survive time passing" at all; it would have produced failures for an
+unrelated reason (a past-tense fixture suddenly reading as future-tense) and
+made the plan look broken when it was the verification method that didn't
+fit. So Step 2 was narrowed to exactly the one comparison that substitution
+*can* prove safely — the arithmetic inside the seed's own timestamp
+construction, checked with a read-only query, immediately reverted — and nothing
+wider was run under it.
+
+**(a) EST proof (the substitution, scoped to arithmetic only).** Replaced
+`current_date` with `date '2027-06-01'` in the three anchor declarations
+(`supabase/seed.sql:81-83`), ran `npm run db:reset`. League 1's anchor landed
+on `2027-02-02` (a Tuesday, in February — EST, not EDT). The ice-time query
+returned exactly `19:00`, `20:15`, `21:30` — unchanged from the EDT case,
+proving no numeric `-04`/`-05` UTC offset survived anywhere in the timestamp
+construction (all of it goes through `at time zone 'America/Toronto'`).
+Reverted with `git checkout supabase/seed.sql`; a `diff` against a
+pre-edit copy confirmed the file came back byte-identical, and `git status`
+was clean before `npm run db:reset` was run once more to restore the normal
+fixture.
+
+**(b) Expiry grep.** Searched `supabase/seed.sql` and every file under `e2e/`
+for absolute calendar-date literals (`YYYY-MM-DD` and month-name-plus-year
+forms). `supabase/seed.sql` is clean — no hits. Every hit in `e2e/` was one
+of:
+
+- A comment describing the old bug or recording when something was measured
+  (the large majority — e.g. `11-schedule-builder.spec.ts:20-21`,
+  `23-schedule-constraints.spec.ts:25-26,43-44`, `28-schedule-form-state.spec.ts:29-30,201`,
+  `14-one-off-game.spec.ts:30`, `29-schedule-repair.spec.ts:117`, and the
+  various "measured/watched/controlled on 2026-09-0x" notes across
+  `02-auth.spec.ts`, `16-league-membership.spec.ts`, `24-password-auth.spec.ts`,
+  `29-`, `30-`). None of these are read by any assertion.
+- Two live literals that are **not** the defect this plan removes, because
+  neither is ever compared against the clock:
+  - `e2e/11-schedule-builder.spec.ts:357` — `.fill("2020-01-06")`, used only
+    to prove a past date is refused. 2020 will stay in the past forever; this
+    can never expire.
+  - `e2e/21-season-gating.spec.ts:95-96` — `starts_on: "2028-01-04"`,
+    `ends_on: "2028-06-30"` on a season built to test `is_active` gating.
+    This file (path 23) was outside Tasks 1-5's scope and its own header
+    says why: the fixture is built directly on the service-role client, not
+    through the importer, and what the test asserts on is `is_active`, never
+    `season_is_started` or any date/now comparison. These two literals sit
+    inert — checked and worth naming, but not a live expiry assumption.
+
+No live date literal that feeds a clock comparison remains anywhere in
+`supabase/seed.sql` or `e2e/`.
+
+**(c) Full suite, normal clock.**
+
+| | typecheck | vitest | eslint | e2e (`e2e-locked.sh`) |
+|---|---|---|---|---|
+| Baseline (2026-09-07, per brief) | — | — | — | 221 passed, 1 skipped, 0 failed |
+| This run (2026-09-07) | clean | 480 passed (37 files) | clean | 220 passed, **2** skipped, 0 failed |
+
+Same total test count (222) both times, zero failures either time. The
+one-skip difference is an environment fact, not a regression: this run had
+no `ANTHROPIC_API_KEY` set, so `e2e/03-seasons.spec.ts:252`'s
+`test.skip(true, "ANTHROPIC_API_KEY not set — skipping live AI call")` fired,
+flipping one test from passed to skipped. The other skip in both runs is the
+pre-existing `test.fixme` at `e2e/30-schedule-edits.spec.ts:578` — a known,
+intentionally-left-red gap in the scorekeeper RLS policy, unconnected to this
+plan (see the comment above that test and `ACCESS_CONTROL_HANDOFF.md`).
+
+**Step 3 (fixture restored).** After the EST proof, `supabase/seed.sql` was
+reverted and `npm run db:reset` re-run before the Step-1(c) full suite was
+run — so that suite run already re-verified `11-`, `23-` and `28-` (all
+passed, see the 220/2/0 result above and `test-results/.last-run.json`
+reporting `"status": "passed", "failedTests": []`) against the normal,
+un-substituted fixture. No separate re-run of just those three specs was
+needed.
+
+**What the spec turned out to be wrong about.** The brief's Step 2 as
+written — "replace `current_date` in the seed, then run the *full suite*, and
+expect the *same result as Step 1*" — does not hold, for the reason explained
+above: the seed's dates and the app's `now()` would disagree, and specs that
+assume an already-started Spring season would fail for a reason that has
+nothing to do with the expiry defect. That expectation was corrected for
+this run rather than followed literally.
+
+**What remains unproven.** The full suite was **not** run under a genuinely
+advanced *OS* clock — only the seed's own anchor arithmetic was exercised
+under a substituted date, and only for the narrow ice-time/timezone check in
+(a). Nothing in this task exercised `season_is_started()`, `starts_on <
+current_date`, or any other application code path that reads the real clock,
+against a future *system* time. If some other part of the app (outside the
+seed and outside the specs touched by this plan) has its own hardcoded date
+comparison, or if Postgres/Node handle a genuinely-advanced system clock
+differently from a substituted literal in one query, that would not have been
+caught here. Proving that would require either changing the OS clock (ruled
+out of scope for this task) or auditing every `current_date`/`now()` call
+site in `src/` for a hardcoded assumption — neither was done.
