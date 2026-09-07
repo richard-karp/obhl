@@ -140,6 +140,18 @@ export function checkWrites(writes: GameWrite[]): WriteResult | null {
       );
     }
   }
+  // ⛔ THE SAME GAME TWICE IS A SILENTLY DISCARDED WRITE. `update … from` joins
+  // each row ONCE, so two entries for one id apply one arbitrary write and
+  // report `applied = 1` — with no defined answer to which one won. `0045`
+  // refuses this too; it is caught here as well so the message names the game
+  // rather than arriving as a database exception.
+  const seen = new Set<string>();
+  for (const w of writes) {
+    if (seen.has(w.id)) {
+      throw new Error(`Game ${w.id} appears twice in one batch of writes.`);
+    }
+    seen.add(w.id);
+  }
   return null;
 }
 
@@ -163,12 +175,41 @@ export function resultFrom(
   outcome: ApplyOutcome,
   writes: GameWrite[],
 ): WriteResult {
-  if (outcome.reason === null) return { ok: true };
-  return {
-    ok: false,
-    kind: "conflict",
-    message:
-      "The schedule changed while this was on screen — preview it again. Nothing was written.",
-    attempted: writes.map((w) => ({ id: w.id, next: w.next })),
-  };
+  const attempted = writes.map((w) => ({ id: w.id, next: w.next }));
+
+  if (outcome.reason !== null) {
+    return {
+      ok: false,
+      kind: "conflict",
+      message:
+        "The schedule changed while this was on screen — preview it again. Nothing was written.",
+      attempted,
+    };
+  }
+
+  // ⛔ `reason === null` IS NOT ENOUGH ON ITS OWN, AND READING ONLY IT IS WHAT
+  // MADE TWO SEPARATE BUGS SILENT. `applied` is a row_count, and row_count
+  // counts MATCHED rows, not changed ones — so after a passing pre-check it must
+  // equal the batch size exactly, even for a write whose `next` already equals
+  // the current value. Anything less means rows the function agreed to write did
+  // not get written, and without this the caller reports that as success.
+  //
+  // ⚠️ An earlier version of this file asserted the opposite in a test comment
+  // ("a batch can legally apply zero rows"). It was wrong, and it was the reason
+  // this check was left out.
+  if (outcome.applied !== writes.length) {
+    return {
+      ok: false,
+      kind: "failed",
+      // ⚠️ NOT "Nothing was written" — that would be a lie here. The function
+      // returned normally, so its transaction COMMITTED; if the count is short,
+      // some rows did change. This state should be unreachable (both layers
+      // refuse the only payload known to cause it), so the message's job is to
+      // send someone to look rather than to describe a known outcome.
+      message: `Couldn't save that. The database reported ${outcome.applied} of ${writes.length} games written — check the schedule before trying again.`,
+      attempted,
+    };
+  }
+
+  return { ok: true };
 }

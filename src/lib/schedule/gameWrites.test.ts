@@ -74,6 +74,17 @@ describe("checkWrites", () => {
    * column changed. It is now a column written without ever being checked,
    * which is quieter and no less wrong.
    */
+  /**
+   * The same game twice applies ONE arbitrary write and reports success, because
+   * `update … from` joins each row once. `0045` refuses it too; this catches it
+   * first so the message names the game.
+   */
+  it("throws when the same game appears twice in one batch", () => {
+    expect(() => checkWrites([write("g1"), write("g2"), write("g1")])).toThrow(
+      /g1 appears twice/,
+    );
+  });
+
   it("throws when next and prev name different columns", () => {
     expect(() =>
       checkWrites([
@@ -163,13 +174,31 @@ describe("resultFrom", () => {
   });
 
   /**
-   * ⚠️ `applied` IS NOT THE SUCCESS SIGNAL — `reason` IS. A batch can legally
-   * apply zero rows (every row already holds what it should), and reading
-   * `applied === writes.length` instead would report that as a conflict.
+   * ⛔ THIS TEST REPLACES ONE THAT ASSERTED THE OPPOSITE, AND THE OLD ONE WAS
+   * WRONG. It claimed "a batch can legally apply zero rows (every row already
+   * holds what it should)" and therefore that checking `applied` would produce
+   * false conflicts. `applied` is a Postgres `row_count`, which counts MATCHED
+   * rows, not changed ones — measured: a write whose `next` already equals the
+   * current value still returns `applied = 1`. So after a passing pre-check the
+   * count must equal the batch size exactly, and the wrong comment is the whole
+   * reason the check was missing.
    */
-  it("does not treat an applied count below the batch size as a failure", () => {
+  it("reports a short applied count as a failure, not a success", () => {
+    const two = [write("g1"), write("g2")];
+    const r = resultFrom({ applied: 1, refused: null, reason: null }, two);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.kind).toBe("failed");
+      expect(r.message).toContain("1 of 2");
+      // Not "Nothing was written" — the function's transaction committed.
+      expect(r.message).not.toContain("Nothing was written");
+    }
+  });
+
+  it("accepts a count that matches the batch, including a no-op write", () => {
+    const two = [write("g1"), write("g2")];
     expect(
-      resultFrom({ applied: 0, refused: null, reason: null }, writes),
+      resultFrom({ applied: 2, refused: null, reason: null }, two),
     ).toEqual({ ok: true });
   });
 });

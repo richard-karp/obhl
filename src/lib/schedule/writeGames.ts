@@ -97,6 +97,12 @@ export async function writeGames(
   // mean the function returned no row at all, which it has no path to do —
   // treated as a refusal rather than as success, because reading `[0]` off an
   // empty array and finding `undefined` must not become "ok".
+  //
+  // ⛔ THE CAST IS LOAD-BEARING, NOT STYLISTIC. `supabase gen types` declares
+  // `reason` and `refused` as non-nullable `string`, which is simply wrong —
+  // both are null on every successful call. Without the cast the null checks
+  // below read as dead code to the compiler. Do not "tidy" it away; fix the
+  // generator's output first if you want it gone.
   const outcome = (data as ApplyOutcome[] | null)?.[0];
   if (!outcome) {
     const message =
