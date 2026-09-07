@@ -25,6 +25,10 @@ import {
   type SeasonNight,
 } from "@/lib/queries/schedule";
 import { checkNightMove, moveNightTo } from "@/lib/schedule/nights";
+// ⛔ Extracted so `schedule-edits.ts` can share it. It could NOT simply be
+// exported from here: every export of a `"use server"` module becomes a
+// client-callable server action, and this one takes an admin client.
+import { writeGames } from "@/lib/schedule/writeGames";
 import {
   constraintConflicts,
   describeConstraint,
@@ -43,11 +47,6 @@ import {
   leagueTimeKey,
   leagueDateKey,
 } from "@/lib/format";
-import {
-  applyGameWrites,
-  type GameWrite,
-  type GameWriteDeps,
-} from "@/lib/schedule/gameWrites";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -909,95 +908,6 @@ export async function discardSchedule(formData: FormData) {
   revalidatePath("/[league]/seasons/[seasonId]", "page");
 }
 
-/* ------------------------------------------------- the one game-write shape */
-
-/**
- * `applyGameWrites` bound to Supabase, plus the audit trail its failures need.
- *
- * The decision, the compensation and every branch of it live in
- * `@/lib/schedule/gameWrites` — pure, and unit-tested there, because none of
- * those branches is reachable against a real database without two sessions and
- * a lot of luck. This is only the I/O and the record-keeping.
- */
-async function writeGames(
-  admin: Admin,
-  seasonId: string,
-  userId: string,
-  action: string,
-  writes: GameWrite[],
-): Promise<string | null> {
-  const deps: GameWriteDeps = {
-    async read(ids) {
-      const { data, error } = await admin
-        .from("games")
-        .select("id, status, scheduled_at, home_team_id, away_team_id, label")
-        .eq("season_id", seasonId)
-        .in("id", ids);
-      return error ? { error: error.message } : { rows: data ?? [] };
-    },
-    async update(id, values, expect) {
-      let q = admin
-        .from("games")
-        .update(values)
-        .eq("id", id)
-        // A stale id from another season cannot be reached even though these
-        // ids came from this season's own read.
-        .eq("season_id", seasonId)
-        // A game somebody has started scoring is not ours to rewrite.
-        .eq("status", "scheduled");
-      for (const [col, want] of Object.entries(expect)) {
-        // ⛔ `.eq(col, null)` MATCHES NOTHING in PostgREST — SQL's `= NULL` is
-        // never true. `label` is null on most games, so an unconditioned `.eq`
-        // here would make every forward write match zero rows and turn the
-        // whole feature into a permanent "the schedule changed" refusal.
-        q = want === null ? q.is(col, null) : q.eq(col, want);
-      }
-      const { data, error } = await q.select("id");
-      return error ? { error: error.message } : { matched: data?.length ?? 0 };
-    },
-  };
-
-  const result = await applyGameWrites(deps, writes);
-  if (result.ok) return null;
-
-  // ⛔ THE HALF-APPLIED BATCH GOES IN THE AUDIT LOG, NOT ONLY IN A TOAST.
-  // The stuck ids used to come back as a message on a page the manager can
-  // close, and reloading lost them permanently — the only record of which rows
-  // need fixing by hand, held in a string. Everything else destructive in this
-  // file is audited; this is the one case where the audit is the ONLY way to
-  // find out what happened at all.
-  //
-  // Awaited, and only on a failure: a success is evident from the games
-  // themselves, while this record cannot be reconstructed from anything.
-  if (result.stuck.length > 0) {
-    // ⛔ AND THE PLATFORM LOG TOO. `logAudit` swallows its own errors by design
-    // — an audit failure must not turn a successful action into a reported one
-    // — which means the audit row is not a guarantee. These ids are the only
-    // way to find out which games are half-changed, so they go somewhere that
-    // does not depend on the database being reachable.
-    console.error(
-      `${action}: games left half-changed in season ${seasonId}:`,
-      result.stuck.join(", "),
-      result.message,
-    );
-  }
-  if (result.stuck.length > 0 || result.kind === "failed") {
-    await logAudit({
-      user_id: userId,
-      action: `${action}_failed`,
-      entity_type: "season",
-      entity_id: seasonId,
-      old_data: { attempted: result.attempted },
-      new_data: {
-        outcome: result.kind,
-        stuck: result.stuck,
-        message: result.message,
-      },
-    });
-  }
-  return result.message;
-}
-
 /* ------------------------------------------------------- reschedule a night */
 
 export type RescheduleNightState = { ok: boolean; message: string } | null;
@@ -1123,6 +1033,13 @@ export async function rescheduleNight(
       expectScheduledAt: m.from,
       prev: { scheduled_at: m.from },
     })),
+    // Defence in depth: every row here comes from a published-only read
+    // (`loadContext` / `getSeasonNights` filter `is_draft = false`), so this
+    // restates what is already true rather than changing behaviour. It costs
+    // nothing and it means a future read that forgets the filter cannot reach
+    // a draft row through this write.
+    ["scheduled"],
+    false,
   );
   if (problem) return { ok: false, message: problem };
 
@@ -1441,6 +1358,13 @@ export async function applyOneOffGame(
         label: r.prevLabel,
       },
     })),
+    // Defence in depth: every row here comes from a published-only read
+    // (`loadContext` / `getSeasonNights` filter `is_draft = false`), so this
+    // restates what is already true rather than changing behaviour. It costs
+    // nothing and it means a future read that forgets the filter cannot reach
+    // a draft row through this write.
+    ["scheduled"],
+    false,
   );
   if (problem) return { ok: false, message: problem };
 
@@ -1753,6 +1677,13 @@ export async function applyScheduleRepair(input: {
         label: r.prevLabel,
       },
     })),
+    // Defence in depth: every row here comes from a published-only read
+    // (`loadContext` / `getSeasonNights` filter `is_draft = false`), so this
+    // restates what is already true rather than changing behaviour. It costs
+    // nothing and it means a future read that forgets the filter cannot reach
+    // a draft row through this write.
+    ["scheduled"],
+    false,
   );
   if (problem) return { ok: false, message: problem };
 

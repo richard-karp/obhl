@@ -31,6 +31,10 @@ import { Button } from "@/components/ui/button";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ScheduleGenerateForm } from "@/components/manage/schedule-generate-form";
+import {
+  ScheduleEditPanel,
+  type EditableGame,
+} from "@/components/manage/schedule-edit-panel";
 import { RescheduleNightForm } from "@/components/manage/reschedule-night-form";
 import { PublishControls } from "@/components/manage/publish-controls";
 import { RemoveControls } from "@/components/manage/remove-controls";
@@ -49,6 +53,21 @@ const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * season_id so they target this season, not whatever is currently active. Used
  * by the season setup hub and by the standalone /schedule-builder (active season).
  */
+/**
+ * The draft columns `editableDrafts` reads. PostgREST types the embedded
+ * `home:`/`away:` joins loosely enough that the mapping below was written with
+ * `any`, which is what let a missing `status` column go unnoticed.
+ */
+type DraftRow = {
+  id: string;
+  scheduled_at: string | null;
+  status: string;
+  home_team_id: string;
+  away_team_id: string;
+  home: { name: string } | null;
+  away: { name: string } | null;
+};
+
 export async function ScheduleBuilderPanel({
   seasonId,
   league,
@@ -67,7 +86,7 @@ export async function ScheduleBuilderPanel({
   const { data: drafts, error: draftsError } = await admin
     .from("games")
     .select(
-      `id, scheduled_at, round, home_team_id, away_team_id,
+      `id, scheduled_at, status, round, home_team_id, away_team_id,
        home:teams!games_home_team_id_fkey(name, color, logo_path, logo_text_color),
        away:teams!games_away_team_id_fkey(name, color, logo_path, logo_text_color)`,
     )
@@ -300,6 +319,39 @@ export async function ScheduleBuilderPanel({
     (d) => (byDate.get(d)?.length ?? 0) < fullestNight,
   ).length;
   const spareIceSlots = fullestNight * draftDates.length - placed.length;
+
+  /*
+    The same edit panel the Games page draws, over the DRAFT rows.
+
+    ⛔ A DRAFT NEEDS THESE AS MUCH AS A PUBLISHED SCHEDULE DOES — the user asked
+    for both explicitly. The actions do not care which they are working on (they
+    read a season's rows, published or not), so this is the same component with a
+    different source. Letting a draft drift unbalanced would only move the
+    problem to publish time.
+  */
+  /*
+    ⚠️ THE STATUS FILTER IS NOT REDUNDANT, EVEN THOUGH A DRAFT ROW IS ALWAYS
+    `scheduled` TODAY. This list feeds the same panel the published page feeds,
+    and that page filters `status === "scheduled"` because the write path
+    refuses anything else — a row offered here but refused there fails with
+    "the schedule changed while this was on screen", for a reason the message
+    never gives. The invariant is real but nothing enforces it, so assert it
+    where it is relied on rather than trusting a comment to stay true.
+  */
+  const editableDrafts: EditableGame[] = (
+    (drafts ?? []) as unknown as DraftRow[]
+  )
+    .filter((g) => g.scheduled_at && g.status === "scheduled")
+    .map((g) => ({
+      id: g.id,
+      label: `${g.away?.name ?? "?"} @ ${g.home?.name ?? "?"} — ${formatLongDate(g.scheduled_at!)}`,
+      night: leagueDateKey(g.scheduled_at!),
+      localAt: `${leagueDateKey(g.scheduled_at!)}T${leagueTimeKey(g.scheduled_at!)}`,
+      homeId: g.home_team_id,
+      awayId: g.away_team_id,
+      homeName: g.home?.name ?? "?",
+      awayName: g.away?.name ?? "?",
+    }));
 
   return (
     <div className="space-y-6">
@@ -879,6 +931,19 @@ export async function ScheduleBuilderPanel({
               </section>
             ))}
           </div>
+
+          {/*
+            Adjust the draft before it goes live. Same component, same rules as
+            the Games page — a draft that drifts unbalanced would just carry the
+            problem across the publish.
+          */}
+          <ScheduleEditPanel
+            games={editableDrafts}
+            teams={enrolledTeams.map((t: { id: string; name: string }) => ({
+              id: t.id,
+              name: t.name,
+            }))}
+          />
         </>
       )}
     </div>

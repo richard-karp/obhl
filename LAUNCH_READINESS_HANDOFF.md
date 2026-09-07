@@ -203,7 +203,7 @@ is one command and is always right.
 | ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in _Next action_                                      |
 | **`LAUNCH.md` Verification steps 4, 5, 6**                           | The manager badge, the league switcher, an announcement in one league only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written                                                                         |
 | ⛔ **Buy `lccalumnihockey.ca` and move the site onto it**            | **Decided 2026-09-06: `lccalumnihockey.ca`, for the site AND the mail sender** — not only the mail — which widens §7, whose runbook assumes the site stays on `obhl.vercel.app`. No code change: `grep vercel.app src/ e2e/` is empty and the host reaches the app through `NEXT_PUBLIC_SITE_URL` alone, in three places. The work is purchase → DNS → env var on Production AND Preview → Supabase Site URL → the whole redirect allow-list → Resend. ⚠️ Finish by REDIRECTING `obhl.vercel.app` to the new host — sessions are origin-scoped, so two live origins mean a sign-in on one and the emailed link on the other | the user; `vercel env` and the Supabase dashboard are not an agent's to run. See _Custom domain_                                                           |
-| **Item 7** — custom SMTP, now the only phase left                    | ⛔ **Blocked on ACQUIRING A DOMAIN** — `vercel domains ls` is 0 and `vercel.app` cannot be verified in Resend. Runbook has the DNS records and the traps, plus three values to READ AND RECORD while in the dashboard: the allow-list entry for `/auth/confirm?next=…`, the password length, and `secure_password_change`. Phases 2-3 merged 2026-09-06; the email leg is what nobody can test until this is done                                                                                                                                                                                                           | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel. **Phase 1 is worth doing alone** |
+| **Item 7** — custom SMTP                                             | ✅ **UNBLOCKED 2026-09-07** — `lccalumnihockey.ca` is registered, the site is on it, and all four Resend records are published and verified from a public resolver: DKIM `resend._domainkey` intact to `IDAQAB`, SPF as two CNAMEs (`rsend`/`send` → `*.forge.rmta.net`, both resolving to real `v=spf1` policies), and `_dmarc` at `v=DMARC1; p=none;` (no `rua=`, so it reports nowhere — harmless). All three values to READ AND RECORD are now recorded: the allow-list entries, the password length (was `6`, set to `8`), and `secure_password_change` (OFF). ✅ **CLOSED 2026-09-07: a real magic link was watched to arrive through Resend and sign in a manager.** Supabase's emails-per-hour reads `30`. ⛔ **The RESET leg is still unproven** — that path carries `?next=/set-password`, and its allow-list entry has never been exercised; see item 7                                                                                                                                                                                                           | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel |
 | **`NEXT_PUBLIC_SITE_URL` is missing on Preview**                     | `vercel env ls` 2026-09-05: Production only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run     |
 | ✅ **`supabase db push` for migration `0044`**                       | **DONE 2026-09-06, watched.** `--dry-run` first showed exactly one pending file; the push applied it and `supabase migration list --linked` now shows `0044` in the remote history. ⚠️ The columns themselves were NOT read back — this checkout's `.env.local` points at the LOCAL stack, so there is no production key here to query with. A `create or replace view` has no partial state, and a failure would have aborted before the history row, so the reading is that all four views are widened                                                                                                                    | done; #39 is now free to merge in either order                                                                                                             |
 | **The schedule write path has no transaction**                       | Compensation only — a runtime dying mid-batch leaves writes applied and uncompensated, publicly visible. Four review rounds each found a bug in the machinery that exists _because_ there is no `pg_advisory_xact_lock` RPC                                                                                                                                                                                                                                                                                                                                                                                                 | **the user, decided 2026-09-06: SHIP NOW, build the RPC first thing after launch.** See §5                                                                 |
@@ -675,11 +675,22 @@ under the magic link), and reach that page from the `Password` link in any
 signed-in header. The floor is 8, enforced by every writer before Supabase is
 called, so the dashboard's own number cannot make two doors disagree.
 
-⛔ **AND IT HAS NEVER SENT A PRODUCTION EMAIL.** The reset link's whole purpose
-is to ARRIVE, and delivery is phase 1 below — dashboard SMTP, blocked on
-acquiring a domain. **Do not tell anyone the reset flow works.** Until it does,
-`setStaffPassword` in the League Office is the only way to give someone a first
-password, and the magic link is still the primary way in.
+✅ **DELIVERY WORKS — WATCHED 2026-09-07.** Custom SMTP through Resend is live
+on `lccalumnihockey.ca`, and a real magic link was sent, received, and used to
+sign in as a manager. That is the first production email this project has ever
+sent, and it closes phase 1.
+
+⛔ **BUT THE RESET LEG IS STILL UNPROVEN, AND IT IS NOT THE SAME PATH.** What
+was watched is the MAGIC LINK, which returns to `/auth/confirm` with no query
+string. `sendPasswordReset` returns to `/auth/confirm?next=/set-password` — the
+query-string case the allow-list entry `https://lccalumnihockey.ca/auth/confirm?**`
+was added for, and **nothing has exercised that entry.** ⚠️ Its failure mode is
+silent by design: an unlisted redirect does not error, the mail still arrives,
+and `redirect_to` is rewritten to the Site URL, landing the person signed-in on
+`/` with the token spent. So a working magic link is NOT evidence the reset
+works. **Send one real password reset and follow it to `/set-password` before
+telling anyone that flow works.** Until then, `setStaffPassword` in the League
+Office remains the way to give someone a first password.
 
 ⚠️ **The build narrative, the measured absences, the oracle measurements and
 every decision behind the code are archived** in
@@ -756,26 +767,35 @@ Do **not** read it to do the work below — nothing outstanding depends on it.
    `?code=…` with **no `type`**, so it cannot recognise a recovery link and
    reuse the bare URL that is already listed. Measured the same day, by
    watching the navigation chain.
-   e. **Read production's minimum password length and set it to 8**, while you
-   are already in this dashboard. See the layering note under phase 2.
-   ⚠️ **(e) and (f) need no domain and no SMTP — do them on the next dashboard
-   visit rather than waiting.** They are reads of values recorded nowhere in
-   this repository, and the recording is the point. **(c) may not be
-   available yet**: this is a READING of Supabase's documented behaviour, not
-   a measurement — the emails-per-hour limit is understood to be raisable
-   only once custom SMTP is configured, so expect it to still say `2` while
-   the built-in sender is in use. Try it, and if it refuses, that is expected
-   and not a second blocker.
-   f. **Read and record `secure_password_change` and the password-changed
-   notification.** Both govern what a stolen session can do: with
-   `secure_password_change` off, a session cookie alone — 7 days — is enough
-   to set a password and keep access that outlives the session, and with the
-   notification template off nobody is told. `config.toml` has
+   e. ✅ **DONE 2026-09-07, and it was WRONG: production's minimum password
+   length was `6`, not 8.** Read and changed to `8` in the same visit. The app's
+   own writers enforce 8 before Supabase is called, so the forms were never the
+   hole — but anything reaching Supabase's API directly could have set a
+   six-character password. The two doors now agree. See the layering note under
+   phase 2.
+   ⚠️ **(c) turned out to be a non-issue:** the emails-per-hour limit read `30`
+   once custom SMTP was saved, so it never had to be raised by hand. The earlier
+   note that it would still say `2` was a reading of Supabase's documented
+   behaviour, and the measurement did not match it.
+   f. ✅ **READ 2026-09-07: `secure_password_change` is OFF in production, and
+   the password-changed template EXISTS but is DISABLED.** That second half is
+   the useful part — the notification is available on this project and simply
+   switched off, so enabling it is a toggle rather than a build. Recorded, not
+   changed — see the decision note below. Both govern what a stolen session can
+   do: with `secure_password_change` off, a session cookie alone — 7 days — is
+   enough to set a password and keep access that outlives the session, and with
+   the notification template off nobody is told. `config.toml` has
    `secure_password_change = false` and the `password_changed` template
-   commented out, and ⛔ **both of those govern the LOCAL stack only** —
-   production's values live in the dashboard and are **recorded nowhere**,
-   exactly like the password length was. Turning them on is a judgement call;
-   leaving them unrecorded is not.
+   commented out, so ⛔ **local and production now agree, and both are off.**
+
+   ⚠️ **TURNING IT ON IS UNTESTED AND COULD BREAK `/set-password`.** The header's
+   `Password` link reaches that page from any signed-in session, however old.
+   With secure password change on, GoTrue wants a recent authentication, so a
+   week-old session may be refused where it works today — while a session created
+   by a reset link is fresh and should be fine. **That is a reading of the
+   mechanism, not a measurement; nobody has tried it.** So the safe order is:
+   turn it on, then immediately exercise BOTH paths — a fresh reset-link session
+   and a days-old one — before anyone depends on it. Post-launch work.
    ⚠️ **Password sign-in has no throttle the app can see.** `signInWithPassword`
    counts nothing itself, and GoTrue's per-IP limit on `/token` sees the
    Next.js server's address rather than the caller's — every sign-in in the

@@ -50,6 +50,11 @@ const GUARD_CALLS = [
   "requireGameRole(",
   // schedule.ts — resolves the season's league, then requireLeagueManager.
   "targetSeasonForManager(",
+  // schedule-edits.ts — resolves the game's league, then requireLeagueRole with
+  // "league_manager" alone. Same shape as `requireGameRole` above; these edits
+  // are manager-only by design, so the helper hard-codes the role rather than
+  // taking it from the caller.
+  "managerOfGame(",
 ];
 
 /**

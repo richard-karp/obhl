@@ -12,13 +12,11 @@ import {
   cancelGame,
   postponeGame,
   restoreGame,
-  rescheduleGame,
   generateGameRecap,
 } from "@/lib/actions/games";
+import { RescheduleForm } from "@/components/manage/reschedule-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { GameStatusBadge } from "@/components/shared/game-status-badge";
 import { PageHeader } from "@/components/shared/page-header";
 import { formatGameDateTime, leagueWeekday } from "@/lib/format";
@@ -241,7 +239,15 @@ export default async function ScoreGamePage({
         </Card>
       )}
 
-      {canScore && game.status !== "final" ? (
+      {/*
+        ⛔ `canManage`, NOT `canScore`. Changed 2026-09-07 with the guards in
+        `games.ts`: cancel, postpone, restore and reschedule are the manager's
+        alone now, and a scorekeeper who can still see the buttons would be
+        reading a refusal as a broken app rather than a permission. The card is
+        about whether a game HAPPENS; the scoresheet below is about what
+        happened in it, and that stays the scorekeeper's.
+      */}
+      {canManage && game.status !== "final" ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Game status</CardTitle>
@@ -275,27 +281,22 @@ export default async function ScoreGamePage({
               ) : null}
             </div>
 
-            <form
-              action={rescheduleGame}
-              className="flex flex-wrap items-end gap-2"
-            >
-              <input type="hidden" name="game_id" value={gameId} />
-              <div className="space-y-1">
-                <Label htmlFor="scheduled_at">Reschedule to</Label>
-                <Input
-                  id="scheduled_at"
-                  name="scheduled_at"
-                  type="datetime-local"
-                  className="w-56"
-                />
-              </div>
-              <Button type="submit" size="sm" variant="secondary">
-                Reschedule
-              </Button>
-            </form>
+            <RescheduleForm gameId={gameId} />
             <p className="text-muted-foreground text-xs">
               Cancelled games drop out of the schedule and standings. Postponed
               games show as TBD until you reschedule them.
+            </p>
+            {/*
+              Says the rule BEFORE the refusal does. A scheduled game may only
+              be retimed within its own night — moving it to another night would
+              change that night's game count, which the schedule treats as
+              non-negotiable. A postponed game has no night to stay on, so it
+              may go anywhere.
+            */}
+            <p className="text-muted-foreground text-xs">
+              {game.status === "postponed"
+                ? "This game is postponed, so it can be rescheduled to any night."
+                : "A scheduled game can only be moved to another time on the same night. To move it to a different night, trade nights with another game from the Games page."}
             </p>
           </CardContent>
         </Card>
