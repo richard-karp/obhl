@@ -41,8 +41,19 @@ language plpgsql security invoker set search_path = public as $$
 declare
   v_ids uuid[];
   v_bad uuid;
+  v_bad_count int := 0;
   v_applied int := 0;
 begin
+  -- ⛔ A NULL OR EMPTY `p_statuses` WOULD DISABLE THE STATUS CHECK ENTIRELY,
+  -- NOT TIGHTEN IT. `g.status = any(null)` is NULL, `not NULL` is NULL, and a
+  -- NULL disjunct never selects a row — so the whole batch would sail past the
+  -- one check that keeps a played game from being rewritten. Measured before
+  -- this guard existed: `p_statuses => null` rewrote a `final` game and
+  -- returned applied=1. Raising rather than defaulting, because a caller that
+  -- sent nothing did not mean "anything goes"; it has a bug.
+  if p_statuses is null or cardinality(p_statuses) = 0 then
+    raise exception 'apply_game_writes requires a non-empty p_statuses';
+  end if;
   -- Serialize every writer on this season. Released at commit.
   --
   -- This is the interleaving case that has been open since review round 1 and
@@ -52,6 +63,40 @@ begin
   -- survive — that is `checkOneOffWrite`'s invariant — but pair balance drifts
   -- with no drift report anywhere.
   perform pg_advisory_xact_lock(hashtext(p_season::text));
+
+  -- ⛔ AN ENTRY WITH NO `id` USED TO DISABLE CONFLICT DETECTION FOR THE WHOLE
+  -- BATCH, AND THAT WAS THE WORST BUG IN THIS FUNCTION. The refusal below
+  -- selected an id INTO a scalar and fired on `v_bad is not null`; a null id
+  -- made that scalar null, so `if v_bad is not null` did not fire and NOTHING
+  -- was refused. Measured: a batch of [entry with no id, entry with a stale
+  -- `expect`] applied the stale one and returned success — a lost update
+  -- written over a mismatched expectation, which is the exact failure this
+  -- function exists to make impossible. Rejected here, before anything else
+  -- looks at the payload.
+  -- ⚠️ ALSO CATCHES A MALFORMED ID. Without this, `(w->>'id')::uuid` fails at
+  -- the cast with a raw "invalid input syntax for type uuid", which `writeGames`
+  -- then puts in front of a manager verbatim. It fails closed either way; this
+  -- makes it fail closed with a sentence about the payload rather than about
+  -- Postgres.
+  --
+  -- ⚠️ A REGEX, NOT `pg_input_is_valid`. That function is Postgres 16+, and this
+  -- migration has to run on a production instance whose version is not knowable
+  -- from this checkout. Not worth a version dependency for a validation.
+  if exists (
+    select 1 from jsonb_array_elements(p_writes) w
+     where (w->>'id') is null
+        or (w->>'id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  ) then
+    raise exception 'apply_game_writes got a write with a missing or malformed id';
+  end if;
+
+  -- ⚠️ Also refuses a duplicate id. `update … from` joins each row ONCE, so two
+  -- entries for one game apply one arbitrary write and report row_count 1 —
+  -- a silently discarded write, and no defined answer to which one won.
+  if (select count(*) from jsonb_array_elements(p_writes)) <>
+     (select count(distinct (w->>'id')) from jsonb_array_elements(p_writes) w) then
+    raise exception 'apply_game_writes got the same game id twice';
+  end if;
 
   select array_agg((w->>'id')::uuid) into v_ids
     from jsonb_array_elements(p_writes) w;
@@ -88,7 +133,13 @@ begin
   -- same columns by construction, and a caller that omits one is declaring it
   -- does not care. `jsonb_exists` rather than the `?` operator purely for
   -- legibility.
-  select (w->>'id')::uuid into v_bad
+  -- ⛔ COUNT FIRST, NAME SECOND. The refusal fires on `v_bad_count > 0`, never
+  -- on `v_bad is not null` — see the null-id note above for what that cost.
+  -- `v_bad` is only for the message, and a null one is now impossible anyway.
+  -- ⚠️ `min(w->>'id')` on TEXT, then cast. Postgres has no `min(uuid)` — writing
+  -- `min((w->>'id')::uuid)` compiles fine and fails at RUNTIME, on the conflict
+  -- path only, turning every clean refusal into an unhandled exception.
+  select count(*), min(w->>'id')::uuid into v_bad_count, v_bad
     from jsonb_array_elements(p_writes) w
     left join games g
       on g.id = (w->>'id')::uuid
@@ -103,10 +154,9 @@ begin
       or (jsonb_exists(w->'expect', 'away_team_id')
           and g.away_team_id is distinct from (w->'expect'->>'away_team_id')::uuid)
       or (jsonb_exists(w->'expect', 'label')
-          and g.label is distinct from (w->'expect'->>'label'))
-   limit 1;
+          and g.label is distinct from (w->'expect'->>'label'));
 
-  if v_bad is not null then
+  if v_bad_count > 0 then
     -- ⛔ A REFUSAL IS A RETURN, NOT AN EXCEPTION. Raising would roll back just
     -- the same, but gives the caller nothing to name in its message — and the
     -- message is the entire user-facing behaviour of a conflict.
