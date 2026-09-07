@@ -206,7 +206,10 @@ begin
     returning id into v_league;
 
   insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system)
-    values (v_league, 'Spring 2026', date '2026-05-13', date '2026-06-29', true,
+    -- ⚠️ THE YEAR IN THIS NAME IS NOT A CLAIM ABOUT THE DATES. The name is the
+    -- handle 17 assertions use to find this season; the dates are relative to
+    -- today. Do not "fix" the mismatch by pinning the dates back.
+    values (v_league, 'Spring 2026', v_l2_anchor, v_l2_anchor + 47, true,
             '{"win":2,"tie":1,"loss":0}'::jsonb)
     returning id into v_season;
 
@@ -219,10 +222,10 @@ begin
   insert into announcements (league_id, title, body, published_at) values
     (v_league, 'Welcome to the Harbor Rec spring season',
      'Four teams, six weeks, one trophy. Schedules and standings update automatically as scorekeepers finalize each game.',
-     timestamptz '2026-05-13 09:00-04'),
+     (v_l2_anchor + 0 + time '09:00') at time zone 'America/Toronto'),
     (v_league, 'Some players are crossing over from Oceanview',
      'A few skaters suit up in both leagues this spring — their profiles are shared, so the same person shows up under each league.',
-     timestamptz '2026-05-15 10:00-04');
+     (v_l2_anchor + 2 + time '10:00') at time zone 'America/Toronto');
 
   team_names  := array['Anchors','Gulls','Mariners','Tide'];
   team_slugs  := array['anchors','gulls','mariners','tide'];
@@ -262,12 +265,12 @@ begin
   -- Harbor schedule: 4-team single round-robin, 3 rounds x 2 games. Rounds 1-2 final.
   for g in
     select * from (values
-      (1, 1, 4, timestamptz '2026-05-13 19:00-04'),
-      (1, 2, 3, timestamptz '2026-05-13 20:15-04'),
-      (2, 1, 3, timestamptz '2026-05-20 19:00-04'),
-      (2, 4, 2, timestamptz '2026-05-20 20:15-04'),
-      (3, 1, 2, timestamptz '2026-06-10 19:00-04'),
-      (3, 3, 4, timestamptz '2026-06-10 20:15-04')
+      (1, 1, 4, (v_l2_anchor +  0 + time '19:00') at time zone 'America/Toronto'),
+      (1, 2, 3, (v_l2_anchor +  0 + time '20:15') at time zone 'America/Toronto'),
+      (2, 1, 3, (v_l2_anchor +  7 + time '19:00') at time zone 'America/Toronto'),
+      (2, 4, 2, (v_l2_anchor +  7 + time '20:15') at time zone 'America/Toronto'),
+      (3, 1, 2, (v_l2_anchor + 28 + time '19:00') at time zone 'America/Toronto'),
+      (3, 3, 4, (v_l2_anchor + 28 + time '20:15') at time zone 'America/Toronto')
     ) as t(rnd, h, a, sched)
   loop
     if g.rnd <= 2 then
