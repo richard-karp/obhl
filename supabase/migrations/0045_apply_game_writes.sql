@@ -51,8 +51,16 @@ begin
   -- this guard existed: `p_statuses => null` rewrote a `final` game and
   -- returned applied=1. Raising rather than defaulting, because a caller that
   -- sent nothing did not mean "anything goes"; it has a bug.
-  if p_statuses is null or cardinality(p_statuses) = 0 then
-    raise exception 'apply_game_writes requires a non-empty p_statuses';
+  --
+  -- ⚠️ THREE WAYS IN, NOT TWO. This guard first checked only for a null array
+  -- and an empty one, and a null ELEMENT walks straight past both: measured,
+  -- `array['scheduled', null]` rewrote a `final` game and returned applied=1,
+  -- while `array['scheduled']` correctly refused it. The comment above already
+  -- described the mechanism and the guard still covered two thirds of it.
+  if p_statuses is null
+     or cardinality(p_statuses) = 0
+     or array_position(p_statuses, null) is not null then
+    raise exception 'apply_game_writes needs a p_statuses with no nulls in it';
   end if;
   -- Serialize every writer on this season. Released at commit.
   --
@@ -93,21 +101,27 @@ begin
   -- ⚠️ Also refuses a duplicate id. `update … from` joins each row ONCE, so two
   -- entries for one game apply one arbitrary write and report row_count 1 —
   -- a silently discarded write, and no defined answer to which one won.
+  --
+  -- ⚠️ COMPARE AS `uuid`, NOT AS TEXT — THE JOIN BELOW DOES. This counted
+  -- `distinct (w->>'id')`, so the same game written twice in different letter
+  -- case read as two ids here and as one row there: measured, a two-entry batch
+  -- applied one write, dropped the other and reported success. Safe to cast
+  -- because the format check above has already run.
   if (select count(*) from jsonb_array_elements(p_writes)) <>
-     (select count(distinct (w->>'id')) from jsonb_array_elements(p_writes) w) then
+     (select count(distinct (w->>'id')::uuid) from jsonb_array_elements(p_writes) w) then
     raise exception 'apply_game_writes got the same game id twice';
   end if;
 
   select array_agg((w->>'id')::uuid) into v_ids
     from jsonb_array_elements(p_writes) w;
 
-  -- An empty batch is a success, matching `applyGameWrites`' early return.
+  -- An empty batch is a success, matching `writeGames`' own early return.
   if v_ids is null then
     return query select 0, null::uuid, null::text;
     return;
   end if;
 
-  -- ⛔ LOCK THE ROWS BEFORE ANYTHING READS THEM FOR A DECISION. 0026:59 does
+  -- ⛔ LOCK THE ROWS BEFORE ANYTHING READS THEM FOR A DECISION. 0026:74 does
   -- the same thing and its comment explains why at length: under READ COMMITTED
   -- a check and a write are separate statements with separate snapshots, so a
   -- scorekeeper committing `status='final'` in between is invisible to the check
@@ -200,7 +214,7 @@ comment on function public.apply_game_writes(uuid, jsonb, text[], boolean) is
 -- not mean authenticated cannot call it — it reaches it through PUBLIC. Through
 -- PostgREST this function is a one-call "rewrite these games", so that
 -- distinction is the whole of its access control. Every caller reaches it
--- through `createAdminClient()`. Exactly what 0026:118-127 does, for exactly
+-- through `createAdminClient()`. Exactly what 0026:124-127 does, for exactly
 -- the same reason.
 revoke execute on function public.apply_game_writes(uuid, jsonb, text[], boolean) from public, anon, authenticated;
 grant execute on function public.apply_game_writes(uuid, jsonb, text[], boolean) to service_role;
