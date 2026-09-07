@@ -239,8 +239,18 @@ async function fillEverything(page: Page) {
       .getByRole("button", { name: "Go to the Next Month" })
       .click();
   }
+  // ⛔ EXCLUDE THE OUTSIDE DAYS, OR `.first()` CLICKS THE WRONG MONTH. The
+  // calendar renders with `showOutsideDays` (the default in
+  // `components/ui/calendar.tsx`), so the previous month's tail days appear as
+  // gridcells BEFORE this month's own — and they carry day numbers in the high
+  // twenties, exactly where a skipped Thursday can land. When the numbers
+  // coincide, `.first()` picks the previous month's cell, which is `disabled`
+  // (it is before the season start) and the click times out. Measured
+  // 2026-09-07 against a fixture anchored to 2026-10-13: 3 tests failed with
+  // "element is not enabled". It would have started happening on its own on
+  // 2026-09-28, and on 105 of the following 800 days.
   await popover
-    .locator("button")
+    .locator('[role="gridcell"]:not([data-outside]) button')
     .filter({ hasText: new RegExp(`^${await skipDay()}$`) })
     .first()
     .click();
