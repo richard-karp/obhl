@@ -355,3 +355,51 @@ reset in the loop:
 `e2e/30-schedule-edits.spec.ts`'s `test.fixme` is now a live `test` and passes,
 and `05-scoring` is green — a scorekeeper still dresses players, records goals
 and finalizes.
+
+### Review round — two passes, and what they found
+
+Reviewed by the agent that built it and a fresh one, in parallel. Both
+independently found the duplicate-id defect and `resultFrom` ignoring `applied`.
+**The Critical was found only by the fresh pass.**
+
+⛔ **THE CRITICAL: THE REFUSAL GUARD FAILED OPEN ON A MISSING `id`.** The refusal
+selected an id INTO a scalar and fired on `v_bad is not null`. An entry with no
+`id` made that scalar null, so the guard did not fire and **nothing in the batch
+was refused**. Measured: a batch of `[entry with no id, entry with a stale
+expect]` applied the stale one and reported success — a lost update written over
+a mismatched expectation, which is the precise failure this function exists to
+make impossible. `limit 1` had no `ORDER BY`, so the planner could pick the
+null-id row over a genuinely conflicting one.
+
+⚠️ **ALL FOUR SQL FINDINGS WERE THE SAME SHAPE:** the function did the right
+thing on well-formed input and failed open, silently, on malformed input. None
+was reachable from the callers — which is the same argument that was made for the
+compensation path before three rounds found real bugs in it. The function is the
+trust boundary; it now behaves like one.
+
+| Finding | Before | After |
+| --- | --- | --- |
+| missing/malformed `id` | whole batch's conflict detection disabled | raises, up front |
+| duplicate id | one arbitrary write, `applied=1`, reported success | raises, in SQL and in `checkWrites` |
+| `p_statuses => null` | status check disabled; rewrote a `final` game | raises |
+| short `applied` count | reported as success | `failed`, naming the counts |
+| trigger: `label`, `division_id` | writable by a scorekeeper | refused |
+| trigger: `season_id` | authorised by the DESTINATION league only | both sides checked |
+
+⛔ **A TEST COMMENT WAS THE REASON THE `applied` CHECK WAS MISSING.** It asserted
+"a batch can legally apply zero rows (every row already holds what it should)".
+That is false: `row_count` counts MATCHED rows, not changed ones — measured, a
+write whose `next` already equals the current value still returns `applied = 1`.
+A wrong rationale in a comment had disabled a free check.
+
+⛔ **THE FIRST FIX FOR THE CRITICAL BROKE THE REFUSAL PATH, AND ONLY A CONTROL
+CAUGHT IT.** `min((w->>'id')::uuid)` compiles and fails at RUNTIME — Postgres has
+no `min(uuid)` — turning every clean refusal into an unhandled exception. All
+three "expect an exception" probes still passed. It was caught by the two probes
+for behaviour that was supposed to be UNCHANGED: a normal conflict and a normal
+success. **Probes for the bug are not enough; probe what should still work.**
+
+New coverage: `writeGames.test.ts` (8 tests — the branches the swap introduced,
+in a file that had none), the other four trigger arms, and the
+`postpone_game` RPC door. That last one is control-verified by
+drop-and-restore: **postponed without the trigger, refused with it.**
