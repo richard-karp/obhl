@@ -74,6 +74,13 @@ declare
   pos player_position;
   g record;
   hg int; ag int;
+  -- ⛔ WEEKDAY-STABLE, NOT JUST "SOME DAYS AGO". Every league-1 game is a
+  -- Tuesday and every league-2 game a Wednesday; `28-`'s SKIP_DAY is a
+  -- day-of-month that must land on a Thursday. `date_trunc('week', …)` returns
+  -- the ISO Monday, so +1 is Tuesday and +2 is Wednesday.
+  v_l1_anchor  date := date_trunc('week', current_date - 120)::date + 1;
+  v_l2_anchor  date := date_trunc('week', current_date - 120)::date + 2;
+  v_fall_anchor date := date_trunc('week', current_date + 14)::date + 1;
 begin
   -- ============================================================ OCEANVIEW
   insert into leagues (name, slug, is_public)
@@ -81,7 +88,10 @@ begin
     returning id into v_league;
 
   insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system)
-    values (v_league, 'Spring 2026', date '2026-05-12', date '2026-06-30', true,
+    -- ⚠️ THE YEAR IN THIS NAME IS NOT A CLAIM ABOUT THE DATES. The name is the
+    -- handle 17 assertions use to find this season; the dates are relative to
+    -- today. Do not "fix" the mismatch by pinning the dates back.
+    values (v_league, 'Spring 2026', v_l1_anchor, v_l1_anchor + 49, true,
             '{"win":2,"tie":1,"loss":0}'::jsonb)
     returning id into v_season;
 
@@ -98,13 +108,13 @@ begin
   insert into announcements (league_id, title, body, published_at) values
     (v_league, 'Playoffs start the week of June 22',
      'Top four teams qualify. Seeding is by points, then head-to-head. Check the standings page for the latest picture.',
-     timestamptz '2026-06-01 09:00-04'),
+     (v_l1_anchor + 20 + time '09:00') at time zone 'America/Toronto'),
     (v_league, 'New ice time added: Tuesday 9:30 PM',
      'To balance the schedule we''ve added a late Tuesday slot. The schedule builder has spread these evenly so no team is stuck with it.',
-     timestamptz '2026-05-22 12:00-04'),
+     (v_l1_anchor + 10 + time '12:00') at time zone 'America/Toronto'),
     (v_league, 'Reminder: jerseys must match the roster number',
      'Scorekeepers credit goals by number. If your number doesn''t match the roster, your points may not be recorded. Captains, please confirm your lineups.',
-     timestamptz '2026-05-12 08:00-04');
+     (v_l1_anchor +  0 + time '08:00') at time zone 'America/Toronto');
 
   team_names  := array['Sharks','Bears','Wolves','Ducks','Hawks','Bisons'];
   team_slugs  := array['sharks','bears','wolves','ducks','hawks','bisons'];
@@ -139,21 +149,21 @@ begin
   -- Oceanview schedule: single round-robin, 5 rounds x 3 games. Rounds 1-3 final.
   for g in
     select * from (values
-      (1, 1, 2, timestamptz '2026-05-12 19:00-04'),
-      (1, 3, 6, timestamptz '2026-05-12 20:15-04'),
-      (1, 4, 5, timestamptz '2026-05-12 21:30-04'),
-      (2, 1, 3, timestamptz '2026-05-19 19:00-04'),
-      (2, 2, 4, timestamptz '2026-05-19 20:15-04'),
-      (2, 5, 6, timestamptz '2026-05-19 21:30-04'),
-      (3, 1, 4, timestamptz '2026-05-26 19:00-04'),
-      (3, 2, 6, timestamptz '2026-05-26 20:15-04'),
-      (3, 3, 5, timestamptz '2026-05-26 21:30-04'),
-      (4, 1, 5, timestamptz '2026-06-09 19:00-04'),
-      (4, 2, 3, timestamptz '2026-06-09 20:15-04'),
-      (4, 4, 6, timestamptz '2026-06-09 21:30-04'),
-      (5, 1, 6, timestamptz '2026-06-16 19:00-04'),
-      (5, 2, 5, timestamptz '2026-06-16 20:15-04'),
-      (5, 3, 4, timestamptz '2026-06-16 21:30-04')
+      (1, 1, 2, (v_l1_anchor +  0 + time '19:00') at time zone 'America/Toronto'),
+      (1, 3, 6, (v_l1_anchor +  0 + time '20:15') at time zone 'America/Toronto'),
+      (1, 4, 5, (v_l1_anchor +  0 + time '21:30') at time zone 'America/Toronto'),
+      (2, 1, 3, (v_l1_anchor +  7 + time '19:00') at time zone 'America/Toronto'),
+      (2, 2, 4, (v_l1_anchor +  7 + time '20:15') at time zone 'America/Toronto'),
+      (2, 5, 6, (v_l1_anchor +  7 + time '21:30') at time zone 'America/Toronto'),
+      (3, 1, 4, (v_l1_anchor + 14 + time '19:00') at time zone 'America/Toronto'),
+      (3, 2, 6, (v_l1_anchor + 14 + time '20:15') at time zone 'America/Toronto'),
+      (3, 3, 5, (v_l1_anchor + 14 + time '21:30') at time zone 'America/Toronto'),
+      (4, 1, 5, (v_l1_anchor + 28 + time '19:00') at time zone 'America/Toronto'),
+      (4, 2, 3, (v_l1_anchor + 28 + time '20:15') at time zone 'America/Toronto'),
+      (4, 4, 6, (v_l1_anchor + 28 + time '21:30') at time zone 'America/Toronto'),
+      (5, 1, 6, (v_l1_anchor + 35 + time '19:00') at time zone 'America/Toronto'),
+      (5, 2, 5, (v_l1_anchor + 35 + time '20:15') at time zone 'America/Toronto'),
+      (5, 3, 4, (v_l1_anchor + 35 + time '21:30') at time zone 'America/Toronto')
     ) as t(rnd, h, a, sched)
   loop
     if g.rnd <= 3 then
