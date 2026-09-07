@@ -123,11 +123,11 @@ commits, in this order, so the swap can be reverted without touching the databas
       must **not**. Paste both transcripts into §"What was built" below. Spec §6.1.
       ⚠️ Do this BEFORE the TypeScript swap — if the lock does not behave, the
       design is wrong and step 3 is wasted work.
-- [ ] **3 — the swap, and the deletions.** `gameWrites.ts` calls the function;
+- [x] **3 — the swap, and the deletions.** `gameWrites.ts` calls the function;
       `CHUNK`, the chunking, `GameWriteDeps`, and the whole compensation half go.
       `WriteFailure.kind` shrinks to `"conflict" | "failed"` and the compiler finds
       the UI copy for half-applied batches, which goes too. Spec §3, §4.3.
-- [ ] **4 — the tests that replace the deleted ones.** The round-1 interleaving
+- [x] **4 — the tests that replace the deleted ones.** The round-1 interleaving
       case (two repair plans, one season, concurrently) and a deliberate failure on
       row 40 of 60 asserting all 60 unchanged. Spec §6.2-6.3.
 - [ ] **5 — close the scorekeeper column hole.** ⛔ **FOLDED IN HERE 2026-09-07,
@@ -257,3 +257,53 @@ compensator was itself a lost-update writer; then only the first failure in each
 25-way chunk was kept, so an ordinary network fault left games half-changed while
 the UI reported "Nothing was written". Each fix was correct. The next layer down
 was where the next bug was. Spec §1 has the table.
+
+
+### Steps 3 and 4 — the swap and the tests, **watched**
+
+| File | Before | After |
+| --- | --- | --- |
+| `gameWrites.ts` | 360 | **174** — types, the ceiling, the payload, the mapping |
+| `writeGames.ts` | 136 | 148 — one `rpc()` call plus the audit |
+| `gameWrites.test.ts` | 630 | **175** |
+
+Unit suite **480 → 462**. The 30 tests in `gameWrites.test.ts` became 11. ⚠️ That
+is the measure of success, not a coverage regression: the deleted tests drove a
+fake `games` table through a concurrent edit, a mid-batch failure, an undo that
+itself failed, a lost response that had committed, and a vanished row. **Every
+one of those branches is now code that does not exist.** What replaced them is
+not in vitest at all — it is the two-psql race and the FK-violation rollback
+above, against a real Postgres, because vitest cannot see a lock. That is
+precisely how the old compensator passed three rounds of unit tests with a
+lost-update bug in it.
+
+**⛔ THE SPEC WAS WRONG ABOUT §4.3, AND THE CLAIM WAS CHECKED RATHER THAN
+ASSUMED.** It says `schedule-repair-form.tsx` and `reschedule-night-form.tsx`
+"both render copy for the half-applied case; that copy goes too, and its absence
+is a user-visible improvement worth noting in the commit". **There is no such
+copy.** `writeGames` returns `string | null`, so a failure reaches those forms
+as an already-worded message and neither component has ever branched on `kind`.
+Nothing to delete, and no user-visible change from this work — the improvement
+is that the state those words would have described can no longer occur.
+
+⚠️ **§7's grep criterion is not literally met, deliberately.** It asks that
+`gameWrites.ts` no longer contain the words `compensat`, `indeterminate`,
+`stuck` or `CHUNK`. It contains all four — in seven COMMENT lines that exist to
+explain their own removal, and in no code. Verified line by line. The criterion
+is a proxy for "the machinery is gone"; the machinery is gone, and a file that
+silently drops a concept a reader may come looking for is worse than one that
+says where it went.
+
+Also verified: `src/lib/actions/schedule.ts` is **byte-identical** to the branch
+below this one, so §7's "the three call sites are unchanged" holds literally.
+
+e2e under the lock, **watched**: `11, 14, 23, 28, 29, 30` — **40 passed, 1
+skipped (the scorekeeper `fixme`), 0 failed in 1.9m.** ⚠️ The spec names specs
+"11, 14, 23, 26, 27" and a baseline of 33; `26`/`27` were renamed to `28`/`29`
+on 2026-09-06, and `30` did not exist when the spec was written. All four write
+paths — night move, repair, one-off and the manual edits — go through the
+function now and every one of them is green.
+
+⚠️ `src/lib/queries/schedule.test.ts` fails `prettier --check` on this branch.
+**Pre-existing and untouched by this work** — it arrives that way from below.
+Left alone rather than swept into this commit.

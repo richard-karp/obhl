@@ -1078,6 +1078,19 @@ export type Database = {
       };
     };
     Functions: {
+      apply_game_writes: {
+        Args: {
+          p_is_draft?: boolean;
+          p_season: string;
+          p_statuses?: string[];
+          p_writes: Json;
+        };
+        Returns: {
+          applied: number;
+          reason: string;
+          refused: string;
+        }[];
+      };
       auth_role: {
         Args: never;
         Returns: Database["public"]["Enums"]["app_role"];
