@@ -121,8 +121,20 @@ Refuse when any of these hold, naming which one in the message:
   teams play and two sit), so one could only arrive by mistake. If the league
   ever wants doubleheaders, this is a single predicate to drop.
 
-**`postponed` and `cancelled` games remain editable** — the user's explicit
-choice, on the grounds that neither carries a result.
+⛔ **SCHEDULED ONLY — THIS SPEC WAS WRONG, AND THE BUILD PROVED IT.** It said
+postponed and cancelled games remain editable, which was the user's explicit
+choice on the grounds that neither carries a result. The code was written that
+way and could never work: `applyGameWrites`'s pre-flight (`gameWrites.ts:246`)
+refuses any row whose status is not `scheduled` BEFORE the widened set is
+consulted. A cancelled game keeps its date, so it reached the picker and then
+failed with "The schedule changed while this was on screen" — permanently, and
+for a reason the message never gave. Found in review 2026-09-07, not by a test.
+
+The guard now refuses what the write path refuses, and the picker offers only
+`scheduled` games. ⚠️ **Widening is deferred to the schedule-write RPC**, which
+rewrites that pre-flight — doing it here first means writing it twice. Decided
+with the user 2026-09-07; see
+`docs/superpowers/plans/2026-09-06-schedule-write-rpc.md`.
 
 ⚠️ **The guards apply to every primitive, including `exchangeSlots`.** Trading
 dates can put a team on a night it already plays, so the doubleheader and
@@ -203,8 +215,13 @@ season, not the game rows, since a game may later be removed.
 
 - **Unit:** the invariant calculator (games-per-team, games-per-night) and the
   candidate finder behind the replace wizard, including the no-candidate case.
-- **e2e:** one spec covering each primitive on a published season and on a draft,
-  plus a refusal for each guard. Follows the house pattern — the read-failed
+- **e2e:** one spec covering each primitive on a published season, plus a refusal
+  for each guard, plus the draft-over-published state that hid the scoping bug.
+  ⚠️ **NOT covered, and this spec claimed otherwise:** editing a DRAFT row itself
+  through the builder's panel. The components render there and the actions are
+  scoped for it, but no test drives it — the draft test exercises a published
+  edit while a draft is staged, which is the state that broke, not the same
+  thing. Worth closing. Follows the house pattern — the read-failed
   guard is copied in, not imported (relative TS imports do not load; measured
   2026-09-06).
 - ⚠️ **Seed dates must be computed, not pinned.** `11-` and `23-` hardcode
