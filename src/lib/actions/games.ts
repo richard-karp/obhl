@@ -479,13 +479,19 @@ export async function rescheduleGame(formData: FormData) {
   const dt = String(formData.get("scheduled_at") ?? "").trim();
   if (!dt) return;
 
-  const { data: current } = await supabase
+  const { data: current, error: readError } = await supabase
     .from("games")
     .select("status, scheduled_at")
     .eq("id", game_id)
     .maybeSingle();
+  // ⛔ FAIL CLOSED. This read decides whether a same-night restriction applies,
+  // so treating a failed or RLS-refused read as "no restriction" turns an error
+  // into permission — the guard's own absence becomes the way past it.
+  if (readError || !current) {
+    throw new Error("Could not read that game, so it was not moved.");
+  }
   if (
-    current?.status === "scheduled" &&
+    current.status === "scheduled" &&
     current.scheduled_at &&
     leagueDateKey(`${dt}:00${leagueOffset(dt)}`) !==
       leagueDateKey(current.scheduled_at)
