@@ -37,6 +37,16 @@ export default defineConfig({
   // is information, and re-running it costs them minutes on a suite that is
   // single-worker by design.
   //
+  // ⚠️ A RETRY IS NOT A CLEAN RE-RUN, AND `flaky` SHOULD BE READ WITH THAT IN
+  // MIND. `globalSetup` resets and seeds the database ONCE PER RUN, not per
+  // test, and specs undo their own writes in `afterEach`. A retry therefore
+  // re-runs one test against a database every preceding test has already
+  // mutated — and which the failed attempt may itself have left dirty, since
+  // its `afterEach` can fail too. For a page that never rendered (the gateway
+  // 502 this was added for) that costs nothing. For a test that fails halfway
+  // through mutating state, the second attempt is not the same test, and a
+  // `flaky` on one of those is worth opening rather than filing away.
+  //
   // This is also what makes `trace: "on-first-retry"` below mean anything —
   // with no retries it could never fire, and a CI failure arrived with a
   // screenshot and no trace.
