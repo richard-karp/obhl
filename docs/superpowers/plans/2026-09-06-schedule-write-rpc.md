@@ -115,11 +115,11 @@ against the tree it was written for. Four commands and a paragraph.
 Detail, traps and acceptance for every one of these are in the spec. ⚠️ Two
 commits, in this order, so the swap can be reverted without touching the database.
 
-- [ ] **1 — the migration.** `0045_apply_game_writes.sql`: advisory lock, row
+- [x] **1 — the migration.** `0045_apply_game_writes.sql`: advisory lock, row
       locks before the checks, `is not distinct from` for every expected value,
       revoke/grant exactly as `0026` does. ⛔ No `season_is_started` anywhere, with
       a comment saying so. Applied `--local` only. Spec §4.
-- [ ] **2 — the two-psql race.** Same season must **block**, different seasons
+- [x] **2 — the two-psql race.** Same season must **block**, different seasons
       must **not**. Paste both transcripts into §"What was built" below. Spec §6.1.
       ⚠️ Do this BEFORE the TypeScript swap — if the lock does not behave, the
       design is wrong and step 3 is wasted work.
@@ -162,6 +162,87 @@ commits, in this order, so the swap can be reverted without touching the databas
 _Filled in as the work lands: commit shas, the two-psql transcripts pasted
 verbatim, measured test counts before and after, what the spec turned out to be
 wrong about, and anything deliberately not done._
+
+### Step 1 — `0045_apply_game_writes.sql`, applied `--local` only
+
+⛔ **NOT pushed to production.** `supabase db push` is the user's to run, and the
+standing rule applies: **the migration must reach production BEFORE the swap
+commit merges**, or the deploy is the outage.
+
+**The spec's signature was wrong, and this is the correction.** §4.1 gives
+`apply_game_writes(p_season, p_writes)`. The shipped function takes four
+arguments:
+
+```
+apply_game_writes(p_season uuid, p_writes jsonb,
+                  p_statuses text[] default array['scheduled'],
+                  p_is_draft boolean default null)
+```
+
+The two extra parameters are not scope creep — they are the pre-flight's finding
+carried through. `writeGames` gained `statuses` and `isDraft` on
+`feat/manual-schedule-edits` (`c541019` and the round-2 scoping fix), because a
+season holds a published schedule and a draft at the same time and the manual
+edit actions must not pair one with the other. A two-argument function would
+have silently dropped both scopes on the way into SQL.
+
+Catalog checks, **watched**:
+
+| Acceptance (§7) | Result |
+| --- | --- |
+| `security invoker` | `prosecdef = f` ✅ |
+| `set search_path = public` | `{search_path=public}` ✅ |
+| revoked from public/anon/authenticated | grantees are `postgres` (owner) + `service_role` only ✅ |
+| no `season_is_started` reference | ✅, with a comment naming 0026 and saying why |
+| row locks precede the checks | ✅ `for update` before the refusal select |
+| `is not distinct from` everywhere | ✅ — and see the null test below |
+
+Behaviour, **watched**, each inside a rolled-back transaction:
+
+| # | Case | Result |
+| --- | --- | --- |
+| 1 | happy path, two rows trade home teams | `applied=2`, both rows changed |
+| 2 | `expect {label: null}` against a NULL label | **matches** — `applied=1`. This is §2.4; `<>` here would have refused every unlabelled game |
+| 3 | `next {label: null}` against a set label | **clears it** — `coalesce` would have kept the old value, which is why the body uses `case … end` |
+| 4 | one stale `expect` in a batch of 3 | `applied=0 reason=conflict`, names the row, **zero** rows written |
+| 5 | a `final` game, default statuses | refused |
+| 6 | the same batch with `p_statuses = {scheduled,final}` | `applied=3` |
+| 7 | an id belonging to another season | refused — not silently skipped |
+| 8 | an id that does not exist | refused |
+| 9 | empty batch | `applied=0`, success, matching `applyGameWrites`' early return |
+
+### Step 2 — the two-psql race, **watched**
+
+⚠️ **Each case uses two DIFFERENT ROWS**, deliberately. If both sessions touched
+the same row, the row lock would block and the test would prove nothing about
+`pg_advisory_xact_lock`. Different rows means the advisory lock is the only thing
+that *can* block. Session A holds for 5s; B starts 1.5s in.
+
+```
+=============== CASE 1: SAME season, different rows — must BLOCK ===============
+applied=1 reason=none
+  >>> session B (same season) took 3.54s
+
+=============== CASE 2: DIFFERENT seasons — must NOT block ===============
+applied=1 reason=none
+  >>> session B (other season) took 0.04s
+```
+
+3.54s is exactly the remaining hold (5.0 − 1.5). **~88× separation between the
+two cases**, which is not a number a flaky measurement produces.
+
+⚠️ **First run of CASE 2 returned `applied=0`** and was re-run. The cause was the
+fixture, not the lock: the row picked from the live season was not `scheduled`,
+so the function correctly refused it. Timing was already right at 0.05s; the
+re-run just makes the transcript unambiguous by using a scheduled row.
+
+### Step 2b — mid-batch failure (spec §6.3), **watched**
+
+A batch of all 18 published games with an unresolvable `home_team_id` on row 10.
+The FK violation aborts the single `UPDATE`, the exception propagates, and a
+fresh session afterwards finds **0 rows** carrying the batch's label. All 18
+unchanged. This is the case compensation could only approximate — and the one
+that could not be fixed in TypeScript at all.
 
 ⚠️ **Every previous spec in this directory was wrong about something** — the
 schedule spec named a guard test that does not fail, the chrome spec claimed a
