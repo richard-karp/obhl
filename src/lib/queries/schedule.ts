@@ -330,6 +330,22 @@ async function readWithOneRetry<T extends { error: unknown }>(
 ): Promise<T> {
   const first = await run();
   if (!first.error) return first;
+
+  // ⛔ LOGGED, OR THE ABSORBED CASE IS INVISIBLE — WHICH IS THE CASE WE NOW
+  // EXPECT. `publish state read failed` below only fires when BOTH attempts
+  // fail, so without this line a retry that worked produces no output at all:
+  // the transient stops turning CI red and simultaneously stops being
+  // observable, in production and in the CI diagnostics step that greps for it.
+  // Absorbing a fault silently is how you stop finding out it is getting worse.
+  //
+  // `warn`, not `error`: this condition was handled. The read succeeded on the
+  // second try and the builder rendered normally, so anything watching stderr
+  // for genuine failures should not see this one.
+  console.warn(
+    "publish state read retried:",
+    (first.error as { message?: string })?.message ?? String(first.error),
+  );
+
   await new Promise((resolve) => setTimeout(resolve, READ_RETRY_DELAY_MS));
   return run();
 }

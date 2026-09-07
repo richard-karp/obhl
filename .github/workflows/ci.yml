@@ -114,10 +114,15 @@ jobs:
               'Name={{.Name}} Status={{.State.Status}} ExitCode={{.State.ExitCode}} OOMKilled={{.State.OOMKilled}} Restarts={{.RestartCount}}' \
               "$c" >> supabase-diagnostics/state.txt 2>&1 || true
           done
-          if grep -q "read failed" e2e-output.log 2>/dev/null; then
+          # ⛔ BOTH SPELLINGS. `read retried` is the ABSORBED case — a blip the
+          # retry swallowed, which is now the outcome we EXPECT and the whole
+          # reason this step runs on green runs. Grepping only for `read failed`
+          # would match just the double failure, so the common case would go
+          # uncollected and this step would look like it never fires.
+          if grep -qE "read failed|read retried" e2e-output.log 2>/dev/null; then
             echo "transient=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::An upstream read failed during this run — see the playwright-report artifact"
-            grep -n "read failed" e2e-output.log || true
+            echo "::warning::An upstream read failed or was retried during this run — see the playwright-report artifact"
+            grep -nE "read failed|read retried" e2e-output.log || true
           else
             echo "transient=false" >> "$GITHUB_OUTPUT"
           fi
