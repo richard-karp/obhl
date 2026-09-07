@@ -19,7 +19,38 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
   workers: 1,
-  retries: 0,
+  // One retry on CI, none locally, and the asymmetry is deliberate.
+  //
+  // This suite drives a full stack — Postgres, Kong, PostgREST and a `next dev`
+  // server, all on a two-core runner — and infrastructure that big produces
+  // transients no assertion can be written against. The one that turned `main`
+  // red was a gateway 502 on a read; `getPublishState` now retries that read
+  // itself, but nothing here claims it is the only such blip the stack can
+  // produce. A single one should not discard eleven green minutes.
+  //
+  // ⚠️ A RETRY DOES NOT HIDE A FLAKE. The `list` reporter prints a test that
+  // needed a second attempt as `flaky`, and the job still reports it, so a test
+  // that starts flapping is visible in the log rather than silently absorbed.
+  // What changes is only whether it fails the build.
+  //
+  // Locally it stays 0: a flake in front of the person who just wrote the code
+  // is information, and re-running it costs them minutes on a suite that is
+  // single-worker by design.
+  //
+  // ⚠️ A RETRY IS NOT A CLEAN RE-RUN, AND `flaky` SHOULD BE READ WITH THAT IN
+  // MIND. `globalSetup` resets and seeds the database ONCE PER RUN, not per
+  // test, and specs undo their own writes in `afterEach`. A retry therefore
+  // re-runs one test against a database every preceding test has already
+  // mutated — and which the failed attempt may itself have left dirty, since
+  // its `afterEach` can fail too. For a page that never rendered (the gateway
+  // 502 this was added for) that costs nothing. For a test that fails halfway
+  // through mutating state, the second attempt is not the same test, and a
+  // `flaky` on one of those is worth opening rather than filing away.
+  //
+  // This is also what makes `trace: "on-first-retry"` below mean anything —
+  // with no retries it could never fire, and a CI failure arrived with a
+  // screenshot and no trace.
+  retries: process.env.CI ? 1 : 0,
   reporter: "list",
   // An assertion must outlast the work it waits on. The schedule generator is
   // wall-clock budgeted at OBHL_SLOT_BUDGET_MS — default 5_000, see

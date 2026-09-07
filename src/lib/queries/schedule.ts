@@ -283,6 +283,73 @@ export type SchedulePublishState = {
   readFailed: boolean;
 };
 
+/**
+ * How long to wait before a failed read is tried a second time. Long enough to
+ * be on the other side of a gateway hiccup, short enough that a season whose
+ * database is genuinely down still renders promptly — the reads run in
+ * parallel, so this is paid once, not once per read.
+ */
+const READ_RETRY_DELAY_MS = 150;
+
+/**
+ * Run a read, and give it exactly one more go if it comes back with an error.
+ *
+ * ⛔ THIS DOES NOT SOFTEN THE FAIL-CLOSED RULE BELOW, AND MUST NOT BE READ AS
+ * DOING SO. A read that fails TWICE still locks the builder, exactly as before.
+ * All that changes is which failures count as an answer: one lost response no
+ * longer does.
+ *
+ * The gap this closes is narrow and was measured. postgrest-js retries GET,
+ * HEAD and OPTIONS at the transport layer (see `gameWrites.ts`), but only when
+ * the *connection* fails. A gateway 502 is a perfectly valid HTTP response, so
+ * nothing retries it: it arrives as `{ error }` and trips the lock on the first
+ * blip. CI on `main` hit that in THREE OF SIX runs on 2026-09-06 — Kong's
+ * `An invalid response was received from the upstream server`, raised once or
+ * twice per run while 212 other tests drove the same page without trouble.
+ * Whether a run went red was down to whether the blip happened to land on a
+ * page load a test asserted against: run 34067560378 went red, run 34057958405
+ * hit the same error and passed anyway.
+ *
+ * Seven parallel reads make this the most exposed call site in the app — seven
+ * chances per render to catch a transient, six of which lock — and the same
+ * blip against hosted Supabase takes a real manager's builder offline until
+ * they think to reload.
+ *
+ * ⚠️ Retrying is safe for every read in this function and is not a licence to
+ * wrap a write. Six are GET/HEAD, and `season_is_started` is a read-only RPC;
+ * running any of them twice is indistinguishable from running it once. A
+ * genuinely broken query fails both times and still locks, which is what the
+ * tests in `schedule.test.ts` pin.
+ *
+ * ⛔ TAKES A FACTORY, NOT A BUILDER. A PostgREST builder is a thenable that
+ * fires its request when awaited; the retry has to construct a fresh one rather
+ * than await a spent object.
+ */
+async function readWithOneRetry<T extends { error: unknown }>(
+  run: () => PromiseLike<T>,
+): Promise<T> {
+  const first = await run();
+  if (!first.error) return first;
+
+  // ⛔ LOGGED, OR THE ABSORBED CASE IS INVISIBLE — WHICH IS THE CASE WE NOW
+  // EXPECT. `publish state read failed` below only fires when BOTH attempts
+  // fail, so without this line a retry that worked produces no output at all:
+  // the transient stops turning CI red and simultaneously stops being
+  // observable, in production and in the CI diagnostics step that greps for it.
+  // Absorbing a fault silently is how you stop finding out it is getting worse.
+  //
+  // `warn`, not `error`: this condition was handled. The read succeeded on the
+  // second try and the builder rendered normally, so anything watching stderr
+  // for genuine failures should not see this one.
+  console.warn(
+    "publish state read retried:",
+    (first.error as { message?: string })?.message ?? String(first.error),
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, READ_RETRY_DELAY_MS));
+  return run();
+}
+
 export async function getPublishState(
   seasonId: string,
   opts: { client?: DbClient } = {},
@@ -307,11 +374,13 @@ export async function getPublishState(
       // replace deletes 1000 games while the RPC deleted every one of them. It is
       // also the read most likely to time out, being the only one here that
       // touched every row in the season; `head: true` returns no rows at all.
-      supabase
-        .from("games")
-        .select("*", { count: "exact", head: true })
-        .eq("season_id", seasonId)
-        .eq("is_draft", false),
+      readWithOneRetry(() =>
+        supabase
+          .from("games")
+          .select("*", { count: "exact", head: true })
+          .eq("season_id", seasonId)
+          .eq("is_draft", false),
+      ),
       // First and last dated live game, one row each rather than sorting the whole
       // season in memory. Undated games are excluded here on purpose — they have
       // no place in a date range — and no longer need to be carried by this query
@@ -320,37 +389,49 @@ export async function getPublishState(
       // timestamp often enough, and without it "the first live game" is
       // whichever row PostgREST happened to return, which can differ between
       // two renders of the same unchanged schedule.
-      liveGames()
-        .not("scheduled_at", "is", null)
-        .order("scheduled_at", { ascending: true })
-        .order("id", { ascending: true })
-        .limit(1),
-      liveGames()
-        .not("scheduled_at", "is", null)
-        .order("scheduled_at", { ascending: false })
-        .order("id", { ascending: false })
-        .limit(1),
+      readWithOneRetry(() =>
+        liveGames()
+          .not("scheduled_at", "is", null)
+          .order("scheduled_at", { ascending: true })
+          .order("id", { ascending: true })
+          .limit(1),
+      ),
+      readWithOneRetry(() =>
+        liveGames()
+          .not("scheduled_at", "is", null)
+          .order("scheduled_at", { ascending: false })
+          .order("id", { ascending: false })
+          .limit(1),
+      ),
       // ⛔ Ordered by ID, NOT by date — this one feeds `liveScheduleKey`, whose
       // whole job is to move when the rows are REPLACED and stay put when they
       // are merely edited. Keyed off the earliest game by date, moving a night
       // to the front of the season changed it, and the generate form remounted
       // and threw away everything the manager had typed — the exact bug the key
       // was added to prevent, triggered by the feature next to it.
-      liveGames().order("id", { ascending: true }).limit(1),
-      supabase
-        .from("games")
-        .select("*", { count: "exact", head: true })
-        .eq("season_id", seasonId)
-        .eq("is_draft", true),
-      supabase.rpc("season_is_started", { p_season: seasonId }),
-      supabase
-        .from("game_rosters")
-        .select("id, games!inner(season_id, is_draft)", {
-          count: "exact",
-          head: true,
-        })
-        .eq("games.season_id", seasonId)
-        .eq("games.is_draft", false),
+      readWithOneRetry(() =>
+        liveGames().order("id", { ascending: true }).limit(1),
+      ),
+      readWithOneRetry(() =>
+        supabase
+          .from("games")
+          .select("*", { count: "exact", head: true })
+          .eq("season_id", seasonId)
+          .eq("is_draft", true),
+      ),
+      readWithOneRetry(() =>
+        supabase.rpc("season_is_started", { p_season: seasonId }),
+      ),
+      readWithOneRetry(() =>
+        supabase
+          .from("game_rosters")
+          .select("id, games!inner(season_id, is_draft)", {
+            count: "exact",
+            head: true,
+          })
+          .eq("games.season_id", seasonId)
+          .eq("games.is_draft", false),
+      ),
     ]);
 
   // Fail closed on ANY of them, not just the RPC.

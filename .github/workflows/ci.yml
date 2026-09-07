@@ -77,16 +77,66 @@ jobs:
       # starts the dev server. ENABLE_DEV_LOGIN is deliberately unset: the dev
       # sign-in panel the suite uses is on by default outside a production
       # build, and setting it here would be one more place to forget it.
-      - run: npm run test:e2e
+      #
+      # Kept in a file as well as the log because the step below greps it: the
+      # dev server's own console arrives here as `[WebServer]` lines, and that
+      # is the only place a failed read inside a server component says so.
+      #
+      # ⛔ `set -o pipefail`, or `tee` returns 0 and a FAILING SUITE PASSES CI.
+      - name: Run end-to-end tests
+        run: |
+          set -o pipefail
+          npm run test:e2e 2>&1 | tee e2e-output.log
+
+      # Why the stack failed, not just which assertion gave up.
+      #
+      # A read inside `getPublishState` failing tells us Kong had nothing to
+      # talk to; it does not say whether PostgREST was restarting, OOM-killed or
+      # merely slow. `docker logs` alone does not answer that either — the
+      # restart count and `OOMKilled` in `docker inspect` are the part that
+      # does, so both are captured.
+      #
+      # ⚠️ RUNS ON GREEN RUNS TOO, AND THAT IS THE WHOLE POINT. `getPublishState`
+      # now retries a failed read, so the next occurrence will most likely be
+      # ABSORBED and the run will pass — which is exactly what run 34057958405
+      # did even before the retry existed. Collecting only on failure would
+      # gather evidence for the one case we no longer expect to see.
+      - name: Capture Supabase diagnostics
+        if: always()
+        id: diag
+        run: |
+          mkdir -p supabase-diagnostics
+          docker ps -a > supabase-diagnostics/containers.txt 2>&1 || true
+          for c in $(docker ps -a --format '{{.Names}}' | grep '^supabase_' || true); do
+            # Tailed: Postgres alone will happily produce tens of megabytes.
+            docker logs --tail 5000 "$c" > "supabase-diagnostics/$c.log" 2>&1 || true
+            docker inspect -f \
+              'Name={{.Name}} Status={{.State.Status}} ExitCode={{.State.ExitCode}} OOMKilled={{.State.OOMKilled}} Restarts={{.RestartCount}}' \
+              "$c" >> supabase-diagnostics/state.txt 2>&1 || true
+          done
+          # ⛔ BOTH SPELLINGS. `read retried` is the ABSORBED case — a blip the
+          # retry swallowed, which is now the outcome we EXPECT and the whole
+          # reason this step runs on green runs. Grepping only for `read failed`
+          # would match just the double failure, so the common case would go
+          # uncollected and this step would look like it never fires.
+          if grep -qE "read failed|read retried" e2e-output.log 2>/dev/null; then
+            echo "transient=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::An upstream read failed or was retried during this run — see the playwright-report artifact"
+            grep -nE "read failed|read retried" e2e-output.log || true
+          else
+            echo "transient=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload Playwright report
-        if: failure()
+        if: failure() || steps.diag.outputs.transient == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: |
             playwright-report/
             test-results/
+            supabase-diagnostics/
+            e2e-output.log
           # The reporter is `list`, so playwright-report/ often does not exist;
           # test-results/ holds the failure screenshots. Missing one is normal.
           if-no-files-found: ignore

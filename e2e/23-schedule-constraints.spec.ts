@@ -110,7 +110,7 @@ async function clearRequests(page: Page) {
  *
  *   - `readFailed` — `getPublishState` fails closed, so any of its six reads
  *     erroring locks the panel and renders "This season's games couldn't be
- *     read". Transient, usually a database error under load.
+ *     read". Each read is retried once, so this means two consecutive failures.
  *   - `started` — the season is legitimately under way. Permanent, and it means
  *     this spec is pointed at the wrong season, not that anything broke.
  *
@@ -146,8 +146,9 @@ async function expectGenerateFormUsable(page: Page) {
       "The schedule builder is in its read-failed state: getPublishState " +
         "reported readFailed, so publishMode locked the panel and there is no " +
         "generate form to fill. One of its parallel reads errored — check the " +
-        "server log for 'publish state read failed'. This is usually a " +
-        "transient database error under load, not a broken query.",
+        "server log for 'publish state read failed'. The read is retried once " +
+        "before it counts, so this state means TWO consecutive failures — a " +
+        "persistent fault is likelier here than load.",
     );
   }
 
