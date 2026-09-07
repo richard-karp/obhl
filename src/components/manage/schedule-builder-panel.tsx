@@ -53,6 +53,21 @@ const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * season_id so they target this season, not whatever is currently active. Used
  * by the season setup hub and by the standalone /schedule-builder (active season).
  */
+/**
+ * The draft columns `editableDrafts` reads. PostgREST types the embedded
+ * `home:`/`away:` joins loosely enough that the mapping below was written with
+ * `any`, which is what let a missing `status` column go unnoticed.
+ */
+type DraftRow = {
+  id: string;
+  scheduled_at: string | null;
+  status: string;
+  home_team_id: string;
+  away_team_id: string;
+  home: { name: string } | null;
+  away: { name: string } | null;
+};
+
 export async function ScheduleBuilderPanel({
   seasonId,
   league,
@@ -71,7 +86,7 @@ export async function ScheduleBuilderPanel({
   const { data: drafts, error: draftsError } = await admin
     .from("games")
     .select(
-      `id, scheduled_at, round, home_team_id, away_team_id,
+      `id, scheduled_at, status, round, home_team_id, away_team_id,
        home:teams!games_home_team_id_fkey(name, color, logo_path, logo_text_color),
        away:teams!games_away_team_id_fkey(name, color, logo_path, logo_text_color)`,
     )
@@ -314,14 +329,24 @@ export async function ScheduleBuilderPanel({
     different source. Letting a draft drift unbalanced would only move the
     problem to publish time.
   */
-  const editableDrafts: EditableGame[] = (drafts ?? [])
-    // Draft rows are always `scheduled`; the date check is what matters here.
-    .filter((g: any) => g.scheduled_at)
-    .map((g: any) => ({
+  /*
+    ⚠️ THE STATUS FILTER IS NOT REDUNDANT, EVEN THOUGH A DRAFT ROW IS ALWAYS
+    `scheduled` TODAY. This list feeds the same panel the published page feeds,
+    and that page filters `status === "scheduled"` because the write path
+    refuses anything else — a row offered here but refused there fails with
+    "the schedule changed while this was on screen", for a reason the message
+    never gives. The invariant is real but nothing enforces it, so assert it
+    where it is relied on rather than trusting a comment to stay true.
+  */
+  const editableDrafts: EditableGame[] = (
+    (drafts ?? []) as unknown as DraftRow[]
+  )
+    .filter((g) => g.scheduled_at && g.status === "scheduled")
+    .map((g) => ({
       id: g.id,
-      label: `${g.away?.name ?? "?"} @ ${g.home?.name ?? "?"} — ${formatLongDate(g.scheduled_at)}`,
-      night: leagueDateKey(g.scheduled_at),
-      localAt: `${leagueDateKey(g.scheduled_at)}T${leagueTimeKey(g.scheduled_at)}`,
+      label: `${g.away?.name ?? "?"} @ ${g.home?.name ?? "?"} — ${formatLongDate(g.scheduled_at!)}`,
+      night: leagueDateKey(g.scheduled_at!),
+      localAt: `${leagueDateKey(g.scheduled_at!)}T${leagueTimeKey(g.scheduled_at!)}`,
       homeId: g.home_team_id,
       awayId: g.away_team_id,
       homeName: g.home?.name ?? "?",

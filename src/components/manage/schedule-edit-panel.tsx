@@ -76,6 +76,8 @@ function useEdit() {
   const run = (
     fn: () => Promise<{ ok: boolean; message?: string }>,
     done: string,
+    /** Runs only when the edit landed — for clearing state the edit consumed. */
+    onOk?: () => void,
   ) =>
     start(async () => {
       setMsg(null);
@@ -86,7 +88,12 @@ function useEdit() {
             ? { ok: true, text: done }
             : { ok: false, text: r.message ?? "That did not work." },
         );
-      } catch {
+        if (r.ok) onOk?.();
+      } catch (e) {
+        // Log before swallowing: the message below is deliberately vague
+        // because the cause is unknown to the user, but it should not be
+        // unknown to us as well.
+        console.error("schedule edit failed", e);
         // ⛔ WITHOUT THIS THE PANEL SHOWS NOTHING AT ALL. Every caller assumes
         // the `{ok, message}` shape, but an action can THROW instead —
         // a season read that fails, a guard that redirects, a dropped
@@ -279,6 +286,11 @@ function ReplaceTeam({
                         teamOutY: teamIn,
                       }),
                     "Swapped.",
+                    // The list was computed against the schedule as it was a
+                    // moment ago; the trade it described has now happened. A
+                    // second click is refused server-side, so leaving the
+                    // buttons up is safe but reads as though nothing landed.
+                    () => setOptions(null),
                   )
                 }
               >

@@ -1033,6 +1033,13 @@ export async function rescheduleNight(
       expectScheduledAt: m.from,
       prev: { scheduled_at: m.from },
     })),
+    // Defence in depth: every row here comes from a published-only read
+    // (`loadContext` / `getSeasonNights` filter `is_draft = false`), so this
+    // restates what is already true rather than changing behaviour. It costs
+    // nothing and it means a future read that forgets the filter cannot reach
+    // a draft row through this write.
+    ["scheduled"],
+    false,
   );
   if (problem) return { ok: false, message: problem };
 
@@ -1351,6 +1358,13 @@ export async function applyOneOffGame(
         label: r.prevLabel,
       },
     })),
+    // Defence in depth: every row here comes from a published-only read
+    // (`loadContext` / `getSeasonNights` filter `is_draft = false`), so this
+    // restates what is already true rather than changing behaviour. It costs
+    // nothing and it means a future read that forgets the filter cannot reach
+    // a draft row through this write.
+    ["scheduled"],
+    false,
   );
   if (problem) return { ok: false, message: problem };
 
@@ -1663,6 +1677,13 @@ export async function applyScheduleRepair(input: {
         label: r.prevLabel,
       },
     })),
+    // Defence in depth: every row here comes from a published-only read
+    // (`loadContext` / `getSeasonNights` filter `is_draft = false`), so this
+    // restates what is already true rather than changing behaviour. It costs
+    // nothing and it means a future read that forgets the filter cannot reach
+    // a draft row through this write.
+    ["scheduled"],
+    false,
   );
   if (problem) return { ok: false, message: problem };
 
