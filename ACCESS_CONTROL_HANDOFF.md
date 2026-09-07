@@ -207,8 +207,8 @@ Each of these cost a review round or a wrong fix in the session that built it.
   to confirm exactly that, and `e2e/27-one-chrome.spec.ts` asserts a page which
   left the nav is still refused by its own guard.
 
-- **⛔ RLS CANNOT RESTRICT COLUMNS, AND ONE POLICY HERE RELIES ON THAT NOT
-  MATTERING.** `0032`'s `"scorekeeper update games"` is `for update` over the
+- **⛔ RLS CANNOT RESTRICT COLUMNS. CLOSED BY `0046`, AND THE SHAPE IS WORTH
+  KNOWING BEFORE YOU WRITE ANOTHER POLICY.** `0032`'s `"scorekeeper update games"` is `for update` over the
   whole `games` row. It was written when a scorekeeper legitimately cancelled
   and postponed games, so "may update this row" and "may do the things we mean"
   were the same sentence. They stopped being the same on 2026-09-07, when the
@@ -219,11 +219,30 @@ Each of these cost a review round or a wrong fix in the session that built it.
   publishable key, still writes `status`, `scheduled_at`, `home_team_id` and
   `away_team_id` directly — measured, not reasoned: `e2e/30-schedule-edits.spec.ts`
   carries a `test.fixme` that cancels a published game and gets no error back.
-  ⚠️ **Do not "fix" this with a tighter `with check`** — it cannot see `OLD`, so
-  it cannot distinguish a scorekeeper editing goals from one moving the game. It
-  needs a `BEFORE UPDATE` trigger, and it is folded into
-  `docs/superpowers/plans/2026-09-06-schedule-write-rpc.md` step 5 because that
-  is the next migration to touch this write path.
+  ⚠️ **A tighter `with check` CANNOT fix this**, which is why the fix is a
+  trigger: a policy sees only NEW, and telling "a scorekeeper edited the goals"
+  from "a scorekeeper moved the game" needs OLD as well.
+
+  **`0046_schedule_columns_are_managers_only.sql` closes it.** A `before update`
+  row trigger refuses a non-manager who changes `scheduled_at`, either team id,
+  `is_draft`, `season_id`, `postponed_from`, or who moves `status` into or out of
+  the scoring lifecycle (`scheduled` / `in_progress` / `final`). Scoring is
+  untouched: finalize and reopen stay inside that set. `service_role` and
+  `postgres` pass through — the admin client's authorisation is the guards in
+  `src/lib/auth`, not this trigger.
+
+  ✅ It also closed a second door nobody had looked at: `postpone_game` and
+  `restore_game` (`0025`) are `security invoker` and granted to `authenticated`,
+  so a scorekeeper could call them directly for the same result. Because they run
+  as the caller, their UPDATE lands in the trigger like any other.
+
+  ⚠️ **The test that proves it is control-verified, and the first attempt at that
+  control was WRONG.** Dropping the trigger and re-running the e2e showed the
+  test still passing — because `global-setup` resets the database on every run
+  and re-applied the migration first. The valid control talks to PostgREST
+  directly with no reset in the loop: with the trigger the update is refused,
+  without it the game is cancelled. If you ever need to re-verify this, do not
+  do it through the e2e harness.
 
 - **Every export of a `"use server"` file is a callable endpoint.** "Internal
   helper" in a doc comment is not a boundary. `finalizeGameById` /

@@ -555,27 +555,23 @@ test.describe("Path 28 — manual schedule edits", () => {
    * server action — the action id is a build artefact — so what is asserted
    * here is the RLS half from `ACCESS_CONTROL_HANDOFF.md`.
    *
-   * ⛔ `fixme` BECAUSE IT FAILS, AND IT FAILS FOR A REAL REASON. Run it and a
-   * scorekeeper's own anon-key session cancels a published game outright, with
-   * no error. `0032`'s "scorekeeper update games" policy is `for update` over
-   * the WHOLE ROW — RLS cannot restrict columns — so a scorekeeper of that
-   * league may write `status`, `scheduled_at`, `home_team_id` and
-   * `away_team_id` as freely as they write goals.
+   * ⛔ THIS WAS A `fixme` FOR ONE COMMIT, AND THE REASON IS WORTH KEEPING. It
+   * failed when written: a scorekeeper's own anon-key session cancelled a
+   * published game outright, with no error. `0032`'s "scorekeeper update games"
+   * policy is `for update` over the WHOLE ROW — RLS cannot restrict columns —
+   * so a scorekeeper of that league wrote `status`, `scheduled_at` and both
+   * team ids as freely as goals.
    *
-   * The policy is PRE-EXISTING (0009, revised in 0032) and was correct while
-   * scorekeepers were legitimate cancellers. The user's 2026-09-07 rule —
-   * scorekeepers "can only score games" — is what makes it a hole: this branch
-   * removed scorekeepers from the four action guards, and there is nothing
-   * behind those guards. Closing it needs a BEFORE UPDATE trigger that refuses
-   * a non-manager changing the schedule columns (a `with check` cannot see
-   * OLD), which is a migration against production and the user's call to push.
+   * The policy was PRE-EXISTING (0009, revised in 0032) and correct while
+   * scorekeepers were legitimate cancellers. The 2026-09-07 rule — scorekeepers
+   * "can only score games" — is what made it a hole, by moving four actions to
+   * manager-only guards with nothing behind them.
    *
-   * ⚠️ LEAVE THIS AS `fixme`, DO NOT DELETE IT. It is the executable record of
-   * the hole and it turns green the day the trigger lands. Folded into
-   * `docs/superpowers/plans/2026-09-06-schedule-write-rpc.md` step 5 on
-   * 2026-09-07; the trap is written up in `ACCESS_CONTROL_HANDOFF.md`.
+   * `0046`'s BEFORE UPDATE trigger closes it. ⚠️ IF THIS TEST FAILS AGAIN, THE
+   * TRIGGER IS GONE OR HAS BEEN NARROWED — it is not a flake, and the fix is
+   * never to skip it.
    */
-  test.fixme("a scorekeeper's own session cannot change a game's schedule state", async () => {
+  test("a scorekeeper's own session cannot change a game's schedule state", async () => {
     const season = await seasonId();
     const { data: game } = await admin()
       .from("games")
@@ -593,9 +589,12 @@ test.describe("Path 28 — manual schedule edits", () => {
       .update({ status: "cancelled" })
       .eq("id", game!.id);
 
-    // ⚠️ RLS refuses by matching NO ROWS, not by erroring — the update reports
-    // success and changes nothing. Reading the row back is the only honest
-    // check; asserting on `error` alone would pass while the game was cancelled.
+    // ⚠️ READ THE ROW BACK, DO NOT TRUST `error`. Which of the two mechanisms
+    // refuses this decides whether `error` is even set: RLS refuses by matching
+    // NO ROWS and reports success, while `0046`'s trigger raises 42501. Today
+    // the trigger fires first, so `error` is non-null — but an assertion built
+    // on that would silently stop testing anything if the trigger were narrowed
+    // and RLS became the only thing left. The row's own state is the fact.
     const { data: after } = await admin()
       .from("games")
       .select("status")
@@ -605,5 +604,80 @@ test.describe("Path 28 — manual schedule edits", () => {
       after!.status,
       `scorekeeper changed a game's status (update error: ${error?.message ?? "none"})`,
     ).toBe("scheduled");
+  });
+
+  /**
+   * ⚠️ THE TEST ABOVE COVERS ONE ARM OF `0046`. The trigger protects eight
+   * columns and the status transition; asserting only `status` would let any of
+   * the others be dropped without a failure, which is how `label` came to be
+   * missing from the list in the first place.
+   */
+  test("a scorekeeper cannot move a game, re-team it, or hide it in a draft", async () => {
+    const season = await seasonId();
+    const { data: game } = await admin()
+      .from("games")
+      .select("id, scheduled_at, home_team_id, away_team_id, label, is_draft")
+      .eq("season_id", season)
+      .eq("is_draft", false)
+      .eq("status", "scheduled")
+      .limit(1)
+      .single();
+    expect(game, "the fixture has no scheduled published game").toBeTruthy();
+
+    const scorer = await signedInClient("scorekeeper@obhl.test");
+    const arms: [string, Record<string, unknown>][] = [
+      ["scheduled_at", { scheduled_at: "2031-01-01T19:00:00+00:00" }],
+      ["home_team_id", { home_team_id: game!.away_team_id }],
+      ["is_draft", { is_draft: true }],
+      ["label", { label: "scorekeeper-was-here" }],
+    ];
+
+    for (const [name, patch] of arms) {
+      await scorer.from("games").update(patch).eq("id", game!.id);
+      const { data: after } = await admin()
+        .from("games")
+        .select("scheduled_at, home_team_id, is_draft, label")
+        .eq("id", game!.id)
+        .single();
+      // Read the row back rather than trusting the error — see the note above.
+      expect(after, `scorekeeper changed ${name}`).toMatchObject({
+        scheduled_at: game!.scheduled_at,
+        home_team_id: game!.home_team_id,
+        is_draft: game!.is_draft,
+        label: game!.label,
+      });
+    }
+  });
+
+  /**
+   * ⛔ THE SECOND DOOR, WHICH `0046`'s COMMIT MESSAGE CLAIMED TO CLOSE AND NO
+   * TEST TOUCHED. `postpone_game` and `restore_game` (`0025`) are
+   * `security invoker` and granted to `authenticated`, so a scorekeeper can call
+   * them directly and never go near the `games` table themselves. Being invoker,
+   * their UPDATE runs as the caller and lands in the trigger — but that is a
+   * claim, and it was worth making it executable.
+   */
+  test("a scorekeeper cannot postpone a game through the RPC either", async () => {
+    const season = await seasonId();
+    const { data: game } = await admin()
+      .from("games")
+      .select("id, status")
+      .eq("season_id", season)
+      .eq("is_draft", false)
+      .eq("status", "scheduled")
+      .limit(1)
+      .single();
+
+    const scorer = await signedInClient("scorekeeper@obhl.test");
+    await scorer.rpc("postpone_game", { p_game: game!.id });
+
+    const { data: after } = await admin()
+      .from("games")
+      .select("status")
+      .eq("id", game!.id)
+      .single();
+    expect(after!.status, "scorekeeper postponed a game via RPC").toBe(
+      "scheduled",
+    );
   });
 });
