@@ -66,6 +66,25 @@ async function signedInAs(page: Page, role: "Manager" | "Scorekeeper") {
   await page.goto("/obhl/dashboard");
 }
 
+/**
+ * A signed-in ANON-key client — the same access a browser session has, and the
+ * only way this suite can ask what RLS actually permits. Same shape as
+ * `16-league-membership.spec.ts`.
+ */
+async function signedInClient(email: string) {
+  const client = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+  const { error } = await client.auth.signInWithPassword({
+    email,
+    password: "hockey123",
+  });
+  if (error) throw new Error(`could not sign in as ${email}: ${error.message}`);
+  return client;
+}
+
 async function seasonId(): Promise<string> {
   const db = admin();
   const { data: league } = await db
@@ -147,9 +166,13 @@ async function tradeablePair(season: string): Promise<[number, number]> {
     .eq("is_draft", false)
     .order("scheduled_at", { ascending: true });
 
-  // The same list the panel builds: dated, not final, in date order.
+  // ⛔ THE SAME LIST THE PANEL BUILDS — and the panel filters `status ===
+  // "scheduled"`, not `!== "final"`. This read `!== "final"` for one review
+  // cycle and passed anyway, because the fixture happens to hold nothing but
+  // scheduled games. One cancelled row and the index arithmetic below picks
+  // different games than the ones it reports.
   const games = (data ?? []).filter(
-    (g) => g.scheduled_at && g.status !== "final",
+    (g) => g.scheduled_at && g.status === "scheduled",
   );
   const night = (g: (typeof games)[number]) =>
     new Date(g.scheduled_at!).toISOString().slice(0, 10);
@@ -519,5 +542,68 @@ test.describe("Path 28 — manual schedule edits", () => {
     await expect(page.getByRole("button", { name: "Reschedule" })).toHaveCount(
       0,
     );
+  });
+
+  /**
+   * ⛔ THE OTHER HALF OF THE CLAIM ABOVE. Hiding four buttons proves only that
+   * the page hides four buttons. The guard change moved `cancelGame`,
+   * `postponeGame`, `restoreGame` and `rescheduleGame` from
+   * `requireGameRole(id, "scorekeeper", "league_manager")` to manager-only, and
+   * a browser cannot reach a server action without the page that renders it.
+   *
+   * ⚠️ SO THIS TESTS THE BACKSTOP, NOT THE GUARD. Playwright cannot post a Next
+   * server action — the action id is a build artefact — so what is asserted
+   * here is the RLS half from `ACCESS_CONTROL_HANDOFF.md`.
+   *
+   * ⛔ `fixme` BECAUSE IT FAILS, AND IT FAILS FOR A REAL REASON. Run it and a
+   * scorekeeper's own anon-key session cancels a published game outright, with
+   * no error. `0032`'s "scorekeeper update games" policy is `for update` over
+   * the WHOLE ROW — RLS cannot restrict columns — so a scorekeeper of that
+   * league may write `status`, `scheduled_at`, `home_team_id` and
+   * `away_team_id` as freely as they write goals.
+   *
+   * The policy is PRE-EXISTING (0009, revised in 0032) and was correct while
+   * scorekeepers were legitimate cancellers. The user's 2026-09-07 rule —
+   * scorekeepers "can only score games" — is what makes it a hole: this branch
+   * removed scorekeepers from the four action guards, and there is nothing
+   * behind those guards. Closing it needs a BEFORE UPDATE trigger that refuses
+   * a non-manager changing the schedule columns (a `with check` cannot see
+   * OLD), which is a migration against production and the user's call to push.
+   *
+   * ⚠️ LEAVE THIS AS `fixme`, DO NOT DELETE IT. It is the executable record of
+   * the hole and it turns green the day the trigger lands. Folded into
+   * `docs/superpowers/plans/2026-09-06-schedule-write-rpc.md` step 5 on
+   * 2026-09-07; the trap is written up in `ACCESS_CONTROL_HANDOFF.md`.
+   */
+  test.fixme("a scorekeeper's own session cannot change a game's schedule state", async () => {
+    const season = await seasonId();
+    const { data: game } = await admin()
+      .from("games")
+      .select("id, status, scheduled_at")
+      .eq("season_id", season)
+      .eq("is_draft", false)
+      .eq("status", "scheduled")
+      .limit(1)
+      .single();
+    expect(game, "the fixture has no scheduled published game").toBeTruthy();
+
+    const scorer = await signedInClient("scorekeeper@obhl.test");
+    const { error } = await scorer
+      .from("games")
+      .update({ status: "cancelled" })
+      .eq("id", game!.id);
+
+    // ⚠️ RLS refuses by matching NO ROWS, not by erroring — the update reports
+    // success and changes nothing. Reading the row back is the only honest
+    // check; asserting on `error` alone would pass while the game was cancelled.
+    const { data: after } = await admin()
+      .from("games")
+      .select("status")
+      .eq("id", game!.id)
+      .single();
+    expect(
+      after!.status,
+      `scorekeeper changed a game's status (update error: ${error?.message ?? "none"})`,
+    ).toBe("scheduled");
   });
 });

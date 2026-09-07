@@ -130,6 +130,32 @@ commits, in this order, so the swap can be reverted without touching the databas
 - [ ] **4 — the tests that replace the deleted ones.** The round-1 interleaving
       case (two repair plans, one season, concurrently) and a deliberate failure on
       row 40 of 60 asserting all 60 unchanged. Spec §6.2-6.3.
+- [ ] **5 — close the scorekeeper column hole.** ⛔ **FOLDED IN HERE 2026-09-07,
+      NOT PART OF THE ORIGINAL RPC DESIGN.** `0032`'s `"scorekeeper update games"`
+      policy is `for update` over the WHOLE ROW, and RLS cannot restrict columns —
+      so a scorekeeper of that league can write `status`, `scheduled_at`,
+      `home_team_id` and `away_team_id` from their own session as freely as they
+      write goals. Proven, not theorised: `e2e/30-schedule-edits.spec.ts` holds a
+      `test.fixme` that cancels a published game with a signed-in anon-key client
+      and no error.
+
+      ⚠️ **The policy is pre-existing and WAS correct.** It dates from `0009` and
+      was right while scorekeepers were legitimate cancellers. What changed is the
+      user's rule of 2026-09-07 — scorekeepers "can only score games" — which
+      `feat/manual-schedule-edits` implemented by removing them from the four
+      action guards in `games.ts`. That left the guards with nothing behind them.
+
+      **It belongs to this plan and not to that branch** because the fix is a
+      migration against production, this is the next thing to touch that write
+      path, and shipping a second migration first only to rewrite it here is the
+      same doubled work that deferred the status widening.
+
+      Shape: a `BEFORE UPDATE` trigger on `games` that raises when a non-manager
+      changes any schedule column. ⚠️ **A `with check` cannot do this** — it
+      cannot see `OLD`, so it cannot tell "scorekeeper edited goals" from
+      "scorekeeper moved the game". Acceptance: flip that `test.fixme` back to
+      `test` and it passes; `05-scoring` still green, since a scorekeeper writing
+      goals must stay unaffected.
 
 ## What was built
 

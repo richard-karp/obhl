@@ -207,6 +207,24 @@ Each of these cost a review round or a wrong fix in the session that built it.
   to confirm exactly that, and `e2e/27-one-chrome.spec.ts` asserts a page which
   left the nav is still refused by its own guard.
 
+- **⛔ RLS CANNOT RESTRICT COLUMNS, AND ONE POLICY HERE RELIES ON THAT NOT
+  MATTERING.** `0032`'s `"scorekeeper update games"` is `for update` over the
+  whole `games` row. It was written when a scorekeeper legitimately cancelled
+  and postponed games, so "may update this row" and "may do the things we mean"
+  were the same sentence. They stopped being the same on 2026-09-07, when the
+  user's rule became scorekeepers "can only score games" and
+  `feat/manual-schedule-edits` moved `cancelGame`, `postponeGame`,
+  `restoreGame` and `rescheduleGame` to manager-only. **The action guards are now
+  the only thing standing there.** A scorekeeper's own session, with the
+  publishable key, still writes `status`, `scheduled_at`, `home_team_id` and
+  `away_team_id` directly — measured, not reasoned: `e2e/30-schedule-edits.spec.ts`
+  carries a `test.fixme` that cancels a published game and gets no error back.
+  ⚠️ **Do not "fix" this with a tighter `with check`** — it cannot see `OLD`, so
+  it cannot distinguish a scorekeeper editing goals from one moving the game. It
+  needs a `BEFORE UPDATE` trigger, and it is folded into
+  `docs/superpowers/plans/2026-09-06-schedule-write-rpc.md` step 5 because that
+  is the next migration to touch this write path.
+
 - **Every export of a `"use server"` file is a callable endpoint.** "Internal
   helper" in a doc comment is not a boundary. `finalizeGameById` /
   `reopenGameById` were two unguarded ones taking the audit actor as a
