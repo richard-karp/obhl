@@ -9,6 +9,11 @@ import { leagueDateKey, leagueOffset } from "@/lib/format";
 import { logAudit } from "@/lib/audit";
 import { check, revalidateAfterScore } from "@/lib/games/shared";
 import { finalizeGameById, reopenGameById } from "@/lib/games/finalize";
+// Type-only: `schedule-edits.ts` is a "use server" module, but a type import is
+// erased, so this adds no runtime edge between the two action files. Sharing the
+// shape matters more — the score page and the schedule panel report a refusal
+// the same way, and a manager sees one behaviour, not two.
+import type { EditResult } from "@/lib/actions/schedule-edits";
 
 // Scoring writes go through the USER's session client, so RLS enforces who can
 // do what (captain: own-team lineup; scorekeeper: stats; manager: all).
@@ -471,13 +476,32 @@ export async function restoreGame(formData: FormData) {
  * to trade with. Without this carve-out postponement would be a one-way trip:
  * a rink closes, and the game could never be put back. Restoring it to any
  * night is recovery, not an edit that unbalances anything.
+ *
+ * ⛔ POSTPONED IS THE ONLY EXEMPTION, AND THE PREDICATE MUST SAY SO. This was
+ * first written as `status === "scheduled" && …`, which exempted every other
+ * status too. A manager could cancel a game and reschedule it onto any night:
+ * the update sets `status: "scheduled"`, so that night silently ended up
+ * holding one game more than it was built with, and `balance.ts` never saw the
+ * cancelled row to object. Name the exemption, do not infer it.
+ *
+ * ⛔ A FINAL GAME IS NOT RESCHEDULABLE AT ALL. It has been played. Moving one
+ * would also flip it back to `scheduled` with its goals still attached, which
+ * is a played result re-entering the schedule as a fixture.
+ *
+ * Refusals are RETURNED, not thrown. This is a normal outcome of a normal form
+ * — the page even prints the rule above the button — and a throw here reaches
+ * `app/error.tsx`, replacing the whole page with "Something went wrong" and
+ * showing the manager none of the sentences below.
  */
-export async function rescheduleGame(formData: FormData) {
+export async function rescheduleGame(
+  _prev: EditResult | null,
+  formData: FormData,
+): Promise<EditResult> {
   const supabase = await createClient();
   const game_id = String(formData.get("game_id"));
   await requireGameRole(game_id, "league_manager");
   const dt = String(formData.get("scheduled_at") ?? "").trim();
-  if (!dt) return;
+  if (!dt) return { ok: false, message: "Pick a date and time first." };
 
   const { data: current, error: readError } = await supabase
     .from("games")
@@ -488,18 +512,30 @@ export async function rescheduleGame(formData: FormData) {
   // so treating a failed or RLS-refused read as "no restriction" turns an error
   // into permission — the guard's own absence becomes the way past it.
   if (readError || !current) {
-    throw new Error("Could not read that game, so it was not moved.");
+    return {
+      ok: false,
+      message: "Could not read that game, so it was not moved.",
+    };
+  }
+  if (current.status === "final") {
+    return {
+      ok: false,
+      message:
+        "That game has been played, so it cannot be moved. Reopen it first if the result is wrong.",
+    };
   }
   if (
-    current.status === "scheduled" &&
+    current.status !== "postponed" &&
     current.scheduled_at &&
     leagueDateKey(`${dt}:00${leagueOffset(dt)}`) !==
       leagueDateKey(current.scheduled_at)
   ) {
-    throw new Error(
-      "A scheduled game can only be moved to another time on the same night. " +
+    return {
+      ok: false,
+      message:
+        "A game can only be moved to another time on the same night. " +
         "To move it to a different night, trade nights with another game.",
-    );
+    };
   }
   // datetime-local "YYYY-MM-DDTHH:MM" interpreted in the league zone (DST-aware).
   const { error } = await supabase
@@ -512,6 +548,7 @@ export async function rescheduleGame(formData: FormData) {
       postponed_from: null,
     })
     .eq("id", game_id);
-  check(error, "Reschedule game");
+  if (error) return { ok: false, message: "That game was not moved." };
   revalidateAfterScore(game_id, true);
+  return { ok: true };
 }
