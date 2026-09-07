@@ -79,12 +79,24 @@ function useEdit() {
   ) =>
     start(async () => {
       setMsg(null);
-      const r = await fn();
-      setMsg(
-        r.ok
-          ? { ok: true, text: done }
-          : { ok: false, text: r.message ?? "That did not work." },
-      );
+      try {
+        const r = await fn();
+        setMsg(
+          r.ok
+            ? { ok: true, text: done }
+            : { ok: false, text: r.message ?? "That did not work." },
+        );
+      } catch {
+        // ⛔ WITHOUT THIS THE PANEL SHOWS NOTHING AT ALL. Every caller assumes
+        // the `{ok, message}` shape, but an action can THROW instead —
+        // a season read that fails, a guard that redirects, a dropped
+        // connection. The rejection escapes the transition, `setMsg` never
+        // runs, and the only symptom of a failed edit is the absence of one.
+        setMsg({
+          ok: false,
+          text: "That didn't go through. Reload the page and try again.",
+        });
+      }
     });
   return { pending, msg, setMsg, run };
 }

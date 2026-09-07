@@ -139,7 +139,11 @@ export default async function SchedulePage({
   const canManage = await canManageLeague(resolved.id);
   const editable: EditableGame[] = canManage
     ? games
-        .filter((g) => g.status !== "final" && g.scheduled_at)
+        // ⛔ `=== "scheduled"`, not `!== "final"`. Cancelled games keep their date,
+        // so the looser test offered them here while the write path refused
+        // them — a picker full of choices that always failed. Postponed games
+        // have no date and were already excluded.
+        .filter((g) => g.status === "scheduled" && g.scheduled_at)
         .map((g) => ({
           id: g.id,
           label: `${g.away_team?.name ?? "?"} @ ${g.home_team?.name ?? "?"} — ${formatLongDate(g.scheduled_at!)}`,

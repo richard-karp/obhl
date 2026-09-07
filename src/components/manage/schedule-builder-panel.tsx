@@ -315,6 +315,7 @@ export async function ScheduleBuilderPanel({
     problem to publish time.
   */
   const editableDrafts: EditableGame[] = (drafts ?? [])
+    // Draft rows are always `scheduled`; the date check is what matters here.
     .filter((g: any) => g.scheduled_at)
     .map((g: any) => ({
       id: g.id,
