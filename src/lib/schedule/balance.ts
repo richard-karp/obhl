@@ -72,13 +72,18 @@ function bump(m: Map<string, number>, k: string) {
  * The message names the thing that moved and both numbers, because "that would
  * unbalance the schedule" tells a manager nothing about what to do instead.
  */
-export function preserved(before: Counts, after: Counts): string | null {
+export function preserved(
+  before: Counts,
+  after: Counts,
+  /** Team id → name. Without it the message names a UUID, which helps nobody. */
+  nameOf: (teamId: string) => string = (id) => id,
+): string | null {
   const teams = keysOf(before.perTeam, after.perTeam);
   for (const t of teams) {
     const was = before.perTeam.get(t) ?? 0;
     const now = after.perTeam.get(t) ?? 0;
     if (was !== now) {
-      return `${t} would play ${now} games, not ${was}. Every team has to end with the same number of games.`;
+      return `${nameOf(t)} would play ${now} games, not ${was}. Every team has to end with the same number of games.`;
     }
   }
 

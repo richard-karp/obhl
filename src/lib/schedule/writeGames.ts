@@ -43,14 +43,28 @@ export async function writeGames(
    * out of reach by two independent checks.
    */
   statuses: readonly GameStatus[] = ["scheduled"],
+  /**
+   * Restrict every read and write to one side of the draft/published divide.
+   *
+   * ⛔ A SEASON HOLDS BOTH AT ONCE. `publishMode` returns "replace" exactly when
+   * a draft is staged over a live schedule, and in that state an unscoped read
+   * returns the union — which lets a caller pair a published game with a draft
+   * one and write both. Each set then separately has a team a game short and
+   * another a game long, while a union-to-union balance check reports no change
+   * at all. Undefined keeps the old unscoped behaviour for callers that only
+   * ever see one set anyway.
+   */
+  isDraft?: boolean,
 ): Promise<string | null> {
   const deps: GameWriteDeps = {
     async read(ids) {
-      const { data, error } = await admin
+      let q = admin
         .from("games")
         .select("id, status, scheduled_at, home_team_id, away_team_id, label")
         .eq("season_id", seasonId)
         .in("id", ids);
+      if (isDraft !== undefined) q = q.eq("is_draft", isDraft);
+      const { data, error } = await q;
       return error ? { error: error.message } : { rows: data ?? [] };
     },
     async update(id, values, expect) {
@@ -64,6 +78,10 @@ export async function writeGames(
         // A game somebody has started scoring is not ours to rewrite.
         // See `statuses` above for who widens this and why.
         .in("status", statuses);
+      // ⛔ The write is scoped the same way the read is, so a stale id from the
+      // other side of the divide cannot be reached even though the pre-flight
+      // already refused it. Two independent refusals, same reason.
+      if (isDraft !== undefined) q = q.eq("is_draft", isDraft);
       for (const [col, want] of Object.entries(expect)) {
         // ⛔ `.eq(col, null)` MATCHES NOTHING in PostgREST — SQL's `= NULL` is
         // never true. `label` is null on most games, so an unconditioned `.eq`

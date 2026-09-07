@@ -31,13 +31,22 @@ const identity: NameOf = (id) => id;
 /**
  * `null` when this row may be edited, otherwise why not.
  *
- * The user's rule was "only refuse when goals exist", and `postponed` and
- * `cancelled` stay editable on their instruction — neither carries a result.
+ * ⛔ SCHEDULED ONLY, FOR NOW — AND THIS IS NARROWER THAN THE USER ASKED FOR.
+ * They chose "postponed and cancelled stay editable, refuse only when goals
+ * exist", and this guard was written that way. It was wrong in a way no test
+ * caught: `applyGameWrites`'s pre-flight (`gameWrites.ts:246`) hard-codes
+ * `row.status !== "scheduled" → conflict`, so a widened status set never
+ * reached the UPDATE at all. A cancelled game keeps its date, so it WAS
+ * offered in the picker, and choosing one gave "The schedule changed while
+ * this was on screen" forever.
  *
- * ⛔ BUT `final` IS REFUSED WHETHER OR NOT GOALS EXIST. A 0-0 final holds no
- * goals and is still a played game; rewriting its teams would reassign a real
- * result to somebody who was not there. One step stricter than asked, and the
- * user was told so before the spec was written.
+ * So the guard now refuses what the write path refuses, and says so honestly.
+ * ⚠️ Widening belongs to the schedule-write RPC — it rewrites that pre-flight,
+ * and doing it here first means writing it twice. Decided with the user
+ * 2026-09-07. See `docs/superpowers/plans/2026-09-06-schedule-write-rpc.md`.
+ *
+ * `final` is refused whether or not goals exist: a 0-0 final holds none and is
+ * still a played game.
  */
 export function editable(
   row: GuardRow,
@@ -45,6 +54,9 @@ export function editable(
 ): string | null {
   if (row.status === "final") {
     return `${nameOf(row.home_team_id)} v ${nameOf(row.away_team_id)} has been played. A final game cannot be changed, even a 0-0 one.`;
+  }
+  if (row.status !== "scheduled") {
+    return `${nameOf(row.home_team_id)} v ${nameOf(row.away_team_id)} is ${row.status}. Restore it to scheduled first, then change it.`;
   }
   const goals = (row.home_goals ?? 0) + (row.away_goals ?? 0);
   if (goals > 0) {

@@ -29,16 +29,34 @@ describe("editable", () => {
     expect(editable(row("g1", "A", "B", TUE), name)).toBeNull();
   });
 
-  it("allows a postponed game", () => {
-    expect(
-      editable(row("g1", "A", "B", TUE, { status: "postponed" }), name),
-    ).toBeNull();
+  /**
+   * ⛔ THESE TWO ASSERTED THE OPPOSITE UNTIL 2026-09-07, and the old assertion
+   * was the bug rather than the guard. The user chose "postponed and cancelled
+   * stay editable"; the guard was written that way and could never work,
+   * because `applyGameWrites`'s pre-flight refuses any row whose status is not
+   * `scheduled` before the UPDATE is built. A cancelled game keeps its date, so
+   * it reached the picker and then failed with "The schedule changed while this
+   * was on screen" — permanently, and for a reason the message never gave.
+   *
+   * The guard now refuses what the write path refuses. Widening both belongs to
+   * the schedule-write RPC, which rewrites that pre-flight.
+   */
+  it("refuses a postponed game, naming the status", () => {
+    const why = editable(
+      row("g1", "A", "B", TUE, { status: "postponed" }),
+      name,
+    );
+    expect(why).toContain("postponed");
+    expect(why).toMatch(/restore/i);
   });
 
-  it("allows a cancelled game", () => {
-    expect(
-      editable(row("g1", "A", "B", TUE, { status: "cancelled" }), name),
-    ).toBeNull();
+  it("refuses a cancelled game, naming the status", () => {
+    const why = editable(
+      row("g1", "A", "B", TUE, { status: "cancelled" }),
+      name,
+    );
+    expect(why).toContain("cancelled");
+    expect(why).toMatch(/restore/i);
   });
 
   it("refuses a game holding goals", () => {

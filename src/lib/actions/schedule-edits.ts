@@ -42,21 +42,30 @@ export type EditResult = { ok: true } | { ok: false; message: string };
 
 /** Rows an edit reasons about, plus the goals the guards need. */
 const ROW_COLS =
-  "id, season_id, status, scheduled_at, home_team_id, away_team_id, label, home_goals, away_goals";
+  "id, season_id, is_draft, status, scheduled_at, home_team_id, away_team_id, label, home_goals, away_goals";
 
-type SeasonRow = GuardRow & { season_id: string; label: string | null };
+type SeasonRow = GuardRow & {
+  season_id: string;
+  is_draft: boolean;
+  label: string | null;
+};
 
 /**
- * Statuses a manual edit may rewrite.
+ * ⛔ THIS WAS WIDER, AND THE WIDENING WAS DEAD CODE. It read
+ * `["scheduled", "postponed", "cancelled"]`, matching the user's decision that
+ * games carrying no result stay editable. It could never work:
+ * `applyGameWrites`'s pre-flight (`gameWrites.ts:246`) refuses any row whose
+ * status is not `scheduled` BEFORE this set is ever consulted, so the widened
+ * values reached nothing. A cancelled game keeps its date and so reached the
+ * picker, where choosing it failed with "The schedule changed while this was on
+ * screen" — for good, and for a reason the message never gave.
  *
- * ⛔ WIDER THAN THE REST OF THE APP, ON PURPOSE. Generate, repair and the
- * one-off planner pass `writeGames` its default of `["scheduled"]`. The user
- * decided postponed and cancelled games stay editable — neither carries a
- * result — so these three primitives pass this instead. `final` is absent, and
- * `editable` separately refuses any row holding goals, so a game somebody has
- * started scoring is out of reach by two independent checks.
+ * ⚠️ Widening belongs to the schedule-write RPC, which rewrites that pre-flight;
+ * doing it here first means writing it twice. Decided with the user 2026-09-07.
+ * Until then this is `["scheduled"]` — i.e. `writeGames`'s own default — and it
+ * stays named so the RPC work has an obvious place to change.
  */
-const EDITABLE_STATUSES = ["scheduled", "postponed", "cancelled"] as const;
+const EDITABLE_STATUSES = ["scheduled"] as const;
 
 /** Manager of the league this game belongs to, or the request dies here. */
 async function managerOfGame(gameId: string) {
@@ -66,14 +75,31 @@ async function managerOfGame(gameId: string) {
   );
 }
 
+/**
+ * One side of the season, never both.
+ *
+ * ⛔ A SEASON HOLDS A PUBLISHED SCHEDULE AND A DRAFT AT THE SAME TIME — that is
+ * what `publishMode`'s "replace" state IS. Reading the union broke this feature
+ * in two directions at once, and both were found in review rather than by a
+ * test:
+ *
+ *   - `legalAfter` saw the same six teams on the same nights in both sets and
+ *     refused every edit as a doubleheader the manager could not see.
+ *   - `candidatesFor` offered a DRAFT game as the trade partner for a published
+ *     one. Writing that pair leaves each set separately unbalanced, while a
+ *     union-to-union `preserved` check reports no change — the exact outcome the
+ *     whole feature exists to prevent.
+ */
 async function seasonRows(
   admin: Admin,
   seasonId: string,
+  isDraft: boolean,
 ): Promise<SeasonRow[]> {
   const { data, error } = await admin
     .from("games")
     .select(ROW_COLS)
-    .eq("season_id", seasonId);
+    .eq("season_id", seasonId)
+    .eq("is_draft", isDraft);
   if (error)
     throw new Error(`Could not read the season's games: ${error.message}`);
   return (data ?? []) as SeasonRow[];
@@ -164,8 +190,33 @@ export async function exchangeTeams(input: {
   if (x0.id === y0.id) {
     return { ok: false, message: "Pick two different games." };
   }
+  if (x0.is_draft !== y0.is_draft) {
+    return {
+      ok: false,
+      message:
+        "One of those games is a draft and the other is published. A trade has to be within one or the other.",
+    };
+  }
 
-  const rows = await seasonRows(admin, x0.season_id);
+  // ⛔ VALIDATE MEMBERSHIP BEFORE SWAPPING. `swap` returns the row UNCHANGED
+  // when the team is on neither side, so a pair of bad ids makes both edits
+  // no-ops: `after` equals `rows`, every check passes trivially, each row is
+  // written back to itself, and the action reports success with an audit entry
+  // claiming a trade that never happened. `candidatesFor` has this check; the
+  // action that actually writes did not.
+  const inGame = (r: SeasonRow, t: string) =>
+    r.home_team_id === t || r.away_team_id === t;
+  if (!inGame(x0, input.teamOutX) || !inGame(y0, input.teamOutY)) {
+    return {
+      ok: false,
+      message: "One of those teams is not in the game named.",
+    };
+  }
+  if (input.teamOutX === input.teamOutY) {
+    return { ok: false, message: "A team cannot trade places with itself." };
+  }
+
+  const rows = await seasonRows(admin, x0.season_id, x0.is_draft);
   const nameOf = await namesFor(admin, x0.season_id);
 
   const after = rows.map((r) => {
@@ -193,6 +244,7 @@ export async function exchangeTeams(input: {
       ),
     ],
     EDITABLE_STATUSES,
+    x0.is_draft,
   );
   if (problem) return { ok: false, message: problem };
 
@@ -234,7 +286,7 @@ export async function exchangeSlots(input: {
     };
   }
 
-  const rows = await seasonRows(admin, x0.season_id);
+  const rows = await seasonRows(admin, x0.season_id, x0.is_draft);
   const nameOf = await namesFor(admin, x0.season_id);
 
   const after = rows.map((r) => {
@@ -266,6 +318,7 @@ export async function exchangeSlots(input: {
       },
     ],
     EDITABLE_STATUSES,
+    x0.is_draft,
   );
   if (problem) return { ok: false, message: problem };
 
@@ -303,6 +356,14 @@ export async function retimeGame(input: {
     return { ok: false, message: "That game has no date to move within." };
   }
 
+  // ⛔ SHAPE-CHECK BEFORE `Intl`. `leagueOffset` and `leagueDateKey` both build
+  // a `Date` and format it; an unparseable string makes them throw
+  // `RangeError: Invalid time value`, turning a client-callable action into an
+  // uncaught server exception instead of a refusal.
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(input.at)) {
+    return { ok: false, message: "That is not a valid date and time." };
+  }
+
   const nameOf = await namesFor(admin, g0.season_id);
   const why = editable(g0, nameOf);
   if (why) return { ok: false, message: why };
@@ -316,7 +377,7 @@ export async function retimeGame(input: {
     };
   }
 
-  const rows = await seasonRows(admin, g0.season_id);
+  const rows = await seasonRows(admin, g0.season_id, g0.is_draft);
   const after = rows.map((r) =>
     r.id === g0.id ? { ...r, scheduled_at: next } : r,
   );
@@ -337,6 +398,7 @@ export async function retimeGame(input: {
       },
     ],
     EDITABLE_STATUSES,
+    g0.is_draft,
   );
   if (problem) return { ok: false, message: problem };
 
@@ -372,7 +434,7 @@ export async function replacementOptions(input: {
   const g0 = await oneRow(admin, input.gameId);
   if (!g0) return { ok: false, message: "That game no longer exists." };
 
-  const rows = await seasonRows(admin, g0.season_id);
+  const rows = await seasonRows(admin, g0.season_id, g0.is_draft);
   const nameOf = await namesFor(admin, g0.season_id);
   const found = candidatesFor(rows, input.gameId, input.teamOut, input.teamIn);
 
