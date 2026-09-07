@@ -45,6 +45,15 @@ begin
     or new.is_draft       is distinct from old.is_draft
     or new.season_id      is distinct from old.season_id
     or new.postponed_from is distinct from old.postponed_from
+    -- `label` is one of the four columns in `GameFields` — the set the schedule
+    -- write path owns — and it was missing here for one commit. A scorekeeper
+    -- could rewrite a game's label while every other schedule column was shut.
+    or new.label          is distinct from old.label
+    -- `division_id` is not in `GameFields` and nothing in the schedule path
+    -- writes it, but it decides which standings the game counts toward, and no
+    -- scorekeeper flow touches it. Left open, it would be the next column
+    -- somebody found — which is exactly how this whole trigger came to exist.
+    or new.division_id    is distinct from old.division_id
     -- A status change counts as a schedule change only when it leaves or enters
     -- the scoring lifecycle. scheduled -> final is scoring; scheduled ->
     -- cancelled is not.
@@ -66,7 +75,13 @@ begin
     return new;
   end if;
 
-  if manages_league(season_league(new.season_id)) then
+  -- ⚠️ BOTH SIDES, BECAUSE `season_id` IS IN THE LIST ABOVE. Checking NEW alone
+  -- means a game moved OUT of a league is authorised by the DESTINATION league.
+  -- Not exploitable today — `auth_role()` is global, so anyone who passes RLS on
+  -- the source row is already a manager member of it — but the predicate should
+  -- not be one clause short of what the column list implies.
+  if manages_league(season_league(new.season_id))
+     and manages_league(season_league(old.season_id)) then
     return new;
   end if;
 
