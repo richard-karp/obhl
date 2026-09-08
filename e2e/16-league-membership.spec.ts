@@ -976,6 +976,11 @@ test.describe("Path 17 — Per-league membership", () => {
     // ⛔ AND THE OFFICE STAYS OUT, which is the half the widened set above could
     // otherwise have hidden. Both office accounts belong to no league, so only
     // the tier keeps them unreadable by a plain manager.
+    //
+    // ⚠️ The size check is the same guard as `visible.size` above, for the same
+    // reason: a `league_office` read that came back empty would make the loop
+    // below iterate nothing and pass while proving nothing.
+    expect(inOffice.size).toBeGreaterThan(0);
     for (const id of inOffice) expect(visible.has(id)).toBe(false);
 
     // Named explicitly: the set check above cannot fail while every seeded

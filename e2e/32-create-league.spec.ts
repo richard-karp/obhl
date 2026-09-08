@@ -52,7 +52,9 @@ test.describe("who may create a league", () => {
     await expect(page).toHaveURL("/");
   });
 
-  test("signing out, the page sends you to sign in rather than 404ing", async ({
+  // No sign-in step: each test gets a fresh context, so this one is anonymous
+  // by construction rather than by signing out.
+  test("an anonymous visitor is sent to sign in rather than 404ing", async ({
     page,
   }) => {
     await page.goto(NEW_LEAGUE);
