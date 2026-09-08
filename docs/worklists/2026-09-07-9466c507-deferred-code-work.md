@@ -23,15 +23,18 @@
 3. Every claim below is marked **measured** (watched appear on 2026-09-07) or
    **read** (a reading of the code, not run). Nothing is unmarked.
 4. Verify the tree with: `npm run typecheck && npx vitest run && npx eslint src e2e`.
-   ⚠️ **THE BASELINE DEPENDS ON YOUR BRANCH, AND BOTH NUMBERS ARE REAL.** Measured
-   2026-09-08: `origin/main` gives **472** tests over 38 files; PR #44's branch
-   (`test/clock-relative-fixture`) gives **480** over 37, because that PR DELETES
-   `src/lib/schedule/writeGames.test.ts`. An earlier revision of this line called
-   480 fabricated and said no tree had ever produced it — that was wrong. It was
-   counted on #44, and it is exact. Use 472 only while #44 is unmerged.
-   ⚠️ eslint has the same expiry, from the same cause: the two pre-existing
-   `no-unused-vars` warnings that are the floor today live IN that deleted file,
-   so the moment #44 lands `npx eslint src e2e` is clean with no floor at all.
+   ⚠️ **472, AND IT STAYS 472.** Measured 2026-09-08 on `origin/main`: 472 tests
+   over 38 files, with two `@typescript-eslint/no-unused-vars` warnings in
+   `src/lib/schedule/writeGames.test.ts` as the eslint floor. Neither number
+   changes when PR #44 lands.
+   ⛔ **480 IS A STALE-BRANCH ARTEFACT, NOT A FUTURE BASELINE, AND THIS LINE HAS
+   NOW BEEN WRONG TWICE.** PR #44's branch really does report 480 over 37 files —
+   it is missing `writeGames.test.ts` (8 tests), which `main` gained AFTER that
+   branch was cut. #44 does not delete it. Verified by actually merging #44 into
+   `main` and running the suite on the result: 38 files, **472 tests**, same two
+   warnings. One earlier revision called 480 fabricated; the next said it becomes
+   the baseline once #44 lands. Both were wrong, and both went wrong the same
+   way — by measuring a BRANCH instead of the MERGE. Measure the merge.
 
 **Status, 2026-09-08. Item 1 SHIPPED (PR #46, in review). ⚠️ THE OTHER SIX ARE NO
 LONGER UNSTARTED — every one has been taken to a decision, so read this file as
