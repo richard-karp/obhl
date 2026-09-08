@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect, RedirectType } from "next/navigation";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
 import { addLeagueMembership } from "@/lib/auth/membership";
@@ -235,16 +236,27 @@ export async function runRosterOnlyImport(
     playerCount += t.players.length;
   }
 
+  // ⚠️ THESE THREE STAY ABOVE THE BRANCH BELOW. Both outcomes wrote the same
+  // rows, so both need the same revalidation; moving them inside the `problems`
+  // branch would skip it on exactly the runs that already went wrong.
   revalidatePath("/[league]/seasons", "page");
   revalidatePath("/[league]", "layout");
   // This import creates a league; the root landing page lists them.
   revalidatePath("/");
-  const shortfall =
-    problems.length > 0
-      ? ` ${problems.length} of ${parsed.teams.length} teams did not import cleanly: ${problems.join("; ")}. Add those rosters by hand in Rosters — re-running the import would create a second league, since there is no way to delete this one.`
-      : "";
+
+  // A clean run ends in the league it just made — see the long note at the tail
+  // of `runEsportsdeskImport`, which this mirrors, including why `redirect` has
+  // to sit outside a `try` and why `replace` beats `push`. Nothing encloses this
+  // line either: the file's one `try` closed long before it.
+  if (problems.length === 0)
+    redirect(`/${leagueSlug}/seasons`, RedirectType.replace);
+
+  // Something came up short, so the manager stays and reads it. ⛔ This is the
+  // only place the failed teams are named — nothing is logged and nothing else
+  // renders them — which is why this exit returns rather than redirecting.
   return {
     ok: true,
-    message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}. No games or stats were imported.${shortfall} It's inactive; set it active when ready, and set any goalie positions in Rosters (esportsdesk rarely records them).`,
+    slug: leagueSlug,
+    message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}. No games or stats were imported. ${problems.length} of ${parsed.teams.length} teams did not import cleanly: ${problems.join("; ")}. Add those rosters by hand in Rosters — re-running the import would create a second league, since there is no way to delete this one. It's inactive; set it active when ready, and set any goalie positions in Rosters (esportsdesk rarely records them).`,
   };
 }
