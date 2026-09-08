@@ -17,11 +17,17 @@
  *
  * ⛔ NOTHING HERE COMPLETES AN IMPORT. That needs an outbound fetch to
  * esportsdesk, which the suite does not do — see the note in `17-roster-import`.
- * So the redirect into the new league on a clean run, and every branch that
- * reports instead of redirecting, are **covered by nothing** — not by this file
- * and not by any other. ⚠️ An earlier version of this comment said they were
- * "verified by hand"; they were not, and writing that down is what made the gap
- * invisible. If you add coverage, it needs a stubbed fetch, not a live one.
+ * The redirect into the new league, and every branch that reports instead of
+ * redirecting, live in `src/lib/actions/import.test.ts`, which stubs the fetch
+ * and the database and tests the decisions.
+ *
+ * ⚠️ What is STILL covered by nothing, so that nobody reads the above as more
+ * than it is: the real database writes and the real HTML parser. No test drives
+ * either end to end.
+ *
+ * ⚠️ An earlier version of this comment claimed the redirect was "verified by
+ * hand". It was not, by anyone, and writing that down is what kept the gap
+ * invisible for three review rounds.
  */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
