@@ -478,9 +478,9 @@ export async function runEsportsdeskImport(
   // ⚠️ NOTHING COUNTS THE ROWS ANY MORE. There was a `statRowCount` here, read
   // only by the success message that the redirect below replaced; with no reader
   // left it was a variable kept warm for nobody. If a landing banner ever wants
-  // the tally back, it comes from `statLinesMatched` at the end of this block,
-  // which now exists and IS read — by the shortfall note. Do not reintroduce a
-  // separate row counter on top of it.
+  // the tally back, `rosterRows.length` at the end of this block is the row
+  // count. (`statLinesRecorded`, added later, is a count of stat LINES that
+  // produced rows — a different number, and not a row tally.)
   try {
     const stats = await fetchEsportsdeskStats(
       ids.clientId,
@@ -496,9 +496,14 @@ export async function runEsportsdeskImport(
       .order("scheduled_at", { ascending: true });
     if (gqErr) throw new Error(gqErr.message);
 
-    // How many of the source's stat lines found a player. Compared with
-    // `stats.length` below.
-    let statLinesMatched = 0;
+    // How many of the source's published stat lines actually produced
+    // `game_rosters` rows. Compared with `stats.length` below.
+    //
+    // ⚠️ NOT "found a player" — see the note at the increment. A line can
+    // resolve a pid and still record nothing. It is also deduped by `seenPid`
+    // before it gets here, so two lines resolving to the same player count
+    // once; the second one's data really was dropped, so reporting it is right.
+    let statLinesRecorded = 0;
     const rosterRows: {
       game_id: string;
       team_id: string;
@@ -535,10 +540,6 @@ export async function runEsportsdeskImport(
         .filter((m) =>
           seenPid.has(m.pid) ? false : (seenPid.add(m.pid), true),
         );
-      // Counted before the distribution below, which fans each matched line
-      // out across that team's games — `rosterRows.length` is a row count, not
-      // a player count, and cannot be compared with `stats.length`.
-      statLinesMatched += matched.length;
       if (!matched.length) continue;
 
       const dist = distributeStats(
@@ -546,6 +547,20 @@ export async function runEsportsdeskImport(
         matched.map((m) => ({ gp: m.gp, g: m.g, a: m.a, pim: m.pim })),
       );
       matched.forEach((m, pi) => {
+        // ⛔ COUNTED HERE — WHERE ROWS ARE WRITTEN — NOT WHERE A PID WAS FOUND,
+        // and the difference is a case the previous version lost. Resolving a
+        // player is not the same as recording anything: `distributeStats`
+        // returns an EMPTY distribution whenever `gp` clamps to zero
+        // (`order.slice(0, gp)`), and `gp` is `Number(c[5])` off the stats page
+        // with no validation — `""` is 0 and `"-"` is NaN, both of which slice
+        // to nothing. So a line can match by name, be counted, and write no
+        // rows at all.
+        //
+        // Counting matches instead of rows made this silent: the condition it
+        // replaced (`rosterRows.length === 0`) at least caught the total case,
+        // so widening "total loss" to "any shortfall" had quietly NARROWED the
+        // measurement. Counting rows written keeps both.
+        if (dist[pi].size > 0) statLinesRecorded++;
         for (const [gi, c] of dist[pi]) {
           rosterRows.push({
             game_id: teamGames[gi].id,
@@ -577,9 +592,9 @@ export async function runEsportsdeskImport(
     // team-name match — which left the commonest real failure silent while
     // claiming the opposite two comments above. The schedule branch has always
     // compared counts; this one now does too.
-    if (statLinesMatched < stats.length) {
+    if (statLinesRecorded < stats.length) {
       notes.push(
-        `${stats.length - statLinesMatched} of ${stats.length} published stat lines could not be matched to an imported player, so those players have no stats. Standings are unaffected. Usually a team or player name that differs from the source — or games that did not import, since stats are attached to games.`,
+        `${stats.length - statLinesRecorded} of ${stats.length} published stat lines were not recorded, so those players have no stats. Standings are unaffected. Usually a name that differs from the source, a team that did not import, or games that did not import — stats are attached to games.`,
       );
     }
   } catch (e) {
