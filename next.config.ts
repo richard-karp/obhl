@@ -73,6 +73,26 @@ const nextConfig: NextConfig = {
         destination: "/:league/schedule",
         permanent: true,
       },
+      // The importer moved OUT of `[league]` entirely: it never imported *into*
+      // the league in its URL, it creates a new one, so it now lives beside the
+      // League Office at a path that belongs to no league.
+      //
+      // ⛔ THE DESTINATION HAS THREE SEGMENTS ON PURPOSE, AND `/manage/import`
+      // WOULD LOOP. This source matches any two-segment `/<x>/import`, and
+      // `:league` happily eats `manage` — so a destination of `/manage/import`
+      // would match the rule that produced it and redirect to itself forever.
+      // `/manage/leagues/new` cannot be matched by a two-segment anchored
+      // source, which makes the loop impossible rather than merely avoided.
+      // (Same family as the `/manage/office` note on the first rule above; that
+      // one is safe because the SECOND segment must be the literal `manage`.)
+      //
+      // Ordering against the five rules above does not matter: none of their
+      // sources matches `/<x>/import`.
+      {
+        source: "/:league/import",
+        destination: "/manage/leagues/new",
+        permanent: true,
+      },
     ];
   },
 };

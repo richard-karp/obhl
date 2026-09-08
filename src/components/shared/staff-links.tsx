@@ -34,7 +34,9 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
     { path: "/schedule-builder", label: "Build Schedule" },
     { path: "/announcements", label: "Announcements" },
     { path: "/rules", label: "Rules" },
-    { path: "/import", label: "Import" },
+    // ⛔ NO "/import" HERE ANY MORE. It never belonged to a league — it creates
+    // one — so it moved to `/manage/leagues/new` and is added as an absolute
+    // link in `staffLinks()` below, beside the League Office.
     { path: "/audit", label: "Audit Log" },
   ],
   scorekeeper: [
@@ -69,8 +71,8 @@ function Links({ links, base }: { links: NavLink[]; base: string }) {
   return (
     <>
       {links.map((l) => {
-        // `absolute` is for links that belong to no league — today only the
-        // League Office. Everything else is relative to `/<league>`.
+        // `absolute` is for links that belong to no league — the League Office,
+        // and creating a league. Everything else is relative to `/<league>`.
         const href = l.absolute ? l.path : `${base}${l.path}`;
         const active = pathname === href || pathname.startsWith(href + "/");
         return (
@@ -227,6 +229,21 @@ function staffLinks(
 ): NavLink[] {
   return [
     ...(role ? LINKS[role] : [{ path: "/dashboard", label: "Dashboard" }]),
+    // Creating a league. Absolute for the same reason as the office below —
+    // `LINKS` paths are relative to `/<league>` and this one belongs to none.
+    //
+    // ⚠️ GATED ON THE ROLE, NOT ON A TIER. Every manager may create a league;
+    // that is what the page's own `requireManager()` says and what both
+    // importers have always enforced. A scorekeeper or captain must not see it,
+    // which `LINKS[role]` cannot express for an absolute path — hence the check.
+    //
+    // ⚠️ This row is drawn only for members of the league in the URL, so a
+    // manager who belongs to NO league never sees this link. For them the root
+    // page's own link is the only way in — which is the case the move exists to
+    // serve, so the two are not redundant.
+    ...(role === "league_manager"
+      ? [{ path: "/manage/leagues/new", label: "New league", absolute: true }]
+      : []),
     // Without this the page is reachable only by typing the URL. It is not in
     // `LINKS` because that map is keyed on role and its paths are
     // league-relative, and the office is neither.
