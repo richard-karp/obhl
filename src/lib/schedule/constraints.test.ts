@@ -322,6 +322,42 @@ describe("refuteConstraints", () => {
       ),
     ).toEqual([]);
   });
+
+  it("reads correctly when the week holds a single game night", () => {
+    // ⛔ THE COMMONEST LEAGUE SHAPE, and the one the first version of this
+    // message got wrong: it produced "all 1 of its nights seat every one of the
+    // 4 teams". One night a week, two games on it, four teams — nobody byes.
+    //
+    // Five nights and four games a team leaves a budget of one, so the budget
+    // check above stays silent and this asserts on exactly one sentence.
+    const weekly: Night[] = [
+      "2026-09-07",
+      "2026-09-14",
+      "2026-09-21",
+      "2026-09-28",
+      "2026-10-05",
+    ].map((date) => ({ date, slots: SLOTS }));
+
+    const out = refuteConstraints(
+      resolveConstraints(
+        [c("1", "a", "bye_in_week", { week_of: weekly[1].date })],
+        { nights: weekly, teamIds: TEAMS },
+      ),
+      {
+        teamIds: TEAMS,
+        nameOf,
+        gamesPerTeam: new Array(4).fill(4),
+        gamesPerNight: [2, 2, 2, 1, 1],
+        weekOfNight: buildNightMeta(weekly).week,
+      },
+    );
+
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain(
+      "its only game night seats every one of the 4 teams",
+    );
+    expect(out[0]).not.toContain("all 1 of");
+  });
 });
 
 describe("evaluateConstraints", () => {
