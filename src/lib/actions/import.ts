@@ -85,8 +85,10 @@ export async function previewEsportsdeskImport(
  * 1. a schedule that would not parse (throws, caught);
  * 2. stats that failed (throws, caught);
  * 3. teams or rosters that came up short (`problems[]`);
- * 4. a schedule or stats set that fetched fine and matched nothing (`notes[]`)
- *    — no throw, no count, and the reason `notes` exists separately;
+ * 4. a schedule or stats set that fetched fine and did not FULLY match
+ *    (`notes[]`) — any shortfall, not only a total one, and not only a failure
+ *    to match: a stat line can resolve a player and still record nothing. No
+ *    throw and no count, which is why `notes` exists separately;
  * 5. a membership grant that did not land, which leaves a league the manager
  *    cannot open.
  *
@@ -177,13 +179,17 @@ export async function runEsportsdeskImport(
     .insert({ name: leagueName, slug: leagueSlug, is_public: true })
     .select("id")
     .single();
-  if (lErr) {
+  // `|| !league` matches `runRosterOnlyImport`, which has always had it. Type
+  // narrowing does not need it — `.single()` discriminates `data` against
+  // `error` — but these two functions are meant to read as mirrors, and this
+  // was the last place they did not.
+  if (lErr || !league) {
     return {
       ok: false,
       message:
-        lErr.code === "23505"
+        lErr?.code === "23505"
           ? `A league named "${leagueName}" already exists — pick a different name.`
-          : lErr.message,
+          : (lErr?.message ?? "Couldn't create the league."),
     };
   }
 
@@ -622,11 +628,21 @@ export async function runEsportsdeskImport(
   // carried alone ("set any goalie positions in Rosters") is already on the
   // import form itself, above the submit button, in both modes.
   //
-  // ⛔ ONLY A RUN THAT DROPPED NOTHING MAY REDIRECT, and this gate is the whole
-  // reason the loop above counts problems. A redirect discards the message, so
-  // without it an import that lost three of twelve teams would look exactly
-  // like a perfect one — on a league with no delete UI, and with the counts
-  // that used to reveal the shortfall no longer displayed anywhere.
+  // ⚠️ The three `revalidatePath` calls above are repeated at all three exits.
+  // `runRosterOnlyImport` hoists its copies above its branch; this function
+  // cannot, because two of its exits are inside `catch` blocks. Duplicated on
+  // purpose — but a fourth exit must not forget them.
+  //
+  // ⛔ ONLY A RUN THAT DROPPED NOTHING MAY REDIRECT. A redirect discards the
+  // message, so without this an import that lost three of twelve teams would
+  // look exactly like a perfect one — on a league with no delete UI, and with
+  // the counts that used to reveal the shortfall no longer displayed anywhere.
+  //
+  // ⚠️ ALL THREE CONJUNCTS, and each was added after a run got past the ones
+  // before it: `problems` for teams and rosters that failed, `notes` for a
+  // schedule or stats set that did not fully land, `membership.ok` because a
+  // manager who was not added cannot open the page this would send them to.
+  // A fourth kind of loss needs a fourth conjunct here, not just a message.
   //
   // ⛔ THIS LINE MUST STAY OUTSIDE EVERY `try`. `redirect` works by throwing, so
   // one of this file's two `catch (e)` blocks would swallow it and the run would

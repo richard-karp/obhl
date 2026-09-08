@@ -253,9 +253,13 @@ export async function runRosterOnlyImport(
   revalidatePath("/");
 
   // A clean run ends in the league it just made — see the long note at the tail
-  // of `runEsportsdeskImport`, which this mirrors, including why `redirect` has
-  // to sit outside a `try` and why `replace` beats `push`. Nothing encloses this
-  // line either: the file's one `try` closed long before it.
+  // of `runEsportsdeskImport` for why `redirect` has to sit outside a `try` and
+  // why `replace` beats `push`. Both apply here; nothing encloses this line
+  // either, the file's one `try` having closed long before it.
+  //
+  // ⚠️ THE GATE IS SHORTER THAN ITS SIBLING'S BY ONE CONJUNCT, deliberately.
+  // That one also checks `notes.length === 0`; this importer fetches neither a
+  // schedule nor stats, so it has no notes to check and no `notes[]` at all.
   if (problems.length === 0 && membership.ok)
     redirect(`/${leagueSlug}/seasons`, RedirectType.replace);
 
