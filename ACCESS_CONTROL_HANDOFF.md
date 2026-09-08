@@ -194,6 +194,21 @@ in `src/lib/import/esportsdesk.ts`.
 
 Each of these cost a review round or a wrong fix in the session that built it.
 
+- **A ROLE-ONLY GUARD ON A PAGE IS NORMALLY A BUG — `/manage/leagues/new` IS THE
+  EXCEPTION, AND IT IS THE ONLY ONE.** Added 2026-09-08. Creating a league is the
+  single act with no league to be a member of yet, so that page guards with
+  `requireManager()` while every page under `[league]/(manage)` must not.
+  ⛔ **The route is what makes it legal, not a judgement call.**
+  `src/lib/actions/league-guards.test.ts` asserts that no page in that tree uses
+  a role-only guard, so moving this file back under `[league]` turns the unit
+  suite red — which is the intended outcome, not an obstacle to route around.
+  There are now three pages outside the manage-page sweep, each for a different
+  reason: `/set-password` (below — no role yet), `/manage/office` (instance-wide
+  tier, guarded by `requireOfficeMember`), and this one. ⚠️ Do not "restore
+  coverage" by pointing `MANAGE_DIR` at `src/app/manage/` — both of its rules
+  ("must call a league guard", "must not use a role-only guard") are wrong for a
+  page belonging to no league, and it would fail all three.
+
 - **THE CHROME IS NOT A GUARD, and since 2026-09-06 it is not even a hint.**
   PR #39 (`9d57fbe`) deleted the separate manager chrome: there is one header for
   the whole site, and staff get a row of links beneath it
