@@ -98,6 +98,28 @@ const staff = [
     leagues: [],
     office: "deputy",
   },
+  // ⛔ EIGHT IS THE ONE ACCOUNT THAT REACHES NOTHING, and it exists because no
+  // other fixture can stand in for it. `leagues: []` looks like six and seven,
+  // but theirs is cancelled out by the office tier: `memberLeagueIds` answers
+  // for an office member by selecting EVERY league, so a commissioner is an
+  // implicit member everywhere and passes every membership check. This account
+  // has no tier, so it is the only seeded `league_manager` that `isLeagueMember`
+  // says no to — which is exactly the account that creating a league at
+  // `/manage/leagues/new` is meant to serve, since it is who holds the role
+  // before anyone has put them in a league.
+  //
+  // ⚠️ The address and display name were checked against all seven above for
+  // the substring trap this file's header describes. "No League Manager"
+  // contains "League Manager", which is safe only because every display-name
+  // lookup in the suite is a DB `.eq()` — exact, not substring — and
+  // "Single League Manager" already relies on that. Keep it that way: a
+  // `hasText` locator on a display name would break both at once.
+  {
+    email: "no-league-mgr@obhl.test",
+    role: "league_manager",
+    display_name: "No League Manager",
+    leagues: [],
+  },
 ];
 
 /** slug -> league id, for the membership rows below. */

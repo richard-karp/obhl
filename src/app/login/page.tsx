@@ -23,6 +23,10 @@ const DEV_ACCOUNTS = [
   // drive implicit membership from a browser.
   { label: "Commissioner", email: "commissioner@obhl.test" },
   { label: "Deputy", email: "deputy@obhl.test" },
+  // Eight: a manager with the role and no league at all — no membership row and
+  // no office tier, so every league-scoped guard turns them away. The account
+  // that can only create a league, which is what it is here to drive.
+  { label: "No-league mgr", email: "no-league-mgr@obhl.test" },
 ];
 
 export default async function LoginPage({
