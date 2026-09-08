@@ -223,7 +223,20 @@ export async function createTeamForSeason(
         }
         // A role without a league reaches nothing: every manage page now asks
         // for membership as well. Granted for the league this season is in.
-        await addLeagueMembership(userId, season.league_id);
+        //
+        // ⛔ AND CHECKED — this is the last thing that has to land for the
+        // captain to be able to sign in and reach anything. Discarded, it read
+        // exactly like the `profErr` branch above it succeeding: the team is
+        // reported added with a captain who holds the role and belongs to no
+        // league, which is the failure the comment above describes.
+        const granted = await addLeagueMembership(userId, season.league_id);
+        if (!granted.ok) {
+          revalidatePath("/[league]/seasons/[seasonId]", "page");
+          return {
+            ok: false,
+            message: `Added ${name} with captain ${captainName}, but couldn't give them access to this league (${granted.error}). Their login exists — add them from People & Roles.`,
+          };
+        }
       }
     }
   }
