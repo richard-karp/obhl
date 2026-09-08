@@ -280,6 +280,48 @@ describe("refuteConstraints", () => {
       ),
     ).toEqual([]);
   });
+
+  it("refuses a bye_in_week on a week that has no bye to give", () => {
+    // Week 0 is nights 0 and 1, and here they run TWO games each. With four
+    // teams that seats everybody: byesAvailable = 4 - 2*2 = 0, both nights.
+    //
+    // ⛔ THE BUDGET ARITHMETIC CANNOT SEE THIS, which is why it went unrefuted.
+    // The season holds 8 nights and each team plays 5 games, so the budget is 3
+    // byes — ample. The set "fits" while being impossible, and the search then
+    // runs to exhaustion and fails without saying why.
+    const fullFirstWeek = {
+      ...opts,
+      gamesPerTeam: new Array(4).fill(5),
+      gamesPerNight: [2, 2, 1, 1, 1, 1, 1, 1],
+    };
+
+    const out = refuteConstraints(
+      resolve([c("1", "a", "bye_in_week", { week_of: NIGHTS[0].date })]),
+      fullFirstWeek,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain("no bye to give");
+
+    // ⛔ TWO CONTROLS, because "it returned a message" is not the claim.
+    //
+    // The same impossibility asked as `bye_on` was ALWAYS refused — that is
+    // what made the gap a real inconsistency rather than a missing feature.
+    expect(
+      refuteConstraints(
+        resolve([c("1", "a", "bye_on", { date: NIGHTS[0].date })]),
+        fullFirstWeek,
+      )[0],
+    ).toContain("0 byes to give");
+
+    // And the identical request one week later, where the nights run one game
+    // and can host it, must still say nothing.
+    expect(
+      refuteConstraints(
+        resolve([c("1", "a", "bye_in_week", { week_of: NIGHTS[2].date })]),
+        fullFirstWeek,
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe("evaluateConstraints", () => {

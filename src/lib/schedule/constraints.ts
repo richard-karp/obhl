@@ -447,6 +447,43 @@ export function refuteConstraints(
     }
   }
 
+  /**
+   * ⛔ A `bye_in_week` ON A WEEK THAT HAS NO BYE TO GIVE. The budget arithmetic
+   * above cannot see this one: it charges the request against the SEASON's
+   * total bye budget, which is normally ample, while the week itself may seat
+   * every team on every one of its nights.
+   *
+   * The same impossibility asked as `bye_on` has always been refused — by the
+   * per-night loop below, with "only has 0 byes to give". Asked as
+   * `bye_in_week` it returned nothing at all, so the search ran to exhaustion
+   * and failed without ever saying why, which is the outcome this whole
+   * function exists to prevent.
+   *
+   * Weeks that already hold a forced bye are skipped for the same reason the
+   * budget loop treats them as paid for: the forced bye satisfies the
+   * disjunction, and if that forced bye is itself impossible the per-night loop
+   * is the one that says so.
+   */
+  const nightsOfWeek = new Map<number, number[]>();
+  weekOfNight.forEach((w, n) => {
+    const list = nightsOfWeek.get(w);
+    if (list) list.push(n);
+    else nightsOfWeek.set(w, [n]);
+  });
+  for (let t = 0; t < T; t++) {
+    const paidByForced = new Set([...byeNights[t]].map((n) => weekOfNight[n]));
+    for (const w of byeWeeks[t]) {
+      if (paidByForced.has(w)) continue;
+      const inWeek = nightsOfWeek.get(w) ?? [];
+      if (inWeek.some((n) => T - 2 * (gamesPerNight[n] ?? 0) > 0)) continue;
+      out.push(
+        inWeek.length === 0
+          ? `${nameOf(teamIds[t])} is asked to bye in a week the season runs no games in.`
+          : `${nameOf(teamIds[t])} is asked to bye in a week that has no bye to give — all ${inWeek.length} of its nights seat every one of the ${T} teams. Drop that request or run fewer games that week.`,
+      );
+    }
+  }
+
   for (let n = 0; n < N; n++) {
     const byesAvailable = T - 2 * gamesPerNight[n];
     let forcedOff = 0;
