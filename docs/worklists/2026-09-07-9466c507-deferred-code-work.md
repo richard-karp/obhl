@@ -28,17 +28,33 @@
    `src/lib/schedule/writeGames.test.ts` as the eslint floor. Neither number
    changes when PR #44 lands.
    ⛔ **480 IS A STALE-BRANCH ARTEFACT, NOT A FUTURE BASELINE, AND THIS LINE HAS
-   NOW BEEN WRONG TWICE.** PR #44's branch really does report 480 over 37 files —
-   it is missing `writeGames.test.ts` (8 tests), which `main` gained AFTER that
-   branch was cut. #44 does not delete it. Verified by actually merging #44 into
-   `main` and running the suite on the result: 38 files, **472 tests**, same two
-   warnings. One earlier revision called 480 fabricated; the next said it becomes
-   the baseline once #44 lands. Both were wrong, and both went wrong the same
-   way — by measuring a BRANCH instead of the MERGE. Measure the merge.
+   NOW BEEN WRONG THREE TIMES.** PR #44's branch really does report 480 over 37
+   files, and #44 deletes nothing — the branch is simply behind `main` by two
+   changes to unit tests, which is the whole of the difference:
 
-**Status, 2026-09-08. Item 1 SHIPPED (PR #46, in review). ⚠️ THE OTHER SIX ARE NO
-LONGER UNSTARTED — every one has been taken to a decision, so read this file as
-the reasoning behind them rather than as a queue:**
+   |                      | merge-base `41c52b3` | `origin/main`              |
+   | -------------------- | -------------------- | -------------------------- |
+   | `gameWrites.test.ts` | 29 tests             | **13** (PR #43 rewrote it) |
+   | `writeGames.test.ts` | absent               | **8** (added in `978365a`) |
+
+   480 − 16 + 8 = **472**. Verified by merging #44 into `main` and running the
+   suite on the result: 38 files, 472 tests, the same two warnings.
+   ⚠️ The first revision of this line called 480 fabricated. The second said it
+   becomes the baseline once #44 lands. The third named only the `+8` and so did
+   not reconcile with its own numbers — a reader could have predicted 488. All
+   three failed the same way: measuring a BRANCH instead of the MERGE. Measure
+   the merge.
+
+**Status, 2026-09-08. Every item has been taken to a decision, so read this file
+as the reasoning behind them rather than as a queue.**
+
+⛔ **NOTHING BELOW IS MERGED.** Every PR named here was OPEN as of 2026-09-08,
+`main` included none of them, and the past-tense verbs in this section describe
+what a PR _does_, not what has landed. Item 1 is "SHIPPED" only in the sense that
+its code is written and in review. Before relying on any of it, check: a session
+resuming cold could otherwise skip re-verification believing `main` carries these
+fixes. It does not — `src/lib/schedule/staleDraft.ts`, for one, exists only on
+`feat/stale-draft-publish-guard`.
 
 - **2** — draft-row edit e2e: **PR #49**. ⛔ Note for anyone extending it: the
   obvious version of that test PASSES against a fully broken guard. A night swap
@@ -126,7 +142,9 @@ move — the warning offers a move forward, not a reason to keep them.
 ### 2. No e2e drives an edit of a DRAFT row
 
 **Measured.** Every edit test in `e2e/30-schedule-edits.spec.ts` scopes to
-`.eq("is_draft", false)` (lines 111, 146, 166, 223, 584). The test at line 453,
+`.eq("is_draft", false)` (lines 111, 146, 166, 223, 580, 621, 666 — seven, and
+an earlier revision of this line said five and cited 584, which is an unrelated
+`expect`). The test at line 453,
 "edits still work with a draft staged over the published schedule", stages a draft
 and then edits the **published** rows — which is the state that broke once, but is
 not the same thing as editing a draft.
