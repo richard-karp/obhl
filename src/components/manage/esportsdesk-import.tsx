@@ -222,7 +222,9 @@ export function EsportsdeskImport() {
               // back, so this block is the report on a run that finished with
               // something wrong — and it is the only place that report exists.
               // The link is what replaces the redirect the manager did not get:
-              // somewhere to go once they have read it.
+              // somewhere to go once they have read it — except when the
+              // membership grant is what failed, which the ⛔ block below
+              // explains and gates.
               <div
                 role="status"
                 aria-live="polite"

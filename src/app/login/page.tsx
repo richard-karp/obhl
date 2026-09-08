@@ -24,14 +24,14 @@ const DEV_ACCOUNTS = [
   { label: "Captain", email: "captain@obhl.test" },
   { label: "One-league mgr", email: "single-league-lead@obhl.test" },
   { label: "One-league scorer", email: "single-league-scorer@obhl.test" },
-  // Six and seven: the League Office. Neither belongs to any league — the tier
-  // reaches every league without a membership row — so they are the only way to
-  // drive implicit membership from a browser.
+  // Commissioner and Deputy: the League Office. Neither belongs to any league —
+  // the tier reaches every league without a membership row — so they are the
+  // only way to drive implicit membership from a browser.
   { label: "Commissioner", email: "commissioner@obhl.test" },
   { label: "Deputy", email: "deputy@obhl.test" },
-  // Eight: a manager with the role and no league at all — no membership row and
-  // no office tier, so every league-scoped guard turns them away. The account
-  // that can only create a league, which is what it is here to drive.
+  // No-league mgr: the role and no league at all — no membership row and no
+  // office tier, so every league-scoped guard turns them away. The account that
+  // can only create a league, which is what it is here to drive.
   { label: "No-league mgr", email: "no-league-mgr@obhl.test" },
 ];
 
