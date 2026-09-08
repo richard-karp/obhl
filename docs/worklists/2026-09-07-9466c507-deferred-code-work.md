@@ -16,6 +16,10 @@
      locks generate, replace and remove permanently. Item 1 is about exactly this.
    - Export a distinct `PORT` and run e2e only via `scripts/e2e-locked.sh` —
      worktrees share one Supabase.
+   - ⚠️ **A fresh worktree has no `.env.local`** (it is gitignored), and without
+     it `playwright.config.ts` loads no Supabase keys, so e2e fails in a way that
+     looks like a broken app. Measured 2026-09-08. Copy it:
+     `cp /Users/richardkarp/dev/obhl/.env.local .env.local`.
 3. Every claim below is marked **measured** (watched appear on 2026-09-07) or
    **read** (a reading of the code, not run). Nothing is unmarked.
 4. Verify the tree with: `npm run typecheck && npx vitest run && npx eslint src e2e`.
@@ -157,7 +161,14 @@ until something renders them.
 **Measured.** `.github/workflows/ci.yml` has no `npm run lint` step though the
 script exists in `package.json`. There is no `.nvmrc` and no `engines` key, so the
 workflow's `node-version: 22` is the de-facto source of truth. Both are one-line
-fixes; the lint one may surface existing violations, so run it locally first.
+fixes.
+
+✅ **The "run it locally first" step is done (2026-09-08):** `npx eslint src e2e`
+on `main` is clean apart from two `@typescript-eslint/no-unused-vars` warnings in
+`src/lib/schedule/writeGames.test.ts:29` (`_fn`, `_args`) — warnings, not errors,
+so a lint step gates green today. ⚠️ That measured `npx eslint src e2e` directly,
+NOT `npm run lint`; what that script expands to is still unverified, and it is
+the thing CI would call.
 
 ---
 
