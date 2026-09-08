@@ -9,23 +9,53 @@ import {
 import { Button } from "@/components/ui/button";
 
 /**
- * Move a stale draft forward a whole number of weeks — one click, and the only
- * action the builder offers that changes a draft's dates without regenerating
- * it.
+ * The form itself, with no state of its own.
+ *
+ * ⚠️ SEPARATE FROM THE STATE ON PURPOSE. Two places offer this move — the
+ * warning banner and the publish confirmation — and they need *different*
+ * action states, because one survives a successful move and the other does not
+ * (see `StaleDraftNotice`). What they must not have is two copies of the
+ * markup: the label is the claim a manager checks before clicking, and a second
+ * copy is a second thing to forget to change.
+ */
+export function RedateForm({
+  seasonId,
+  targetLabel,
+  action,
+  pending,
+}: {
+  seasonId: string;
+  /** Where the first night lands, already formatted by the server panel. */
+  targetLabel: string;
+  action: (payload: FormData) => void;
+  pending: boolean;
+}) {
+  return (
+    <form action={action}>
+      <input type="hidden" name="season_id" value={seasonId} />
+      <Button type="submit" variant="outline" disabled={pending}>
+        {pending ? "Moving…" : `Move draft to ${targetLabel}`}
+      </Button>
+    </form>
+  );
+}
+
+/**
+ * Move a stale draft forward a whole number of weeks — the publish dialog's
+ * copy of the button.
  *
  * ⚠️ THE LABEL NAMES THE DESTINATION, NOT THE OPERATION. "Re-date draft" says
- * nothing a manager can check; "Move draft to Tue 15 Sep" is a claim they can
- * disagree with before they click it, which is the whole reason the date is
+ * nothing a manager can check; "Move draft to September 15, 2026" is a claim
+ * they can disagree with before they click it, which is why the date is
  * computed on the server and passed in rather than described in the abstract.
  *
- * ⚠️ THE DIALOG'S COPY OF THE BUTTON. The banner's copy lives in
- * `StaleDraftNotice`, which owns its own action state so that its confirmation
- * toast survives the move; this one is inside a dialog that closes on success —
- * PublishControls is keyed on the stale night and remounts — so its success
- * message races that unmount and is usually lost. That is acceptable here and
- * only here: the outcome is unmistakable on the page behind it (the warning is
- * gone and every date in the night list has moved), and a FAILURE keeps the
- * dialog open, which is the case that needs words.
+ * ⚠️ ITS SUCCESS MESSAGE IS EXPECTED TO BE LOST, which is why the banner keeps
+ * its own. This sits inside a dialog whose branch disappears once the draft
+ * stops being stale, so the effect below races that unmount — the same race
+ * `28-schedule-form-state.spec.ts` records for the publish toast. Acceptable
+ * here and only here: the outcome is unmistakable on the page behind it (the
+ * warning is gone and every date in the night list has moved), and a FAILURE
+ * keeps the dialog open, which is the case that needs words.
  *
  * Deliberately not styled as a primary button. Publishing is still what the
  * manager came to do; this is the way out of a schedule that went stale
@@ -36,7 +66,6 @@ export function RedateDraftButton({
   targetLabel,
 }: {
   seasonId: string;
-  /** Where the first night lands, already formatted by the server panel. */
   targetLabel: string;
 }) {
   const [state, action, pending] = useActionState<RedateDraftState, FormData>(
@@ -44,10 +73,6 @@ export function RedateDraftButton({
     null,
   );
 
-  // Toasting is a side effect on an external system (sonner), so it belongs in
-  // an effect — the same shape as PublishControls and RemoveControls. Nothing
-  // else needs saying afterwards: the action revalidates, so a success re-renders
-  // this whole section with the new dates and without the warning.
   useEffect(() => {
     if (!state) return;
     if (state.ok) toast.success(state.message);
@@ -55,11 +80,11 @@ export function RedateDraftButton({
   }, [state]);
 
   return (
-    <form action={action}>
-      <input type="hidden" name="season_id" value={seasonId} />
-      <Button type="submit" variant="outline" disabled={pending}>
-        {pending ? "Moving…" : `Move draft to ${targetLabel}`}
-      </Button>
-    </form>
+    <RedateForm
+      seasonId={seasonId}
+      targetLabel={targetLabel}
+      action={action}
+      pending={pending}
+    />
   );
 }

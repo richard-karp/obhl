@@ -38,7 +38,10 @@ import {
 } from "@/components/manage/schedule-edit-panel";
 import { RescheduleNightForm } from "@/components/manage/reschedule-night-form";
 import { PublishControls } from "@/components/manage/publish-controls";
-import { StaleDraftNotice } from "@/components/manage/stale-draft-notice";
+import {
+  StaleDraftNotice,
+  type StaleNotice,
+} from "@/components/manage/stale-draft-notice";
 import { RemoveControls } from "@/components/manage/remove-controls";
 import {
   formatLongDate,
@@ -215,11 +218,29 @@ export async function ScheduleBuilderPanel({
   // (`isPastGameNight`), but it checks the date at the moment the draft is
   // MADE. A draft built for a good future date and left standing — review early
   // in the week, publish later, which is the rebuild workflow — arrives at the
-  // publish button with its first night behind us, and publishing it starts the
-  // season in the past and locks it permanently. Nothing checked that until
-  // this: see `staleDraft`.
+  // publish button with its first game already played over, and publishing it
+  // starts the season in the past and locks it permanently. Nothing checked
+  // that until this: see `staleDraft`.
+  //
+  // ⚠️ The GAMES, not the nights: the lock fires on `scheduled_at < now()`, so
+  // a night that is still today but whose face-off has gone is exactly as
+  // dangerous as one from last week, and a date-only check cannot see it.
   const today = leagueDateKey(new Date().toISOString());
-  const stale = staleDraft({ nights: draftDates, today });
+  const stale = staleDraft({
+    games: (drafts ?? []).flatMap((g) =>
+      g.scheduled_at ? [g.scheduled_at as string] : [],
+    ),
+    now: new Date().toISOString(),
+  });
+  // One object for both consumers. They rendered two near-identical literals
+  // and one of them was already a field behind.
+  const staleView: StaleNotice | null = stale && {
+    firstNight: stale.firstNight,
+    firstNightLabel: formatLongDate(stale.firstNight),
+    passedNights: stale.passedNights,
+    weeks: stale.weeks,
+    shiftedLabel: formatLongDate(stale.shiftedFirstNight),
+  };
 
   // Spacing checks — reconstruct placement (night order + slot order) from the
   // draft games so managers can verify bye/rematch/ice-time spacing.
@@ -624,11 +645,19 @@ export async function ScheduleBuilderPanel({
                 // permanently inert: see the comment on `dialogOpen` in
                 // publish-controls.tsx.
                 //
-                // ⚠️ The stale night is part of the key for the same reason.
-                // Moving the draft forward leaves this component mounted with
-                // its dialog open over a warning that is no longer true; a new
-                // key remounts it closed, showing the section as it now stands.
-                key={`${publish.draftCount}:${stale?.firstNight ?? ""}`}
+                // ⛔ THE STALE NIGHT IS NOT IN THIS KEY, AND MUST NOT BE. It was
+                // for one revision, to close a dialog left open over a warning
+                // that had stopped being true — and it silently broke the
+                // refusal message: `publishSchedule` refusing an unacknowledged
+                // stale publish revalidates, `stale` goes from null to a night,
+                // the key changes, and the component remounts before the
+                // `useEffect` that toasts the refusal ever runs. The manager
+                // saw the page change and no sentence saying why. The
+                // non-destructive dialog closes anyway (the render forks back
+                // to a plain button once `stale` is null); a replace dialog
+                // stays open showing its ordinary replace copy, which is
+                // correct, just not closed.
+                key={publish.draftCount}
                 seasonId={seasonId}
                 draftCount={publish.draftCount}
                 liveCount={publish.liveCount}
@@ -644,19 +673,7 @@ export async function ScheduleBuilderPanel({
                 }
                 lineupsAtRisk={publish.lineupsAtRisk}
                 destructive={mode === "replace"}
-                // Formatted here for the same reason `liveRange` is: the dates
-                // a manager checks a decision against are the panel's to
-                // render, and the dialog does no date work of its own.
-                stale={
-                  stale
-                    ? {
-                        firstNight: stale.firstNight,
-                        firstNightLabel: formatLongDate(stale.firstNight),
-                        passedNights: stale.passedNights,
-                        shiftedLabel: formatLongDate(stale.shiftedFirstNight),
-                      }
-                    : null
-                }
+                stale={staleView}
               />
             )}
             <form action={discardSchedule}>
@@ -691,21 +708,10 @@ export async function ScheduleBuilderPanel({
             take and the button under it would refuse every click.
           */}
           {mode === "locked" ? null : (
-            <StaleDraftNotice
-              seasonId={seasonId}
-              // Formatted here for the same reason `liveRange` is: the dates a
-              // manager checks a decision against are the panel's to render.
-              stale={
-                stale
-                  ? {
-                      firstNightLabel: formatLongDate(stale.firstNight),
-                      passedNights: stale.passedNights,
-                      weeks: stale.weeks,
-                      shiftedLabel: formatLongDate(stale.shiftedFirstNight),
-                    }
-                  : null
-              }
-            />
+            // Formatted by the panel for the same reason `liveRange` is: the
+            // dates a manager checks a decision against are the panel's to
+            // render, and neither component does date work of its own.
+            <StaleDraftNotice seasonId={seasonId} stale={staleView} />
           )}
 
           {scheduleIncomplete ? (

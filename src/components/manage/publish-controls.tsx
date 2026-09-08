@@ -4,6 +4,7 @@ import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { publishSchedule, type PublishState } from "@/lib/actions/schedule";
 import { RedateDraftButton } from "@/components/manage/redate-draft-button";
+import type { StaleNotice } from "@/components/manage/stale-draft-notice";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,22 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-
-/**
- * What the panel knows about a draft whose first game night has already passed.
- * Dates arrive formatted — this component renders them and does no date work of
- * its own, the same division `liveRange` already follows.
- */
-export type StalePublish = {
-  /** The raw "YYYY-MM-DD" first night, submitted back as the acknowledgement. */
-  firstNight: string;
-  /** That night, formatted for the manager. */
-  firstNightLabel: string;
-  /** How many of the draft's nights are already behind us. */
-  passedNights: number;
-  /** Where the first night lands if the draft is moved forward. */
-  shiftedLabel: string;
-};
 
 /**
  * Publish, or replace.
@@ -73,8 +58,12 @@ export function PublishControls({
   lineupsAtRisk: number;
   /** True in "replace" mode — a live schedule would be deleted. */
   destructive: boolean;
-  /** Null when the draft's first game night is today or later. */
-  stale: StalePublish | null;
+  /**
+   * Null when the draft's first game is still ahead of us. The same object the
+   * warning banner renders — one shape, built once by the panel, so the two
+   * cannot drift apart.
+   */
+  stale: StaleNotice | null;
 }) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState<PublishState, FormData>(
@@ -153,7 +142,7 @@ export function PublishControls({
                   <>
                     <p>
                       This draft&apos;s first game night (
-                      {stale.firstNightLabel}) has already passed
+                      {stale.firstNightLabel}) has already been played over
                       {stale.passedNights > 1
                         ? `, along with ${stale.passedNights - 1} more`
                         : ""}
