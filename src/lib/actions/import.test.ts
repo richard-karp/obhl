@@ -1,7 +1,7 @@
 /**
  * What an import REPORTS, and when it redirects instead.
  *
- * ⛔ THIS FILE EXISTS BECAUSE THREE REVIEW ROUNDS FOUND THREE BUGS HERE AND NO
+ * ⛔ THIS FILE EXISTS BECAUSE FOUR REVIEW ROUNDS FOUND FOUR BUGS HERE AND NO
  * TEST TOUCHED ANY OF THEM. The import path had no coverage at all: both e2e
  * import specs are network-free by design and stop at the form, so nothing ever
  * ran a completed import. Every defect was the same shape — a run that lost work
@@ -13,7 +13,7 @@
  * the three bugs involved either. They were decisions — which failures get
  * recorded, which recorded failure blocks the redirect — and a test that had to
  * carry HTML fixtures and a live schema would have been too expensive to write
- * on any of the three occasions it was needed.
+ * on any of the four occasions it was needed.
  *
  * ⚠️ THE COST OF THAT CHOICE, stated so nobody mistakes green here for proof:
  * the admin-client fake below implements the shapes these actions use, not
@@ -196,6 +196,18 @@ const MATCHED_GAME: ParsedGame = {
   isPlayoff: false,
 };
 
+/** A game whose names resolve against nothing in the default fixture. */
+const UNMATCHED_GAME: ParsedGame = {
+  ...{
+    date: "2026-01-05",
+    homeGoals: 3,
+    awayGoals: 2,
+    isPlayoff: false,
+  },
+  homeName: "Nobody",
+  awayName: "Nobody Else",
+};
+
 /** One stat line per player of the default fixture, matched by name. */
 const matchedStats = (): ParsedStat[] =>
   league().teams.flatMap((t) =>
@@ -298,7 +310,7 @@ describe("runEsportsdeskImport", () => {
     expect(r.redirected).toBe(false);
     if (r.redirected) return;
     expect(r.state.message).toMatch(
-      /1 of \d+ published stat lines could not be matched/,
+      /1 of \d+ published stat lines were not recorded/,
     );
   });
 
@@ -324,7 +336,13 @@ describe("runEsportsdeskImport", () => {
     expect(redirected).not.toHaveBeenCalled();
   });
 
-  it("reports when stats were published but matched no roster", async () => {
+  it("reports stats that had no games to attach to", async () => {
+    // ⚠️ NAMED FOR WHAT IT PINS. This was called "matched no roster", which it
+    // does not test: with no schedule, both teams hit `!teamGames.length` and
+    // `continue` before any name matching runs. Roster matching is covered by
+    // the PARTIAL test above. Its fixture is also unproducible in production —
+    // `fetchEsportsdeskStats` drops rows whose team is not a parsed team — so
+    // the value here is the no-games route, which is real.
     const { runEsportsdeskImport } = await import("./import");
     fetchStats.mockResolvedValue([
       { name: "Nobody", jersey: 99, team: "Nobody", gp: 1, g: 1, a: 0, pim: 0 },
@@ -333,8 +351,68 @@ describe("runEsportsdeskImport", () => {
     expect(r.redirected).toBe(false);
     if (r.redirected) return;
     expect(r.state.message).toMatch(
-      /1 of 1 published stat lines could not be matched/,
+      /1 of 1 published stat lines were not recorded/,
     );
+  });
+
+  it("reports lines that matched a player but recorded nothing", async () => {
+    // ⛔ THE REGRESSION THAT COUNTING MATCHES INSTEAD OF ROWS INTRODUCED.
+    // `distributeStats` returns an empty distribution when `gp` clamps to 0,
+    // and `gp` is unvalidated off the stats page. Every line here resolves a
+    // player, so a match-counter sees a full house and stays silent.
+    const { runEsportsdeskImport } = await import("./import");
+    fetchSchedule.mockResolvedValue([MATCHED_GAME]);
+    fetchStats.mockResolvedValue(matchedStats().map((s) => ({ ...s, gp: 0 })));
+    const r = await run(runEsportsdeskImport);
+    expect(r.redirected).toBe(false);
+    if (r.redirected) return;
+    expect(r.state.message).toMatch(
+      /4 of 4 published stat lines were not recorded/,
+    );
+  });
+
+  it("reports through the stats catch, carrying the schedule's note with it", async () => {
+    // Both catch exits were uncovered: five mutants survived in them, including
+    // a missing `${noteText()}` — the same bug already fixed once at the tail.
+    // This is the one path where a note exists BEFORE a catch fires.
+    const { runEsportsdeskImport } = await import("./import");
+    // All three optional fragments non-empty at once, which is what pins them:
+    // a team problem (`shortfall`), an unmatched game (`noteText`), and a
+    // failed membership (`accessWarning`). Dropping any one of them from this
+    // message is a mutant that would otherwise survive.
+    responses["teams.insert"] = { data: null, error: { message: "dup" } };
+    fetchSchedule.mockResolvedValue([UNMATCHED_GAME]);
+    fetchStats.mockRejectedValue(new Error("stats page 500"));
+    addMembership.mockResolvedValue({ ok: false, error: "rls refused" });
+    const r = await run(runEsportsdeskImport);
+    expect(r.redirected).toBe(false);
+    if (r.redirected) return;
+    expect(r.state.message).toMatch(/player stats failed \(stats page 500\)/);
+    expect(r.state.message).toMatch(/2 of 2 teams did not import cleanly/);
+    // the note from the schedule block survives into the stats catch
+    expect(r.state.message).toMatch(/1 of 1 games could not be matched/);
+    expect(r.state.message).toMatch(/You were NOT added to this league/);
+    expect(r.state.canOpen).toBe(false);
+  });
+
+  it("reports through the schedule catch", async () => {
+    const { runEsportsdeskImport } = await import("./import");
+    responses["teams.insert"] = { data: null, error: { message: "dup" } };
+    fetchSchedule.mockRejectedValue(new Error("schedule page 500"));
+    addMembership.mockResolvedValue({ ok: false, error: "rls refused" });
+    const r = await run(runEsportsdeskImport);
+    expect(r.redirected).toBe(false);
+    if (r.redirected) return;
+    expect(r.state.message).toMatch(
+      /the schedule import failed \(schedule page 500\)/,
+    );
+    // `shortfall` has to survive this exit too
+    expect(r.state.message).toMatch(/2 of 2 teams did not import cleanly/);
+    // ⚠️ AND `canOpen` — each exit carries its own, and this one was the last
+    // unpinned copy: a mutant setting it to `true` here survived while the
+    // stats catch's identical field was covered.
+    expect(r.state.message).toMatch(/You were NOT added to this league/);
+    expect(r.state.canOpen).toBe(false);
   });
 
   it("records a team whose insert failed, and refuses to redirect past it", async () => {

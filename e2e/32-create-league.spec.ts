@@ -17,9 +17,15 @@
  *
  * ⛔ NOTHING HERE COMPLETES AN IMPORT. That needs an outbound fetch to
  * esportsdesk, which the suite does not do — see the note in `17-roster-import`.
- * The redirect into the new league, and every branch that reports instead of
- * redirecting, live in `src/lib/actions/import.test.ts`, which stubs the fetch
- * and the database and tests the decisions.
+ * The redirect into the new league, and the branches that report instead —
+ * `problems[]`, `notes[]`, the membership gate, and both throwing exits — live
+ * in `src/lib/actions/import.test.ts`, which stubs the fetch and the database
+ * and tests the decisions.
+ *
+ * ⛔ DO NOT WIDEN THAT SENTENCE WITHOUT CHECKING IT. It once read "every branch
+ * that reports instead of redirecting" while the two throwing exits had no
+ * coverage at all — five mutants survived in them — and it was written in the
+ * commit whose whole purpose was removing coverage overclaims.
  *
  * ⚠️ What is STILL covered by nothing, so that nobody reads the above as more
  * than it is: the real database writes and the real HTML parser. No test drives
