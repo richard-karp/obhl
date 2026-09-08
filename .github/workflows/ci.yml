@@ -28,6 +28,23 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+
+      # ⛔ THE SEED MUST BE UNSHIFTED ON A MERGE. `clock-shifted.yml` rewrites
+      # `v_shift_weeks` in `supabase/seed.sql` to run the suite against a future
+      # fixture; that rewrite is meant to live for the length of one CI job and
+      # never to be committed. A shift left in the file would move EVERY
+      # developer's fixture and every normal CI run — and would very likely do it
+      # while staying GREEN, because the whole 1..11 window is chosen to be
+      # green, so nothing else here would ever report it.
+      - name: The seeded fixture is not left clock-shifted
+        run: |
+          set -euo pipefail
+          if ! grep -q '^  v_shift_weeks int := 0;$' supabase/seed.sql; then
+            echo "::error file=supabase/seed.sql::supabase/seed.sql is committed with a non-zero clock shift. Run 'scripts/shift-seed-clock.sh 0' and commit that."
+            grep -n 'v_shift_weeks int :=' supabase/seed.sql || true
+            exit 1
+          fi
+
       # `npm run build` does not typecheck the test files; this does, including
       # e2e/ under the CommonJS resolution Playwright actually runs it with.
       - run: npm run typecheck

@@ -1,0 +1,206 @@
+# Run the end-to-end suite against the fixture a FUTURE date would produce.
+#
+# ⚠️ WHY THIS EXISTS, AND IT IS NOT THEORETICAL. `supabase/seed.sql` builds
+# every date from `current_date`, so the fixture's calendar position — which
+# month a game night lands in, how close it sits to a month boundary, which side
+# of a DST change it falls on — is a function of the real date and of nothing a
+# test controls. That hides a whole class of failure from `ci.yml`, which only
+# ever sees today's position. Commit `c7ec42d` fixed a date-picker click that
+# would have started failing on 2026-09-28 and on 105 of the following 800 days;
+# it passed a full green suite while latent, and two task-level reviews missed
+# it, because today's clock did not trigger it. This job is the thing that would
+# have caught it — at 3 weeks of shift the Fall anchor lands on 2026-10-13, the
+# exact anchor that commit used to reproduce the bug.
+#
+# ⛔ WHAT THIS JOB DOES NOT DO, STATED UP FRONT SO A GREEN RUN IS NOT READ AS
+# MORE THAN IT IS. It moves the FIXTURE, not the clock. `now()` still says today
+# in Postgres, in `next dev` and in the browser. Two routes were considered:
+#
+#   (a) genuinely move the clock every participant sees. This needs the HOST
+#       clock, and only the host clock: Linux time namespaces virtualise
+#       CLOCK_MONOTONIC and CLOCK_BOOTTIME and explicitly not CLOCK_REALTIME, so
+#       a container's `now()` IS the runner's `now()`, and `supabase/config.toml`
+#       (CLI 2.104.0) exposes no image override or container env for the `db`
+#       service, so libfaketime cannot be injected into Postgres either. Moving
+#       the host clock on a GitHub-hosted runner puts the Actions runner agent
+#       itself inside the blast radius — it re-acquires an OAuth token during a
+#       job, and actions/runner#531 records SEVENTEEN MINUTES of skew being
+#       enough to throw `VssOAuthTokenRequestException`. A multi-week jump is
+#       three orders of magnitude past that, and the failure would arrive as an
+#       opaque auth error with nothing to say about the code under test. Not
+#       viable here. It stays viable on a machine nobody is reporting to, which
+#       is the shape to reach for if this job's coverage ever proves too narrow.
+#   (b) move the fixture instead, which is what this does.
+#
+#   So: this job proves the app and the specs still work when the fixture sits
+#   at a DIFFERENT CALENDAR POSITION. It does NOT prove anything about code that
+#   compares against an absolute future date, or about how the stack behaves
+#   when `now()` itself moves. Read a green run as "the seed and the specs do
+#   not depend on today's calendar", nothing more.
+#
+# ⚠️ THE UNIT SUITE IS DELIBERATELY NOT HERE. Measured 2026-09-08: of 37 files
+# under `src/**/*.test.*` (all 37 contain `expect(`, so the search reached them),
+# ZERO reference `new Date()`, `Date.now()`, `setSystemTime` or `useFakeTimers`.
+# Every date they use is injected. Running vitest at a shifted clock would burn
+# runner minutes to re-prove `ci.yml`'s answer. If a unit test ever starts
+# reading the wall clock, that is the moment to add it here.
+#
+# ⚠️ SCHEDULED WORKFLOWS ONLY FIRE FROM THE DEFAULT BRANCH. Until this file is
+# on `main` the cron does nothing; use the `workflow_dispatch` button to run it
+# from a branch. GitHub also disables cron on a repo with 60 days of no activity.
+name: Clock-shifted e2e
+
+on:
+  schedule:
+    # Mondays, 09:00 UTC. Weekly rather than per-PR on purpose: this answers
+    # "will the suite still be green in N weeks", which does not change between
+    # two pushes on the same afternoon, and it costs a full e2e run to ask.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+    inputs:
+      weeks:
+        description: "Whole weeks to move the fixture ahead (0-11). Blank rotates by ISO week."
+        required: false
+        default: ""
+
+# Never cancel one of these: an interrupted run leaves no answer at all, and
+# there is no newer push whose answer would supersede it.
+concurrency:
+  group: clock-shifted
+  cancel-in-progress: false
+
+jobs:
+  # ⛔ SEPARATE FROM `ci.yml`'s `check` AND `e2e` ON PURPOSE. A red here means
+  # "green today, red at a future date" — a different fact from a red on a PR,
+  # needing a different response, and it must never be mistaken for one. It is
+  # also why this job does not gate a merge.
+  clock-shifted-e2e:
+    name: End-to-end at a shifted fixture
+    runs-on: ubuntu-latest
+    # `ci.yml`'s e2e job allows 45. This one adds a seed, a reset and a guard on
+    # top of the same suite.
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # A fixed offset would test one calendar position forever. Rotating by ISO
+      # week walks the whole 1..11 window over a quarter, and because the real
+      # calendar advances underneath it, consecutive runs never repeat a
+      # position. `+ 1` because 0 is just `ci.yml` again. `10#` because ISO weeks
+      # 08 and 09 are not valid octal and bash would refuse them.
+      #
+      # ⛔ THE NUMBER IS ECHOED EVERYWHERE IT CAN BE. A rotating offset is
+      # useless if a failure cannot be reproduced, so it goes in the log, in the
+      # step summary and in the job's own annotation — feed it back through the
+      # workflow_dispatch input to re-run the exact position that failed.
+      #
+      # The input arrives through `env` rather than `${{ }}` inside the script:
+      # interpolating a user-supplied string straight into a shell body is how a
+      # workflow_dispatch field becomes command execution on the runner.
+      - name: Choose the shift
+        id: shift
+        env:
+          INPUT_WEEKS: ${{ github.event.inputs.weeks }}
+        run: |
+          set -euo pipefail
+          weeks="${INPUT_WEEKS:-}"
+          if [ -z "$weeks" ]; then
+            weeks=$(( (10#$(date -u +%V) % 11) + 1 ))
+            echo "No offset given; rotating by ISO week $(date -u +%V) -> $weeks"
+          fi
+          echo "weeks=$weeks" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Clock shift::fixture moved $weeks week(s) ahead — reproduce with workflow_dispatch weeks=$weeks"
+          echo "Fixture shifted **$weeks week(s)** ahead." >> "$GITHUB_STEP_SUMMARY"
+
+      # Fails loudly if the knob is missing or the rewrite does not take: an
+      # unshifted run that reports green would prove nothing while looking like
+      # it proved something, which is the one outcome worse than a red.
+      - name: Shift the seeded fixture
+        run: scripts/shift-seed-clock.sh "${{ steps.shift.outputs.weeks }}"
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Start Supabase
+        run: npx supabase start
+
+      # Same three readers as `ci.yml`: playwright.config.ts via dotenv,
+      # `next dev`, and the node scripts via --env-file-if-exists.
+      - name: Write .env.local
+        run: |
+          set -euo pipefail
+          eval "$(npx supabase status -o env 2>/dev/null)"
+          cat > .env.local <<ENV
+          NEXT_PUBLIC_SUPABASE_URL=$API_URL
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$PUBLISHABLE_KEY
+          SUPABASE_SECRET_KEY=$SECRET_KEY
+          NEXT_PUBLIC_SITE_URL=http://localhost:3000
+          ENV
+
+      # ⚠️ YES, THIS SEEDS TWICE. `e2e/global-setup.ts` resets and seeds again
+      # when Playwright starts. The duplicate is deliberate and costs ~40s: the
+      # guard below has to run against a seeded database BEFORE the suite spends
+      # forty minutes failing, and there is no hook between global-setup's reset
+      # and the first test. Both resets read the same seed file on the same day,
+      # so they produce the same fixture — the one exception being a run that
+      # straddles UTC midnight, where `date_trunc` can snap the second fixture a
+      # week further on. The guard's margin (see below) is days wide, so that
+      # cannot flip an invariant; it only means the printed dates may be one
+      # week behind the tested ones.
+      - name: Seed at the shifted date
+        run: |
+          set -euo pipefail
+          npm run db:reset
+          npm run seed:users
+
+      # ⛔ THE STEP THAT KEEPS A RED HONEST. Moving the fixture without moving
+      # `now()` only works inside a window; past it the Spring seasons stop
+      # reading as played, `season_is_started` disagrees with the fixture, and a
+      # dozen specs fail for a reason that has nothing to do with any defect.
+      # This asks the database — via `season_is_started` itself, not a
+      # reimplementation — and fails in ten seconds with that as the message.
+      - name: Prove the fixture and the clock still agree
+        run: npm run verify:fixture-clock
+
+      # ⛔ `set -o pipefail`, or `tee` returns 0 and A FAILING SUITE PASSES.
+      - name: Run end-to-end tests
+        run: |
+          set -o pipefail
+          npm run test:e2e 2>&1 | tee e2e-output.log
+
+      # Same reasoning as `ci.yml`: why the stack failed, not just which
+      # assertion gave up.
+      - name: Capture Supabase diagnostics
+        if: always()
+        run: |
+          mkdir -p supabase-diagnostics
+          docker ps -a > supabase-diagnostics/containers.txt 2>&1 || true
+          for c in $(docker ps -a --format '{{.Names}}' | grep '^supabase_' || true); do
+            docker logs --tail 5000 "$c" > "supabase-diagnostics/$c.log" 2>&1 || true
+            docker inspect -f \
+              'Name={{.Name}} Status={{.State.Status}} ExitCode={{.State.ExitCode}} OOMKilled={{.State.OOMKilled}} Restarts={{.RestartCount}}' \
+              "$c" >> supabase-diagnostics/state.txt 2>&1 || true
+          done
+
+      # ⛔ THE SHIFTED SEED GOES IN THE ARTIFACT. Without it a failure is
+      # unreproducible in practice: the anchors depend on the date the job ran
+      # as well as on the offset, and by the time anyone opens the report the
+      # calendar has moved.
+      - name: Upload report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clock-shifted-${{ steps.shift.outputs.weeks }}w
+          path: |
+            playwright-report/
+            test-results/
+            supabase-diagnostics/
+            supabase/seed.sql
+            e2e-output.log
+          if-no-files-found: ignore
+          retention-days: 14
