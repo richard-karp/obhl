@@ -40,7 +40,13 @@ import type { Page } from "@playwright/test";
 
 const NEW_LEAGUE = "/manage/leagues/new";
 
-/** `exact` matters: "No-league mgr" and "One-league mgr" both contain "mgr". */
+/**
+ * `exact` is defensive rather than required: Playwright's `name` is a
+ * case-insensitive SUBSTRING match, so ambiguity needs one label to contain
+ * another, and none of these does. ⚠️ An earlier version of this comment said
+ * "No-league mgr" and "One-league mgr" both contain "mgr" — true, and not how
+ * the matcher works. Keep the flag; a shortened label later would need it.
+ */
 async function signInAs(page: Page, label: string) {
   await page.goto("/login");
   await page.getByRole("button", { name: label, exact: true }).click();
