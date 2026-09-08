@@ -10,7 +10,7 @@
  *
  * ⚠️ IT DELIBERATELY DOES NOT TEST THE DATABASE OR THE HTML PARSER. Those
  * boundaries are stubbed, and that is the point rather than a shortcut: none of
- * the three bugs involved either. They were decisions — which failures get
+ * the four bugs involved either. They were decisions — which failures get
  * recorded, which recorded failure blocks the redirect — and a test that had to
  * carry HTML fixtures and a live schema would have been too expensive to write
  * on any of the four occasions it was needed.
@@ -29,6 +29,9 @@
  * 2. A PARTIAL failure within one table. Responses are keyed `"<table>.<verb>"`
  *    and shared by every call in a run, so "2 of 12 teams failed" — the
  *    realistic production shape — cannot be set up; only all-or-nothing.
+ *    ⚠️ Which also means every "N of M" assertion below has N === M, so the
+ *    DENOMINATOR in those messages is not pinned. Closing that needs a
+ *    per-call response queue, not another test.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type {
@@ -44,7 +47,7 @@ const fetchSchedule = vi.fn<() => Promise<ParsedGame[]>>();
 const fetchStats = vi.fn<() => Promise<ParsedStat[]>>();
 const addMembership =
   vi.fn<() => Promise<{ ok: boolean; error: string | null }>>();
-const redirected = vi.fn<(path: string) => void>();
+const redirected = vi.fn<(path: string, type?: string) => void>();
 
 /**
  * `redirect` THROWS in production — that is the whole reason both actions have
@@ -54,8 +57,12 @@ const redirected = vi.fn<(path: string) => void>();
  */
 class RedirectSignal extends Error {}
 vi.mock("next/navigation", () => ({
-  redirect: (path: string) => {
-    redirected(path);
+  // ⚠️ BOTH ARGUMENTS. Taking only `path` left `RedirectType.replace` unpinned
+  // — swapping it for `push` survived — and the ⛔ note at the redirect argues
+  // specifically for `replace`, since Back would otherwise land on a blank form
+  // for a league that already exists.
+  redirect: (path: string, type?: string) => {
+    redirected(path, type);
     throw new RedirectSignal(path);
   },
   RedirectType: { replace: "replace", push: "push" },
@@ -86,8 +93,16 @@ vi.mock("@/lib/import/esportsdesk", async (importOriginal) => {
 type Query = { table: string; verb: string; single: boolean };
 type Result = { data?: unknown; error?: { message: string } | null };
 
-/** Per-test overrides, keyed `"<table>.<verb>"`. Anything unset succeeds. */
-let responses: Record<string, Result> = {};
+/**
+ * Per-test overrides, keyed `"<table>.<verb>"`. Anything unset succeeds.
+ *
+ * An ARRAY is consumed one entry per call, which is what lets a test fail some
+ * of a table's writes and not others. A single object applies to every call.
+ * ⛔ Without the array form every "N of M" assertion had N === M, so the
+ * denominators in those messages — the number that tells a manager how much
+ * they lost — were pinned by nothing.
+ */
+let responses: Record<string, Result | Result[]> = {};
 /** Ids handed back by inserts, so the action's own bookkeeping stays coherent. */
 let nextId = 0;
 
@@ -149,7 +164,13 @@ function makeAdmin() {
       },
       then(resolve: (r: Result) => unknown) {
         const key = `${q.table}.${q.verb}`;
-        return Promise.resolve(responses[key] ?? defaultFor(q)).then(resolve);
+        const queued = responses[key];
+        // A queue that has run dry falls through to the default, so a test only
+        // has to describe the calls it cares about.
+        const out = Array.isArray(queued)
+          ? (queued.shift() ?? defaultFor(q))
+          : (queued ?? defaultFor(q));
+        return Promise.resolve(out).then(resolve);
       },
     };
     return chain;
@@ -274,7 +295,8 @@ describe("runEsportsdeskImport", () => {
     fetchStats.mockResolvedValue(matchedStats());
     const r = await run(runEsportsdeskImport);
     expect(r.redirected).toBe(true);
-    expect(redirected).toHaveBeenCalledWith("/new-league/seasons");
+    // ⚠️ The type too: `replace`, not the server-action default of `push`.
+    expect(redirected).toHaveBeenCalledWith("/new-league/seasons", "replace");
   });
 
   it("redirects when the source simply had no games or stats to import", async () => {
@@ -393,6 +415,7 @@ describe("runEsportsdeskImport", () => {
     expect(r.state.message).toMatch(/1 of 1 games could not be matched/);
     expect(r.state.message).toMatch(/You were NOT added to this league/);
     expect(r.state.canOpen).toBe(false);
+    expect(r.state.slug).toBe("new-league");
   });
 
   it("reports through the schedule catch", async () => {
@@ -413,6 +436,49 @@ describe("runEsportsdeskImport", () => {
     // stats catch's identical field was covered.
     expect(r.state.message).toMatch(/You were NOT added to this league/);
     expect(r.state.canOpen).toBe(false);
+  });
+
+  it("reports a PARTIAL schedule shortfall, not only a total one", async () => {
+    // ⛔ The mirror of the stats test above, and it was missing. Every other
+    // schedule fixture is 1-of-1 unmatched, so narrowing the condition to
+    // `rows.length === 0` survived — the exact narrowing that shipped as a
+    // Major on the stats side.
+    const { runEsportsdeskImport } = await import("./import");
+    fetchSchedule.mockResolvedValue([MATCHED_GAME, UNMATCHED_GAME]);
+    const r = await run(runEsportsdeskImport);
+    expect(r.redirected).toBe(false);
+    if (r.redirected) return;
+    expect(r.state.message).toMatch(/1 of 2 games could not be matched/);
+    // ⚠️ And NON-ZERO counts, which nothing else asserted: every other
+    // reporting fixture has 0 players or 0 games, so the counters themselves
+    // were unpinned.
+    expect(r.state.message).toMatch(/Imported 2 teams, 4 players and 1 games/);
+  });
+
+  it("counts only the teams that failed, not all of them", async () => {
+    // ⛔ PINS THE DENOMINATOR. Every other shortfall fixture fails every team,
+    // so `2 of 2` cannot distinguish the count of failures from the count of
+    // teams — swapping `parsed.teams.length` for `problems.length` survived.
+    const { runEsportsdeskImport } = await import("./import");
+    responses["teams.insert"] = [{ data: null, error: { message: "dup" } }];
+    const r = await run(runEsportsdeskImport);
+    expect(r.redirected).toBe(false);
+    if (r.redirected) return;
+    expect(r.state.message).toMatch(/1 of 2 teams did not import cleanly/);
+    expect(r.state.message).toMatch(/Imported 1 teams/);
+  });
+
+  it("skips a team that could not be added to the season, and says so", async () => {
+    // Pins the `continue` at that failure: without it the team stays in
+    // `teamIdByName` and the schedule below can hang games off a team the
+    // season does not contain.
+    const { runEsportsdeskImport } = await import("./import");
+    responses["season_teams.insert"] = { error: { message: "fk violation" } };
+    const r = await run(runEsportsdeskImport);
+    expect(r.redirected).toBe(false);
+    if (r.redirected) return;
+    expect(r.state.message).toMatch(/not added to the season: fk violation/);
+    expect(r.state.message).toMatch(/Imported 0 teams/);
   });
 
   it("records a team whose insert failed, and refuses to redirect past it", async () => {
@@ -478,7 +544,8 @@ describe("runRosterOnlyImport", () => {
     const { runRosterOnlyImport } = await import("./import-rosters");
     const r = await run(runRosterOnlyImport);
     expect(r.redirected).toBe(true);
-    expect(redirected).toHaveBeenCalledWith("/new-league/seasons");
+    // ⚠️ The type too: `replace`, not the server-action default of `push`.
+    expect(redirected).toHaveBeenCalledWith("/new-league/seasons", "replace");
   });
 
   it("reports a shortfall instead of redirecting", async () => {
@@ -500,6 +567,12 @@ describe("runRosterOnlyImport", () => {
     expect(r.redirected).toBe(false);
     if (r.redirected) return;
     expect(r.state.message).not.toMatch(/did not import cleanly/);
+    // ⚠️ POSITIVE, not only the negative above. Asserting what the message does
+    // NOT say left `${accessWarning}` unpinned in this file — deleting it kept
+    // every test green, which is the same interpolation bug already fixed twice
+    // in `import.ts`.
+    expect(r.state.message).toMatch(/You were NOT added to this league/);
     expect(r.state.canOpen).toBe(false);
+    expect(r.state.slug).toBe("new-league");
   });
 });
