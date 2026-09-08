@@ -165,7 +165,17 @@ export async function createStaffAccount(
             : `${email} already has an account as ${held}. A role is account-wide, so this form will not change it — add them as ${held}, then change it from their row.`,
       };
     }
-    await addLeagueMembership(userId, leagueId);
+    // ⛔ CHECKED, NOT DISCARDED. Membership is the whole of what this branch
+    // grants — the account and its role already exist — so if the write does
+    // not land, nothing happened and saying otherwise is the only failure the
+    // manager cannot see. supabase-js REPORTS rather than throws, so an
+    // unchecked `await` here looked identical either way.
+    const granted = await addLeagueMembership(userId, leagueId);
+    if (!granted.ok)
+      return {
+        ok: false,
+        message: `Couldn't add ${email} to this league: ${granted.error}`,
+      };
     await logStaffChange(actor.id, leagueId, "grant_league", {
       new_data: { profile_id: userId, email, role: existing.role },
     });
@@ -210,7 +220,20 @@ export async function createStaffAccount(
   });
   if (pErr) return { ok: false, message: pErr.message };
 
-  await addLeagueMembership(userId, leagueId);
+  // ⛔ Same as the grant path above, and worse here: the account was just
+  // created and given a role. Without the membership row that role reaches
+  // nothing — the failure `seasons.ts` describes as "a role without a league
+  // reaches nothing" — while the form reports the staff member as added.
+  //
+  // ⚠️ NOT rolled back. The profile stays, deliberately: deleting on a failure
+  // path is how this codebase loses data, and re-running the form finds the
+  // existing account and takes the grant path above, which is the recovery.
+  const granted = await addLeagueMembership(userId, leagueId);
+  if (!granted.ok)
+    return {
+      ok: false,
+      message: `${email} was created but could not be added to this league: ${granted.error}. Add them again to retry — the account is already there.`,
+    };
   await logStaffChange(actor.id, leagueId, "add_staff", {
     new_data: { profile_id: userId, email, role, display_name: displayName },
   });
