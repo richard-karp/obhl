@@ -23,15 +23,47 @@
 3. Every claim below is marked **measured** (watched appear on 2026-09-07) or
    **read** (a reading of the code, not run). Nothing is unmarked.
 4. Verify the tree with: `npm run typecheck && npx vitest run && npx eslint src e2e`.
-   ⚠️ Baseline **472 unit tests**, measured on `origin/main` 2026-09-08 by running
-   the suite with the new file excluded. This line said 480 and no tree has ever
-   produced that number; whatever it was counted on, it was not `main`. eslint is
-   clean but for two pre-existing `no-unused-vars` warnings in
-   `writeGames.test.ts` — those are the floor, not a regression you introduced.
+   ⚠️ **THE BASELINE DEPENDS ON YOUR BRANCH, AND BOTH NUMBERS ARE REAL.** Measured
+   2026-09-08: `origin/main` gives **472** tests over 38 files; PR #44's branch
+   (`test/clock-relative-fixture`) gives **480** over 37, because that PR DELETES
+   `src/lib/schedule/writeGames.test.ts`. An earlier revision of this line called
+   480 fabricated and said no tree had ever produced it — that was wrong. It was
+   counted on #44, and it is exact. Use 472 only while #44 is unmerged.
+   ⚠️ eslint has the same expiry, from the same cause: the two pre-existing
+   `no-unused-vars` warnings that are the floor today live IN that deleted file,
+   so the moment #44 lands `npx eslint src e2e` is clean with no floor at all.
 
-**Status: item 1 SHIPPED 2026-09-08 (PR #46, in review). The other six are
-unstarted, and none of them has a deadline — item 1 held the only one, and it
-was behavioural rather than dated.**
+**Status, 2026-09-08. Item 1 SHIPPED (PR #46, in review). ⚠️ THE OTHER SIX ARE NO
+LONGER UNSTARTED — every one has been taken to a decision, so read this file as
+the reasoning behind them rather than as a queue:**
+
+- **2** — draft-row edit e2e: **PR #49**. ⛔ Note for anyone extending it: the
+  obvious version of that test PASSES against a fully broken guard. A night swap
+  is count-preserving whatever rows the server validated, and with the wrong
+  scope the touched rows fall out of `rows`, so `after` comes back identical and
+  `legalAfter`/`preserved` degrade to no-ops that permit anything. Only asserting
+  a REFUSAL catches it.
+- **3** — clock-shifted CI: **PR #51**, based on #44 rather than `main`.
+- **4** — `slot_on` against two slot lists: **CLOSED, no change needed.** The
+  divergence is deliberate on both sides and already documented at
+  `schedule.ts:1432-1444`, which names all three callers and why each takes the
+  list it does.
+- **5** — triaged, and it is five claims rather than one task. The
+  `refuteConstraints` miss is real, reproduced with a control, and fixed in
+  **PR #53**. The dead `constraintCredits`/`teamMetrics` are deleted in **PR #54**.
+  The `forcedByeCredits` claim is **overstated** — the credits ARE conditioned on
+  forced byes; the real mismatch is the team-set one `presentSpacing` already
+  documents and floors. The `save_rules` revert and the `saveRules` race are left
+  alone deliberately, the first because it ADDS capability rather than fixing a
+  defect.
+- **6** — CI lint + Node pin: **PR #48**, and its own CI ran the new lint step
+  green on a GitHub runner.
+- **7** — approach C: spec in **PR #50**, which recommends deferring again for a
+  better reason and corrects this file's cost estimate (see item 7 below). Its
+  unblocker shipped separately as **PR #52**.
+
+None of them has a deadline — item 1 held the only one, and it was behavioural
+rather than dated.
 
 ---
 
@@ -166,9 +198,11 @@ fixes.
 ✅ **The "run it locally first" step is done (2026-09-08):** `npx eslint src e2e`
 on `main` is clean apart from two `@typescript-eslint/no-unused-vars` warnings in
 `src/lib/schedule/writeGames.test.ts:29` (`_fn`, `_args`) — warnings, not errors,
-so a lint step gates green today. ⚠️ That measured `npx eslint src e2e` directly,
-NOT `npm run lint`; what that script expands to is still unverified, and it is
-the thing CI would call.
+so a lint step gates green today. ✅ **`npm run lint` is now measured too
+(2026-09-08).** It is bare `eslint`, which resolves its own file set from the flat
+config — genuinely a different set from `eslint src e2e` — and it is equally
+clean: 0 errors, same two warnings. PR #48 ships the step, pins Node via `.nvmrc`
+in both jobs, and its CI ran `npm run lint` green on a real GitHub runner.
 
 ---
 
@@ -187,10 +221,21 @@ alone:
 The deadline that deferred it was the 2026-09-10 schedule rebuild. Once that has
 passed, the reason for deferring is gone and only the cost remains.
 
-⛔ **This needs its own spec → plan → build cycle.** It is a route restructure, not
-a refactor: three redirects in `next.config.ts` and the `27-one-chrome` assertions
-to rewrite. It was explicitly declined as a fold-in to the fixture wrap-up on
-2026-09-07. Do not attach it to an unrelated branch.
+⛔ **This needs its own spec → plan → build cycle.** It is a route restructure,
+not a refactor. That spec now exists — **PR #50** — and it corrects the cost this
+file and the quote above both gave.
+
+⚠️ **`27-one-chrome` costs ZERO.** Measured 2026-09-08: `e2e/27-one-chrome.spec.ts`
+contains the string `schedule-builder` zero times, and never did in either of its
+two commits (`8455541`, `c4bca1d`) — confirmed against a control grep that does
+find `schedule` in the same file. The claim was wrong when written, not stale.
+The real exposure it never named is **14 `revalidatePath` strings** that fail
+SILENTLY when a route moves; `revalidate-paths.test.ts` passed on a stale path
+until **PR #52** made it walk `src/app`. Measured e2e rewrite cost is 18 lines
+across 5 files.
+
+It was explicitly declined as a fold-in to the fixture wrap-up on 2026-09-07. Do
+not attach it to an unrelated branch.
 
 ---
 
