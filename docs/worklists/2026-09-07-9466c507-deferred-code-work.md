@@ -211,6 +211,14 @@ in both jobs, and its CI ran `npm run lint` green on a real GitHub runner.
 
 ## 7. IA approach C — deferred, not dismissed
 
+⚠️ **NOT the IA change that happened on 2026-09-08.** League creation moved out of
+`[league]` to `/manage/leagues/new`
+(`docs/superpowers/specs/2026-09-08-league-creation-at-the-root-design.md`) — one
+page, out of the tree entirely, because the importer never imported into the league
+in its URL. Approach C below restructures the **schedule** routes *within* a league.
+They share no file and neither blocks the other; do not treat the first as having
+started the second.
+
 The manual-schedule-edits spec chose approach B (fold in-season editing into Games)
 and recorded C as the likely eventual shape. Quoted in full so this file stands
 alone:
