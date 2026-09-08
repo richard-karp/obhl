@@ -269,11 +269,12 @@ export async function runRosterOnlyImport(
   // import cleanly:" followed by nothing.
   const shortfall =
     problems.length > 0
-      ? ` ${problems.length} of ${parsed.teams.length} teams did not import cleanly: ${problems.join("; ")}. Add those rosters by hand in Rosters — re-running the import would create a second league, since there is no way to delete this one.`
+      ? ` ${problems.length} of ${parsed.teams.length} teams did not import cleanly: ${problems.join("; ")}. Those teams are missing or incomplete in the new league — add what you need by hand. Re-running the import would create a second league, since there is no way to delete this one.`
       : "";
   return {
     ok: true,
     slug: leagueSlug,
+    canOpen: membership.ok,
     message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}. No games or stats were imported.${shortfall} It's inactive; set it active when ready, and set any goalie positions in Rosters (esportsdesk rarely records them).${accessWarning}`,
   };
 }

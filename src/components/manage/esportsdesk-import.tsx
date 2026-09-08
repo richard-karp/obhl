@@ -229,12 +229,23 @@ export function EsportsdeskImport() {
                 className="space-y-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
               >
                 <p>{completed.message}</p>
-                <Link
-                  href={`/${completed.slug}/seasons`}
-                  className="inline-block font-medium underline underline-offset-2"
-                >
-                  Open the new league →
-                </Link>
+                {/*
+                  ⛔ NOT OFFERED WHEN THE MEMBERSHIP GRANT FAILED. The message
+                  above then says "you cannot open it yet", and a link beside it
+                  would contradict that in the worst way — following it hits
+                  `requireLeagueManager` and bounces to the picker, which looks
+                  like the link is broken rather than like access is missing.
+                  The action decides this, not the page: only it knows why the
+                  run reported instead of redirecting.
+                */}
+                {completed.canOpen ? (
+                  <Link
+                    href={`/${completed.slug}/seasons`}
+                    className="inline-block font-medium underline underline-offset-2"
+                  >
+                    Open the new league →
+                  </Link>
+                ) : null}
               </div>
             ) : (
               <form
