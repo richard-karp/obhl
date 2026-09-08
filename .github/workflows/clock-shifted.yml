@@ -82,9 +82,17 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+      # ⚠️ DEPENDS ON #48, WHICH ADDS `.nvmrc`. That PR moves `ci.yml`'s two jobs
+      # off an inline `node-version: 22` for the same reason: the version should
+      # be stated in the file developers already read, in one place. Hardcoding
+      # it here would leave this workflow as the last copy able to drift.
+      # #48 merges before this branch — the cron only ever fires from the default
+      # branch, so the first real run is after both are on `main`. A
+      # `workflow_dispatch` from this branch before #48 lands would fail at this
+      # step, which is the honest failure rather than a silently different Node.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
 
@@ -120,8 +128,17 @@ jobs:
       # Fails loudly if the knob is missing or the rewrite does not take: an
       # unshifted run that reports green would prove nothing while looking like
       # it proved something, which is the one outcome worse than a red.
+      # ⛔ VIA `env`, NOT `${{ }}` — the same reason spelled out on the step
+      # above, which was applied there and dropped here. This value ORIGINATES in
+      # a `workflow_dispatch` field, and it reaches this point unchanged: input ->
+      # env -> $GITHUB_OUTPUT -> here. Interpolating it into a shell body lets a
+      # dispatcher close the quote and append commands, and the script's own
+      # 0..11 validation cannot help — the shell has already parsed the injected
+      # text before the script starts.
       - name: Shift the seeded fixture
-        run: scripts/shift-seed-clock.sh "${{ steps.shift.outputs.weeks }}"
+        env:
+          WEEKS: ${{ steps.shift.outputs.weeks }}
+        run: scripts/shift-seed-clock.sh "$WEEKS"
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
