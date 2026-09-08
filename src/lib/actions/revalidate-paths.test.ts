@@ -1,6 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 /**
  * Convention guard, not a bug detector.
@@ -48,32 +57,48 @@ const ROOT_ALLOWLIST = new Set(["/", "/manage/office"]);
  * revalidating nothing. A rename anywhere in `src/app` leaves exactly that
  * behind, and until this walk existed nothing here would have reported it.
  *
- * Route groups — `(public)`, `(manage)` — are directories that contribute no
- * URL segment, so they are traversed and dropped rather than joined. Dynamic
- * segments are kept verbatim, because a `revalidatePath` names the PATTERN
- * (`/[league]/games/[gameId]`) and not a filled-in URL.
+ * Route groups — `(public)`, `(manage)` — and parallel-route slots (`@modal`)
+ * are directories that contribute no URL segment, so they are traversed and
+ * dropped rather than joined; an intercepting route's `(.)` marker is stripped.
+ * Dynamic segments are kept verbatim, because a `revalidatePath` names the
+ * PATTERN (`/[league]/games/[gameId]`) and not a filled-in URL.
+ *
+ * The root is a parameter so the walk's own edge cases can be exercised
+ * against a fixture instead of only against the real `src/app`.
  */
-function appRoutes(): Set<string> {
-  const APP = join(process.cwd(), "src/app");
-  const isRouteFile = (f: string) =>
-    /^(page|layout|route)\.(tsx?|jsx?)$/.test(f);
+function appRoutes(appDir = join(process.cwd(), "src/app")): Set<string> {
+  // ⚠️ `layout` IS DELIBERATELY NOT HERE. A directory holding only a layout
+  // serves no URL, so counting it would let the assertion below accept a path
+  // that names nothing — the one direction that makes this test weaker rather
+  // than noisier. No route in the tree is layout-only today, so dropping it
+  // changes nothing now and keeps the set honest if one ever is.
+  const isRouteFile = (f: string) => /^(page|route)\.(tsx?|jsx?)$/.test(f);
   const routes = new Set<string>();
-  if (readdirSync(APP).some(isRouteFile)) routes.add("/");
+  if (readdirSync(appDir).some(isRouteFile)) routes.add("/");
   const walk = (dir: string, url: string) => {
     for (const entry of readdirSync(dir)) {
       const full = join(dir, entry);
       if (!statSync(full).isDirectory()) continue;
-      // `_private` folders are not routes at all; `(groups)` are routes but
-      // contribute no segment.
+      // `_private` folders are not routes and hold none.
       if (entry.startsWith("_")) continue;
-      const isGroup = entry.startsWith("(") && entry.endsWith(")");
-      const next = isGroup ? url : `${url}/${entry}`;
-      if (readdirSync(full).some(isRouteFile))
+      // Two kinds of directory contribute no URL segment: route groups
+      // `(marketing)` and parallel-route slots `@modal`. Both are traversed —
+      // their children ARE routes — and neither is joined into the path.
+      const noSegment =
+        (entry.startsWith("(") && entry.endsWith(")")) || entry.startsWith("@");
+      // An intercepting route's `(.)` / `(..)` / `(...)` marker is not part of
+      // the URL it serves.
+      const seg = entry.replace(/^\(\.{1,3}\)/, "");
+      const next = noSegment ? url : `${url}/${seg}`;
+      if (readdirSync(full).some(isRouteFile)) {
         routes.add(next === "" ? "/" : next);
+        // An optional catch-all serves its parent path too.
+        if (/^\[\[\.\.\..+\]\]$/.test(seg)) routes.add(url === "" ? "/" : url);
+      }
       walk(full, next);
     }
   };
-  walk(APP, "");
+  walk(appDir, "");
   return routes;
 }
 
@@ -148,6 +173,42 @@ describe("revalidatePath conventions", () => {
       expect(routes.size).toBeGreaterThan(20);
       expect(routes.has("/[league]/schedule")).toBe(true);
       expect(routes.has("/[league]/no-such-route")).toBe(false);
+    });
+
+    it("maps every App Router directory convention to the right URL", () => {
+      // ⛔ AGAINST A FIXTURE, NOT `src/app`. These conventions do not all appear
+      // in this repo, so the only way to know the walk handles them is to build
+      // a tree that has them — which is why `appRoutes` takes its root. Each
+      // one of these silently produced a wrong URL before this test existed.
+      const root = mkdtempSync(join(tmpdir(), "approutes-"));
+      const page = (...seg: string[]) => {
+        const dir = join(root, ...seg);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "page.tsx"), "export default () => null;");
+      };
+      try {
+        page("(marketing)", "about"); // group: contributes no segment
+        page("@modal", "photo"); // parallel slot: contributes no segment
+        page("(.)preview"); // intercepting: marker stripped
+        page("shop", "[[...rest]]"); // optional catch-all: also serves parent
+        page("[league]", "games", "[gameId]"); // dynamic: kept verbatim
+        mkdirSync(join(root, "chrome"), { recursive: true });
+        writeFileSync(join(root, "chrome", "layout.tsx"), "export default 0;");
+        page("_internal"); // private: not a route at all
+
+        expect([...appRoutes(root)].sort()).toEqual(
+          [
+            "/preview", // the intercepting marker is not part of the URL
+            "/[league]/games/[gameId]",
+            "/about",
+            "/photo",
+            "/shop",
+            "/shop/[[...rest]]",
+          ].sort(),
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
     });
 
     it("revalidates a path that names a real route", () => {
