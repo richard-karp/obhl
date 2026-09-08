@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Link from "next/link";
 import {
   previewEsportsdeskImport,
   runEsportsdeskImport,
@@ -216,13 +217,25 @@ export function EsportsdeskImport() {
             </div>
 
             {completed ? (
-              <p
+              // ⚠️ ONLY A PARTIAL SUCCESS EVER LANDS HERE NOW. A clean run
+              // redirects into the new league from the action and never comes
+              // back, so this block is the report on a run that finished with
+              // something wrong — and it is the only place that report exists.
+              // The link is what replaces the redirect the manager did not get:
+              // somewhere to go once they have read it.
+              <div
                 role="status"
                 aria-live="polite"
-                className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                className="space-y-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
               >
-                {completed.message}
-              </p>
+                <p>{completed.message}</p>
+                <Link
+                  href={`/${completed.slug}/seasons`}
+                  className="inline-block font-medium underline underline-offset-2"
+                >
+                  Open the new league →
+                </Link>
+              </div>
             ) : (
               <form
                 action={runAction}

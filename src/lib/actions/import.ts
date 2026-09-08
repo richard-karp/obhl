@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect, RedirectType } from "next/navigation";
 import { isReservedLeagueSlug } from "@/lib/league/reserved-slugs";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireManager } from "@/lib/auth/guards";
@@ -72,7 +73,24 @@ export async function previewEsportsdeskImport(
   }
 }
 
-export type ImportRunState = { ok: boolean; message: string } | null;
+/**
+ * What an import reports back.
+ *
+ * ⚠️ A SUCCESS HERE IS A *PARTIAL* SUCCESS, and that is the whole shape of it.
+ * A clean run never returns — it `redirect`s into the league it just made — so
+ * the only way to reach the `ok: true` arm is a run that finished with something
+ * to say: a schedule that would not parse, stats that failed, rosters that came
+ * up short. That message is the only record of it, which is why those exits
+ * return instead of redirecting.
+ *
+ * `slug` rides along so the page can offer a way into the new league after the
+ * manager has read the report. Discriminated rather than `ok: boolean` so the
+ * slug is present exactly when there is a league to point at.
+ */
+export type ImportRunState =
+  | { ok: true; slug: string; message: string }
+  | { ok: false; message: string }
+  | null;
 
 /**
  * Import a parsed esportsdesk league into OBHL: create a new (inactive) league +
@@ -321,8 +339,12 @@ export async function runEsportsdeskImport(
     revalidatePath("/[league]", "layout");
     // This import creates a league; the root landing page lists them.
     revalidatePath("/");
+    // ⛔ RETURNS, does not redirect. This message is the only record that the
+    // schedule failed, and the manager has to read it before moving on. See the
+    // note on `ImportRunState`.
     return {
       ok: true,
+      slug: leagueSlug,
       message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}, but the schedule import failed (${(e as Error).message}). Delete this league and re-run to retry, or build the schedule manually.`,
     };
   }
@@ -331,7 +353,12 @@ export async function runEsportsdeskImport(
   // spreads each player's line into synthetic per-game box scores (exact season
   // totals; no game shows more skater goals than its final score). Best-effort:
   // standings are already complete, so a stats failure doesn't roll anything back.
-  let statRowCount = 0;
+  //
+  // ⚠️ NOTHING COUNTS THE ROWS ANY MORE. There was a `statRowCount` here, read
+  // only by the success message that the redirect below replaced; with no reader
+  // left it was a variable kept warm for nobody. If a landing banner ever wants
+  // the tally back, it comes from `rosterRows.length` at the end of this block —
+  // do not reintroduce the counter until something renders it.
   try {
     const stats = await fetchEsportsdeskStats(
       ids.clientId,
@@ -409,7 +436,6 @@ export async function runEsportsdeskImport(
         .insert(rosterRows.slice(i, i + 500));
       if (rErr) throw new Error(rErr.message);
     }
-    statRowCount = rosterRows.length;
   } catch (e) {
     revalidatePath("/[league]/seasons", "page");
     revalidatePath("/[league]", "layout");
@@ -417,6 +443,7 @@ export async function runEsportsdeskImport(
     revalidatePath("/");
     return {
       ok: true,
+      slug: leagueSlug,
       message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}, but player stats failed (${(e as Error).message}). Standings are complete, but there is no way to delete this league and retry — re-running the import would create a second one.`,
     };
   }
@@ -425,8 +452,25 @@ export async function runEsportsdeskImport(
   revalidatePath("/[league]", "layout");
   // This import creates a league; the root landing page lists them.
   revalidatePath("/");
-  return {
-    ok: true,
-    message: `Imported ${teamCount} teams, ${playerCount} players, ${gameCount} games, and ${statRowCount} stat lines into "${leagueName}" — ${seasonName}. It's inactive; set it active when ready, and set any goalie positions in Rosters (esportsdesk rarely records them).`,
-  };
+
+  // A clean run ends IN the league it just made, on the page that finishes the
+  // job: the season exists but is `is_active: false`, and activating it is the
+  // next thing to do. The counts this replaces are dropped — the seasons page
+  // showing the new season is the confirmation, and the one hint that message
+  // carried alone ("set any goalie positions in Rosters") is already on the
+  // import form itself, above the submit button, in both modes.
+  //
+  // ⛔ THIS LINE MUST STAY OUTSIDE EVERY `try`. `redirect` works by throwing, so
+  // one of this file's two `catch (e)` blocks would swallow it and the run would
+  // silently fall through — see `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/redirect.md`,
+  // which says so twice. It is safe here because this is the function's top
+  // level, after both blocks have closed. The two exits INSIDE those blocks
+  // return instead, deliberately: they carry the only report of what failed.
+  //
+  // `replace` rather than the server-action default of `push`: the create form
+  // is a completed one-shot, and leaving it in history means Back lands on a
+  // blank form for a league that already exists. (Harmless if anyone gets there
+  // — a re-submit hits the unique-slug branch above — but it is a confusing
+  // place to be sent.)
+  redirect(`/${leagueSlug}/seasons`, RedirectType.replace);
 }
