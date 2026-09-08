@@ -198,45 +198,57 @@ export async function createTeamForSeason(
         email_confirm: true,
       });
       if (uErr) {
-        // Paged: a single page of the instance's auth users would stop finding
-        // an existing captain once there are more than fit in it, and this
-        // branch's failure is silent — `userId` stays undefined, no profile is
-        // written, and the team is still reported added with a captain who
-        // cannot sign in.
+        // `createUser` failing is the NORMAL path for a captain who already has
+        // an account, so the address is looked up rather than treated as an
+        // error. Paged, because a single page of the instance's auth users
+        // would stop finding an existing captain once there are more than fit
+        // in it.
         userId = (await findUserIdByEmail(admin, captainEmail)) ?? undefined;
       } else {
         userId = created.user.id;
       }
-      if (userId) {
-        const { error: profErr } = await admin.from("profiles").upsert({
-          id: userId,
-          role: "captain",
-          player_id: player.id,
-          display_name: captainName,
-        });
-        if (profErr) {
-          revalidatePath("/[league]/seasons/[seasonId]", "page");
-          return {
-            ok: false,
-            message: `Added ${name} with captain ${captainName}, but couldn't create their login (${profErr.message}).`,
-          };
-        }
-        // A role without a league reaches nothing: every manage page now asks
-        // for membership as well. Granted for the league this season is in.
-        //
-        // ⛔ AND CHECKED — this is the last thing that has to land for the
-        // captain to be able to sign in and reach anything. Discarded, it read
-        // exactly like the `profErr` branch above it succeeding: the team is
-        // reported added with a captain who holds the role and belongs to no
-        // league, which is the failure the comment above describes.
-        const granted = await addLeagueMembership(userId, season.league_id);
-        if (!granted.ok) {
-          revalidatePath("/[league]/seasons/[seasonId]", "page");
-          return {
-            ok: false,
-            message: `Added ${name} with captain ${captainName}, but couldn't give them access to this league (${granted.error}). Their login exists — add them from People & Roles.`,
-          };
-        }
+      // ⛔ AND IF NEITHER WORKED, SAY SO. This was `if (userId) { … }` with no
+      // else, so the whole block below was skipped in silence: no login, no
+      // profile, no membership, and the team still reported as added with a
+      // captain who cannot sign in. `findUserIdByEmail` returns null for a
+      // failed `listUsers` exactly as it does for "not there", so any auth
+      // service error lands here — as does an instance past its 50-page cap.
+      if (!userId) {
+        revalidatePath("/[league]/seasons/[seasonId]", "page");
+        return {
+          ok: false,
+          message: `Added ${name} with captain ${captainName}, but couldn't create or find their login (${uErr?.message ?? "no matching account"}). The team and player are there — add their login from People & Roles.`,
+        };
+      }
+
+      const { error: profErr } = await admin.from("profiles").upsert({
+        id: userId,
+        role: "captain",
+        player_id: player.id,
+        display_name: captainName,
+      });
+      if (profErr) {
+        revalidatePath("/[league]/seasons/[seasonId]", "page");
+        return {
+          ok: false,
+          message: `Added ${name} with captain ${captainName}, but couldn't create their login (${profErr.message}).`,
+        };
+      }
+      // A role without a league reaches nothing: every manage page now asks
+      // for membership as well. Granted for the league this season is in.
+      //
+      // ⛔ AND CHECKED — this is the last thing that has to land for the
+      // captain to be able to sign in and reach anything. Discarded, it read
+      // exactly like the `profErr` branch above it succeeding: the team is
+      // reported added with a captain who holds the role and belongs to no
+      // league, which is the failure the comment above describes.
+      const granted = await addLeagueMembership(userId, season.league_id);
+      if (!granted.ok) {
+        revalidatePath("/[league]/seasons/[seasonId]", "page");
+        return {
+          ok: false,
+          message: `Added ${name} with captain ${captainName}, but couldn't give them access to this league (${granted.error}). Their login exists — add them from People & Roles.`,
+        };
       }
     }
   }
