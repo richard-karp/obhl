@@ -15,6 +15,7 @@ import {
   resolveConstraints,
 } from "@/lib/schedule/constraints";
 import { publishMode } from "@/lib/schedule/publishMode";
+import { staleDraft } from "@/lib/schedule/staleDraft";
 import { estimatedGenerateMs } from "@/lib/schedule/assignNights";
 import { weekdayOf } from "@/lib/format";
 import { spacingReport, type PlacedGame } from "@/lib/schedule/spacing";
@@ -37,6 +38,7 @@ import {
 } from "@/components/manage/schedule-edit-panel";
 import { RescheduleNightForm } from "@/components/manage/reschedule-night-form";
 import { PublishControls } from "@/components/manage/publish-controls";
+import { StaleDraftNotice } from "@/components/manage/stale-draft-notice";
 import { RemoveControls } from "@/components/manage/remove-controls";
 import {
   formatLongDate,
@@ -208,6 +210,16 @@ export async function ScheduleBuilderPanel({
         : `${Math.min(...gpVals)}–${Math.max(...gpVals)}`;
   const overrunsSeason =
     !!season?.ends_on && !!lastDate && lastDate > season.ends_on;
+
+  // ⛔ THE DRAFT AGED. Generate refuses a first night that has already passed
+  // (`isPastGameNight`), but it checks the date at the moment the draft is
+  // MADE. A draft built for a good future date and left standing — review early
+  // in the week, publish later, which is the rebuild workflow — arrives at the
+  // publish button with its first night behind us, and publishing it starts the
+  // season in the past and locks it permanently. Nothing checked that until
+  // this: see `staleDraft`.
+  const today = leagueDateKey(new Date().toISOString());
+  const stale = staleDraft({ nights: draftDates, today });
 
   // Spacing checks — reconstruct placement (night order + slot order) from the
   // draft games so managers can verify bye/rematch/ice-time spacing.
@@ -549,7 +561,7 @@ export async function ScheduleBuilderPanel({
               }))}
               // Computed here, on the server, in the league's zone — see the
               // prop's own note for why the browser's clock will not do.
-              minDate={leagueDateKey(new Date().toISOString())}
+              minDate={today}
               maxDate={season?.ends_on ?? null}
             />
             {/*
@@ -611,7 +623,12 @@ export async function ScheduleBuilderPanel({
                 // rendering it in "published" mode too) would find the trigger
                 // permanently inert: see the comment on `dialogOpen` in
                 // publish-controls.tsx.
-                key={publish.draftCount}
+                //
+                // ⚠️ The stale night is part of the key for the same reason.
+                // Moving the draft forward leaves this component mounted with
+                // its dialog open over a warning that is no longer true; a new
+                // key remounts it closed, showing the section as it now stands.
+                key={`${publish.draftCount}:${stale?.firstNight ?? ""}`}
                 seasonId={seasonId}
                 draftCount={publish.draftCount}
                 liveCount={publish.liveCount}
@@ -627,6 +644,19 @@ export async function ScheduleBuilderPanel({
                 }
                 lineupsAtRisk={publish.lineupsAtRisk}
                 destructive={mode === "replace"}
+                // Formatted here for the same reason `liveRange` is: the dates
+                // a manager checks a decision against are the panel's to
+                // render, and the dialog does no date work of its own.
+                stale={
+                  stale
+                    ? {
+                        firstNight: stale.firstNight,
+                        firstNightLabel: formatLongDate(stale.firstNight),
+                        passedNights: stale.passedNights,
+                        shiftedLabel: formatLongDate(stale.shiftedFirstNight),
+                      }
+                    : null
+                }
               />
             )}
             <form action={discardSchedule}>
@@ -645,6 +675,38 @@ export async function ScheduleBuilderPanel({
             {firstDate ? formatLongDate(firstDate) : "?"} →{" "}
             {lastDate ? formatLongDate(lastDate) : "?"}
           </p>
+
+          {/*
+            ⚠️ RENDERED WHETHER OR NOT THE DRAFT IS STALE, and gated only on the
+            mode. `StaleDraftNotice` returns null when there is nothing to warn
+            about, and it has to be the one deciding that: a component mounted
+            only while stale unmounts in the same commit its own success lands
+            in, and the toast confirming the move is lost with it — the race
+            `28-schedule-form-state.spec.ts` records for the publish toast.
+
+            The mode gate is safe to leave here because moving a draft cannot
+            change the mode. Not on a locked season, for the reason the publish
+            controls are not: a started season can neither publish this draft
+            nor move it, so the warning would be about a decision nobody can
+            take and the button under it would refuse every click.
+          */}
+          {mode === "locked" ? null : (
+            <StaleDraftNotice
+              seasonId={seasonId}
+              // Formatted here for the same reason `liveRange` is: the dates a
+              // manager checks a decision against are the panel's to render.
+              stale={
+                stale
+                  ? {
+                      firstNightLabel: formatLongDate(stale.firstNight),
+                      passedNights: stale.passedNights,
+                      weeks: stale.weeks,
+                      shiftedLabel: formatLongDate(stale.shiftedFirstNight),
+                    }
+                  : null
+              }
+            />
+          )}
 
           {scheduleIncomplete ? (
             <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border px-3 py-2 text-sm">
