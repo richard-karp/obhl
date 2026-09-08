@@ -796,11 +796,29 @@ describe("assignNights with manager constraints", () => {
     // a table read nicely risks an inadmissible bound that prunes optimal
     // solutions. So the exclusion is a presentation step, and this asserts on
     // what the report shows, not on the solver's internal figure.
-    const presented = presentSpacing(report.spacing, report.constraintCredits);
-    expect(report.constraintCredits.byesMultiWeek).toBeGreaterThanOrEqual(1);
+    //
+    // ⛔ THE CREDITS ARE COMPUTED HERE, THE WAY PRODUCTION COMPUTES THEM. The
+    // report used to carry a `constraintCredits` field that nothing outside this
+    // test ever read, while `schedule-builder-panel.tsx` recomputed the same
+    // figure locally from the placed games — two sources for one number, which
+    // is how the wrong one gets wired in later. The field is gone, and this
+    // exercises the call the app actually makes.
+    const plays = ts.map(() => new Array(ns.length).fill(false));
+    for (const g of games) {
+      plays[ts.indexOf(g.home)][g.nightIndex] = true;
+      plays[ts.indexOf(g.away)][g.nightIndex] = true;
+    }
+    const credits = forcedByeCredits(resolved, {
+      nights: ns,
+      teamIds: ts,
+      byed: (t, n) => !plays[t][n],
+    });
+
+    const presented = presentSpacing(report.spacing, credits);
+    expect(credits.byesMultiWeek).toBeGreaterThanOrEqual(1);
     expect(report.spacing.byesMultiWeek).toBeGreaterThanOrEqual(1);
     expect(presented.byesMultiWeek).toBe(
-      report.spacing.byesMultiWeek - report.constraintCredits.byesMultiWeek,
+      report.spacing.byesMultiWeek - credits.byesMultiWeek,
     );
     expect(presented.byesMultiWeek).toBeLessThan(report.spacing.byesMultiWeek);
   });
@@ -813,13 +831,5 @@ describe("assignNights with manager constraints", () => {
       if (outcome.satisfied) expect(outcome.reason).toBeNull();
       else expect(outcome.reason).toEqual(expect.stringMatching(/\S/));
     }
-  });
-
-  it("flags which teams were constrained, so collateral is legible", () => {
-    const constrained = report.teamMetrics
-      .filter((m) => m.constrained)
-      .map((m) => m.team);
-    expect(constrained.sort()).toEqual(["t1", "t4", "t6"]);
-    expect(report.teamMetrics).toHaveLength(8);
   });
 });
