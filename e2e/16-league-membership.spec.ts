@@ -162,7 +162,12 @@ test.describe("Path 17 — Per-league membership", () => {
     // league now SEES it like any visitor. What they must not get is the
     // editor, and that is asserted on its own below — a redirect assertion here
     // would have quietly become a test of nothing.
-    "/import",
+    // NOT "/import": it is not under a league any more. It never imported INTO
+    // the league in its URL — it creates a new one — so it moved to
+    // `/manage/leagues/new`, where the guard is `requireManager()` and a manager
+    // of another league is ADMITTED. Asserting a refusal here would now be
+    // asserting the opposite of the intended behaviour; the admission is tested
+    // in `32-create-league.spec.ts` instead.
     "/audit",
   ];
 
@@ -935,8 +940,43 @@ test.describe("Path 17 — Per-league membership", () => {
       .eq("league_id", await leagueId(LEAD_IN));
     const allowed = new Set((sharedMembers ?? []).map((r) => r.profile_id));
 
+    // ⚠️ PLUS EVERY ACCOUNT THAT BELONGS TO NO LEAGUE AT ALL, and leaving them
+    // out is what made this assertion wrong rather than strict.
+    //
+    // Two policies grant SELECT here, not one. "manager read profiles" is
+    // `shares_league_with`, which is the rule this test was written against —
+    // but "manager write profiles" is `for all`, and in Postgres a `for all`
+    // policy's USING clause applies to SELECT too. Its rule is
+    // `may_write_profile`, which for a manager with no office tier is
+    // `office_tier_of(them) is null and contains_leagues_of(them)`. And
+    // `contains_leagues_of` asks "is there a league of theirs that is not also
+    // mine" — so an account with NO leagues passes it vacuously.
+    //
+    // That is deliberate, not a hole: adding a brand-new account to your league
+    // means writing a profile that is a member of nothing at the moment you
+    // write it. People & Roles depends on it.
+    //
+    // It went unmodelled because no seeded account was unassigned AND tierless
+    // — the office pair have no memberships but their tier fails
+    // `office_tier_of(them) is null`, so they stay invisible. `No League Manager`
+    // is the first, and it turned this into a red test on a correct policy.
+    const { data: everyMembership } = await db
+      .from("profile_leagues")
+      .select("profile_id");
+    const assigned = new Set((everyMembership ?? []).map((r) => r.profile_id));
+    const { data: tiers } = await db.from("league_office").select("profile_id");
+    const inOffice = new Set((tiers ?? []).map((r) => r.profile_id));
+    const { data: everyProfile } = await db.from("profiles").select("id");
+    for (const p of everyProfile ?? [])
+      if (!assigned.has(p.id) && !inOffice.has(p.id)) allowed.add(p.id);
+
     expect(visible.size).toBeGreaterThan(0);
     for (const id of visible) expect(allowed.has(id)).toBe(true);
+
+    // ⛔ AND THE OFFICE STAYS OUT, which is the half the widened set above could
+    // otherwise have hidden. Both office accounts belong to no league, so only
+    // the tier keeps them unreadable by a plain manager.
+    for (const id of inOffice) expect(visible.has(id)).toBe(false);
 
     // Named explicitly: the set check above cannot fail while every seeded
     // account happens to share a league with this one, and this is the account
