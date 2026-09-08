@@ -244,7 +244,7 @@ export async function addLeagueMembership(
       onConflict: "profile_id,league_id",
     },
   );
-  // ⚠️ RETURNED RATHER THAN DISCARDED, and the four callers that ignore it are
+  // ⚠️ RETURNED RATHER THAN DISCARDED, and the three callers that ignore it are
   // unaffected — `Promise<void>` widening to a result object breaks nobody.
   //
   // ⛔ This used to be a bare `await` with the result dropped, and supabase-js

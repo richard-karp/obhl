@@ -17,7 +17,11 @@
  *
  * ⛔ NOTHING HERE COMPLETES AN IMPORT. That needs an outbound fetch to
  * esportsdesk, which the suite does not do — see the note in `17-roster-import`.
- * The redirect into the new league on a clean run is verified by hand.
+ * So the redirect into the new league on a clean run, and every branch that
+ * reports instead of redirecting, are **covered by nothing** — not by this file
+ * and not by any other. ⚠️ An earlier version of this comment said they were
+ * "verified by hand"; they were not, and writing that down is what made the gap
+ * invisible. If you add coverage, it needs a stubbed fetch, not a live one.
  */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -116,8 +120,6 @@ test.describe("the page belongs to no league", () => {
     // page's link is their only way in, and on an instance with no leagues at
     // all it is the only way the first league can be created without SQL.
     await signInAs(page, "No-league mgr");
-    await expect(
-      page.getByRole("link", { name: "New league" }),
-    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "New league" })).toBeVisible();
   });
 });

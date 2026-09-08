@@ -7,11 +7,17 @@ import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "Staff sign in" };
 
-// The first three belong to every seeded league; the last two are confined to
-// one, and that is the point of them — without an account that cannot reach
-// every league, a guard that checks membership and a guard that checks nothing
-// behave identically. WHICH league each is confined to is the seed script's
-// business, not this file's: nothing here should know what leagues exist.
+// Manager/Scorekeeper/Captain belong to every seeded league. The two One-league
+// accounts are confined to one, and that is the point of them — without an
+// account that cannot reach every league, a guard that checks membership and a
+// guard that checks nothing behave identically. Commissioner and Deputy hold an
+// office tier instead, which reaches every league WITHOUT a membership row, and
+// No-league mgr holds neither, so it is the only one every league-scoped guard
+// turns away. WHICH league each is confined to is the seed script's business,
+// not this file's: nothing here should know what leagues exist.
+//
+// ⚠️ Counting phrases go stale here — this said "the first three… the last two"
+// while there were seven accounts. Name the roles, not the positions.
 const DEV_ACCOUNTS = [
   { label: "Manager", email: "manager@obhl.test" },
   { label: "Scorekeeper", email: "scorekeeper@obhl.test" },
