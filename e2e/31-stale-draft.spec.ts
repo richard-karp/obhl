@@ -296,8 +296,11 @@ test.describe
   test("warns that the draft's first night has passed, and confirms before publishing it", async ({
     page,
   }) => {
-    const staleFirst = dateKey(asGenerated[0].scheduled_at!);
-    const wasFirst = plusDays(staleFirst, -7 * AGE_WEEKS);
+    // `generatedFirst` is where the generator put the first night; `staleFirst`
+    // is where it sits now, three weeks earlier, and is the one the warning
+    // names.
+    const generatedFirst = dateKey(asGenerated[0].scheduled_at!);
+    const staleFirst = plusDays(generatedFirst, -7 * AGE_WEEKS);
 
     await signedInAs(page, "Manager");
     await page.goto(`/obhl/seasons/${season}`);
@@ -305,7 +308,7 @@ test.describe
     // The warning names the night, so a manager can tell it from the dates in
     // the list below it.
     await expect(
-      page.getByText(`This draft's first game night (${longDate(wasFirst)})`),
+      page.getByText(`This draft's first game night (${longDate(staleFirst)})`),
     ).toBeVisible();
 
     // ⛔ THE ASSERTION THAT MATTERS. A first publish is one click on a healthy
@@ -319,6 +322,42 @@ test.describe
     await expect(dialog.getByText("There is no undo.")).toBeVisible();
 
     await dialog.getByRole("button", { name: "Cancel" }).click();
+    expect(await publishedGames(season)).toHaveLength(0);
+    expect(await draftGames(season)).toHaveLength(asGenerated.length);
+  });
+
+  test("the server refuses a stale publish that arrives without the acknowledgement", async ({
+    page,
+  }) => {
+    // ⛔ THE ONE PATH THE SERVER GUARD EXISTS FOR, and nothing else here touches
+    // it. Every other test in this file publishes through the dialog, which
+    // supplies `stale_ok` correctly — so the whole check in `publishSchedule`
+    // could be deleted and this spec would stay green without this test.
+    //
+    // What it stands in for: a manager whose tab was rendered while the draft
+    // was still healthy. Their `PublishControls` has `stale === null`, renders
+    // a plain one-click form, and posts no acknowledgement at all. Removing the
+    // hidden input reproduces exactly that payload.
+    await signedInAs(page, "Manager");
+    await page.goto(`/obhl/seasons/${season}`);
+
+    await page.getByRole("button", { name: /^Publish \d+ games$/ }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByText("Publish a schedule that starts in the past?"),
+    ).toBeVisible();
+    await dialog
+      .locator('input[name="stale_ok"]')
+      .evaluate((el) => el.remove());
+
+    await dialog.getByRole("button", { name: "Publish anyway" }).click();
+
+    // The refusal is a toast, and it survives because PublishControls is keyed
+    // on the draft count alone — see the note on that key. If the stale night
+    // ever goes back into the key, this is the assertion that catches it.
+    await expect(
+      page.getByText("publishing it would start the season in the past"),
+    ).toBeVisible();
     expect(await publishedGames(season)).toHaveLength(0);
     expect(await draftGames(season)).toHaveLength(asGenerated.length);
   });
@@ -355,9 +394,11 @@ test.describe
     }
     expect(dateKey(after[0].scheduled_at!) >= today()).toBe(true);
 
-    // And the warning is gone with it.
+    // And the warning is gone with it. ⚠️ Assert the string the banner ACTUALLY
+    // renders: this read "has already passed" for one revision, which the
+    // banner had stopped saying, so it passed against a banner still on screen.
     await expect(
-      page.getByText("has already passed", { exact: false }),
+      page.getByText("has already been played over", { exact: false }),
     ).toHaveCount(0);
   });
 
