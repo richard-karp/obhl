@@ -288,9 +288,24 @@ this step is separable, and it shipped as its own commit for that reason.
 correction of the first draft — *"after the import the manager should be in the league
 they created."* Not a link. A redirect.
 
-**The shape, which the code turned out to be built for.** Redirect on the clean exits;
-keep the report on the partial ones — the split falls exactly where the code already
-divides:
+⛔ **[corrected after review] "THE SPLIT FALLS EXACTLY WHERE THE CODE ALREADY
+DIVIDES" WAS FALSE, and it is the second claim in this section to be wrong in the
+same direction.** It was true of `runRosterOnlyImport`, which has always kept a
+`problems[]`, and false of `runEsportsdeskImport`, which skipped every failure in its
+team loop with a bare `continue` — the team insert did not even destructure its error.
+Only the `catch` blocks were checked when this was written; the in-loop `continue`s
+were not. So the redirect shipped past a partial import in the full importer, whose
+counts in the old success message had been the only thing that ever revealed a
+shortfall. Caught by an independent reviewer, not by the session that wrote it; fixed
+in `d6f8961`, which gives that function the same accounting and gates its redirect on
+it.
+
+⚠️ **The generalisable part:** two sibling functions doing the same job are not
+evidence for each other. The invariant was read off one and assumed of the other,
+and the docblock on `ImportRunState` asserted it for both.
+
+**The shape.** Redirect on the clean exits; keep the report on the partial ones —
+which after the fix above is genuinely where both functions divide:
 
 - `redirect(`/${leagueSlug}/seasons`, RedirectType.replace)` at `import.ts`'s clean
   exit and `import-rosters.ts`'s, the latter behind `problems.length === 0`. Both are
@@ -457,6 +472,29 @@ invisible — which the widened `allowed` set would otherwise have quietly hidde
 ⛔ The lesson for the next fixture: **an account's `leagues: []` does not make it a
 member of nothing** if it carries an office tier. Those are different states, and
 only the tierless one exercises the membership guards.
+
+### What two code reviews changed, and which one found what
+
+The branch was reviewed twice in parallel — once by the session that wrote it, once
+by an agent with no prior context. **They found disjoint sets, which is the argument
+for running both.**
+
+Only the fresh reviewer found the Major: the full importer's silent `continue`s, above.
+The self-review had read the same function twice and checked the `catch` blocks both
+times, because that was where its own reasoning had been.
+
+Only the self-review found two things the fresh eye could not: that the commit and PR
+claimed *"Verified by hand"* for a redirect nobody had ever run — no agent can audit
+what was or was not executed — and that `addLeagueMembership` discarded its upsert
+result, which the redirect turned from a confusing failure into a silent one.
+
+Both independently found the duplicate "New league" link on a league-less instance.
+
+⚠️ **Still outstanding, and deliberately not fixed here:** `set-password` is a
+top-level route missing from `RESERVED_LEAGUE_SLUGS` and from `0030`'s constraint. A
+league named "Set password" gets an address that never resolves, and since this change
+the import navigates the manager to `/set-password/seasons` — a 404 — rather than
+showing a message. Pre-existing, needs a migration, belongs in its own change.
 
 ### A dead variable, found by lint rather than by reading
 
