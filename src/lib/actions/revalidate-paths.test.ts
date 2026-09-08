@@ -70,8 +70,13 @@ function appRoutes(appDir = join(process.cwd(), "src/app")): Set<string> {
   // ⚠️ `layout` IS DELIBERATELY NOT HERE. A directory holding only a layout
   // serves no URL, so counting it would let the assertion below accept a path
   // that names nothing — the one direction that makes this test weaker rather
-  // than noisier. No route in the tree is layout-only today, so dropping it
-  // changes nothing now and keeps the set honest if one ever is.
+  // than noisier.
+  // ⛔ AND LAYOUT-ONLY DIRECTORIES DO EXIST — an earlier revision of this
+  // comment claimed none did. `src/app/[league]` and `src/app/[league]/(manage)`
+  // both hold a `layout.tsx` and no `page.tsx`. Dropping `layout` is still a
+  // measured no-op (30 routes either way, identical sets), but for a different
+  // reason than "there are none": `/[league]` is contributed by
+  // `(public)/page.tsx`, and `(manage)` is a group contributing no segment.
   const isRouteFile = (f: string) => /^(page|route)\.(tsx?|jsx?)$/.test(f);
   const routes = new Set<string>();
   if (readdirSync(appDir).some(isRouteFile)) routes.add("/");
@@ -79,21 +84,28 @@ function appRoutes(appDir = join(process.cwd(), "src/app")): Set<string> {
     for (const entry of readdirSync(dir)) {
       const full = join(dir, entry);
       if (!statSync(full).isDirectory()) continue;
-      // `_private` folders are not routes and hold none.
+      // `_private` opts its whole subtree out, so it is skipped, not descended.
       if (entry.startsWith("_")) continue;
-      // Two kinds of directory contribute no URL segment: route groups
-      // `(marketing)` and parallel-route slots `@modal`. Both are traversed —
-      // their children ARE routes — and neither is joined into the path.
+      // ⛔ AN INTERCEPTING ROUTE CONTRIBUTES NO URL, so it is skipped whole. It
+      // is an alternative render of a path some OTHER directory already
+      // registers — `feed/(.)photo` intercepts `/feed/photo`, which must exist
+      // as a real route for a hard navigation — so emitting anything here can
+      // only ADD a path nothing serves. An earlier revision stripped the marker
+      // and joined the segment, which got `(.)` right by luck and `(..)` wrong:
+      // `feed/(..)photo` intercepts `/photo`, one level up, not `/feed/photo`.
+      // Over-matching is the direction that weakens this test — the same reason
+      // `layout` is not in `isRouteFile`.
+      if (/^\(\.{1,3}\)/.test(entry)) continue;
+      // Route groups `(marketing)` and parallel-route slots `@modal` contribute
+      // no segment, but their children ARE routes, so both are traversed.
       const noSegment =
         (entry.startsWith("(") && entry.endsWith(")")) || entry.startsWith("@");
-      // An intercepting route's `(.)` / `(..)` / `(...)` marker is not part of
-      // the URL it serves.
-      const seg = entry.replace(/^\(\.{1,3}\)/, "");
-      const next = noSegment ? url : `${url}/${seg}`;
+      const next = noSegment ? url : `${url}/${entry}`;
       if (readdirSync(full).some(isRouteFile)) {
         routes.add(next === "" ? "/" : next);
         // An optional catch-all serves its parent path too.
-        if (/^\[\[\.\.\..+\]\]$/.test(seg)) routes.add(url === "" ? "/" : url);
+        if (/^\[\[\.\.\..+\]\]$/.test(entry))
+          routes.add(url === "" ? "/" : url);
       }
       walk(full, next);
     }
@@ -189,16 +201,21 @@ describe("revalidatePath conventions", () => {
       try {
         page("(marketing)", "about"); // group: contributes no segment
         page("@modal", "photo"); // parallel slot: contributes no segment
-        page("(.)preview"); // intercepting: marker stripped
+        page("preview"); // the real route the two below intercept
+        page("(.)preview"); // intercepting, same level: contributes NOTHING
+        page("feed", "(..)preview"); // intercepting one level up: also nothing
         page("shop", "[[...rest]]"); // optional catch-all: also serves parent
         page("[league]", "games", "[gameId]"); // dynamic: kept verbatim
         mkdirSync(join(root, "chrome"), { recursive: true });
         writeFileSync(join(root, "chrome", "layout.tsx"), "export default 0;");
-        page("_internal"); // private: not a route at all
+        // ⚠️ The page sits UNDER `_internal`, not in it: Next opts the whole
+        // subtree out, and a fixture that only put a page in the folder itself
+        // left a walk that descended into `_private` passing.
+        page("_internal", "deep");
 
         expect([...appRoutes(root)].sort()).toEqual(
           [
-            "/preview", // the intercepting marker is not part of the URL
+            "/preview", // from the real route, not from either interceptor
             "/[league]/games/[gameId]",
             "/about",
             "/photo",
