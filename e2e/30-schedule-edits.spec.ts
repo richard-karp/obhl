@@ -650,8 +650,15 @@ test.describe("Path 28 — manual schedule edits", () => {
       );
       expect(swapped).toHaveLength(2);
       const [a, b] = swapped;
-      expect(nightKey(traded[a])).toBe(nightKey(before[b]));
-      expect(nightKey(traded[b])).toBe(nightKey(before[a]));
+      // ⛔ THE WHOLE TIMESTAMP, NOT THE NIGHT KEY. `exchangeSlots` swaps entire
+      // `scheduled_at` values, so comparing them is exactly as true as comparing
+      // nights and strictly stronger: a write that lands the right NIGHTS but
+      // loses the ice times passes a night-level check. Measured 2026-09-08 —
+      // moving both rows to the other's night 30 minutes later kept this test
+      // green until it compared timestamps. It also makes a vanished row fail as
+      // a named assertion rather than throwing `RangeError` inside `nightKey`.
+      expect(traded[a]).toBe(before[b]);
+      expect(traded[b]).toBe(before[a]);
 
       const draftAfter = await counts(season, true);
       expect(draftAfter.perTeam).toEqual(draftBefore.perTeam);
