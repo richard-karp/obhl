@@ -102,6 +102,34 @@ async function seasonId(): Promise<string> {
 }
 
 /**
+ * The Eastern calendar date a game belongs to — the bucketing the server does
+ * with `leagueDateKey`.
+ *
+ * ⛔ NOT `toISOString().slice(0, 10)`, WHICH IS ONLY ACCIDENTALLY RIGHT. The
+ * comment this replaces said the seeded evenings sit "well clear of a UTC day
+ * boundary flip". They do not: 19:00 EST IS 00:00 UTC, exactly on it. The UTC
+ * slice agrees with the server today only because every game of a night crosses
+ * that boundary TOGETHER, so the partition into nights is isomorphic and merely
+ * mislabelled by a day. Under EDT that stops holding — 19:00 EDT is 23:00 UTC
+ * the same day while 20:15 EDT is 00:15 UTC the next — and one Eastern night
+ * splits across two UTC dates, so `clashes` would see two nights where the
+ * server sees one and pick a pair the server then refuses, surfacing as "element
+ * not found" rather than as anything nameable. The fixture stays in EST only
+ * because six games a team on Tue+Thu from January finishes in early February;
+ * raising "Games per team" walks it into March.
+ *
+ * Inlined rather than imported: no spec in this directory imports app code, for
+ * the reason the header note records.
+ */
+const easternDate = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const nightKey = (iso: string) => easternDate.format(new Date(iso));
+
+/**
  * The two numbers the whole feature promises to keep, for ONE set of rows.
  *
  * `isDraft` defaults to the published side, so every caller written before the
@@ -122,10 +150,7 @@ async function counts(season: string, isDraft = false) {
     perTeam[g.home_team_id] = (perTeam[g.home_team_id] ?? 0) + 1;
     perTeam[g.away_team_id] = (perTeam[g.away_team_id] ?? 0) + 1;
     if (g.status !== "scheduled" || !g.scheduled_at) continue;
-    // The league runs on Eastern; slicing the ISO date is enough here because
-    // every seeded game is an evening, well clear of a UTC day boundary flip
-    // in that direction.
-    const night = new Date(g.scheduled_at).toISOString().slice(0, 10);
+    const night = nightKey(g.scheduled_at);
     perNight[night] = (perNight[night] ?? 0) + 1;
   }
   return { perTeam, perNight };
@@ -154,19 +179,37 @@ async function publishedCount(): Promise<number> {
   return count ?? 0;
 }
 
+type PairRow = {
+  id: string;
+  scheduled_at: string | null;
+  status: string;
+  home_team_id: string;
+  away_team_id: string;
+};
+
 /**
- * The first pair of games that can legally trade nights, as indices into the
- * panel's own game list.
+ * The first pair of games, as indices into the panel's own list, whose night
+ * swap `want` accepts: "legal" for one the server must allow, "colliding" for
+ * one it must refuse.
  *
  * ⛔ COMPUTED, NOT GUESSED. A first attempt picked the first and last games and
  * the app refused it — correctly: swapping them put Bears on a night Bears
  * already played. With six teams and two games a night, most arbitrary pairs
  * collide, so a test that picks blind is testing the refusal path by accident
  * and calling it the success path.
+ *
+ * ⛔ AND THE COLLIDING HALF IS WHAT MAKES THE DRAFT TEST BITE, measured
+ * 2026-09-08. A night swap is count-preserving whatever rows the guard read, so
+ * "the counts survived" stays green even when the guard read the wrong side
+ * entirely: scoping `seasonRows` to `is_draft = false` was tried, and the draft
+ * test PASSED. The touched rows are then absent from `rows`, `after` comes back
+ * identical, and `legalAfter`/`preserved` degrade to no-ops that permit
+ * anything. Only asserting a REFUSAL tells that apart from a working guard.
  */
-async function tradeablePair(
+async function findPair(
   season: string,
-  isDraft = false,
+  isDraft: boolean,
+  want: "legal" | "colliding",
 ): Promise<[number, number]> {
   const db = admin();
   const { data } = await db
@@ -181,19 +224,14 @@ async function tradeablePair(
   // cycle and passed anyway, because the fixture happens to hold nothing but
   // scheduled games. One cancelled row and the index arithmetic below picks
   // different games than the ones it reports.
-  const games = (data ?? []).filter(
+  const games = ((data ?? []) as PairRow[]).filter(
     (g) => g.scheduled_at && g.status === "scheduled",
   );
-  const night = (g: (typeof games)[number]) =>
-    new Date(g.scheduled_at!).toISOString().slice(0, 10);
-  const teams = (g: (typeof games)[number]) => [g.home_team_id, g.away_team_id];
+  const night = (g: PairRow) => nightKey(g.scheduled_at!);
+  const teams = (g: PairRow) => [g.home_team_id, g.away_team_id];
 
   /** Would this night hold a team twice once `incoming` replaces `outgoing`? */
-  const clashes = (
-    on: string,
-    outgoing: (typeof games)[number],
-    incoming: (typeof games)[number],
-  ) => {
+  const clashes = (on: string, outgoing: PairRow, incoming: PairRow) => {
     const others = games.filter(
       (g) => night(g) === on && g.id !== outgoing.id && g.id !== incoming.id,
     );
@@ -204,75 +242,24 @@ async function tradeablePair(
   for (let i = 0; i < games.length; i++) {
     for (let j = i + 1; j < games.length; j++) {
       if (night(games[i]) === night(games[j])) continue;
-      if (clashes(night(games[i]), games[i], games[j])) continue;
-      if (clashes(night(games[j]), games[j], games[i])) continue;
-      return [i, j];
-    }
-  }
-  throw new Error("No pair of games in this fixture can legally trade nights.");
-}
-
-/**
- * Two games whose night-swap MUST be refused, as indices into the panel's list
- * — the exact inverse of `tradeablePair`, and the only assertion that proves
- * which row set the server validated against.
- *
- * ⛔ WHY THE COUNT ASSERTIONS DO NOT COVER THIS, measured 2026-09-08. A night
- * swap is count-preserving whatever rows the guard read, so "the counts
- * survived" stays green even when the guard read the wrong side entirely.
- * Scoping `seasonRows` to `is_draft = false` and running the draft test was
- * tried: it PASSED. The touched draft rows are then absent from `rows`, so
- * `after` is built from a list that does not contain them, comes back
- * identical, and `legalAfter`/`preserved` both degrade to no-ops that permit
- * anything. A test that only trades legally cannot tell that apart from a
- * working guard. Asserting a REFUSAL can: with the wrong scope the collision is
- * invisible and the edit is wrongly allowed.
- */
-async function collidingPair(
-  season: string,
-  isDraft = false,
-): Promise<[number, number]> {
-  const db = admin();
-  const { data } = await db
-    .from("games")
-    .select("id, scheduled_at, status, home_team_id, away_team_id")
-    .eq("season_id", season)
-    .eq("is_draft", isDraft)
-    .order("scheduled_at", { ascending: true });
-
-  // The same list the panel builds — see `tradeablePair`.
-  const games = (data ?? []).filter(
-    (g) => g.scheduled_at && g.status === "scheduled",
-  );
-  const night = (g: (typeof games)[number]) =>
-    new Date(g.scheduled_at!).toISOString().slice(0, 10);
-  const teams = (g: (typeof games)[number]) => [g.home_team_id, g.away_team_id];
-
-  const clashes = (
-    on: string,
-    outgoing: (typeof games)[number],
-    incoming: (typeof games)[number],
-  ) => {
-    const others = games.filter(
-      (g) => night(g) === on && g.id !== outgoing.id && g.id !== incoming.id,
-    );
-    const seen = new Set(others.flatMap(teams));
-    return teams(incoming).some((t) => seen.has(t));
-  };
-
-  for (let i = 0; i < games.length; i++) {
-    for (let j = i + 1; j < games.length; j++) {
-      if (night(games[i]) === night(games[j])) continue;
-      if (
+      // Legal means NEITHER direction clashes; colliding means either does.
+      const collides =
         clashes(night(games[i]), games[i], games[j]) ||
-        clashes(night(games[j]), games[j], games[i])
-      ) {
-        return [i, j];
-      }
+        clashes(night(games[j]), games[j], games[i]);
+      if (collides === (want === "colliding")) return [i, j];
     }
   }
-  throw new Error("No pair of games in this fixture collides on a night swap.");
+  throw new Error(
+    want === "legal"
+      ? "No pair of games in this fixture can legally trade nights."
+      : "No pair of games in this fixture collides on a night swap.",
+  );
 }
+
+const tradeablePair = (season: string, isDraft = false) =>
+  findPair(season, isDraft, "legal");
+const collidingPair = (season: string, isDraft = false) =>
+  findPair(season, isDraft, "colliding");
 
 /** id → scheduled_at, so "the refusal wrote nothing" is checked per row. */
 async function layout(
@@ -314,8 +301,7 @@ async function tradeableTeams(
   const games = (data ?? []).filter(
     (g) => g.scheduled_at && g.status === "scheduled",
   );
-  const night = (g: (typeof games)[number]) =>
-    new Date(g.scheduled_at!).toISOString().slice(0, 10);
+  const night = (g: (typeof games)[number]) => nightKey(g.scheduled_at!);
   const nameOf = (g: (typeof games)[number], teamId: string) =>
     (teamId === g.home_team_id
       ? (g.home as unknown as { name: string } | null)
@@ -586,7 +572,6 @@ test.describe("Path 28 — manual schedule edits", () => {
     }
   });
 
-
   /**
    * ⛔ THE DRAFT SIDE OF THE SAME PANEL, and until this test nothing drove it.
    * Every other edit test in this file scopes to `is_draft = false`, and the one
@@ -642,12 +627,31 @@ test.describe("Path 28 — manual schedule edits", () => {
       // when it reads the DRAFT rows. Omitting the `true` here picks from the
       // published set and silently swaps the wrong two games.
       const [i, j] = await tradeablePair(season, true);
+      // ⛔ ROW-LEVEL, AND CAPTURED BEFORE THE CLICK. The count assertions below
+      // cannot see whether this edit happened at all: a night swap preserves
+      // per-team and per-night totals by construction, so they hold just as well
+      // when nothing was written. Measured 2026-09-08 — making `exchangeSlots`
+      // return `{ ok: true }` without calling `writeGames` for a draft row left
+      // the whole spec green. The two ids below are the only thing that notices.
+      const before = await layout(season, true);
       // Option 0 is the placeholder, so game `k` sits at `k + 1`; `#tn-y` drops
       // whatever `#tn-x` holds, so for `j > i` that game shifts down to `j`.
       await page.locator("#tn-x").selectOption({ index: i + 1 });
       await page.locator("#tn-y").selectOption({ index: j });
       await page.getByRole("button", { name: "Swap their nights" }).click();
       await expect(page.getByText("Nights traded.")).toBeVisible();
+
+      // The two games actually traded nights, and nothing else in the draft
+      // moved. `swapped` is asserted non-empty so a lookup that found neither
+      // id cannot pass as "both unchanged".
+      const traded = await layout(season, true);
+      const swapped = Object.keys(before).filter(
+        (id) => before[id] !== traded[id],
+      );
+      expect(swapped).toHaveLength(2);
+      const [a, b] = swapped;
+      expect(nightKey(traded[a])).toBe(nightKey(before[b]));
+      expect(nightKey(traded[b])).toBe(nightKey(before[a]));
 
       const draftAfter = await counts(season, true);
       expect(draftAfter.perTeam).toEqual(draftBefore.perTeam);
@@ -665,6 +669,7 @@ test.describe("Path 28 — manual schedule edits", () => {
       await page.goto("/obhl/schedule-builder");
       await expect(page.getByText("Change this schedule")).toBeVisible();
       const settled = await layout(season, true);
+      const settledPublished = await layout(season);
       const [ci, cj] = await collidingPair(season, true);
       await page.locator("#tn-x").selectOption({ index: ci + 1 });
       await page.locator("#tn-y").selectOption({ index: cj });
@@ -672,8 +677,11 @@ test.describe("Path 28 — manual schedule edits", () => {
       await expect(page.getByText(/would play twice on/)).toBeVisible();
 
       // And a refusal writes nothing — per row, not per count, because the
-      // counts would survive the write it must not have made.
+      // counts would survive the write it must not have made. Both sides are
+      // checked: a wrongly-scoped refusal that wrote to the PUBLISHED schedule
+      // would leave the draft untouched and slip past a draft-only assertion.
       expect(await layout(season, true)).toEqual(settled);
+      expect(await layout(season)).toEqual(settledPublished);
     } finally {
       // Put the fixture back for whatever runs next.
       await page.goto("/obhl/schedule-builder");
