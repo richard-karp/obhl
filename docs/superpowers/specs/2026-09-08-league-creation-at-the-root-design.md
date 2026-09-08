@@ -308,7 +308,7 @@ and the docblock on `ImportRunState` asserted it for both.
 which after the fix above is genuinely where both functions divide:
 
 - `redirect(`/${leagueSlug}/seasons`, RedirectType.replace)` at `import.ts`'s clean
-  exit and `import-rosters.ts`'s, the latter behind `problems.length === 0`. Both are
+  exit and `import-rosters.ts`'s, the latter behind `problems.length === 0 && membership.ok`. Both are
   already at the function's top level, **outside every `try`**, so nothing had to be
   restructured.
 - ⛔ **Not at the two exits inside `catch` blocks.** Two reasons, either sufficient.

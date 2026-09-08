@@ -207,7 +207,7 @@ Each of these cost a review round or a wrong fix in the session that built it.
   tier, guarded by `requireOfficeMember`), and this one. ⚠️ Do not "restore
   coverage" by pointing `MANAGE_DIR` at `src/app/manage/` — both of its rules
   ("must call a league guard", "must not use a role-only guard") are wrong for a
-  page belonging to no league, and it would fail all three.
+  page belonging to no league, and it would fail both pages it sweeps. (`/set-password` is not among them — it lives at `src/app/set-password/`, outside `src/app/manage/` entirely.)
 
 - **THE CHROME IS NOT A GUARD, and since 2026-09-06 it is not even a hint.**
   PR #39 (`9d57fbe`) deleted the separate manager chrome: there is one header for
