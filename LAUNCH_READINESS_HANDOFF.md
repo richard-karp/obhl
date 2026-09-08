@@ -80,7 +80,7 @@ under _Open — waiting on a person_ below, and nothing outstanding is elsewhere
 
 - ✅ **CODE — the 4 harness items are FIXED** (2026-09-06, PR #40, CI green).
   §5 _The final pre-launch pass_ carries each one and how it was verified. ⛔ One
-  harness item is left and it is DATED: §5 _The fixture dates_, 2026-09-16.
+  harness item is in review, not merged: §5 _The fixture dates_, PR #44.
 - **A PERSON — the user, and no agent can do any of them: 5 items**, under
   _Open — waiting on a person_. ⛔ Exactly one is dated: **rebuild the schedule
   before 2026-09-10 23:00 UTC**, the published season's first game night, after
@@ -874,6 +874,8 @@ current URL space.
 
 ## 5 — Smaller, deliberately deferred
 
+- **The 6 deferred code gaps and IA approach C** — all parked, none started; item 1 (a draft that ages between generate and publish) is the one that can still cost a season → `docs/worklists/2026-09-07-9466c507-deferred-code-work.md`. ⚠️ That file supersedes _From the sixth review of #24_ below for items 4-6.
+
 ### ⛔ FIRST POST-LAUNCH JOB — the schedule-write RPC (decided 2026-09-06)
 
 Everything in `src/lib/schedule/gameWrites.ts` is damage control for a missing
@@ -1017,7 +1019,7 @@ run is still deterministic — but the number no longer identifies a spec, and #
 own ordering note ("the spec that ran before it") is now ambiguous. Renumber #38's
 pair to `28-` and `29-`, which keeps their order relative to each other.
 
-### The fixture dates — ⛔ `11-` and `23-` break from 2026-09-16, OPEN
+### The fixture dates — ✅ FIXED, in review as PR #44 (not yet merged)
 
 ⛔ **Dated, and it is the only outstanding code item in this file.** Found
 2026-09-06 during the review of PR #40; not fixed there, because fixing it means
