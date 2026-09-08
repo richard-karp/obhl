@@ -114,7 +114,15 @@ export async function runRosterOnlyImport(
 
   // Before anything else is written: an imported league whose creator is not a
   // member is a league nobody can open, and there is no UI to delete one.
-  await addLeagueMembership(manager.id, league.id);
+  //
+  // ⛔ CHECKED, NOT ASSUMED. If this fails the import still succeeds and the
+  // league still exists — but the manager cannot reach it, so the run must not
+  // redirect them into a page that will only bounce them back to the picker.
+  // It reports instead. See the gate on the redirect at the tail.
+  const membership = await addLeagueMembership(manager.id, league.id);
+  const accessWarning = membership.ok
+    ? ""
+    : ` You were NOT added to this league (${membership.error}), so you cannot open it yet — ask a commissioner to add you. Everything else below was imported.`;
 
   // Filed while the league still exists, so its id resolves. The one exit below
   // that FAILS deletes the league again (the season insert), and this entry goes
@@ -248,15 +256,24 @@ export async function runRosterOnlyImport(
   // of `runEsportsdeskImport`, which this mirrors, including why `redirect` has
   // to sit outside a `try` and why `replace` beats `push`. Nothing encloses this
   // line either: the file's one `try` closed long before it.
-  if (problems.length === 0)
+  if (problems.length === 0 && membership.ok)
     redirect(`/${leagueSlug}/seasons`, RedirectType.replace);
 
   // Something came up short, so the manager stays and reads it. ⛔ This is the
   // only place the failed teams are named — nothing is logged and nothing else
   // renders them — which is why this exit returns rather than redirecting.
+  //
+  // ⚠️ STILL CONDITIONAL, because there are now TWO ways to arrive here. A
+  // membership failure alone reaches this line with `problems` empty, and an
+  // unconditional shortfall would tell that manager "0 of 12 teams did not
+  // import cleanly:" followed by nothing.
+  const shortfall =
+    problems.length > 0
+      ? ` ${problems.length} of ${parsed.teams.length} teams did not import cleanly: ${problems.join("; ")}. Add those rosters by hand in Rosters — re-running the import would create a second league, since there is no way to delete this one.`
+      : "";
   return {
     ok: true,
     slug: leagueSlug,
-    message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}. No games or stats were imported. ${problems.length} of ${parsed.teams.length} teams did not import cleanly: ${problems.join("; ")}. Add those rosters by hand in Rosters — re-running the import would create a second league, since there is no way to delete this one. It's inactive; set it active when ready, and set any goalie positions in Rosters (esportsdesk rarely records them).`,
+    message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}. No games or stats were imported.${shortfall} It's inactive; set it active when ready, and set any goalie positions in Rosters (esportsdesk rarely records them).${accessWarning}`,
   };
 }

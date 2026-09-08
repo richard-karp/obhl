@@ -236,14 +236,27 @@ export async function mayWritePlayer(
 export async function addLeagueMembership(
   profileId: string,
   leagueId: string,
-): Promise<void> {
+): Promise<{ ok: boolean; error: string | null }> {
   const admin = createAdminClient();
-  await admin.from("profile_leagues").upsert(
+  const { error } = await admin.from("profile_leagues").upsert(
     { profile_id: profileId, league_id: leagueId },
     {
       onConflict: "profile_id,league_id",
     },
   );
+  // ⚠️ RETURNED RATHER THAN DISCARDED, and the four callers that ignore it are
+  // unaffected — `Promise<void>` widening to a result object breaks nobody.
+  //
+  // ⛔ This used to be a bare `await` with the result dropped, and supabase-js
+  // REPORTS failures rather than throwing them, so a membership that never
+  // landed looked identical to one that did. The importers are where that
+  // bites: both create a league and grant themselves membership as the first
+  // write, and both say in as many words that a league whose creator is not a
+  // member is "a league nobody can open", with no UI to delete it. They now
+  // check, because since the redirect went in there is nothing else left to
+  // notice it — the manager would simply be bounced to the picker with no
+  // message at all.
+  return { ok: !error, error: error?.message ?? null };
 }
 
 /** Revoke membership of ONE league. The account and its other leagues remain. */

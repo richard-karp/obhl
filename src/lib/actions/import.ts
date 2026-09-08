@@ -164,7 +164,15 @@ export async function runEsportsdeskImport(
 
   // Before anything else is written: an imported league whose creator is not a
   // member is a league nobody can open, and there is no UI to delete one.
-  await addLeagueMembership(manager.id, league.id);
+  //
+  // ⛔ CHECKED, NOT ASSUMED. If this fails the import still succeeds and the
+  // league still exists — but the manager cannot reach it, so the run must not
+  // redirect them into a page that will only bounce them back to the picker.
+  // It reports instead. See the gate on the redirect at the tail.
+  const membership = await addLeagueMembership(manager.id, league.id);
+  const accessWarning = membership.ok
+    ? ""
+    : ` You were NOT added to this league (${membership.error}), so you cannot open it yet — ask a commissioner to add you. Everything else below was imported.`;
 
   // Filed here rather than at the end, because the league exists from this line
   // on and every later exit that keeps it reports partial results — two of them
@@ -216,6 +224,14 @@ export async function runEsportsdeskImport(
   ];
   let teamCount = 0;
   let playerCount = 0;
+  // ⛔ WITHOUT THIS, A PARTIAL IMPORT IS INDISTINGUISHABLE FROM A CLEAN ONE.
+  // Every skip in the loop below used to be a bare `continue` — the team insert
+  // did not even destructure its error — and the only thing that betrayed a
+  // shortfall was the count in the success message. The clean run now redirects
+  // instead of returning that message, so a run that dropped three of twelve
+  // teams would look exactly like a perfect one, on a league with no delete UI.
+  // Mirrors `runRosterOnlyImport`, which has always accounted for this.
+  const problems: string[] = [];
   let ci = 0;
   const teamIdByName = new Map<string, string>();
   // `${teamId}|j${jersey}` and `${teamId}|n${normName}` → player id, for
@@ -223,7 +239,7 @@ export async function runEsportsdeskImport(
   const playerIdByKey = new Map<string, string>();
 
   for (const t of parsed.teams) {
-    const { data: team } = await admin
+    const { data: team, error: tErr } = await admin
       .from("teams")
       .insert({
         league_id: league.id,
@@ -233,12 +249,25 @@ export async function runEsportsdeskImport(
       })
       .select("id")
       .single();
-    if (!team) continue;
-    teamCount++;
-    teamIdByName.set(t.name.toLowerCase(), team.id);
-    await admin
+    if (tErr || !team) {
+      problems.push(`${t.name} (team: ${tErr?.message ?? "not created"})`);
+      continue;
+    }
+    const { error: stErr } = await admin
       .from("season_teams")
       .insert({ season_id: season.id, team_id: team.id });
+    if (stErr) {
+      problems.push(`${t.name} (not added to the season: ${stErr.message})`);
+      continue;
+    }
+    // ⚠️ COUNTED AND MATCHABLE ONLY ONCE IT IS IN THE SEASON, which is the order
+    // `runRosterOnlyImport` already uses and this function did not. A team that
+    // exists but was never joined to a season is absent from every
+    // season-scoped view, so counting it overstates the import — and leaving it
+    // in `teamIdByName` would let the schedule below hang games off a team the
+    // season does not contain.
+    teamCount++;
+    teamIdByName.set(t.name.toLowerCase(), team.id);
     if (t.players.length === 0) continue;
 
     // Bulk-insert this team's players, then their roster rows — two calls per
@@ -253,7 +282,12 @@ export async function runEsportsdeskImport(
         })),
       )
       .select("id");
-    if (pErr || !inserted || inserted.length !== t.players.length) continue;
+    if (pErr || !inserted || inserted.length !== t.players.length) {
+      problems.push(
+        `${t.name} (players: ${pErr?.message ?? "incomplete insert"})`,
+      );
+      continue;
+    }
 
     // A jersey is unique per team, so only the first wearer keeps the number and
     // later repeats get null (the bulk insert can't lean on a per-row retry).
@@ -273,7 +307,19 @@ export async function runEsportsdeskImport(
         is_captain: p.isCaptain,
       };
     });
-    await admin.from("team_players").insert(rosterRows);
+    const { error: rErr } = await admin
+      .from("team_players")
+      .insert(rosterRows);
+    if (rErr) {
+      // The players themselves stay — they are inserted and now carry no
+      // roster. Left in place deliberately, the same as in
+      // `runRosterOnlyImport`: deleting on a failure path is how this codebase
+      // loses data, and the duplicate-merge tool can absorb them. What matters
+      // is that they are not counted as an imported roster, and that the
+      // manager is told.
+      problems.push(`${t.name} (roster: ${rErr.message})`);
+      continue;
+    }
 
     // Stats rows are matched back to these players by name (preferred) or jersey.
     t.players.forEach((p, i) => {
@@ -286,6 +332,14 @@ export async function runEsportsdeskImport(
     });
     playerCount += t.players.length;
   }
+
+  // Appended to every exit below that reports rather than redirects, so a
+  // shortfall is named whichever way the run ends. Empty when nothing was
+  // dropped, which is also what gates the redirect at the tail.
+  const shortfall =
+    problems.length > 0
+      ? ` ${problems.length} of ${parsed.teams.length} teams did not import cleanly: ${problems.join("; ")}. Add those rosters by hand in Rosters — re-running the import would create a second league, since there is no way to delete this one.`
+      : "";
 
   // Schedule + final results. Best-effort scrape; only games whose two teams
   // both matched the imported rosters are created. Times aren't on the source,
@@ -345,7 +399,7 @@ export async function runEsportsdeskImport(
     return {
       ok: true,
       slug: leagueSlug,
-      message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}, but the schedule import failed (${(e as Error).message}). Delete this league and re-run to retry, or build the schedule manually.`,
+      message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}, but the schedule import failed (${(e as Error).message}). Delete this league and re-run to retry, or build the schedule manually.${shortfall}${accessWarning}`,
     };
   }
 
@@ -444,7 +498,7 @@ export async function runEsportsdeskImport(
     return {
       ok: true,
       slug: leagueSlug,
-      message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}, but player stats failed (${(e as Error).message}). Standings are complete, but there is no way to delete this league and retry — re-running the import would create a second one.`,
+      message: `Imported ${teamCount} teams, ${playerCount} players, and ${gameCount} games into "${leagueName}" — ${seasonName}, but player stats failed (${(e as Error).message}). Standings are complete, but there is no way to delete this league and retry — re-running the import would create a second one.${shortfall}${accessWarning}`,
     };
   }
 
@@ -460,6 +514,12 @@ export async function runEsportsdeskImport(
   // carried alone ("set any goalie positions in Rosters") is already on the
   // import form itself, above the submit button, in both modes.
   //
+  // ⛔ ONLY A RUN THAT DROPPED NOTHING MAY REDIRECT, and this gate is the whole
+  // reason the loop above counts problems. A redirect discards the message, so
+  // without it an import that lost three of twelve teams would look exactly
+  // like a perfect one — on a league with no delete UI, and with the counts
+  // that used to reveal the shortfall no longer displayed anywhere.
+  //
   // ⛔ THIS LINE MUST STAY OUTSIDE EVERY `try`. `redirect` works by throwing, so
   // one of this file's two `catch (e)` blocks would swallow it and the run would
   // silently fall through — see `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/redirect.md`,
@@ -472,5 +532,15 @@ export async function runEsportsdeskImport(
   // blank form for a league that already exists. (Harmless if anyone gets there
   // — a re-submit hits the unique-slug branch above — but it is a confusing
   // place to be sent.)
-  redirect(`/${leagueSlug}/seasons`, RedirectType.replace);
+  if (problems.length === 0 && membership.ok)
+    redirect(`/${leagueSlug}/seasons`, RedirectType.replace);
+
+  // Something came up short. The manager stays and reads it, exactly as in
+  // `runRosterOnlyImport` — this message is the only place the dropped teams
+  // are named.
+  return {
+    ok: true,
+    slug: leagueSlug,
+    message: `Imported ${teamCount} teams, ${playerCount} players, ${gameCount} games, and their stat lines into "${leagueName}" — ${seasonName}.${shortfall} It's inactive; set it active when ready, and set any goalie positions in Rosters (esportsdesk rarely records them).${accessWarning}`,
+  };
 }
