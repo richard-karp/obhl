@@ -382,9 +382,13 @@ export async function runEsportsdeskImport(
   // pre-season migration back to the form. Only a source that HAD rows which
   // then failed to line up is worth stopping for.
   const notes: string[] = [];
-  // Read at each exit rather than built once: the stats block below can add
-  // to `notes` after the schedule block has already returned through its own
-  // catch, so a single precomputed string would be stale for one of them.
+  // A function, not a precomputed string: `notes` is still being appended to
+  // after the point where `shortfall` is built, so the two exits that read it —
+  // the stats catch and the tail — have to read it late.
+  //
+  // ⚠️ An earlier version of this comment justified it with "the stats block can
+  // add to `notes` after the schedule block has returned through its own catch",
+  // which cannot happen: that `return` ends the function.
   const noteText = () => (notes.length > 0 ? ` ${notes.join(" ")}` : "");
 
   // Schedule + final results. Best-effort scrape; only games whose two teams
@@ -455,7 +459,14 @@ export async function runEsportsdeskImport(
       ok: true,
       slug: leagueSlug,
       canOpen: membership.ok,
-      message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}, but the schedule import failed (${(e as Error).message}). Build the schedule by hand in Schedule, or rename the teams to match the source and re-import into a new league.${shortfall}${noteText()}${accessWarning}`,
+      // ⚠️ No `noteText()` here, deliberately. The only push into `notes` from
+      // this block is its last statement, so reaching this catch means it did
+      // not run and the string would always be empty.
+      //
+      // ⚠️ And no "rename the teams to match the source" either: this exit is
+      // reached only by a THROW — a fetch error or a failed `games` insert —
+      // never by a name mismatch, which is reported as a note instead.
+      message: `Imported ${teamCount} teams and ${playerCount} players into "${leagueName}" — ${seasonName}, but the schedule import failed (${(e as Error).message}). Build the schedule by hand in Schedule.${shortfall}${accessWarning}`,
     };
   }
 
@@ -467,8 +478,9 @@ export async function runEsportsdeskImport(
   // ⚠️ NOTHING COUNTS THE ROWS ANY MORE. There was a `statRowCount` here, read
   // only by the success message that the redirect below replaced; with no reader
   // left it was a variable kept warm for nobody. If a landing banner ever wants
-  // the tally back, it comes from `rosterRows.length` at the end of this block —
-  // do not reintroduce the counter until something renders it.
+  // the tally back, it comes from `statLinesMatched` at the end of this block,
+  // which now exists and IS read — by the shortfall note. Do not reintroduce a
+  // separate row counter on top of it.
   try {
     const stats = await fetchEsportsdeskStats(
       ids.clientId,
@@ -484,6 +496,9 @@ export async function runEsportsdeskImport(
       .order("scheduled_at", { ascending: true });
     if (gqErr) throw new Error(gqErr.message);
 
+    // How many of the source's stat lines found a player. Compared with
+    // `stats.length` below.
+    let statLinesMatched = 0;
     const rosterRows: {
       game_id: string;
       team_id: string;
@@ -520,6 +535,10 @@ export async function runEsportsdeskImport(
         .filter((m) =>
           seenPid.has(m.pid) ? false : (seenPid.add(m.pid), true),
         );
+      // Counted before the distribution below, which fans each matched line
+      // out across that team's games — `rosterRows.length` is a row count, not
+      // a player count, and cannot be compared with `stats.length`.
+      statLinesMatched += matched.length;
       if (!matched.length) continue;
 
       const dist = distributeStats(
@@ -547,12 +566,20 @@ export async function runEsportsdeskImport(
       if (rErr) throw new Error(rErr.message);
     }
     // Same distinction as the schedule above: `stats.length === 0` means the
-    // source published none, which is normal for a season not yet played. Rows
-    // that exist and then match nobody are a name mismatch worth reporting —
-    // the standings are complete either way, so this is not thrown.
-    if (stats.length > 0 && rosterRows.length === 0) {
+    // source published none, which is normal for a season not yet played. Lines
+    // that exist and then match nobody are worth reporting — the standings are
+    // complete either way, so this is not thrown.
+    //
+    // ⛔ ANY SHORTFALL, NOT ONLY A TOTAL ONE, and the difference is the whole
+    // point. This read `rosterRows.length === 0` and so fired only when EVERY
+    // line failed. One team whose stats-page name differs by a character loses
+    // that team's stats and no other — `matched` filters on an exact
+    // team-name match — which left the commonest real failure silent while
+    // claiming the opposite two comments above. The schedule branch has always
+    // compared counts; this one now does too.
+    if (statLinesMatched < stats.length) {
       notes.push(
-        `The source published stats for ${stats.length} players, but none could be matched to an imported roster, so no player stats were recorded. Standings are unaffected.`,
+        `${stats.length - statLinesMatched} of ${stats.length} published stat lines could not be matched to an imported player, so those players have no stats. Standings are unaffected. Usually a team or player name that differs from the source — or games that did not import, since stats are attached to games.`,
       );
     }
   } catch (e) {
@@ -608,6 +635,6 @@ export async function runEsportsdeskImport(
     ok: true,
     slug: leagueSlug,
     canOpen: membership.ok,
-    message: `Imported ${teamCount} teams, ${playerCount} players and ${gameCount} games into "${leagueName}" — ${seasonName}.${shortfall} It's inactive; set it active when ready, and set any goalie positions in Rosters (esportsdesk rarely records them).${accessWarning}`,
+    message: `Imported ${teamCount} teams, ${playerCount} players and ${gameCount} games into "${leagueName}" — ${seasonName}.${shortfall}${noteText()} It's inactive; set it active when ready, and set any goalie positions in Rosters (esportsdesk rarely records them).${accessWarning}`,
   };
 }
