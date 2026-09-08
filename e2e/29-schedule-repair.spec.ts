@@ -313,7 +313,14 @@ test.describe("Path 27 — changing a live schedule", () => {
     await page.getByRole("button", { name: "Move night" }).click();
     await expect(page.getByText(/already runs \d+ games?/)).toBeVisible();
 
-    // A free date, mid-week so it cannot collide with a Tue/Thu night.
+    // A free date. ⚠️ NOT because of its weekday — that reason is wrong and
+    // cost a reviewer a false finding on 2026-09-07. `YEAR` floats with the
+    // clock, so June 16 lands on a Tue or Thu in 2033, 2037, 2039, 2041 and
+    // 2042. It is free because this fixture generates only 18 games from
+    // `FIRST_NIGHT` (6 per team, 2 sheets = 9 nights), which run Jan 11 to
+    // Feb 3 — measured. June is four months past the last night, on every
+    // weekday. If games_per_team ever grows enough to reach June, derive this
+    // date instead of pinning the month and day.
     const before = await publishedGameIds();
     await page.getByLabel("New date").fill(`${YEAR}-06-16`);
     await page.getByRole("button", { name: "Move night" }).click();
