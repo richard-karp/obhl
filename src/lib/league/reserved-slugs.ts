@@ -29,6 +29,11 @@ export const RESERVED_LEAGUE_SLUGS = [
   "auth",
   "login",
   "manage",
+  // ⚠️ MISSING UNTIL 2026-09-08, and it is a top-level route like the rest —
+  // `src/app/set-password/`. A league named "Set password" was created at an
+  // address that never resolves, with no UI to delete it. Widened in the DB by
+  // `0047_reserve_set_password_slug.sql`; the two lists must match.
+  "set-password",
   "_next",
 ] as const;
 
