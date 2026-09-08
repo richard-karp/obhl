@@ -133,7 +133,17 @@ export default async function LandingPage() {
         */}
         {user ? (
           <div className="flex items-center gap-2">
-            {canCreateLeague ? newLeagueLink : null}
+            {/*
+              ⚠️ `leagues.length > 0` IS NOT REDUNDANT WITH THE EMPTY STATE'S
+              OWN COPY OF THIS LINK — it is what stops the two rendering at
+              once. Both conditions held on a league-less instance, which is
+              exactly the case this page exists to unblock, so the one state
+              that mattered most drew the button twice. It also made
+              `getByRole("link", { name: "New league" })` match two elements,
+              a strict-mode failure waiting for the first test to meet an
+              empty database.
+            */}
+            {canCreateLeague && leagues.length > 0 ? newLeagueLink : null}
             {cluster}
           </div>
         ) : (

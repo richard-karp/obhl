@@ -72,7 +72,15 @@ export default async function LoginPage({
             <p className="text-muted-foreground text-center text-xs font-medium">
               Quick sign-in (test mode)
             </p>
-            <div className="flex gap-2">
+            {/*
+              `flex-wrap`: eight accounts of `flex-1` buttons no longer fit one
+              row inside this card, and without it the row overflows its border
+              rather than wrapping. Dev-only, and no spec measures this page's
+              width — but horizontal overflow is treated as a real defect
+              elsewhere in this repo, so it is not left for the ninth account to
+              make worse.
+            */}
+            <div className="flex flex-wrap gap-2">
               {DEV_ACCOUNTS.map((a) => (
                 <form key={a.email} action={devSignIn} className="flex-1">
                   <input type="hidden" name="email" value={a.email} />
