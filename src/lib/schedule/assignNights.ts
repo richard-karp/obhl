@@ -81,9 +81,11 @@ export type BalanceReport = {
    * rows; use `presentSpacing` in `constraints.ts` rather than doing it by hand,
    * so the report a manager reads and the report a test asserts on cannot drift.
    *
-   * ⚠️ This report deliberately does NOT carry those credits. The caller
-   * computes them, as `schedule-builder-panel.tsx` does, so the number has one
-   * source rather than two — a report field nothing read, and a local
+   * ⚠️ This report deliberately does NOT carry those credits. Whoever presents
+   * the metrics computes them: `schedule-builder-panel.tsx` does it from the
+   * PERSISTED games, and is not a caller of this function at all — no caller of
+   * `assignNights` needs them, `generateSchedule` reads only `report.constraints`.
+   * One source rather than two — a report field nothing read, and a
    * recomputation that did.
    */
   spacing: SpacingReport;
