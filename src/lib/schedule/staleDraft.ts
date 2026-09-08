@@ -1,6 +1,8 @@
+import { leagueDateKey, leagueOffset, leagueTimeKey } from "@/lib/format";
+
 /**
- * A draft that has AGED past its own first game night, and the shift that fixes
- * it.
+ * A draft whose first game has ALREADY BEEN PLAYED-OVER — the schedule aged
+ * between generate and publish — and the shift that fixes it.
  *
  * ⛔ THE GAP THIS CLOSES, STATED EXACTLY. `isPastGameNight` (`./startDate`)
  * refuses a past first night at GENERATE, and its docstring argues — correctly
@@ -19,15 +21,28 @@
  * it is published, and publishing it locks the season INSTANTLY AND FOR GOOD.
  * Generate, replace and remove all refuse from then on, with no undo.
  *
+ * ⛔ MEASURED AGAINST AN INSTANT, NOT A CALENDAR DAY, AND THAT IS LOAD-BEARING.
+ * This module compared date keys for one revision, mirroring `isPastGameNight`
+ * — and `season_is_started`'s predicate is `scheduled_at < now()`, a TIMESTAMP.
+ * The two disagree for the several hours between a night's first face-off and
+ * midnight, and in that window a draft that locks the season the moment it is
+ * published looks perfectly healthy: no banner, no confirmation, one click.
+ *
+ * ⚠️ Worse, the day-granular version could CREATE that state through its own
+ * remedy. A draft stale by exactly a whole number of weeks shifted to "today",
+ * which is in the future only until that evening's face-off — so a manager
+ * clicking the fix at 20:00 moved their first game to 19:00 that same evening,
+ * watched the warning disappear, and published into the lock they were trying
+ * to avoid. Hence `weeks` starts at 1 and climbs until the shifted first game
+ * is genuinely ahead of `now`.
+ *
  * ⚠️ So this module answers a question; it does not refuse anything. The publish
  * stays possible — a manager whose games really were played on Tuesday and who
  * is publishing on Thursday before entering the scores needs it to be — and
  * what the callers do with the answer is warn, and offer the shift below.
  *
- * Pure, and `today` is the CALLER's job to supply as a league-zone date key,
- * for the same reason `isPastGameNight` says so: server-UTC is up to five hours
- * ahead of the league, which would call a draft stale from 7pm the evening
- * before.
+ * Pure, and `now` is injected rather than read from the clock so every boundary
+ * here is testable.
  */
 
 const DAY_MS = 86_400_000;
@@ -49,22 +64,35 @@ export function shiftDateByWeeks(date: string, weeks: number): string {
     .slice(0, 10);
 }
 
+/**
+ * The instant a game at league wall-clock `time` on `date` actually starts.
+ *
+ * ⚠️ WALL CLOCK, NOT AN OFFSET CARRIED FORWARD, because that is how the move
+ * itself behaves (`moveNightTo`): 19:00 stays 19:00 on the new date, whichever
+ * side of a DST boundary it falls. Asking "is the shifted game in the future?"
+ * with the OLD date's offset answers a question about a game that will not
+ * exist.
+ */
+const instantOf = (date: string, time: string): number =>
+  Date.parse(`${date}T${time}:00${leagueOffset(date)}`);
+
 export type StaleDraft = {
-  /** The draft's earliest game night, and the one that has passed. */
+  /** The league-zone date of the draft's earliest game — the night that passed. */
   firstNight: string;
-  /** How many of the draft's nights are already behind us. */
+  /** How many of the draft's nights have already begun. */
   passedNights: number;
-  /** Whole weeks the draft must move for its first night to be today or later. */
+  /** Whole weeks the draft must move for that game to be ahead of us again. */
   weeks: number;
   /** Where that first night lands after the shift. */
   shiftedFirstNight: string;
 };
 
 /**
- * Is this draft's first game night behind us, and by how many whole weeks?
+ * Has this draft's first game already started, and by how many whole weeks must
+ * the schedule move to be publishable again?
  *
- * `null` means there is nothing to warn about: the draft starts today or later,
- * or it has no dated nights at all.
+ * `null` means there is nothing to warn about: the first game is still ahead,
+ * or the draft has no dated games at all.
  *
  * ⚠️ WHOLE WEEKS, NOT DAYS, and the difference is the feature. A draft is a
  * whole schedule of matchups placed on particular weeknights at particular ice
@@ -74,35 +102,54 @@ export type StaleDraft = {
  * manager reviewed them.
  *
  * ⚠️ The smallest such shift, so a draft two days stale moves one week rather
- * than to some tidier-looking date. Landing ON today is allowed, matching
- * `isPastGameNight`'s "a season may start the night it is generated": rounding
- * it up to the next week would move a schedule that did not need moving.
+ * than to some tidier-looking date — but never a shift that lands on a game
+ * that has itself already started. See the note on the module above; that was a
+ * real hole, not a hypothetical one.
  */
 export function staleDraft({
-  nights,
-  today,
+  games,
+  now,
 }: {
-  /** The draft's game nights as league-zone date keys, in any order. */
-  nights: string[];
-  today: string;
+  /** Every dated draft game's `scheduled_at`, in any order. */
+  games: string[];
+  /** The current instant, as an ISO timestamp. */
+  now: string;
 }): StaleDraft | null {
-  if (nights.length === 0) return null;
-  // Sorted here rather than trusted from the caller: the panel's list is
-  // already ordered, the action's comes off a `Map` built while grouping, and
-  // "the first night" being wrong would move the schedule by the wrong number
-  // of weeks — a silent, whole-season error.
-  const firstNight = [...nights].sort()[0];
-  if (firstNight >= today) return null;
+  const nowMs = Date.parse(now);
 
-  const [fy, fm, fd] = firstNight.split("-").map(Number);
-  const [ty, tm, td] = today.split("-").map(Number);
-  const daysBehind =
-    (Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / DAY_MS;
-  const weeks = Math.ceil(daysBehind / 7);
+  // One pass: the earliest game overall, and the earliest on each night — the
+  // second is what makes "how many nights are behind us" a question about
+  // face-offs rather than about dates.
+  let earliest = Number.POSITIVE_INFINITY;
+  const nightStart = new Map<string, number>();
+  for (const iso of games) {
+    const ms = Date.parse(iso);
+    if (Number.isNaN(ms)) continue;
+    if (ms < earliest) earliest = ms;
+    const date = leagueDateKey(iso);
+    const held = nightStart.get(date);
+    if (held === undefined || ms < held) nightStart.set(date, ms);
+  }
+  if (!Number.isFinite(earliest) || earliest >= nowMs) return null;
+
+  const firstIso = new Date(earliest).toISOString();
+  const firstNight = leagueDateKey(firstIso);
+  // The first game's wall-clock time, which the shift preserves.
+  const faceOff = leagueTimeKey(firstIso);
+
+  // ⚠️ FROM 1, AND CLIMBING UNTIL THE SHIFTED GAME IS ACTUALLY AHEAD OF US.
+  // `Math.ceil(daysBehind / 7)` is the same number nine times out of ten and
+  // wrong in exactly the case that matters: it lands the game on today's date
+  // at a time that may already have gone. A NaN instant compares false and ends
+  // the loop rather than spinning.
+  let weeks = 1;
+  while (instantOf(shiftDateByWeeks(firstNight, weeks), faceOff) <= nowMs) {
+    weeks++;
+  }
 
   return {
     firstNight,
-    passedNights: nights.filter((n) => n < today).length,
+    passedNights: [...nightStart.values()].filter((ms) => ms < nowMs).length,
     weeks,
     shiftedFirstNight: shiftDateByWeeks(firstNight, weeks),
   };

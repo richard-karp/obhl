@@ -4,40 +4,74 @@ import { staleDraft, shiftDateByWeeks } from "./staleDraft";
 /**
  * The other half of `isPastGameNight`, and the half that was missing.
  *
- * `isPastGameNight` refuses a past date at GENERATE, which is the right place
- * for a manager who types one in. It cannot see the case this module is for: a
- * draft generated against a perfectly good future date, left standing, and
- * published after that date has passed. The window is however long the manager
- * waits, and the rebuild workflow — generate early in the week, publish later —
- * walks straight through it.
+ * `isPastGameNight` refuses a past first night at GENERATE, which is the right
+ * place for a manager who types one in. It cannot see the case this module is
+ * for: a draft generated against a perfectly good future date, left standing,
+ * and published after that date has passed. The window is however long the
+ * manager waits, and the rebuild workflow — generate early in the week, publish
+ * later — walks straight through it.
  *
- * `today` is injected rather than read from the clock, and every date here is a
- * plain league-zone calendar key.
+ * ⛔ EVERY BOUNDARY HERE IS AN INSTANT, NOT A DATE. The lock this guards
+ * (`season_is_started`) fires on `scheduled_at < now()`, so a test suite that
+ * only ever compares whole days would pass over the several hours each game
+ * night spends already-played and still today — which is exactly the hole an
+ * earlier revision of this module left open. `now` is injected for that reason.
  */
 describe("staleDraft", () => {
-  it("returns null when the first night is still ahead", () => {
+  const at = (iso: string) => iso; // readability at the call sites below
+
+  it("returns null when the first game is still ahead", () => {
     expect(
-      staleDraft({ nights: ["2026-09-15", "2026-09-22"], today: "2026-09-07" }),
+      staleDraft({
+        games: [at("2026-09-15T19:00:00-04:00")],
+        now: "2026-09-07T20:00:00-04:00",
+      }),
     ).toBeNull();
   });
 
-  it("returns null when the first night is today — a season may start tonight", () => {
-    // The same boundary `isPastGameNight` draws, and drawn the same way: a
-    // draft whose first night is tonight is publishable, not stale.
+  it("returns null for a game later tonight — a season may start this evening", () => {
+    // The counterpart to `isPastGameNight` allowing today: at 10am, tonight's
+    // 19:00 face-off is a perfectly good first night.
     expect(
-      staleDraft({ nights: ["2026-09-07", "2026-09-14"], today: "2026-09-07" }),
+      staleDraft({
+        games: [at("2026-09-07T19:00:00-04:00")],
+        now: "2026-09-07T10:00:00-04:00",
+      }),
     ).toBeNull();
   });
 
-  it("returns null for a draft with no dated nights", () => {
-    expect(staleDraft({ nights: [], today: "2026-09-07" })).toBeNull();
+  it("is stale once tonight's game has actually started", () => {
+    // ⛔ THE CASE A DAY-GRANULAR CHECK MISSES ENTIRELY. Publishing here trips
+    // `season_is_started` on the spot, and the manager gets no warning at all
+    // unless this returns non-null.
+    expect(
+      staleDraft({
+        games: [at("2026-09-07T19:00:00-04:00")],
+        now: "2026-09-07T20:00:00-04:00",
+      }),
+    ).toEqual({
+      firstNight: "2026-09-07",
+      passedNights: 1,
+      weeks: 1,
+      shiftedFirstNight: "2026-09-14",
+    });
+  });
+
+  it("returns null for a draft with no dated games", () => {
+    expect(
+      staleDraft({ games: [], now: "2026-09-07T20:00:00-04:00" }),
+    ).toBeNull();
   });
 
   it("moves a draft one week when its first night was days ago", () => {
     expect(
       staleDraft({
-        nights: ["2026-09-01", "2026-09-08", "2026-09-15"],
-        today: "2026-09-07",
+        games: [
+          at("2026-09-01T19:00:00-04:00"),
+          at("2026-09-08T19:00:00-04:00"),
+          at("2026-09-15T19:00:00-04:00"),
+        ],
+        now: "2026-09-07T20:00:00-04:00",
       }),
     ).toEqual({
       firstNight: "2026-09-01",
@@ -47,55 +81,107 @@ describe("staleDraft", () => {
     });
   });
 
-  it("counts every night already behind us, not just the first", () => {
+  it("never shifts onto a face-off that has already gone", () => {
+    // ⛔ THE REGRESSION THIS MODULE EXISTS TO NOT REPEAT. A draft stale by
+    // exactly one week, looked at after that evening's face-off: shifting it to
+    // "today" moves the first game to an hour ago, the warning disappears, and
+    // the very next click locks the season. The remedy would have created the
+    // state it exists to prevent. Two weeks is the smallest honest answer.
+    expect(
+      staleDraft({
+        games: [at("2026-09-01T19:00:00-04:00")],
+        now: "2026-09-08T20:00:00-04:00",
+      }),
+    ).toEqual({
+      firstNight: "2026-09-01",
+      passedNights: 1,
+      weeks: 2,
+      shiftedFirstNight: "2026-09-15",
+    });
+  });
+
+  it("does shift onto today when the face-off is still to come", () => {
+    // The same draft, seen in the morning: today's 19:00 is genuinely ahead, so
+    // moving one week costs the manager nothing and starts the season tonight.
+    expect(
+      staleDraft({
+        games: [at("2026-09-01T19:00:00-04:00")],
+        now: "2026-09-08T10:00:00-04:00",
+      }),
+    ).toEqual({
+      firstNight: "2026-09-01",
+      passedNights: 1,
+      weeks: 1,
+      shiftedFirstNight: "2026-09-08",
+    });
+  });
+
+  it("counts a night as passed once its first game has started, not at midnight", () => {
     const stale = staleDraft({
-      nights: ["2026-09-01", "2026-09-03", "2026-09-08", "2026-09-10"],
-      today: "2026-09-07",
+      games: [
+        at("2026-09-01T19:00:00-04:00"),
+        at("2026-09-01T20:15:00-04:00"),
+        // Tonight: the 19:00 has gone, the 20:15 has not. One night, and it
+        // counts — the schedule is under way whatever happens next.
+        at("2026-09-07T19:00:00-04:00"),
+        at("2026-09-07T20:15:00-04:00"),
+        at("2026-09-14T19:00:00-04:00"),
+      ],
+      now: "2026-09-07T19:30:00-04:00",
     });
     expect(stale?.passedNights).toBe(2);
   });
 
-  it("moves whole weeks, so the shifted first night keeps its weekday", () => {
-    // 2026-08-04 is a Tuesday, four weeks and change behind 2026-09-07.
-    const stale = staleDraft({ nights: ["2026-08-04"], today: "2026-09-07" });
-    expect(stale?.weeks).toBe(5);
-    expect(stale?.shiftedFirstNight).toBe("2026-09-08");
-    expect(new Date("2026-09-08T12:00:00Z").getUTCDay()).toBe(
-      new Date("2026-08-04T12:00:00Z").getUTCDay(),
-    );
-  });
-
-  it("shifts to today itself when today is exactly a whole week on", () => {
-    // ⛔ The boundary that decides whether the fix actually fixes anything: a
-    // shift landing ON today is allowed, exactly as `isPastGameNight` allows a
-    // draft generated for tonight. Rounding this up to the following week would
-    // move a schedule that did not need moving and cost the manager a night.
-    expect(staleDraft({ nights: ["2026-08-31"], today: "2026-09-07" })).toEqual(
-      {
-        firstNight: "2026-08-31",
-        passedNights: 1,
-        weeks: 1,
-        shiftedFirstNight: "2026-09-07",
-      },
-    );
-  });
-
-  it("reads the earliest night, however the caller ordered the list", () => {
+  it("reads the earliest game, however the caller ordered the list", () => {
     const stale = staleDraft({
-      nights: ["2026-09-08", "2026-09-01"],
-      today: "2026-09-07",
+      games: [
+        at("2026-09-08T19:00:00-04:00"),
+        at("2026-09-01T20:15:00-04:00"),
+        at("2026-09-01T19:00:00-04:00"),
+      ],
+      now: "2026-09-07T20:00:00-04:00",
     });
     expect(stale?.firstNight).toBe("2026-09-01");
+    // The 19:00, not the 20:15 — the shift is anchored on the night's opener.
+    expect(stale?.shiftedFirstNight).toBe("2026-09-08");
+  });
+
+  it("keeps the weekday when the shift crosses the end of DST", () => {
+    // 2026-10-27 is a Tuesday; US Eastern leaves DST on 2026-11-01, so the
+    // shifted night is a -05:00 evening where the original was -04:00. The date
+    // arithmetic is UTC and the wall clock is preserved, so it stays a Tuesday.
+    const stale = staleDraft({
+      games: [at("2026-10-27T19:00:00-04:00")],
+      now: "2026-10-28T09:00:00-04:00",
+    });
+    expect(stale?.weeks).toBe(1);
+    expect(stale?.shiftedFirstNight).toBe("2026-11-03");
   });
 
   it("crosses a year boundary by date, not by day-of-month", () => {
-    const stale = staleDraft({ nights: ["2025-12-30"], today: "2026-01-06" });
-    expect(stale).toEqual({
+    expect(
+      staleDraft({
+        games: [at("2025-12-30T19:00:00-05:00")],
+        now: "2026-01-05T20:00:00-05:00",
+      }),
+    ).toEqual({
       firstNight: "2025-12-30",
       passedNights: 1,
       weeks: 1,
       shiftedFirstNight: "2026-01-06",
     });
+  });
+
+  it("ignores a game whose timestamp cannot be read", () => {
+    // A row with a malformed date is not this function's to interpret, and must
+    // not become an `Invalid Date` that silently reads as the epoch — which
+    // would call every draft in the app stale.
+    expect(
+      staleDraft({
+        games: ["not a timestamp", at("2026-09-15T19:00:00-04:00")],
+        now: "2026-09-07T20:00:00-04:00",
+      }),
+    ).toBeNull();
   });
 });
 
