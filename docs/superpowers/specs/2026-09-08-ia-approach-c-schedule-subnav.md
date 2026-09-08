@@ -52,12 +52,12 @@ use the words on screen today, not the predecessor's.
 
 One staff-row entry, "Schedule", and four tabs beneath the page heading:
 
-| Tab | URL | Who reaches it |
-| --- | --- | --- |
-| **Games** | `/<league>/schedule` | public; managers additionally get the edit panel |
-| **Repair** | `/<league>/schedule/repair` | league manager |
-| **One-off** | `/<league>/schedule/one-off` | league manager |
-| **Build** | `/<league>/schedule/build` | league manager |
+| Tab         | URL                          | Who reaches it                                   |
+| ----------- | ---------------------------- | ------------------------------------------------ |
+| **Games**   | `/<league>/schedule`         | public; managers additionally get the edit panel |
+| **Repair**  | `/<league>/schedule/repair`  | league manager                                   |
+| **One-off** | `/<league>/schedule/one-off` | league manager                                   |
+| **Build**   | `/<league>/schedule/build`   | league manager                                   |
 
 Nothing a manager cannot do today becomes possible. **[inferred]** Every page
 keeps its own content, its own guard and its own server work; only the URL
@@ -66,10 +66,11 @@ a capability change — which is the single most important input to the
 recommendation at the end.
 
 ⛔ **The Games tab keeps the bare `/schedule`; it does NOT become
-`/schedule/games`.** That alternative costs a fourth redirect and breaks eight
+`/schedule/games`.** That alternative costs a fourth redirect and breaks **ten**
 things that are correct today: `next.config.ts:71-75` (`/:league/score` →
 `/:league/schedule`), `nav-links.tsx:11`, seven `revalidatePath("/[league]/schedule")`
-call sites, and `src/lib/games/shared.ts:16`'s `PUBLIC_PATHS` entry.
+call sites, and `src/lib/games/shared.ts:16`'s `PUBLIC_PATHS` entry — 1 + 1 + 7 + 1.
+(An earlier revision said eight while listing ten; the list was right.)
 **[measured]** — all read this session. Leaving Games at the bare path costs
 nothing and keeps every one of them true.
 
@@ -104,11 +105,11 @@ paragraph at all.
 Concretely, the two groups differ in three ways that a tab switch would expose
 **[measured]**, all read this session:
 
-| | `(public)/layout.tsx` | `(manage)/layout.tsx` |
-| --- | --- | --- |
-| Gate | `requireVisibleLeague(league)` (line 42) | `if (!user) redirect("/login")` (line 28) |
-| `<main>` | `px-4 py-6 sm:py-8` (line 46) | `px-4 py-8` (line 38) |
-| Footer | `<SiteFooter>` (line 49) | none |
+|          | `(public)/layout.tsx`                    | `(manage)/layout.tsx`                     |
+| -------- | ---------------------------------------- | ----------------------------------------- |
+| Gate     | `requireVisibleLeague(league)` (line 42) | `if (!user) redirect("/login")` (line 28) |
+| `<main>` | `px-4 py-6 sm:py-8` (line 46)            | `px-4 py-8` (line 38)                     |
+| Footer   | `<SiteFooter>` (line 49)                 | none                                      |
 
 ### ✅ One URL segment CAN span both route groups — this repo already ships it
 
@@ -167,10 +168,10 @@ merely stale.
 There are **14** `revalidatePath` calls naming a builder route. **[measured]** —
 `grep -rn 'revalidatePath("/\[league\]/schedule-builder' src/ | wc -l` → 14:
 
-| File | Lines |
-| --- | --- |
-| `src/lib/actions/schedule.ts` | 236, 290, 646, 654, 694, 907, 1064, **1067**, **1068**, 1371, **1372**, 1699, **1700** |
-| `src/lib/actions/schedule-edits.ts` | **177** |
+| File                                | Lines                                                                                  |
+| ----------------------------------- | -------------------------------------------------------------------------------------- |
+| `src/lib/actions/schedule.ts`       | 236, 290, 646, 654, 694, 907, 1064, **1067**, **1068**, 1371, **1372**, 1699, **1700** |
+| `src/lib/actions/schedule-edits.ts` | **177**                                                                                |
 
 (Bold = the sub-routes `/repair` and `/one-off`; the rest are the bare builder.)
 
@@ -222,11 +223,11 @@ All line numbers **[measured]** — each line was printed verbatim this session.
 
 ### Route files — three directory moves
 
-| From | To | Lines |
-| --- | --- | --- |
-| `src/app/[league]/(manage)/schedule-builder/page.tsx` | `.../(manage)/schedule/build/page.tsx` | 72 |
-| `src/app/[league]/(manage)/schedule-builder/repair/page.tsx` | `.../(manage)/schedule/repair/page.tsx` | 110 |
-| `src/app/[league]/(manage)/schedule-builder/one-off/page.tsx` | `.../(manage)/schedule/one-off/page.tsx` | 101 |
+| From                                                          | To                                       | Lines |
+| ------------------------------------------------------------- | ---------------------------------------- | ----- |
+| `src/app/[league]/(manage)/schedule-builder/page.tsx`         | `.../(manage)/schedule/build/page.tsx`   | 72    |
+| `src/app/[league]/(manage)/schedule-builder/repair/page.tsx`  | `.../(manage)/schedule/repair/page.tsx`  | 110   |
+| `src/app/[league]/(manage)/schedule-builder/one-off/page.tsx` | `.../(manage)/schedule/one-off/page.tsx` | 101   |
 
 ✅ **No guard moves with them.** All three call `requireLeagueManager` directly —
 `schedule-builder/page.tsx:27`, `repair/page.tsx:40`, `one-off/page.tsx:35`
@@ -240,16 +241,16 @@ per-page guard that looks redundant against the new layout.**
 
 ### Link hrefs — eight, in four files
 
-| File:line | Current href |
-| --- | --- |
-| `src/components/manage/schedule-builder-panel.tsx:394` | `/${league}/schedule-builder/one-off` |
-| `src/components/manage/schedule-builder-panel.tsx:413` | `/${league}/schedule-builder/repair` |
-| `src/components/manage/schedule-builder-panel.tsx:469` | `/${league}/schedule-builder/one-off` |
-| `src/components/manage/schedule-builder-panel.tsx:567` | `/${league}/schedule-builder/repair` |
-| `src/app/[league]/(public)/schedule/page.tsx:213` | `/${slug}/schedule-builder/repair` |
-| `src/app/[league]/(public)/schedule/page.tsx:220` | `/${slug}/schedule-builder/one-off` |
-| `src/app/[league]/(manage)/schedule-builder/repair/page.tsx:78` | `/${leagueSlug}/schedule-builder` |
-| `src/app/[league]/(manage)/schedule-builder/one-off/page.tsx:74` | `/${leagueSlug}/schedule-builder` |
+| File:line                                                        | Current href                          |
+| ---------------------------------------------------------------- | ------------------------------------- |
+| `src/components/manage/schedule-builder-panel.tsx:394`           | `/${league}/schedule-builder/one-off` |
+| `src/components/manage/schedule-builder-panel.tsx:413`           | `/${league}/schedule-builder/repair`  |
+| `src/components/manage/schedule-builder-panel.tsx:469`           | `/${league}/schedule-builder/one-off` |
+| `src/components/manage/schedule-builder-panel.tsx:567`           | `/${league}/schedule-builder/repair`  |
+| `src/app/[league]/(public)/schedule/page.tsx:213`                | `/${slug}/schedule-builder/repair`    |
+| `src/app/[league]/(public)/schedule/page.tsx:220`                | `/${slug}/schedule-builder/one-off`   |
+| `src/app/[league]/(manage)/schedule-builder/repair/page.tsx:78`  | `/${leagueSlug}/schedule-builder`     |
+| `src/app/[league]/(manage)/schedule-builder/one-off/page.tsx:74` | `/${leagueSlug}/schedule-builder`     |
 
 ⚠️ The last two are **"Schedule Builder" back-buttons in the `PageHeader`**. With
 a tab strip above them they become redundant with the Build tab, so the honest
@@ -322,10 +323,10 @@ Three entries added to `next.config.ts`'s `redirects()`, `permanent: true`,
 matching the five already there. **[inferred]** — the shapes follow the existing
 entries read at `next.config.ts:27-76`.
 
-| From | To |
-| --- | --- |
-| `/:league/schedule-builder` | `/:league/schedule/build` |
-| `/:league/schedule-builder/repair` | `/:league/schedule/repair` |
+| From                                | To                          |
+| ----------------------------------- | --------------------------- |
+| `/:league/schedule-builder`         | `/:league/schedule/build`   |
+| `/:league/schedule-builder/repair`  | `/:league/schedule/repair`  |
 | `/:league/schedule-builder/one-off` | `/:league/schedule/one-off` |
 
 ⛔ **Three explicit rules, NOT one wildcard.** A single
@@ -344,13 +345,13 @@ anchored at both ends and none begins `/:league/schedule-builder`
 **[inferred]** throughout — no HTTP request was made to verify, and the redirects
 do not exist yet.
 
-| A manager has bookmarked | What happens |
-| --- | --- |
-| `/<league>/schedule-builder` | 308 → `/<league>/schedule/build`. Query string carried, per `next.config.ts:15`. |
-| `/<league>/schedule-builder/repair` | 308 → `/<league>/schedule/repair` |
-| `/<league>/schedule-builder/one-off` | 308 → `/<league>/schedule/one-off` |
+| A manager has bookmarked                    | What happens                                                                        |
+| ------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `/<league>/schedule-builder`                | 308 → `/<league>/schedule/build`. Query string carried, per `next.config.ts:15`.    |
+| `/<league>/schedule-builder/repair`         | 308 → `/<league>/schedule/repair`                                                   |
+| `/<league>/schedule-builder/one-off`        | 308 → `/<league>/schedule/one-off`                                                  |
 | `/<league>/manage/schedule-builder/one-off` | **two hops**: → `/<league>/schedule-builder/one-off` → `/<league>/schedule/one-off` |
-| `/<league>/schedule`, `/<league>/score` | unchanged |
+| `/<league>/schedule`, `/<league>/score`     | unchanged                                                                           |
 
 ⚠️ The two-hop chain is not new and not a problem. `next.config.ts:36-37` already
 documents the same pattern for `/rules/edit`: "an old
@@ -378,26 +379,26 @@ session. Nothing here is estimated.
 
 ### Mandatory — 18 lines, 5 files. `27-one-chrome` is not among them.
 
-| File | Line | Current text | Change |
-| --- | --- | --- | --- |
-| `e2e/11-schedule-builder.spec.ts` | 100 | `await page.goto("/obhl/schedule-builder");` | → `/obhl/schedule/build` |
-| | 120 | `await page.goto("/obhl/schedule-builder");` | → `/obhl/schedule/build` |
-| | 479 | `await page.goto("/obhl/schedule-builder");` | → `/obhl/schedule/build` |
-| `e2e/14-one-off-game.spec.ts` | 97 | `await page.goto("/obhl/schedule-builder");` | → `/obhl/schedule/build` |
-| | 226 | `await page.goto("/obhl/schedule-builder/one-off");` | → `/obhl/schedule/one-off` |
-| | 281 | `await page.goto("/obhl/schedule-builder/one-off");` | → `/obhl/schedule/one-off` |
-| `e2e/16-league-membership.spec.ts` | 155 | `"/schedule-builder",` | → `"/schedule/build",` |
-| | 156 | `"/schedule-builder/one-off",` | → `"/schedule/one-off",` |
-| `e2e/29-schedule-repair.spec.ts` | 232 | `await page.goto("/obhl/schedule-builder");` | → `/obhl/schedule/build` |
-| | 292 | `await page.goto("/obhl/schedule-builder");` | → `/obhl/schedule/build` |
-| | 316 | `await page.goto("/obhl/schedule-builder");` | → `/obhl/schedule/build` |
-| | 337 | `await page.goto("/obhl/schedule-builder/repair");` | → `/obhl/schedule/repair` |
-| | 408 | `await page.goto("/obhl/schedule-builder/repair");` | → `/obhl/schedule/repair` |
-| | 449 | `await page.goto("/obhl/schedule-builder");` | → `/obhl/schedule/build` |
-| | 451 | `await expect(page).toHaveURL(/\/schedule-builder\/repair/);` | → `/\/schedule\/repair/` |
-| `e2e/30-schedule-edits.spec.ts` | 294 | `await page.goto("/obhl/schedule-builder");` | → `/obhl/schedule/build` |
-| | 460 | `await page.goto("/obhl/schedule-builder");` | → `/obhl/schedule/build` |
-| | 494 | `await page.goto("/obhl/schedule-builder");` | → `/obhl/schedule/build` |
+| File                               | Line | Current text                                                  | Change                     |
+| ---------------------------------- | ---- | ------------------------------------------------------------- | -------------------------- |
+| `e2e/11-schedule-builder.spec.ts`  | 100  | `await page.goto("/obhl/schedule-builder");`                  | → `/obhl/schedule/build`   |
+|                                    | 120  | `await page.goto("/obhl/schedule-builder");`                  | → `/obhl/schedule/build`   |
+|                                    | 479  | `await page.goto("/obhl/schedule-builder");`                  | → `/obhl/schedule/build`   |
+| `e2e/14-one-off-game.spec.ts`      | 97   | `await page.goto("/obhl/schedule-builder");`                  | → `/obhl/schedule/build`   |
+|                                    | 226  | `await page.goto("/obhl/schedule-builder/one-off");`          | → `/obhl/schedule/one-off` |
+|                                    | 281  | `await page.goto("/obhl/schedule-builder/one-off");`          | → `/obhl/schedule/one-off` |
+| `e2e/16-league-membership.spec.ts` | 155  | `"/schedule-builder",`                                        | → `"/schedule/build",`     |
+|                                    | 156  | `"/schedule-builder/one-off",`                                | → `"/schedule/one-off",`   |
+| `e2e/29-schedule-repair.spec.ts`   | 232  | `await page.goto("/obhl/schedule-builder");`                  | → `/obhl/schedule/build`   |
+|                                    | 292  | `await page.goto("/obhl/schedule-builder");`                  | → `/obhl/schedule/build`   |
+|                                    | 316  | `await page.goto("/obhl/schedule-builder");`                  | → `/obhl/schedule/build`   |
+|                                    | 337  | `await page.goto("/obhl/schedule-builder/repair");`           | → `/obhl/schedule/repair`  |
+|                                    | 408  | `await page.goto("/obhl/schedule-builder/repair");`           | → `/obhl/schedule/repair`  |
+|                                    | 449  | `await page.goto("/obhl/schedule-builder");`                  | → `/obhl/schedule/build`   |
+|                                    | 451  | `await expect(page).toHaveURL(/\/schedule-builder\/repair/);` | → `/\/schedule\/repair/`   |
+| `e2e/30-schedule-edits.spec.ts`    | 294  | `await page.goto("/obhl/schedule-builder");`                  | → `/obhl/schedule/build`   |
+|                                    | 460  | `await page.goto("/obhl/schedule-builder");`                  | → `/obhl/schedule/build`   |
+|                                    | 494  | `await page.goto("/obhl/schedule-builder");`                  | → `/obhl/schedule/build`   |
 
 Seventeen are plain `goto` substitutions; one (`29:451`) is a regex.
 
@@ -413,10 +414,10 @@ added while the file is open. **[inferred]**
 
 ### Conditional — 2 more lines, if the Build page's heading changes
 
-| File | Line | Current | Note |
-| --- | --- | --- | --- |
-| `e2e/11-schedule-builder.spec.ts` | 105 | `page.getByRole("heading", { name: "Schedule Builder" }),` | Only if `schedule-builder/page.tsx:64`'s `title="Schedule Builder"` becomes "Schedule". |
-| | 118 | `test("scorekeeper cannot reach /schedule-builder", ...` | Test title only — cosmetic, but it names a URL that will no longer exist. |
+| File                              | Line | Current                                                    | Note                                                                                    |
+| --------------------------------- | ---- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `e2e/11-schedule-builder.spec.ts` | 105  | `page.getByRole("heading", { name: "Schedule Builder" }),` | Only if `schedule-builder/page.tsx:64`'s `title="Schedule Builder"` becomes "Schedule". |
+|                                   | 118  | `test("scorekeeper cannot reach /schedule-builder", ...`   | Test title only — cosmetic, but it names a URL that will no longer exist.               |
 
 ⚠️ Whether line 105 changes is a design decision this spec does not make. If
 each tab keeps its own `PageHeader` title, the heading stays "Schedule Builder"
@@ -445,9 +446,13 @@ The five specs above are among the slowest in the suite. **[measured]**:
 404 and 441; `11-schedule-builder.spec.ts:141` defines
 `AFTER_GENERATE = { timeout: 45_000 }` and its docblock (lines 124-140) explains
 that a generate runs Phase S at five candidates and "the search alone can reach
-~25s before anything renders". Four of the five files carry the comment
+~25s before anything renders". Four specs carry the comment
 `/** See 11-schedule-builder.spec.ts — Phase S runs five candidates. */`
-(`23:29`, `28:95`, `29:118`, `30:35`).
+(`23:29`, `28:95`, `29:118`, `30:35`) — but only **two of them, `29-` and `30-`,
+are among the five files in the rewrite table above**; `23-` and `28-` are not
+in the rewrite scope at all. An earlier revision said "four of the five files",
+which overstated the overlap between "specs to rewrite" and "slowest specs" —
+and that overlap is the input to the re-verification budget.
 
 ⚠️ And per the worklist's standing hazard, e2e runs only via
 `scripts/e2e-locked.sh` with a distinct `PORT`, because worktrees share one
@@ -548,10 +553,10 @@ tab strip tidies the schedule stem and leaves that alone.
 
 **[inferred]** — an estimate, anchored on two measured comparables in this repo.
 
-| Comparable | Files | Diff | **[measured]** by |
-| --- | --- | --- | --- |
-| `fbb0802` — drop `/manage/` from every staff URL | 60 | +332 / −262 | `git show --stat` |
-| `6d369c0` — merge the score list into `/schedule`, nest the scoresheet, 2 redirects | 17 | +290 / −204 | `git show --stat` |
+| Comparable                                                                          | Files | Diff        | **[measured]** by |
+| ----------------------------------------------------------------------------------- | ----- | ----------- | ----------------- |
+| `fbb0802` — drop `/manage/` from every staff URL                                    | 60    | +332 / −262 | `git show --stat` |
+| `6d369c0` — merge the score list into `/schedule`, nest the scoresheet, 2 redirects | 17    | +290 / −204 | `git show --stat` |
 
 `6d369c0` is the close analogue: a nest-plus-redirect restructure that touched
 seven e2e specs and `next.config.ts`. Approach C's inventory is smaller than it —
@@ -562,12 +567,12 @@ code (the tab strip) and the rest are string substitutions.**
 
 Split by phase, **[inferred]**:
 
-| Phase | Work |
-| --- | --- |
-| 1 | Three `git mv`s; 8 hrefs; 14 `revalidatePath` strings; 1 nav entry; 3 redirects. Mechanical. |
-| 2 | The tab strip: new component, gated on `canManageLeague`, rendered by four pages; four `PageHeader` titles become tab labels. The only design work. |
-| 3 | 18 e2e string edits + 3 redirect rows + 3 comment blocks + the 390px loop. |
-| 4 | Verification: `npm run typecheck && npx vitest run && npx eslint src e2e`, then the five slow specs via `scripts/e2e-locked.sh`. |
+| Phase | Work                                                                                                                                                |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Three `git mv`s; 8 hrefs; 14 `revalidatePath` strings; 1 nav entry; 3 redirects. Mechanical.                                                        |
+| 2     | The tab strip: new component, gated on `canManageLeague`, rendered by four pages; four `PageHeader` titles become tab labels. The only design work. |
+| 3     | 18 e2e string edits + 3 redirect rows + 3 comment blocks + the 390px loop.                                                                          |
+| 4     | Verification: `npm run typecheck && npx vitest run && npx eslint src e2e`, then the five slow specs via `scripts/e2e-locked.sh`.                    |
 
 ⚠️ Phase 4 dominates the wall clock, not phases 1-3. And per the worklist,
 **one green run proves nothing** where Phase S is wall-clock bounded.
@@ -582,9 +587,9 @@ partly wrong anyway.**
 The case against doing it now:
 
 1. **Approach B already delivered the user-facing outcome.** The complaint that
-   made this architectural was *"if changes can take place after a season is
+   made this architectural was _"if changes can take place after a season is
    published I'm not sure it makes sense for it to be hidden in the 'Schedule
-   Builder' tab."* That is fixed and shipped: `schedule/page.tsx:198` renders
+   Builder' tab."_ That is fixed and shipped: `schedule/page.tsx:198` renders
    `ScheduleEditPanel` on `/schedule`, and lines 210-226 link to repair and
    one-off from there. `staff-links.tsx:27-34` carries a comment recording the
    reorder and why. **[measured]** Nothing is hidden in the builder any more.
@@ -607,6 +612,16 @@ The case against doing it now:
 > having whether or not approach C is ever built — it closes the same silent
 > failure for every future rename — and it converts approach C's one dangerous
 > failure mode into a caught one.
+
+✅ **THIS IS NOW WRITTEN: PR #52 (`test/route-aware-revalidate-paths`), open at
+the time of writing.** It walks `src/app`, resolves every `revalidatePath`
+pattern against the real route tree, and was confirmed to catch this exact
+failure by renaming `schedule-builder` without touching the call sites — it fails
+and names all fourteen stale calls. So the one condition this spec sets for
+approach C is satisfied the moment #52 lands. ⚠️ Read the recommendation below
+with that in mind: "defer" was written before the blocker was closed, and
+deferring for a reason that has expired is the exact failure this spec corrects
+in its predecessor.
 
 With that guard in place, approach C is a mechanical, fully-verifiable change of
 about 15 files, and the argument against it reduces to "it buys tidiness". That
