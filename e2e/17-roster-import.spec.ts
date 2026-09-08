@@ -7,7 +7,7 @@ test("rosters-only mode hides the game count in the preview", async ({
   await page.goto("/login");
   await page.getByRole("button", { name: "Manager" }).click();
   await page.waitForURL("/");
-  await page.goto("/obhl/import");
+  await page.goto("/manage/leagues/new");
 
   await page.getByLabel(/rosters only/i).check();
   await expect(page.getByText(/games? found/i)).toHaveCount(0);
@@ -29,7 +29,7 @@ test("mode defaults to rosters-only and switching modes changes the blurb", asyn
   await page.goto("/login");
   await page.getByRole("button", { name: "Manager" }).click();
   await page.waitForURL("/");
-  await page.goto("/obhl/import");
+  await page.goto("/manage/leagues/new");
 
   await expect(page.getByLabel(/rosters only/i)).toBeChecked();
   await expect(
