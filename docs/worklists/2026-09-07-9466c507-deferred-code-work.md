@@ -2,8 +2,9 @@
 
 **Protocol — read this and nothing else to resume.**
 
-1. This file is self-contained. It is the dossier for work that is **parked, not
-   in flight** — nothing here is half-done, and no item depends on another.
+1. This file is self-contained. Every item still open here is **parked, not in
+   flight** — nothing is half-done, and no item depends on another. Item 1 is the
+   exception and is marked SHIPPED; it is kept for its reasoning, not as work.
    ⛔ Do NOT read `docs/superpowers/specs/2026-09-07-manual-schedule-edits-design.md`
    (239 lines) unless you are doing item 7; its IA section is quoted below in full.
    ⛔ Do NOT read `LAUNCH_READINESS_HANDOFF.md` (1150+ lines) to find these items —
@@ -18,49 +19,66 @@
 3. Every claim below is marked **measured** (watched appear on 2026-09-07) or
    **read** (a reading of the code, not run). Nothing is unmarked.
 4. Verify the tree with: `npm run typecheck && npx vitest run && npx eslint src e2e`.
-   Baseline 2026-09-07: typecheck clean, **480 unit tests passed**, eslint clean.
+   ⚠️ Baseline **472 unit tests**, measured on `origin/main` 2026-09-08 by running
+   the suite with the new file excluded. This line said 480 and no tree has ever
+   produced that number; whatever it was counted on, it was not `main`. eslint is
+   clean but for two pre-existing `no-unused-vars` warnings in
+   `writeGames.test.ts` — those are the floor, not a regression you introduced.
 
-**Status: none started. Item 1 is the only one with a deadline attached to it,
-and the deadline is behavioural rather than dated — it binds whenever a manager
-generates a draft and publishes it later.**
+**Status: item 1 SHIPPED 2026-09-08 (PR #46, in review). The other six are
+unstarted, and none of them has a deadline — item 1 held the only one, and it
+was behavioural rather than dated.**
 
 ---
 
-## The one that can still cost a season
+## ✅ 1. The one that could still cost a season — SHIPPED
 
-### 1. A draft that AGES between generate and publish is guarded by neither end
+**A draft that AGES between generate and publish.** Fixed on 2026-09-08 in
+PR #46 (`feat/stale-draft-publish-guard`, six commits). This entry is kept as a
+record rather than deleted, because the reasoning is what makes the code
+readable and two reviews turned on it.
 
-**Measured.** `isPastGameNight` (`src/lib/schedule/startDate.ts`) has exactly one
-caller: `src/lib/actions/schedule.ts:399`, inside generate. `publishSchedule`
-(`src/lib/actions/schedule.ts:716`) has no date check of any kind — its only
-refusals are `started` and `no_draft`.
+**What shipped**, and it is the shape this file argued for — a warning plus a
+one-click re-date, never a bare refusal:
 
-⚠️ **This is NOT the "publish is unguarded, go add a guard" item it looks like,
-and an earlier reading of it by this session was wrong.** The guard's own
-docstring makes the opposite case deliberately:
+- `src/lib/schedule/staleDraft.ts` — pure, 15 unit tests. Answers "has the
+  draft's first game already been played over, and how many whole weeks must the
+  schedule move to be publishable again".
+- `publishSchedule` reads those dates before the terminal RPC and refuses only
+  **unacknowledged** staleness: the confirm dialog submits the night it warned
+  about, so a tab that never rendered the warning cannot slip past it. A read
+  failure fails closed, retried once (`readWithOneRetry`).
+- `redateDraftSchedule` moves every night by the same whole number of weeks via
+  `moveNightTo` + `writeGames` (draft-scoped, audited, one transaction) — every
+  matchup, weeknight and ice time preserved, wall-clock so DST cannot shift it.
+- `StaleDraftNotice` + the publish dialog carry the warning; `e2e/31-stale-draft.spec.ts`
+  drives all five paths.
 
-> ⚠️ Guard the GENERATE, not the publish. Refusing at publish is the obvious
-> place and is worse: by then the manager has a draft they have reviewed and can
-> do nothing with, and the message arrives too late to act on cheaply.
+⛔ **THE THING TO KNOW IF YOU TOUCH IT: staleness is an INSTANT, not a calendar
+day.** `season_is_started` fires on `scheduled_at < now()`. A day-granular check
+— which is what `isPastGameNight` correctly does at generate — misses the hours
+between a night's face-off and midnight, and worse, its one-click remedy could
+land a draft on a game that had already started, creating the exact state the
+button exists to escape. Both directions are pinned in `staleDraft.test.ts`.
 
-That reasoning is sound for the case it addresses — a manager typing a past date
-into the generate form. **The uncovered case is different: a draft generated with
-a perfectly valid future date, left standing, and published after that date has
-passed.** Generate checked the date when the draft was made; publish never checks
-it again. The window is however long the manager waits.
+**What it deliberately does NOT do**, all stated in the UI rather than left to be
+discovered:
 
-⛔ **This is precisely the shape of the schedule rebuild workflow** — generate and
-review early in the week, publish later — so it is reachable by the intended
-usage, not only by mistake.
+- The weeks off and holidays from the generate form are not stored anywhere, so
+  a moved night can land on one. The banner says so; the new dates all render.
+- Saved date-keyed requests (`bye_on`, `slot_on`, …) stop resolving after a move.
+  Also in the banner.
+- A draft over `MAX_GAME_WRITES` (200) cannot be moved and is refused up front
+  with discard-and-regenerate as the way forward. Not chunked on purpose: a
+  half-moved season is worse than a refusal.
+- A move that overruns `ends_on` is reported, not refused — the builder already
+  permits publishing an overrunning draft, so refusing here would be stricter
+  than the publish it exists to enable.
 
-**What a fix has to decide, and why it is not a one-liner:** refusing at publish
-recreates exactly the failure the docstring rejects (a reviewed draft that cannot
-be published, with no cheap action left). The likely-correct shape is a warning at
-publish naming the stale night plus a one-click re-date, not a refusal — which is
-a UI decision, so it needs the user. Do not just add a throw.
-
-**Also still true, from `LAUNCH_READINESS_HANDOFF.md`:** any draft generated before
-2026-09-05 never met the generate guard at all. Discard those; do not publish them.
+**Also still true, from `LAUNCH_READINESS_HANDOFF.md`:** any draft generated
+before 2026-09-05 never met the generate guard at all. Those now trip the publish
+warning rather than passing silently, but discarding them is still the right
+move — the warning offers a move forward, not a reason to keep them.
 
 ---
 
