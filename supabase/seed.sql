@@ -78,6 +78,17 @@ declare
   -- Tuesday and every league-2 game a Wednesday; `28-`'s SKIP_DAY is a
   -- day-of-month that must land on a Thursday. `date_trunc('week', …)` returns
   -- the ISO Monday, so +1 is Tuesday and +2 is Wednesday.
+  --
+  -- ⚠️ `current_date` IS UTC, SO THE WHOLE FIXTURE STEPS FORWARD AT 20:00
+  -- EASTERN, NOT AT MIDNIGHT. The Postgres container runs in UTC, so an
+  -- evening `db:reset` seeds against tomorrow's date. Watched 2026-09-07 at
+  -- 20:14 EDT: the same reset that produced a 2026-05-05 anchor that morning
+  -- produced 2026-05-12 that evening — a SEVEN-day jump, because the extra day
+  -- crossed a week boundary and `date_trunc` snaps to it. That is correct and
+  -- self-consistent (every spec derives from these same values, and all of them
+  -- read the date back from the database or use `getUTC*`), but it means a
+  -- morning run and an evening run exercise different fixtures. If you are ever
+  -- chasing a failure that reproduces only at one time of day, this is why.
   v_l1_anchor  date := date_trunc('week', current_date - 120)::date + 1;
   v_l2_anchor  date := date_trunc('week', current_date - 120)::date + 2;
   v_fall_anchor date := date_trunc('week', current_date + 14)::date + 1;
