@@ -30,11 +30,12 @@ SQL. Get the slug right the first time.
 
 Do this before the URL is reachable by anyone.
 
-- [x] **Delete all five seeded accounts** (Dashboard → Authentication → Users):
+- [x] **Delete all eight seeded accounts** (Dashboard → Authentication → Users):
 
           manager@obhl.test              scorekeeper@obhl.test
           captain@obhl.test              single-league-lead@obhl.test
-          single-league-scorer@obhl.test
+          single-league-scorer@obhl.test commissioner@obhl.test
+          deputy@obhl.test               no-league-mgr@obhl.test
 
       They share the password `hockey123`, committed in
       `scripts/seed-users.mjs`. Supabase's password grant is reachable with the
@@ -42,9 +43,16 @@ Do this before the URL is reachable by anyone.
       — removing `ENABLE_DEV_LOGIN` below does not close this door. A
       `db reset --linked` does **not** remove them.
 
-      ⚠️ `single-league-lead@` is a **manager**. It and `single-league-scorer@`
-      arrived with the per-league membership tests, after this list was first
-      written — check for all five, not the three this used to name.
+      ⛔ **DO NOT TRUST THIS LIST — COUNT `scripts/seed-users.mjs` INSTEAD.**
+      It has been wrong twice. It named three, was corrected to five when
+      `single-league-lead@` (a **manager**) and `single-league-scorer@` arrived
+      with the per-league membership tests, and was still saying five on
+      2026-09-09 when the file defined eight — `commissioner@` and `deputy@`
+      hold League Office tiers, above every league manager. A list of names in a
+      document cannot track a list of names in a script, and the failure is
+      silent: you tick the box and the accounts you never heard of stay live.
+      `grep -n "email:" scripts/seed-users.mjs` is the check that cannot go
+      stale.
 
       ✅ **Done 2026-09-04**, by a human at the dashboard. ⚠️ Taken on report
       rather than measured — the account list has never been read from here.
@@ -142,7 +150,9 @@ supabase db push
 
 **Do this before creating any league.** Migrations `0029` and `0030` add the
 constraints that keep a slug usable — lower-case only, and not one of `api`,
-`auth`, `login`, `manage`, `_next`. Create leagues first and nothing checks you:
+`auth`, `login`, `manage`, `set-password`, `_next`. (`set-password` was added by
+`0047`; the list is mirrored in `src/lib/league/reserved-slugs.ts`, which is the
+copy to check rather than this one.) Create leagues first and nothing checks you:
 a league slugged `Harbor` is unreachable at every URL, with no error anywhere,
 because lookup lower-cases the URL and nothing lower-cased the stored value.
 
@@ -178,8 +188,16 @@ is configured; see item 7 of `LAUNCH_READINESS_HANDOFF.md`.
 
 ## Phase 5 — Leagues and data
 
-All hand-written SQL. Slugs are permanent public identifiers — renaming a league
-breaks every link already shared, so treat a change as a migration, not an edit.
+**Only the bare `leagues` row still needs hand-written SQL** — or you can skip
+even that and import a league at `/manage/leagues/new`. Everything below it has
+a manage UI on `main`: seasons (`CreateSeasonForm` → `createSeason`), teams
+(`AddTeamForm` → `createTeamForSeason`) and rosters (`RosterEditor` /
+`AddPlayerForm` on the team page). This section said "All hand-written SQL"
+long after those shipped; prefer the UI, and keep the SQL for the one row it
+still cannot make.
+
+Slugs are permanent public identifiers — renaming a league breaks every link
+already shared, so treat a change as a migration, not an edit.
 
 ```sql
 -- League. Lower-case slug; not api/auth/login/manage/_next.
@@ -286,10 +304,13 @@ before you hand out accounts:
 
 - **You cannot remove yourself.** That one rule is also what stops a league
   reaching zero managers, so there is no separate "last manager" check.
-- **A manager's role cannot be changed from this page at all** — not yours, not
-  anyone's (`updateStaffRole` refuses any account whose role is
-  `league_manager`). Demoting a manager is hand-written SQL against
-  `profiles.role`.
+- **A manager's role cannot be changed from this page by another manager** —
+  `updateStaffRole` (`src/lib/actions/people.ts:283`) returns quietly when the
+  target is a `league_manager` **and the actor holds no League Office tier**.
+  A commissioner or deputy is exactly the tier that can, and does it from this
+  page. Reach for hand-written SQL against `profiles.role` only if no Office
+  account exists — this bullet used to say the UI refused "at all", which sent
+  an operator to production SQL for something the app already does.
 
 **One timezone for the whole instance.** `LEAGUE_TZ` in `src/lib/format.ts` is
 module-level, so both leagues share it.

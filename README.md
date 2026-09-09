@@ -22,7 +22,8 @@ account.
 
 ## Local development
 
-Prerequisites: **Node 20+**, **Docker** (for the local Supabase stack).
+Prerequisites: **Node 22** (pinned in `.nvmrc` and declared as `engines` in
+`package.json`; CI reads the same file), **Docker** (for the local Supabase stack).
 
 ```bash
 npm install
@@ -76,8 +77,9 @@ identity.
 - **The schedule builder** is pure logic in `src/lib/schedule/` (circle-method
   round-robin + greedy night/slot assignment), unit-tested without a database.
   Mid-season edits — move a night, pin a team, repair around it — run the same
-  engine and write through `gameWrites.ts`, which takes its database calls as
-  injected dependencies so it stays unit-testable the same way.
+  engine and write through the `apply_game_writes` RPC (`0045`), one transaction
+  per batch. The pre-flight around it (`gameWrites.ts`) is pure functions, so it
+  stays unit-testable the same way.
 - **RLS** enforces all access: public read in `0008_rls_public.sql`, role/write
   policies in `0009_rls_roles.sql`, and a custom access-token hook
   (`0010_auth_hook.sql`) injects the role into the JWT for UI gating.
@@ -97,8 +99,16 @@ identity.
    - `SUPABASE_SECRET_KEY` (server-only)
    - `NEXT_PUBLIC_SITE_URL` (your production URL)
 6. **Bootstrap the first manager**: create the user in the Supabase dashboard and
-   insert a `profiles` row with `role = 'league_manager'`, then use **People &
-   Roles** in-app to add everyone else.
+   insert a `profiles` row with `role = 'league_manager'`. This is the only step
+   that needs the dashboard — a manager with no league yet can still sign in and
+   reach the next one.
+7. **Create the first league** in-app at **`/manage/leagues/new`**, which imports
+   a league from an esportsdesk URL (rosters only, or a full migration with the
+   schedule and results). A signed-in manager also reaches it from the "New
+   league" link on the landing page. Until 2026-09-08 this page lived at
+   `/<league>/import` and so needed a league to already exist — the first league
+   on an instance had to be inserted by hand in SQL. It does not any more.
+8. **Add everyone else** from **People & Roles** inside the new league.
 
 ### Test / staging deploy (one-click dev login on)
 

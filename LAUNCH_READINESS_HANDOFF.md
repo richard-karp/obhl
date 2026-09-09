@@ -20,7 +20,7 @@
      past-dated DRAFT is invisible to the gate until it is published, at which
      point generate, replace and remove all refuse permanently. ✅ Guarded at
      both ends now — refused at GENERATE (item 9, PR #35) and warned at PUBLISH
-     with a one-click move forward (PR #46, in review). ⚠️ That warning CONFIRMS
+     with a one-click move forward (PR #46, merged 2026-09-09). ⚠️ That warning CONFIRMS
      rather than refuses: "Publish anyway" is still one click from the lock.
    - ✅ **`gh pr create` WORKS from an agent** — measured 2026-09-06, PR #40, no
      prompt. The line here calling mutating `gh` classifier-denied was wrong and
@@ -69,17 +69,22 @@
 accounts are deleted, and production carries `0001`-`0044`. What the member-read
 migrations changed, and why, is under _Member reads_ below.
 
-✅ **THIS FILE IS ON `main`, and there are NO open PRs** (2026-09-06: #38 and
-#39 merged, before them #36 and #33-#35; #23 and issue #30 closed). ⚠️ **Check anyway** — this line goes
-stale the moment someone branches, and a stale copy in a worktree misled a
-reader today. Everything waiting on a person rather than on work is listed
+✅ **THIS FILE IS ON `main`.** Open PRs as of 2026-09-09: **#56**
+(`docs/post-merge-status`) and **#51** (`test/clock-shifted-ci`). Earlier:
+2026-09-06 #38 and #39 merged, before them #36 and #33-#35; #23 and issue #30
+closed; #57 (the team-scoped export) merged 2026-09-09. ⚠️ **Check anyway** —
+this line goes stale the moment someone branches, and a stale copy in a worktree
+misled a reader once. It also said "there are NO open PRs" while this same file
+recorded #51 as still open, four hundred lines down. Everything waiting on a person rather than on work is listed
 under _Open — waiting on a person_ below, and nothing outstanding is elsewhere.
 
 **Only one lane is left; the code lane is finished.**
 
 - ✅ **CODE — the 4 harness items are FIXED** (2026-09-06, PR #40, CI green).
-  §5 _The final pre-launch pass_ carries each one and how it was verified. ⛔ One
-  harness item is in review, not merged: §5 _The fixture dates_, PR #44.
+  §5 _The final pre-launch pass_ carries each one and how it was verified. ✅ The
+  fifth, §5 _The fixture dates_, merged 2026-09-09 as PR #44 — so all five are on
+  `main`. It shipped with eight review fixes, including the seed naming
+  `America/Toronto` where the app uses `America/New_York`.
 - **A PERSON — the user, and no agent can do any of them: 5 items**, under
   _Open — waiting on a person_. ⛔ Exactly one is dated: **rebuild the schedule
   before 2026-09-10 23:00 UTC**, the published season's first game night, after
@@ -205,14 +210,15 @@ is one command and is always right.
 | **Item 7** — custom SMTP                                             | ✅ **UNBLOCKED 2026-09-07** — `lccalumnihockey.ca` is registered, the site is on it, and all four Resend records are published and verified from a public resolver: DKIM `resend._domainkey` intact to `IDAQAB`, SPF as two CNAMEs (`rsend`/`send` → `*.forge.rmta.net`, both resolving to real `v=spf1` policies), and `_dmarc` at `v=DMARC1; p=none;` (no `rua=`, so it reports nowhere — harmless). All three values to READ AND RECORD are now recorded: the allow-list entries, the password length (was `6`, set to `8`), and `secure_password_change` (OFF). ✅ **CLOSED 2026-09-07: a real magic link was watched to arrive through Resend and sign in a manager.** Supabase's emails-per-hour reads `30`. ⛔ **The RESET leg is still unproven** — that path carries `?next=/set-password`, and its allow-list entry has never been exercised; see item 7                                                                                                                                                                                                           | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel |
 | **`NEXT_PUBLIC_SITE_URL` is missing on Preview**                     | `vercel env ls` 2026-09-05: Production only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run     |
 | ✅ **`supabase db push` for migration `0044`**                       | **DONE 2026-09-06, watched.** `--dry-run` first showed exactly one pending file; the push applied it and `supabase migration list --linked` now shows `0044` in the remote history. ⚠️ The columns themselves were NOT read back — this checkout's `.env.local` points at the LOCAL stack, so there is no production key here to query with. A `create or replace view` has no partial state, and a failure would have aborted before the history row, so the reading is that all four views are widened                                                                                                                    | done; #39 is now free to merge in either order                                                                                                             |
-| **The schedule write path has no transaction**                       | Compensation only — a runtime dying mid-batch leaves writes applied and uncompensated, publicly visible. Four review rounds each found a bug in the machinery that exists _because_ there is no `pg_advisory_xact_lock` RPC                                                                                                                                                                                                                                                                                                                                                                                                 | **the user, decided 2026-09-06: SHIP NOW, build the RPC first thing after launch.** See §5                                                                 |
+| ✅ **The schedule write path has no transaction**                     | **DONE — `0045_apply_game_writes.sql` is on `main` (`d28595a`).** The batch is one statement in one transaction under `pg_advisory_xact_lock` on the season, so the compensation machinery and its `stuck`/`indeterminate` outcomes are gone. Was: compensation only, a runtime dying mid-batch leaving writes applied and uncompensated                                                                                                                                                                                                                                                                                     | done; this row said SHIP NOW / build it after launch, and it was built. §5's section below is retained as history, not as work                              |
 
 ⚠️ **One class is missing from that table on purpose, because nothing in it
 waits on a person:** test-harness defects. None affects the app; each costs a
 session's time when it fires. The four found on 2026-09-06 while merging #38 and
-#39 are ✅ **fixed** (PR #40) — §5, _The final pre-launch pass_. ⛔ **One is
-open and it is DATED: `11-` and `23-` break from 2026-09-16** — §5, _The fixture
-dates_. It is the only outstanding code item anywhere in this file.
+#39 are ✅ **fixed** (PR #40) — §5, _The final pre-launch pass_. ✅ **The fifth,
+which WAS dated (`11-` and `23-` would have broken from 2026-09-16), merged
+2026-09-09 as PR #44** — §5, _The fixture dates_. No code item in this file is
+outstanding.
 
 ---
 
@@ -225,9 +231,12 @@ Removed 2026-09-04; measured absent from Production, Preview and Development.
 **2. The seeded accounts** were a separate door, and removing item 1 did not
 close it: `scripts/seed-users.mjs` sets a password constant committed to this
 repo, and Supabase's password grant is reachable with the anon key — so those
-accounts were a way in regardless of any application setting. Seven exist now
-(`commissioner@` and `deputy@` joined with the League Office). Deleted on
-production 2026-09-04.
+accounts were a way in regardless of any application setting. **Eight** exist
+now (`commissioner@` and `deputy@` joined with the League Office; `no-league-mgr@`
+with the no-role explainer). Deleted on production 2026-09-04. ⛔ Count
+`grep -n "email:" scripts/seed-users.mjs` rather than trusting any number written
+down — this one has been wrong twice, and `LAUNCH.md`'s copy of the list was
+still saying five on 2026-09-09.
 
 ⚠️ **The mechanism is still live for anyone who re-seeds.** The password is still
 in git and always will be; a fresh `npm run seed:users` against a production
@@ -849,7 +858,7 @@ no new draft can carry a past date:
 `leagueDateKey`, not server-UTC — UTC runs up to five hours ahead of Eastern and
 would refuse a legitimate same-day generate every evening after 7pm.
 
-✅ **The residual risk this section carried is CLOSED — PR #46, in review.**
+✅ **The residual risk this section carried is CLOSED — PR #46, merged 2026-09-09.**
 `publishSchedule` now reads the draft's dates, and the builder warns with a
 one-click move forward by whole weeks (`src/lib/schedule/staleDraft.ts`,
 `redateDraftSchedule`, `StaleDraftNotice`). It CONFIRMS rather than refuses,
@@ -886,15 +895,26 @@ current URL space.
 
 ## 5 — Smaller, deliberately deferred
 
-- **The deferred code gaps and IA approach C** — item 1 (a draft that ages between generate and publish) SHIPPED 2026-09-08, PR #46; the other six are parked, none started → `docs/worklists/2026-09-07-9466c507-deferred-code-work.md`. ⚠️ That file supersedes _From the sixth review of #24_ below for items 4-6.
+- **The deferred code gaps and IA approach C** — ✅ **ALL RESOLVED 2026-09-09**, and that worklist is now a record rather than a queue → `docs/worklists/2026-09-07-9466c507-deferred-code-work.md`. Item 1 shipped as PR #46; items 2, 5 and 6 as PRs #49, #53/#54 and #48; item 4 was CLOSED as no-change (the divergence is deliberate and documented); item 7's spec is PR #50 and its blocker shipped as #52. ⛔ **Item 3 (a clock-shifted CI run) is the single exception — PR #51, still open**, because GitHub refuses a workflow-file change from an OAuth app without `workflow` scope. ⚠️ That file supersedes _From the sixth review of #24_ below for items 4-6.
+  📄 **The merge itself, and why #51 and #47 are in odd states →**
+  `docs/worklists/2026-09-09-c1a35e-deferred-work-merged.md` (70 lines). It is a
+  record, not a queue — read it only if you are wondering why #51 will not merge,
+  or before trusting a unit-test count from any branch.
 
-### ⛔ FIRST POST-LAUNCH JOB — the schedule-write RPC (decided 2026-09-06)
+### ✅ DONE — the schedule-write RPC (decided 2026-09-06, shipped by 2026-09-09)
 
-Everything in `src/lib/schedule/gameWrites.ts` is damage control for a missing
-transaction. It pre-flights, writes each row conditionally so it cannot clobber a
-concurrent edit, and compensates on failure — but a runtime dying mid-batch leaves
-the written rows written, and the public schedule, both iCal feeds and the CSV all
-read `games` live.
+⛔ **THIS IS NO LONGER THE FIRST POST-LAUNCH JOB. IT IS SHIPPED.**
+`supabase/migrations/0045_apply_game_writes.sql` is on `main` (`d28595a`), and
+`src/lib/schedule/writeGames.ts:74` calls it. Everything below describes the
+world before it and is kept because the reasoning — why a transaction was the
+only fix, and why shipping without one was an acceptable risk for a few days —
+is worth reading; it is NOT a description of outstanding work.
+
+What it replaced: `src/lib/schedule/gameWrites.ts` was damage control for a
+missing transaction. It pre-flighted, wrote each row conditionally so it could
+not clobber a concurrent edit, and compensated on failure — but a runtime dying
+mid-batch left the written rows written, and the public schedule, both iCal
+feeds and the CSV all read `games` live.
 
 **The decision, made deliberately rather than by default:** ship without it, because
 new SQL against production days before a permanent season lock is the larger risk;
@@ -1031,9 +1051,9 @@ run is still deterministic — but the number no longer identifies a spec, and #
 own ordering note ("the spec that ran before it") is now ambiguous. Renumber #38's
 pair to `28-` and `29-`, which keeps their order relative to each other.
 
-### The fixture dates — ✅ FIXED, in review as PR #44 (not yet merged)
+### The fixture dates — ✅ FIXED AND MERGED (PR #44, 2026-09-09)
 
-⛔ **Dated, and it is the only outstanding code item in this file.** Found
+✅ **Merged 2026-09-09 as PR #44; nothing in this file is outstanding.** Found
 2026-09-06 during the review of PR #40; not fixed there, because fixing it means
 changing how those specs seed rather than editing a line.
 
@@ -1119,12 +1139,15 @@ explicit go-ahead before any code changes.
   documented remedy is a check in `proxy`, i.e. a database round trip on every
   page view. Full evidence, including the two failed fixes, is on the issue —
   ⛔ do not re-run those experiments.
-- **CI does not run `npm run lint`**, though the script exists.
-- **No `.nvmrc` or `engines`** — `.github/workflows/ci.yml` is the de-facto
-  source of truth for the Node version (22).
+- ~~**CI does not run `npm run lint`**~~ — it does: `.github/workflows/ci.yml`
+  runs it in the `Typecheck and unit tests` job, between `typecheck` and `test`.
+- ~~**No `.nvmrc` or `engines`**~~ — both exist. `.nvmrc` holds `22`,
+  `package.json` declares `"engines": { "node": ">=22.0.0 <23.0.0" }`, and the
+  workflow now READS `.nvmrc` (`node-version-file`) rather than being the source
+  of truth for it.
 - **The generator has TWO bounds, and which one binds depends on where it
   runs.** Phase S ends at `OBHL_SLOT_RESTARTS` restarts _or_
-  `OBHL_SLOT_BUDGET_MS`, whichever comes first (`assignNights.ts:140-141`).
+  `OBHL_SLOT_BUDGET_MS`, whichever comes first (`assignNights.ts:130-131`).
   Production and the dev server take the defaults — 20,000 restarts against a
   5 s budget, so the **budget** is what ends it, which is why the e2e lever
   below is the right one. `vitest.config.ts` pins restarts to 2,000, so the unit

@@ -3,6 +3,12 @@
 Written 2026-07-29, after the work landed on `main` (`7275303`). This is what a
 person picking the area up needs that the code doesn't say for itself.
 
+Extended 2026-09-09 (#57) for the team-scoped export: the two season exports
+now honour the schedule page's team filter, which they had ignored since they
+were built. §2 has the parameter and its rules, §3 the decision it reverses,
+§6 the seed trap that let the first version of its test pass against a filter
+that only worked on half the games.
+
 It started as one question — "is the schedule exportable as .csv/.xlsx/.ics?" —
 and turned up three pre-existing defects on the way to answering it. All three
 are fixed.
@@ -16,6 +22,7 @@ are fixed.
 | Season schedule as `.ics` | yes | yes |
 | Per-team subscribable `.ics` | yes | yes |
 | Season schedule as `.csv` | **no** | **yes** |
+| One team's games from the schedule page | **whole season regardless of the filter** | the selected team only (#57) |
 | `.xlsx` | no | no, deliberately |
 | Cancelled games in calendar feeds | **published as live events** | withheld |
 | Postponing a game | **left `scheduled_at` intact**, despite its docstring | clears it into `postponed_from` |
@@ -46,20 +53,37 @@ making `seasonId` optional — a caller who then forgets it silently reads the
 whole league — and don't season-scope the feed, which would delete past games out
 of calendars that already hold them.
 
-**`src/lib/schedule/gameWrites.ts`** — the single write path for a schedule
-*edit*, new with #38 (`c87764e`). Not the only code that writes `games` at all —
-scoring, the postponement RPCs and `replace_published_schedule` each own their
-own — but the only one the three editing actions go through: `rescheduleNight`,
-`applyScheduleRepair`, `applyOneOffGame`. `applyGameWrites` is pure and
-unit-tested there; `writeGames` in `src/lib/actions/schedule.ts` binds it to
-Supabase and files the audit entry its failures need.
+**The single write path for a schedule *edit*** is the `apply_game_writes` RPC
+(`supabase/migrations/0045_apply_game_writes.sql`), called once from
+`src/lib/schedule/writeGames.ts:74`. Not the only code that writes `games` at
+all — scoring, the postponement RPCs and `replace_published_schedule` each own
+their own — but the only one the editing actions go through. There are **seven**
+of those, in two files: `redateDraftSchedule`, `rescheduleNight`,
+`applyOneOffGame` and `applyScheduleRepair` in `src/lib/actions/schedule.ts`,
+and `exchangeTeams`, `exchangeSlots` and `retimeGame` in
+`src/lib/actions/schedule-edits.ts`. `writeGames` also files the audit entry a
+failure needs.
 
-⛔ Every one is an **UPDATE by id, never an upsert.** An upsert INSERTs when the
-id is gone, which resurrects a deleted game as a live fixture — `is_draft`
-defaults false. It pre-flights, writes each row conditionally on the values it
-expects to find, and compensates when a write fails.
-⚠️ There is no transaction behind any of it; that is
-`LAUNCH_READINESS_HANDOFF.md` §5's first post-launch job.
+`src/lib/schedule/gameWrites.ts` no longer performs the write. It holds the
+payload shapes and the pure, unit-tested pre-flight — `checkWrites`,
+`payloadFor`, `resultFrom`.
+
+⛔ Still an **UPDATE by id, never an upsert**, and the decision now lives in SQL
+rather than TypeScript. An upsert INSERTs when the id is gone, which resurrects
+a deleted game as a live fixture — `is_draft` defaults false.
+
+✅ **There IS a transaction now, and this paragraph used to deny it.** `0045`
+does the batch as one statement in one transaction under
+`pg_advisory_xact_lock` on the season, so the compensation machinery is gone and
+with it the `stuck` and `indeterminate` outcomes — `WriteFailure.kind` is now
+`"conflict" | "failed"` only, and `gameWrites.ts` asks you not to re-add a
+third. The sentence here previously called this
+`LAUNCH_READINESS_HANDOFF.md` §5's "first post-launch job"; it shipped in
+`d28595a`. ✅ That handoff now agrees — its items table and its §5 section both
+read DONE, checked 2026-09-09. ⚠️ They agree only because two documents were
+corrected separately, which is the duplication §6 warns about below: if these
+two ever disagree again, `src/lib/schedule/writeGames.ts` is the copy that
+cannot be stale.
 
 **Three routes**, all thin: `[seasonId]/route.ts` (season `.ics`),
 `[seasonId]/schedule.csv/route.ts`, `team/[teamId]/feed.ics/route.ts`. Each
@@ -73,6 +97,21 @@ accepts are exactly the ones the schedule page's filter can offer.
 the season is the defect the parameter closes: the caller asked for one team and
 would silently receive all of them. It covers the cross-league case for free — a
 team of another league is not enrolled in this season.
+
+⚠️ **The test is `=== null`, not falsiness, and that is load-bearing.**
+`searchParams.get` answers `""` for a bare `?team=` and `null` only when the
+parameter is absent, so a truthiness test read an empty one as "no team asked
+for" and served the whole season under a 200 — the same failure, reachable by
+typing the URL. Nothing this app renders emits `?team=`; the page emits
+`?team=<slug>` or no query at all.
+
+`getEnrolledTeams` retries once through `readWithOneRetry` and logs a read that
+fails twice. ⚠️ **A 404 from these routes can therefore mean "the read failed",
+not only "no such team"** — the return type has no way to say which, and the log
+line is what tells them apart afterwards. That 404 is deliberate rather than a
+500: it is the same answer `publicLeagueOfSeason` has always given for a failed
+read on the same request, and one read of a pair reporting 500 while the other
+reports 404 would be worse than either.
 
 ---
 
@@ -218,9 +257,9 @@ if you "simplify" it away:
 
 **The trap.** `SeasonNightGame.scheduledAt` holds the game's *own* `scheduled_at`
 — null when postponed — and **not** the date its night was derived from. The
-one-off repair hands that field to `applyGameWrites`
-(`src/lib/schedule/gameWrites.ts`, via `writeGames` in
-`src/lib/actions/schedule.ts`). If you ever conflate the two, the repair will
+one-off repair hands that field down the write path — `payloadFor`
+(`src/lib/schedule/gameWrites.ts`) into `writeGames`
+(`src/lib/schedule/writeGames.ts`) and on to the `apply_game_writes` RPC. If you ever conflate the two, the repair will
 resurrect a date that was cleared on purpose and leave a row claiming both a
 schedule and a postponement. `groupIntoNights` keeps them apart deliberately:
 `Slot.at` for placement and ordering, `game.scheduledAt` for what gets written.
@@ -239,10 +278,11 @@ row over again, now with a second victim.
 
 ## 5. Deliberately not done
 
-1. **`npm run build` does not typecheck test files.** It passed clean while
-   `tsc --noEmit` reported two real errors in a test. A `"typecheck": "tsc
-   --noEmit"` script closes it. Smallest item here, and the one that already
-   caught a real mistake.
+1. ~~**`npm run build` does not typecheck test files.**~~ ✅ **DONE.**
+   `package.json` carries `"typecheck": "tsc --noEmit && tsc --noEmit -p
+   e2e/tsconfig.json"`, and `.github/workflows/ci.yml` runs it on every PR
+   alongside `npm run lint` and `npm test`. Left in place rather than deleted so
+   the list's numbering keeps matching anything that cites it.
 2. **The one-off e2e never exercises locking by status.** Its seeded games are
    all in the past, so every night locks by date. `nights.test.ts` covers the
    rule directly, but the integration path is untested.
@@ -277,8 +317,15 @@ paragraph used to name which migrations the hosted database had, and went stale
 how that happens; regenerate it with `npx supabase migration list --linked`
 rather than quoting either file.
 
-There is still no CI workflow or `vercel.json` in the repo, so nothing runs the
-tests on a PR and the deploy trigger is unknown.
+**There IS CI now, and this paragraph used to deny it.** `.github/workflows/ci.yml`
+runs two jobs on a PR — `Typecheck and unit tests` (~2m30s) and `End-to-end
+tests` (~16m30s) — and Vercel builds a preview deployment alongside them. The
+sentence here previously read "there is still no CI workflow or `vercel.json` in
+the repo, so nothing runs the tests on a PR"; that stopped being true and nobody
+came back to it, which is the same failure mode as the migration list two
+paragraphs up. ⚠️ CI tests the MERGE, not the branch, so a green run against a
+`main` that has since moved proves nothing — re-check the merge base before
+trusting it.
 
 Schema-ahead-of-code is the correct direction and is harmless — the functions
 are simply uncalled. The reverse is not. `getPublishState` fails closed on an
@@ -292,6 +339,22 @@ stack; merging #4 while its branch still existed left #5 pointing at it, so #5
 and #6 merged into branches that were themselves already merged and then deleted.
 GitHub reported them MERGED — correctly, just not into `main` — and the work sat
 only in local refs until it was found. Delete each branch as you merge it.
+
+**The seeded season is lopsided on home/away, and it will pass a broken team
+filter.** Every team-scoped read is an OR over two columns
+(`home_team_id.eq.<id>,away_team_id.eq.<id>`), and the seeded Oceanview teams
+do not split evenly:
+
+| sharks | bisons | bears | hawks | wolves | ducks |
+|---|---|---|---|---|---|
+| 5 home / 0 away | 0 / 5 | 4 / 1 | 1 / 4 | 3 / 2 | 2 / 3 |
+
+⛔ **A team-filter test written on `sharks` exercises only one branch of that
+OR.** The first version of the #57 export test did exactly this: rewriting the
+filter to `.eq("home_team_id", …)` returned the identical five rows and the test
+stayed green. Use `ducks` or `wolves`, and assert the team appears in BOTH the
+home and away positions — a row count alone cannot tell the two branches apart.
+This applies to standings, stats and feeds too, not just exports.
 
 **The e2e builder tests depend on a season that hasn't started.** The seeded
 active season (`Spring 2026`, May–Jun 2026) is in the past and reads as started,
@@ -309,6 +372,8 @@ future-dated — anything that ages them past `now()` locks it.
 | `src/lib/export/csv.ts` + test | CSV builder, escaping, formula neutralisation |
 | `src/lib/export/ics.ts` + test | iCalendar builder; tests are characterisation, written before it moved |
 | `src/lib/export/fixtures.ts` + test | `isExportableFixture` |
+| `src/lib/export/filename.ts` | `exportFilename` — the one place the team half of a download name is decided |
+| `src/lib/queries/teams.ts` | `getEnrolledTeams` (retrying), `getEnrolledTeamBySlug` — what an export's `?team=` may name |
 | `src/lib/schedule/nights.ts` + test | `groupIntoNights` — placement and locking |
 | `src/lib/schedule/publishMode.ts` + test | the builder's five modes |
 | `src/lib/queries/schedule.ts` | the single read path; every team filter guarded by `isUuid` |

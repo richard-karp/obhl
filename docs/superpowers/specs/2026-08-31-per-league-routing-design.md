@@ -159,6 +159,14 @@ stays on the league dashboard (`dashboard/page.tsx:38-43`).
 created — `runEsportsdeskImport` (`src/lib/actions/import.ts`) — and document it for
 manual SQL inserts, since there is no league-creation UI.
 
+> ⚠️ **No longer true, and this sentence is why.** There WAS a league-creation UI —
+> the esportsdesk importer, which this plan had just reparented under `[league]` as
+> `/<league>/import` without noticing that it creates a league rather than importing
+> into one. That left the first league on any instance needing a hand-written SQL
+> insert. Moved out to `/manage/leagues/new` on 2026-09-08; see
+> `docs/superpowers/specs/2026-09-08-league-creation-at-the-root-design.md`. Left in
+> place rather than edited — this file is a record of what was decided then.
+
 **Slugs are permanent public identifiers.** Renaming a league changes its slug and
 breaks every link already shared. Treat slug changes as a migration, not an edit.
 
