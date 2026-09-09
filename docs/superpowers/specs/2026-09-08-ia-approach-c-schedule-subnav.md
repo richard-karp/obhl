@@ -613,8 +613,8 @@ The case against doing it now:
 > failure for every future rename — and it converts approach C's one dangerous
 > failure mode into a caught one.
 
-✅ **THIS IS NOW WRITTEN: PR #52 (`test/route-aware-revalidate-paths`), open at
-the time of writing.** It walks `src/app`, resolves every `revalidatePath`
+✅ **THIS IS NOW WRITTEN AND MERGED: PR #52
+(`test/route-aware-revalidate-paths`), on `main` since 2026-09-09.** It walks `src/app`, resolves every `revalidatePath`
 pattern against the real route tree, and was confirmed to catch this exact
 failure by renaming `schedule-builder` without touching the call sites — it fails
 and names all fourteen stale calls. So the one condition this spec sets for

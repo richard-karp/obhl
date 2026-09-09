@@ -4,6 +4,15 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+# Standing gate: an agent cannot merge a workflow change
+
+⛔ **`gh pr merge` fails on any PR touching `.github/workflows/`** — GitHub
+refuses it from an OAuth app without `workflow` scope, with
+`refusing to allow an OAuth App to create or update workflow ...`. It is not a CI
+failure and not a conflict, and no amount of re-running fixes it. Such a PR needs
+a human in the web UI, or `gh auth refresh -s workflow`. Measured 2026-09-09 on
+PR #51, which is open for exactly this reason.
+
 # Where the reasoning lives
 
 Four areas of this codebase carry decisions that the code cannot explain on its

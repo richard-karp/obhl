@@ -20,7 +20,7 @@
      past-dated DRAFT is invisible to the gate until it is published, at which
      point generate, replace and remove all refuse permanently. ✅ Guarded at
      both ends now — refused at GENERATE (item 9, PR #35) and warned at PUBLISH
-     with a one-click move forward (PR #46, in review). ⚠️ That warning CONFIRMS
+     with a one-click move forward (PR #46, merged 2026-09-09). ⚠️ That warning CONFIRMS
      rather than refuses: "Publish anyway" is still one click from the lock.
    - ✅ **`gh pr create` WORKS from an agent** — measured 2026-09-06, PR #40, no
      prompt. The line here calling mutating `gh` classifier-denied was wrong and
@@ -81,8 +81,10 @@ under _Open — waiting on a person_ below, and nothing outstanding is elsewhere
 **Only one lane is left; the code lane is finished.**
 
 - ✅ **CODE — the 4 harness items are FIXED** (2026-09-06, PR #40, CI green).
-  §5 _The final pre-launch pass_ carries each one and how it was verified. ⛔ One
-  harness item is in review, not merged: §5 _The fixture dates_, PR #44.
+  §5 _The final pre-launch pass_ carries each one and how it was verified. ✅ The
+  fifth, §5 _The fixture dates_, merged 2026-09-09 as PR #44 — so all five are on
+  `main`. It shipped with eight review fixes, including the seed naming
+  `America/Toronto` where the app uses `America/New_York`.
 - **A PERSON — the user, and no agent can do any of them: 5 items**, under
   _Open — waiting on a person_. ⛔ Exactly one is dated: **rebuild the schedule
   before 2026-09-10 23:00 UTC**, the published season's first game night, after
@@ -213,9 +215,10 @@ is one command and is always right.
 ⚠️ **One class is missing from that table on purpose, because nothing in it
 waits on a person:** test-harness defects. None affects the app; each costs a
 session's time when it fires. The four found on 2026-09-06 while merging #38 and
-#39 are ✅ **fixed** (PR #40) — §5, _The final pre-launch pass_. ⛔ **One is
-open and it is DATED: `11-` and `23-` break from 2026-09-16** — §5, _The fixture
-dates_. It is the only outstanding code item anywhere in this file.
+#39 are ✅ **fixed** (PR #40) — §5, _The final pre-launch pass_. ✅ **The fifth,
+which WAS dated (`11-` and `23-` would have broken from 2026-09-16), merged
+2026-09-09 as PR #44** — §5, _The fixture dates_. No code item in this file is
+outstanding.
 
 ---
 
@@ -855,7 +858,7 @@ no new draft can carry a past date:
 `leagueDateKey`, not server-UTC — UTC runs up to five hours ahead of Eastern and
 would refuse a legitimate same-day generate every evening after 7pm.
 
-✅ **The residual risk this section carried is CLOSED — PR #46, in review.**
+✅ **The residual risk this section carried is CLOSED — PR #46, merged 2026-09-09.**
 `publishSchedule` now reads the draft's dates, and the builder warns with a
 one-click move forward by whole weeks (`src/lib/schedule/staleDraft.ts`,
 `redateDraftSchedule`, `StaleDraftNotice`). It CONFIRMS rather than refuses,
@@ -892,7 +895,11 @@ current URL space.
 
 ## 5 — Smaller, deliberately deferred
 
-- **The deferred code gaps and IA approach C** — ✅ **six of seven closed, all merged to `main` by 2026-09-09.** Item 1 (a draft that ages between generate and publish) PR #46; item 2 PR #49; item 4 closed as no-change-needed; item 5 triaged into PRs #53/#54 plus two deliberate non-fixes; item 6 PR #48; item 7 spec'd in PR #50 and deferred again for a better reason. ⛔ **Item 3 (clock-shifted CI) is the only one outstanding — PR #51, still open.** → `docs/worklists/2026-09-07-9466c507-deferred-code-work.md`. ⚠️ That file supersedes _From the sixth review of #24_ below for items 4-6, and its own status block was corrected on 2026-09-09 after claiming none of this had merged.
+- **The deferred code gaps and IA approach C** — ✅ **ALL RESOLVED 2026-09-09**, and that worklist is now a record rather than a queue → `docs/worklists/2026-09-07-9466c507-deferred-code-work.md`. Item 1 shipped as PR #46; items 2, 5 and 6 as PRs #49, #53/#54 and #48; item 4 was CLOSED as no-change (the divergence is deliberate and documented); item 7's spec is PR #50 and its blocker shipped as #52. ⛔ **Item 3 (a clock-shifted CI run) is the single exception — PR #51, still open**, because GitHub refuses a workflow-file change from an OAuth app without `workflow` scope. ⚠️ That file supersedes _From the sixth review of #24_ below for items 4-6.
+  📄 **The merge itself, and why #51 and #47 are in odd states →**
+  `docs/worklists/2026-09-09-c1a35e-deferred-work-merged.md` (70 lines). It is a
+  record, not a queue — read it only if you are wondering why #51 will not merge,
+  or before trusting a unit-test count from any branch.
 
 ### ✅ DONE — the schedule-write RPC (decided 2026-09-06, shipped by 2026-09-09)
 
@@ -1044,9 +1051,9 @@ run is still deterministic — but the number no longer identifies a spec, and #
 own ordering note ("the spec that ran before it") is now ambiguous. Renumber #38's
 pair to `28-` and `29-`, which keeps their order relative to each other.
 
-### The fixture dates — ✅ FIXED, in review as PR #44 (not yet merged)
+### The fixture dates — ✅ FIXED AND MERGED (PR #44, 2026-09-09)
 
-⛔ **Dated, and it is the only outstanding code item in this file.** Found
+✅ **Merged 2026-09-09 as PR #44; nothing in this file is outstanding.** Found
 2026-09-06 during the review of PR #40; not fixed there, because fixing it means
 changing how those specs seed rather than editing a line.
 
