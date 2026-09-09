@@ -62,6 +62,17 @@ export type SpacingReport = {
    */
   slotStreak3: number;
   /**
+   * Σ over teams of that team's clustered windows. A total, so it says how much
+   * clustering the season holds but not who carries it.
+   */
+  slotClusterWindows: number;
+  /**
+   * The largest single team's clustered-window count. This is the number that
+   * matches the complaint: the damage concentrates, and a season measured at 33
+   * total had one team carrying 14 of them and another carrying 1.
+   */
+  slotClusterWorstTeam: number;
+  /**
    * Longest gap in days between any team's consecutive games. **Informational
    * only** — it must never enter `rankSchedule`, because a long layoff can be a
    * calendar fact (a Christmas break) that no schedule can undo. It exists to
@@ -76,6 +87,15 @@ const toUTC = (d: string) => {
   const [y, m, dd] = d.slice(0, 10).split("-").map(Number);
   return Date.UTC(y, m - 1, dd);
 };
+
+/**
+ * A clustered window is 5 consecutive games in which a team takes one ice time
+ * 3+ times — "the late game three times in five weeks", which is how the
+ * complaint arrives. Counted over a team's GAMES, not calendar nights, so a
+ * league with byes reads the same way a league without them does.
+ */
+const CLUSTER_WINDOW = 5;
+const CLUSTER_MAX_SAME = 2;
 
 export type NightMeta = {
   week: number[]; // calendar-week index (Mon-anchored) per night
@@ -474,6 +494,8 @@ export function spacingReport(
     pairingsOffWeekdaySplit: 0,
     slotWeekdaySpread: 0,
     slotStreak3: 0,
+    slotClusterWindows: 0,
+    slotClusterWorstTeam: 0,
     longestLayoffDays: null,
   };
 
@@ -531,6 +553,17 @@ export function spacingReport(
         report.slotStreak3++;
       }
     }
+
+    // Rolling window over this team's games. `mine` is already chronological.
+    let clustered = 0;
+    for (let i = 0; i + CLUSTER_WINDOW <= mine.length; i++) {
+      const counts = new Array(numSlots).fill(0);
+      for (let j = i; j < i + CLUSTER_WINDOW; j++) counts[mine[j][1]]++;
+      if (Math.max(...counts) > CLUSTER_MAX_SAME) clustered++;
+    }
+    report.slotClusterWindows += clustered;
+    if (clustered > report.slotClusterWorstTeam)
+      report.slotClusterWorstTeam = clustered;
 
     // Ice-time share within each weekday, not just across the season.
     for (let d = 0; d < D; d++) {

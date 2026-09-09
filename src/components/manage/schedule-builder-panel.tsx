@@ -489,7 +489,17 @@ export async function ScheduleBuilderPanel({
                 // Read here rather than in the form: the generator's budget
                 // constants are server-side, and the form is a client
                 // component.
-                expectedMs={estimatedGenerateMs()}
+                //
+                // The night-order pass is gated on an unconstrained generate, so
+                // its allowance has to be gated the same way or a constrained
+                // season is told 1.5 s more than it will take. `resolvedConstraints`
+                // is the same `resolve` the generator runs, one step stale: it is
+                // resolved against the CURRENT draft's nights, and the next
+                // generate builds its own. Adding a request is a round-trip
+                // submit, so this value is never behind the card the manager sees.
+                expectedMs={estimatedGenerateMs({
+                  constrained: !resolvedConstraints.empty,
+                })}
               />
             </CardContent>
           </Card>

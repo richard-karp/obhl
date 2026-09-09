@@ -3,7 +3,7 @@ import { roundRobin, buildBalancedPairings } from "./roundRobin";
 import { assignNights, type Night } from "./assignNights";
 import { weekdayOf } from "@/lib/format";
 import { enumerateNights } from "./capacity";
-import { weekdayExcessScaled } from "./spacing";
+import { weekdayExcessScaled, spacingReport } from "./spacing";
 
 const teams = (n: number) => Array.from({ length: n }, (_, i) => `t${i + 1}`);
 
@@ -363,5 +363,131 @@ describe("assignNights — full-season reference schedule", () => {
     // 48 once the compound pass and the 200 candidate landed — which is what a
     // flat weekday split costs here, and still well inside the bound.
     expect(report.spacing.slotConsecutive).toBeLessThanOrEqual(55);
+  });
+});
+
+// 6 teams, one game night a week, 3 sheets: everyone plays every week, so this
+// is the shape where night order is free to move. Measured 2026-09-09: without
+// the pass the worst team carries 14 clustered windows.
+describe("assignNights — ice-time clustering, 6 teams on one weeknight", () => {
+  const ts = teams(6);
+  const SLOT_TIMES = ["19:00", "20:15", "21:30"];
+  const ns = enumerateNights("2026-09-08", {
+    weekdays: new Set([2]),
+    slotTimes: SLOT_TIMES,
+    excluded: new Set<string>(),
+    maxNights: 23,
+  });
+  const { games, report } = assignNights(buildBalancedPairings(ts, 23), ns, ts);
+
+  // Re-derive the season the way everything downstream actually sees it. Only
+  // `scheduledAt` is persisted (`src/lib/actions/schedule.ts` writes
+  // `scheduled_at`; `nightIndex`/`slotIndex` are in-memory scratch), so the CSV
+  // and calendar exports, the manager preview and the database all reconstruct
+  // night order and ice time from that one string. Anything `report.spacing`
+  // claims that this disagrees with is a quality the product does not have.
+  const fromScheduledAt = () => {
+    const dates = [
+      ...new Set(games.map((g) => g.scheduledAt.slice(0, 10))),
+    ].sort();
+    const nightOf = new Map(dates.map((d, i) => [d, i]));
+    return spacingReport(
+      games.map((g) => ({
+        home: g.home,
+        away: g.away,
+        nightIndex: nightOf.get(g.scheduledAt.slice(0, 10))!,
+        slotIndex: SLOT_TIMES.indexOf(g.scheduledAt.slice(11, 16)),
+      })),
+      dates.map((date) => ({ date, slots: SLOT_TIMES })),
+      ts,
+    );
+  };
+
+  it("schedules the whole season", () => {
+    expect(report.unscheduled).toBe(0);
+    expect(games.length).toBe(69);
+    for (const t of report.gamesPerTeam) expect(t.count).toBe(23);
+  });
+
+  it("keeps no team far worse off than the rest on ice time", () => {
+    // The floor measured by an exhaustive solver is 4. Assert the bound, not the
+    // floor: pinning 4 would be asserting search luck.
+    expect(report.spacing.slotClusterWorstTeam).toBeLessThanOrEqual(6);
+  });
+
+  // ⛔ The night-order pass rewrites `nightIndex`, but `scheduledAt` is a STORED
+  // field baked when the game is created — and it is the only one that reaches
+  // the database. A pass that moves one and not the other reports a quality the
+  // shipped schedule does not have. Measured 2026-09-09 before the fix: all 69
+  // games disagreed, and the re-derived worst team was 14 against a reported 4 —
+  // exactly the pre-branch number, i.e. the feature delivered nothing.
+  it("moves scheduledAt with nightIndex", () => {
+    for (const g of games)
+      expect(g.scheduledAt.slice(0, 10)).toBe(ns[g.nightIndex].date);
+  });
+
+  it("delivers that clustering through scheduledAt, not just the report", () => {
+    const derived = fromScheduledAt();
+    expect(derived.slotClusterWorstTeam).toBe(
+      report.spacing.slotClusterWorstTeam,
+    );
+    expect(derived.slotClusterWorstTeam).toBeLessThanOrEqual(6);
+    expect(derived.slotClusterWindows).toBe(report.spacing.slotClusterWindows);
+  });
+
+  it("buys that without giving up back-to-backs or runs", () => {
+    expect(report.spacing.slotConsecutive).toBeLessThanOrEqual(6);
+    expect(report.spacing.slotStreak3).toBe(0);
+    expect(report.spacing.rematchAdjNight).toBe(0);
+    expect(report.spacing.rematchConsecWeek).toBe(0);
+  });
+
+  it("still gives every team an even share of the three ice times", () => {
+    for (const s of report.slotShareByTeam) {
+      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(
+        1,
+      );
+    }
+  });
+});
+
+// A permutation carries each night's games onto whatever night lands in that
+// position, slot indexes and all. `enumerateNights` gives every night the same
+// `slotTimes`, so this shape only arises from hand-built nights — but every
+// other placement site consults per-night `slots.length`, so it is a supported
+// one, and once `scheduledAt` is rebuilt from the moved night an over-capacity
+// landing writes a literal `Tundefined:00` into the row that ships.
+//
+// Verified this test can fail (2026-09-09): dropping the `overflow` term from
+// the night-order scorer's admissibility puts 6 of these 54 games on
+// `YYYY-MM-DDTundefined:00`.
+describe("assignNights — night order respects per-night ice capacity", () => {
+  const ts = teams(6);
+  const ALL = ["19:00", "20:15", "21:30"];
+  const ns: Night[] = [];
+  for (let i = 0; i < 22; i++) {
+    ns.push({
+      date: new Date(Date.UTC(2026, 8, 8) + i * 7 * 86400000)
+        .toISOString()
+        .slice(0, 10),
+      // Alternating 3 and 2 sheets — a night order that moves a 3-game block
+      // onto a 2-sheet night is the failure this fixture exists to catch.
+      slots: i % 2 === 0 ? ALL : ALL.slice(0, 2),
+    });
+  }
+  const { games, report } = assignNights(buildBalancedPairings(ts, 18), ns, ts);
+
+  it("places the whole season", () => {
+    expect(report.unscheduled).toBe(0);
+    expect(games.length).toBe(54);
+  });
+
+  it("never stamps an ice time its night does not have", () => {
+    for (const g of games) {
+      expect(g.slotIndex).toBeLessThan(ns[g.nightIndex].slots.length);
+      expect(g.scheduledAt).toBe(
+        `${ns[g.nightIndex].date}T${ns[g.nightIndex].slots[g.slotIndex]}:00`,
+      );
+    }
   });
 });
