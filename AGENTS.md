@@ -22,10 +22,12 @@ front which section matters for which kind of change.
 - **`EXPORTS_HANDOFF.md`** — the CSV and calendar exports, the single read path
   through `src/lib/queries/schedule.ts`, the single *write* path for a schedule
   edit through `src/lib/schedule/gameWrites.ts` (§2 — an UPDATE by id, never an
-  upsert, and no transaction behind it), and what postponing a game does to its
-  date. Section 4 describes a way to silently corrupt game rows while believing
-  you are simplifying; read it before touching postponement or the one-off
-  planner.
+  upsert, and no transaction behind it), the `?team=` filter both season exports
+  must carry, and what postponing a game does to its date. Section 4 describes a
+  way to silently corrupt game rows while believing you are simplifying; read it
+  before touching postponement or the one-off planner. §6 holds the seed's
+  home/away skew, which will pass a team filter that only works on half the
+  games — read it before writing any test that filters by team.
 - **`ACCESS_CONTROL_HANDOFF.md`** — who can do what, and where: the
   `profile_leagues` membership model, the guards over every manage page and
   server action, and the RLS half that backs them. Its *Traps* section is the

@@ -3,6 +3,12 @@
 Written 2026-07-29, after the work landed on `main` (`7275303`). This is what a
 person picking the area up needs that the code doesn't say for itself.
 
+Extended 2026-09-09 (#57) for the team-scoped export: the two season exports
+now honour the schedule page's team filter, which they had ignored since they
+were built. §2 has the parameter and its rules, §3 the decision it reverses,
+§6 the seed trap that let the first version of its test pass against a filter
+that only worked on half the games.
+
 It started as one question — "is the schedule exportable as .csv/.xlsx/.ics?" —
 and turned up three pre-existing defects on the way to answering it. All three
 are fixed.
@@ -16,6 +22,7 @@ are fixed.
 | Season schedule as `.ics` | yes | yes |
 | Per-team subscribable `.ics` | yes | yes |
 | Season schedule as `.csv` | **no** | **yes** |
+| One team's games from the schedule page | **whole season regardless of the filter** | the selected team only (#57) |
 | `.xlsx` | no | no, deliberately |
 | Cancelled games in calendar feeds | **published as live events** | withheld |
 | Postponing a game | **left `scheduled_at` intact**, despite its docstring | clears it into `postponed_from` |
@@ -73,6 +80,21 @@ accepts are exactly the ones the schedule page's filter can offer.
 the season is the defect the parameter closes: the caller asked for one team and
 would silently receive all of them. It covers the cross-league case for free — a
 team of another league is not enrolled in this season.
+
+⚠️ **The test is `=== null`, not falsiness, and that is load-bearing.**
+`searchParams.get` answers `""` for a bare `?team=` and `null` only when the
+parameter is absent, so a truthiness test read an empty one as "no team asked
+for" and served the whole season under a 200 — the same failure, reachable by
+typing the URL. Nothing this app renders emits `?team=`; the page emits
+`?team=<slug>` or no query at all.
+
+`getEnrolledTeams` retries once through `readWithOneRetry` and logs a read that
+fails twice. ⚠️ **A 404 from these routes can therefore mean "the read failed",
+not only "no such team"** — the return type has no way to say which, and the log
+line is what tells them apart afterwards. That 404 is deliberate rather than a
+500: it is the same answer `publicLeagueOfSeason` has always given for a failed
+read on the same request, and one read of a pair reporting 500 while the other
+reports 404 would be worse than either.
 
 ---
 
@@ -277,8 +299,15 @@ paragraph used to name which migrations the hosted database had, and went stale
 how that happens; regenerate it with `npx supabase migration list --linked`
 rather than quoting either file.
 
-There is still no CI workflow or `vercel.json` in the repo, so nothing runs the
-tests on a PR and the deploy trigger is unknown.
+**There IS CI now, and this paragraph used to deny it.** `.github/workflows/ci.yml`
+runs two jobs on a PR — `Typecheck and unit tests` (~2m30s) and `End-to-end
+tests` (~16m30s) — and Vercel builds a preview deployment alongside them. The
+sentence here previously read "there is still no CI workflow or `vercel.json` in
+the repo, so nothing runs the tests on a PR"; that stopped being true and nobody
+came back to it, which is the same failure mode as the migration list two
+paragraphs up. ⚠️ CI tests the MERGE, not the branch, so a green run against a
+`main` that has since moved proves nothing — re-check the merge base before
+trusting it.
 
 Schema-ahead-of-code is the correct direction and is harmless — the functions
 are simply uncalled. The reverse is not. `getPublishState` fails closed on an
@@ -292,6 +321,22 @@ stack; merging #4 while its branch still existed left #5 pointing at it, so #5
 and #6 merged into branches that were themselves already merged and then deleted.
 GitHub reported them MERGED — correctly, just not into `main` — and the work sat
 only in local refs until it was found. Delete each branch as you merge it.
+
+**The seeded season is lopsided on home/away, and it will pass a broken team
+filter.** Every team-scoped read is an OR over two columns
+(`home_team_id.eq.<id>,away_team_id.eq.<id>`), and the seeded Oceanview teams
+do not split evenly:
+
+| sharks | bisons | bears | hawks | wolves | ducks |
+|---|---|---|---|---|---|
+| 5 home / 0 away | 0 / 5 | 4 / 1 | 1 / 4 | 3 / 2 | 2 / 3 |
+
+⛔ **A team-filter test written on `sharks` exercises only one branch of that
+OR.** The first version of the #57 export test did exactly this: rewriting the
+filter to `.eq("home_team_id", …)` returned the identical five rows and the test
+stayed green. Use `ducks` or `wolves`, and assert the team appears in BOTH the
+home and away positions — a row count alone cannot tell the two branches apart.
+This applies to standings, stats and feeds too, not just exports.
 
 **The e2e builder tests depend on a season that hasn't started.** The seeded
 active season (`Spring 2026`, May–Jun 2026) is in the past and reads as started,
@@ -309,6 +354,8 @@ future-dated — anything that ages them past `now()` locks it.
 | `src/lib/export/csv.ts` + test | CSV builder, escaping, formula neutralisation |
 | `src/lib/export/ics.ts` + test | iCalendar builder; tests are characterisation, written before it moved |
 | `src/lib/export/fixtures.ts` + test | `isExportableFixture` |
+| `src/lib/export/filename.ts` | `exportFilename` — the one place the team half of a download name is decided |
+| `src/lib/queries/teams.ts` | `getEnrolledTeams` (retrying), `getEnrolledTeamBySlug` — what an export's `?team=` may name |
 | `src/lib/schedule/nights.ts` + test | `groupIntoNights` — placement and locking |
 | `src/lib/schedule/publishMode.ts` + test | the builder's five modes |
 | `src/lib/queries/schedule.ts` | the single read path; every team filter guarded by `isUuid` |
