@@ -235,10 +235,11 @@ test.describe("Path 4 — Schedule and game detail", () => {
       .split("\r\n")
       .slice(1);
 
-  /** VEVENT summaries, with iCalendar's 75-octet line folding undone. */
+  /** iCalendar folds at 75 octets; undo it before matching on any line. */
+  const unfold = (body: string) => body.replace(/\r\n[ \t]/g, "");
+
   const icsSummaries = (body: string) =>
-    body
-      .replace(/\r\n[ \t]/g, "")
+    unfold(body)
       .split(/\r?\n/)
       .filter((l) => l.startsWith("SUMMARY:"));
 
@@ -253,6 +254,14 @@ test.describe("Path 4 — Schedule and game detail", () => {
     };
   }
 
+  /**
+   * ⛔ DUCKS, NOT SHARKS, AND THE SEED IS THE REASON. `getSchedule` filters with
+   * `home_team_id.eq.<id>,away_team_id.eq.<id>` — an OR over two columns — and
+   * the seeded Sharks play 5 home games and 0 away ones, so a filter that had
+   * dropped the away half entirely would have returned the identical 5 rows and
+   * this test would have passed. The Ducks play 2 home and 3 away, so both sides
+   * of that OR carry rows, and the home/away assertion below pins them.
+   */
   test("picking a team exports only that team's games", async ({
     page,
     request,
@@ -260,40 +269,62 @@ test.describe("Path 4 — Schedule and game detail", () => {
     await page.goto("/obhl/schedule");
     const all = await exportHrefs(page);
 
-    await page.goto("/obhl/schedule?team=sharks");
-    const sharks = await exportHrefs(page);
-    expect(sharks.csv).toContain("team=sharks");
-    expect(sharks.ics).toContain("team=sharks");
+    await page.goto("/obhl/schedule?team=ducks");
+    const ducks = await exportHrefs(page);
+    expect(ducks.csv).toContain("team=ducks");
+    expect(ducks.ics).toContain("team=ducks");
 
-    const allCsv = csvRows(await (await request.get(all.csv!)).text());
-    const sharksCsv = csvRows(await (await request.get(sharks.csv!)).text());
+    // One request per file: the body and the headers both come off the same
+    // response, so re-fetching to read a header only widens the window for the
+    // two to disagree.
+    const allCsvRes = await request.get(all.csv!);
+    const ducksCsvRes = await request.get(ducks.csv!);
+    const allCsv = csvRows(await allCsvRes.text());
+    const ducksCsv = csvRows(await ducksCsvRes.text());
 
-    // The season has games the Sharks are not in — otherwise the assertion
+    // The season has games the Ducks are not in — otherwise the assertion
     // below passes against a route that filters nothing.
-    expect(allCsv.some((r) => !r.includes("Sharks"))).toBe(true);
-    expect(sharksCsv.length).toBeGreaterThan(0);
-    expect(sharksCsv.length).toBeLessThan(allCsv.length);
-    for (const row of sharksCsv) expect(row).toContain("Sharks");
+    expect(allCsv.some((r) => !r.includes("Ducks"))).toBe(true);
+    expect(ducksCsv.length).toBeGreaterThan(0);
+    expect(ducksCsv.length).toBeLessThan(allCsv.length);
+    for (const row of ducksCsv) expect(row).toContain("Ducks");
+
+    // ⛔ BOTH SIDES OF THE OR. `Date,Time,Home,Away`, and the seeded names hold
+    // no commas, so column 2 is Home and column 3 is Away. A filter matching
+    // only `home_team_id` still satisfies every assertion above; these two are
+    // what make that impossible.
+    const cols = ducksCsv.map((r) => r.split(","));
+    expect(cols.filter((c) => c[2] === "Ducks").length).toBeGreaterThan(0);
+    expect(cols.filter((c) => c[3] === "Ducks").length).toBeGreaterThan(0);
+    // Every row names the team on exactly one side — never both, which would
+    // mean a game against itself.
+    for (const c of cols)
+      expect([c[2], c[3]].filter((n) => n === "Ducks").length).toBe(1);
 
     // The file says whose schedule it is, which is what the season-only export
     // could not do and the reason it was left unfiltered for a year.
-    const csvResponse = await request.get(sharks.csv!);
-    expect(csvResponse.headers()["content-disposition"]).toContain(
-      "obhl-sharks-schedule.csv",
+    expect(ducksCsvRes.headers()["content-disposition"]).toContain(
+      "obhl-ducks-schedule.csv",
     );
 
-    const allIcs = icsSummaries(await (await request.get(all.ics!)).text());
-    const sharksIcs = icsSummaries(
-      await (await request.get(sharks.ics!)).text(),
-    );
-    expect(sharksIcs.length).toBeGreaterThan(0);
-    expect(sharksIcs.length).toBeLessThan(allIcs.length);
-    for (const summary of sharksIcs) expect(summary).toContain("Sharks");
+    const allIcsBody = await (await request.get(all.ics!)).text();
+    const ducksIcsRes = await request.get(ducks.ics!);
+    const ducksIcsBody = await ducksIcsRes.text();
+    const allIcs = icsSummaries(allIcsBody);
+    const ducksIcs = icsSummaries(ducksIcsBody);
+    expect(ducksIcs.length).toBeGreaterThan(0);
+    expect(ducksIcs.length).toBeLessThan(allIcs.length);
+    for (const summary of ducksIcs) expect(summary).toContain("Ducks");
 
-    const icsResponse = await request.get(sharks.ics!);
-    expect(await icsResponse.text()).toContain("Sharks");
-    expect(icsResponse.headers()["content-disposition"]).toContain(
-      "obhl-sharks-schedule.ics",
+    // ⛔ THE CALENDAR NAME, NOT JUST THE TEAM NAME. A bare `toContain("Ducks")`
+    // is already satisfied by the SUMMARY lines above, so it would stay green if
+    // the calendar stopped naming the team altogether — and that name is the
+    // whole reason a filtered export is allowed to exist (EXPORTS_HANDOFF §3).
+    // This is what a subscriber sees in their calendar app's sidebar.
+    expect(unfold(ducksIcsBody)).toContain("— Ducks Schedule");
+    expect(unfold(allIcsBody)).not.toContain("— Ducks Schedule");
+    expect(ducksIcsRes.headers()["content-disposition"]).toContain(
+      "obhl-ducks-schedule.ics",
     );
   });
 
@@ -303,7 +334,10 @@ test.describe("Path 4 — Schedule and game detail", () => {
    * caller asked for one team and would silently receive six.
    *
    * `anchors` is a real team in the OTHER seeded league, so this covers the
-   * cross-league case as well as the unknown one.
+   * cross-league case as well as the unknown one. The empty string covers a
+   * bare `?team=`, which `searchParams.get` answers with `""` rather than
+   * `null` — a truthiness test read that as "no team asked for" and served the
+   * whole season under a 200.
    */
   test("an export for a team outside the season is a 404, not the season", async ({
     page,
@@ -312,7 +346,7 @@ test.describe("Path 4 — Schedule and game detail", () => {
     await page.goto("/obhl/schedule");
     const { csv, ics } = await exportHrefs(page);
 
-    for (const team of ["anchors", "not-a-team"]) {
+    for (const team of ["anchors", "not-a-team", ""]) {
       expect((await request.get(`${csv}?team=${team}`)).status()).toBe(404);
       expect((await request.get(`${ics}?team=${team}`)).status()).toBe(404);
     }
