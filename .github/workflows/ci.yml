@@ -25,12 +25,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       # `npm run build` does not typecheck the test files; this does, including
       # e2e/ under the CommonJS resolution Playwright actually runs it with.
       - run: npm run typecheck
+
+      # `npm run lint` is bare `eslint`: it resolves its own file set from the
+      # flat config, which is NOT the same set as `eslint src e2e` (the command
+      # this gap was originally measured with). Both were measured clean on
+      # main 2026-09-08 — 0 errors, plus two pre-existing no-unused-vars
+      # warnings in writeGames.test.ts. eslint exits 0 on warnings, so this
+      # gates on errors only; tightening it to `--max-warnings 0` means fixing
+      # those two first and is deliberately not bundled here.
+      - run: npm run lint
       - run: npm test
 
   # e2e needs the real stack: a local Supabase, a seeded database and a dev
@@ -46,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
 

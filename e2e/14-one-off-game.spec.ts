@@ -25,7 +25,15 @@ function admin() {
   );
 }
 
-const SEASON = "One-Off Test 2027";
+/**
+ * ⛔ COMPUTED, NEVER PINNED. This spec seeded `One-Off Test 2027` at a literal
+ * 2027-01-05 and would have broken in January 2027 exactly as `11-` was about to
+ * break in September 2026. Same defect, further out.
+ */
+const YEAR = new Date().getUTCFullYear() + 2;
+const SEASON = `One-Off Test ${YEAR}`;
+const FIRST_NIGHT = `${YEAR}-01-05`;
+const SEASON_END = `${YEAR}-06-30`;
 
 async function signedInAs(
   page: Page,
@@ -46,8 +54,8 @@ async function seedFutureSeason(page: Page) {
   const row = page.getByRole("row", { name: new RegExp(SEASON) });
   if ((await row.count()) === 0) {
     await page.getByLabel("Name").fill(SEASON);
-    await page.getByLabel("Season starts").fill("2027-01-05");
-    await page.getByLabel("Season ends (incl. playoffs)").fill("2027-06-30");
+    await page.getByLabel("Season starts").fill(FIRST_NIGHT);
+    await page.getByLabel("Season ends (incl. playoffs)").fill(SEASON_END);
     await page.getByRole("button", { name: /Create season/i }).click();
     // Wait for the redirect, then re-navigate before looking for the row.
     //
@@ -89,7 +97,7 @@ async function seedFutureSeason(page: Page) {
   // Racing `setActiveSeason` used to land on "No active season", because it
   // clears every season before setting one. That empty state is gone: the
   // builder now resolves a season of its own and, with nothing active, falls
-  // back to the newest by `starts_on` — which is this 2027 season. So the race
+  // back to the newest by `starts_on` — which is this future season. So the race
   // resolves to the right season either way, and the assertion below is about
   // the switch having landed rather than about surviving it.
   await expect(setActive).toHaveCount(0);
@@ -105,7 +113,7 @@ async function seedFutureSeason(page: Page) {
   // and surface as an unrelated assertion further down. Fail here instead.
   await expectGenerateFormUsable(page);
   if ((await page.getByText("No draft schedule").count()) > 0) {
-    await page.getByLabel("First game night").fill("2027-01-05");
+    await page.getByLabel("First game night").fill(FIRST_NIGHT);
     await page.getByLabel("Games per team").fill("6");
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
     await page.locator('label:has-text("Thu") input[name="weekdays"]').check();

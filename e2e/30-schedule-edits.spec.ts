@@ -23,9 +23,10 @@ function admin() {
 }
 
 /**
- * ⛔ COMPUTED, NEVER PINNED. `11-` and `23-` hardcode 2026-09-15 and break the
- * day after it passes; a spec seeded from the clock cannot rot that way. Far
- * enough out that the season can never be "started" while this suite runs.
+ * ⛔ COMPUTED, NEVER PINNED. `11-` and `23-` USED to hardcode 2026-09-15, which
+ * would have broken the day after it passed; they now read the date from the
+ * seed, and this spec seeds its own season from the clock for the same reason.
+ * Far enough out that the season can never be "started" while this suite runs.
  */
 const YEAR = new Date().getUTCFullYear() + 2;
 const SEASON = `Edit Test ${YEAR}`;
