@@ -421,10 +421,20 @@ and empty-cell placeholders as well as a number.
 deliberately stubs. The shortfall machinery this spec spent four review rounds
 building cannot see a row the parser never produced.
 
-⛔ **It is NOT met for a full migration.** `runEsportsdeskImport` adds the
-schedule block, the stats block and the `notes[]` shortfall machinery, and none
-of that has met a real source — no test makes the outbound fetch either. Bar 2
-(force a partial import and confirm the shortfall is named) is also unrun.
+⛔ **It is NOT met for a full migration, and that bar is now RETIRED rather than
+outstanding.** `runEsportsdeskImport` adds the schedule block, the stats block and
+the `notes[]` shortfall machinery, and none of it has met a real source — no test
+makes the outbound fetch either. Bar 2 (force a partial import and confirm the
+shortfall is named) is likewise unrun.
+
+⚠️ **Neither is work.** The maintainer said on 2026-09-09 that they are not sure
+they will ever need the full migration; rosters-only is the mode in use. These
+bars are kept as a record of what was never checked, so nobody reads a merged
+spec as fully verified — not as a queue for a future session. **Deleting the full
+importer was considered and deferred at the same time**, and remains available:
+`import-rosters.ts` never calls the schedule or stats fetchers, so the split is
+already clean, and the only shared thread is `fetchEsportsdeskSchedule` behind the
+preview's game count.
 
 ⚠️ **This paragraph previously said the importer had "NEVER BEEN RUN", which was
 false when written.** It was inferred from the absence of a test rather than

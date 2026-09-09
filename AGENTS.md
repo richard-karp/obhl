@@ -67,11 +67,23 @@ one. Fixed in PR #60, merged `cc98744`. **This is the argument for the gate abov
 rounds and 26 unit tests never touched it, because every one of them stubbed the
 parser out.
 
-⛔ **The FULL migration has not been run.** `runEsportsdeskImport` adds the schedule block, the stats block and
-the `notes[]` machinery on top, and none of that has met a real source. Treat a
-change to those as unverified. Steps:
-`docs/superpowers/specs/2026-09-08-league-creation-at-the-root-design.md`, under
-*Acceptance*.
+⛔ **The FULL migration has not been run, and probably never will be.**
+`runEsportsdeskImport` adds the schedule block, the stats block and the `notes[]`
+machinery on top — roughly 450 lines, plus `src/lib/import/distribute.ts` — and
+none of it has met a real source. **The maintainer said on 2026-09-09 they are
+not sure they will ever need it**, so this is NOT outstanding work: do not plan a
+verification run, and do not spend a review round hardening it.
+
+⚠️ **What to do instead if you find yourself in there.** Treat it as unverified
+against reality and say so rather than fixing quietly — four of the six bugs
+found in this area lived in exactly those blocks. If it ever becomes a burden,
+deleting it is a live option that was considered and deferred, not one that needs
+re-arguing: rosters-only is cleanly separate (`import-rosters.ts` never calls the
+schedule or stats fetchers), and the only shared thread is
+`fetchEsportsdeskSchedule`, which the preview uses for its game count.
+
+Steps, if one is ever run: `docs/superpowers/specs/2026-09-08-league-creation-at-the-root-design.md`,
+under *Acceptance*.
 
 `docs/superpowers/specs/` holds the per-change design docs these summarise,
 including the alternatives that were considered and rejected. Reach for a spec
