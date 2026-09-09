@@ -911,3 +911,47 @@ describe("assignNights with manager constraints", () => {
     }
   });
 });
+
+describe("assignNights — a pinned slot survives the clustering pass", () => {
+  // Same shape as assignNights.test.ts's ice-time clustering fixture (6 teams,
+  // one weeknight, 3 sheets — everyone plays every week), chosen deliberately:
+  // that shape is loose enough for `improveNightOrder` to find and accept an
+  // admissible permutation (measured there: worst-team clustering 14 -> 4).
+  // The 8-team fixture above (`assignNights with manager constraints`) is NOT
+  // loose enough — checked directly: the pass finds no admissible improvement
+  // on it and leaves the identity, so a constraint test built on it would
+  // never exercise the bug this guards against.
+  //
+  // `rankSchedule` carries no constraint term, so on a shape where the pass
+  // DOES move nights, it could relabel which night holds the block of games
+  // `slot_on` pinned — moving the pin off the night Phase P placed it on while
+  // leaving every ranked metric no worse. `assignNights` guards the whole pass
+  // on `resolved.empty` for exactly this reason. This test fails if that guard
+  // is ever lost: verified by temporarily forcing the pass to run
+  // unconditionally, which broke this assertion.
+  const ts = Array.from({ length: 6 }, (_, i) => `t${i + 1}`);
+  const ns = enumerateNights("2026-09-08", {
+    weekdays: new Set([2]),
+    slotTimes: ["19:00", "20:15", "21:30"],
+    excluded: new Set<string>(),
+    maxNights: 23,
+  });
+  const pairings = buildBalancedPairings(ts, 23);
+  const constraints: ScheduleConstraint[] = [
+    c("p1", "t3", "slot_on", { date: ns[11].date, time: "21:30" }),
+  ];
+  const resolved = resolveConstraints(constraints, { nights: ns, teamIds: ts });
+  const { games, report } = assignNights(pairings, ns, ts, {
+    constraints: resolved,
+  });
+
+  it("still places every game", () => {
+    expect(report.unscheduled).toBe(0);
+    expect(games.length).toBe(pairings.length);
+  });
+
+  it("keeps the pinned slot_on satisfied", () => {
+    const outcome = report.constraints.find((x) => x.id === "p1")!;
+    expect(outcome.satisfied).toBe(true);
+  });
+});
