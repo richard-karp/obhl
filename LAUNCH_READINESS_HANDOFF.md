@@ -886,7 +886,7 @@ current URL space.
 
 ## 5 — Smaller, deliberately deferred
 
-- **The deferred code gaps and IA approach C** — item 1 (a draft that ages between generate and publish) SHIPPED 2026-09-08, PR #46; the other six are parked, none started → `docs/worklists/2026-09-07-9466c507-deferred-code-work.md`. ⚠️ That file supersedes _From the sixth review of #24_ below for items 4-6.
+- **The deferred code gaps and IA approach C** — ✅ **six of seven closed, all merged to `main` by 2026-09-09.** Item 1 (a draft that ages between generate and publish) PR #46; item 2 PR #49; item 4 closed as no-change-needed; item 5 triaged into PRs #53/#54 plus two deliberate non-fixes; item 6 PR #48; item 7 spec'd in PR #50 and deferred again for a better reason. ⛔ **Item 3 (clock-shifted CI) is the only one outstanding — PR #51, still open.** → `docs/worklists/2026-09-07-9466c507-deferred-code-work.md`. ⚠️ That file supersedes _From the sixth review of #24_ below for items 4-6, and its own status block was corrected on 2026-09-09 after claiming none of this had merged.
 
 ### ⛔ FIRST POST-LAUNCH JOB — the schedule-write RPC (decided 2026-09-06)
 

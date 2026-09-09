@@ -48,13 +48,17 @@
 **Status, 2026-09-08. Every item has been taken to a decision, so read this file
 as the reasoning behind them rather than as a queue.**
 
-⛔ **NOTHING BELOW IS MERGED.** Every PR named here was OPEN as of 2026-09-08,
-`main` included none of them, and the past-tense verbs in this section describe
-what a PR _does_, not what has landed. Item 1 is "SHIPPED" only in the sense that
-its code is written and in review. Before relying on any of it, check: a session
-resuming cold could otherwise skip re-verification believing `main` carries these
-fixes. It does not — `src/lib/schedule/staleDraft.ts`, for one, exists only on
-`feat/stale-draft-publish-guard`.
+✅ **ALL BUT ONE HAVE NOW MERGED.** Checked 2026-09-09: #44, #46, #48, #49, #50,
+#52, #53 and #54 are all MERGED and on `main`; **#51 (item 3, clock-shifted CI) is
+the only one still open.** `src/lib/schedule/staleDraft.ts` is on `main`.
+
+⛔ **The line this replaces said the opposite — "NOTHING BELOW IS MERGED" — and it
+was correct for exactly one day.** It was written to stop a resuming session
+assuming `main` carried these fixes; left standing, it does the reverse and sends
+someone to re-verify or redo work that has landed. ⚠️ A status block naming open
+PRs goes stale the moment any of them merges, which is not an event this file gets
+told about. If you are reading this and the date is well past 2026-09-09, re-check
+with `gh pr view <n> --json state` rather than trusting either version.
 
 - **2** — draft-row edit e2e: **PR #49**. ⛔ Note for anyone extending it: the
   obvious version of that test PASSES against a fully broken guard. A night swap
