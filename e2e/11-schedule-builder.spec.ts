@@ -419,6 +419,27 @@ test.describe("Path 17 — Schedule Builder", () => {
       await expect(page.getByText(label, { exact: true })).toBeVisible();
     }
 
+    // The clustering figure is NOT in the tick list above: at fewer than three
+    // ice times a five-game window must hold three of one, so it cannot reach
+    // zero and a tick would be a target no arrangement can hit. It has its own
+    // caption instead, next to `longestLayoffDays`, which is the existing
+    // precedent for a number worth showing whose zero is not the goal.
+    //
+    // Asserts the NUMBER, not just the words: if the field stopped arriving,
+    // React renders `undefined` as nothing and the sentence still reads fine
+    // with a gap where the figure should be.
+    //
+    // ⚠️ What it does NOT catch, measured 2026-09-10 rather than assumed: the
+    // caption wired to a different REAL field. This fixture is four games a
+    // team, so `slotClusterWorstTeam`, `slotStreak3` and `slotConsecutive` all
+    // read 0 and all render the same sentence. Pointing it at a nonexistent
+    // field fails here; pointing it at `slotStreak3` passes. Distinguishing
+    // them needs a fixture long enough for the metrics to diverge, which this
+    // spec's generate is not.
+    await expect(
+      page.getByText(/Worst team.s repeated ice times:\s*\d+\s+stretch/),
+    ).toBeVisible();
+
     // No assertion here on what "Matchups off an even weekday split" *reads*.
     // The row once showed `pairingWeekdayExcess`, a summed squared deviation —
     // 8 where two matchups were off, and 3.7872 on a season whose weekday night
