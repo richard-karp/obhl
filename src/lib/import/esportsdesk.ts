@@ -158,6 +158,23 @@ function splitName(full: string): { firstName: string; lastName: string } {
   return { firstName: parts[0] ?? full, lastName: parts.slice(1).join(" ") };
 }
 
+/**
+ * A jersey number as the platform prints it. Deliberately shared by the cell
+ * test below and by the number that gets stored: the two have to agree, or a
+ * cell that counts as a jersey but does not parse as one would import the
+ * player with a null number and no indication anything was lost.
+ */
+const JERSEY_NUMBER = /^\d{1,3}$/;
+
+/**
+ * A roster row's jersey cell: either a number, or the placeholder the platform
+ * renders when a player has none — "-" on the standard template, an empty cell
+ * on some leagues. Anchoring a player row on the CELL rather than on a number
+ * is what lets unnumbered players import at all.
+ */
+const isJerseyCell = (s: string) =>
+  JERSEY_NUMBER.test(s) || /^[-\u2013\u2014]*$/.test(s);
+
 /** Team name + players from a rosters.cfm page. */
 async function fetchTeamRoster(
   clientId: string,
@@ -176,9 +193,16 @@ async function fetchTeamRoster(
 
   // The current team's name is the single word immediately before its W-L-T
   // record (e.g. "Black  19w-10l-8t"). The roster table has no per-row class, so
-  // players are matched by cell shape: a jersey-number cell followed by a name
-  // cell; a "C" cell before it marks the captain; a lone G/D cell after the name
-  // is the position (most leagues leave it blank → Forward).
+  // players are matched by cell shape: a jersey cell followed by a name cell; a
+  // "C" cell before it marks the captain; a lone G/D cell after the name is the
+  // position (most leagues leave it blank → Forward).
+  //
+  // The jersey cell anchors the row, but its CONTENTS are optional. esportsdesk
+  // renders an unnumbered player's number as "-", so requiring digits there
+  // dropped those players silently: 9 of 127 in the league this was first
+  // written against, and every single player in a league that assigns no
+  // numbers at all — which reads as "teams imported, rosters empty". They come
+  // through with a null jersey, which `team_players` already allows.
   const text = $("body").text().replace(/\s+/g, " ");
   const name =
     text
@@ -190,27 +214,41 @@ async function fetchTeamRoster(
     // Use children() not find() — the page uses a nested two-column table
     // layout; find() descends into nested tables and the outer layout rows
     // accumulate all player cells as descendants, producing false duplicates.
+    // Empty cells are KEPT — no .filter(Boolean). The jersey column is what
+    // marks a row as a player's, and collapsing blanks would reduce an
+    // unnumbered player to a bare name, which this page's nav row
+    // ("Statistics", "Schedule", "Roster"…) and status legend ("Injured",
+    // "Suspended"…) also look like. Keeping the column in place is what tells
+    // those apart.
+    //
+    // A player row is therefore a name BETWEEN two cells: a jersey cell before
+    // it and at least one stat column after it. The trailing half carries as
+    // much weight as the leading one, because an EMPTY jersey cell is legal —
+    // without it a bare two-cell layout row (["", "Roster"], ["", "Standings"])
+    // parses as a player and invents people who do not exist.
     const cells = $(tr)
       .children("td")
-      .map((_, td) => $(td).text().trim())
-      .get()
-      .filter(Boolean);
-    for (let i = 0; i < cells.length - 1; i++) {
-      const next = cells[i + 1];
+      .map((_, td) => $(td).text().replace(/\s+/g, " ").trim())
+      .get();
+    for (let i = 1; i < cells.length; i++) {
+      const playerName = cells[i];
       if (
-        /^\d{1,3}$/.test(cells[i]) &&
-        /^[\p{L}][\p{L} .'-]+$/u.test(next) &&
-        next.length > 2 &&
-        next.length < 30
+        i + 1 < cells.length &&
+        isJerseyCell(cells[i - 1]) &&
+        /^[\p{L}][\p{L} .'-]+$/u.test(playerName) &&
+        playerName.length > 2 &&
+        playerName.length < 30
       ) {
-        // Position is the cell immediately after the name, not a distant scan.
-        const posRaw = cells[i + 2] ?? "";
+        // Position is the next filled cell after the name, not a distant scan.
+        const posRaw = cells.slice(i + 1).find((c) => c !== "") ?? "";
         const position = /^[GD]$/i.test(posRaw)
           ? (posRaw.toUpperCase() as "F" | "D" | "G")
           : "F";
         players.push({
-          number: Number(cells[i]),
-          ...splitName(next),
+          number: JERSEY_NUMBER.test(cells[i - 1])
+            ? Number(cells[i - 1])
+            : null,
+          ...splitName(playerName),
           isCaptain: cells.slice(0, i).includes("C"),
           position,
         });
