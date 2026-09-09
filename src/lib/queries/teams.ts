@@ -1,5 +1,5 @@
 import { createClient } from "@/utils/supabase/server";
-import { getSchedule } from "./schedule";
+import { getSchedule, readWithOneRetry } from "./schedule";
 import type { DbClient, Tables, Views } from "@/lib/db/helpers";
 
 export type TeamRow = Tables<"teams">;
@@ -20,22 +20,81 @@ export type RosterEntry = {
   is_captain: boolean;
 };
 
-/** Teams enrolled in a season, alphabetical. */
+/**
+ * Teams enrolled in a season, alphabetical.
+ *
+ * ⚠️ A FAILED READ IS INDISTINGUISHABLE FROM "no teams enrolled" in the return
+ * value, and both of this function's consumers turn that into something a
+ * person sees: the schedule page draws an empty filter, and
+ * `getEnrolledTeamBySlug` resolves nothing, which the export routes answer with
+ * a 404 for a team that plainly exists. Hence both lines below.
+ *
+ * The retry is the one that closes the user-visible gap. A gateway 502 is a
+ * valid HTTP response, so nothing beneath us retries it — see
+ * `readWithOneRetry`, added after Kong blips turned CI red in three of six runs
+ * on 2026-09-06. Safe here for the same reason it is safe there: this is a GET,
+ * and running it twice is indistinguishable from running it once.
+ *
+ * The log is what makes the residual case findable. Without it a read that
+ * fails BOTH times produces no output at all, and the 404 it causes looks
+ * exactly like a team that was never enrolled.
+ */
 export async function getEnrolledTeams(
   seasonId: string,
   opts: { client?: DbClient } = {},
 ): Promise<TeamSummary[]> {
   const supabase = opts.client ?? (await createClient());
-  const { data } = await supabase
-    .from("season_teams")
-    .select(
-      "team:teams!season_teams_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)",
-    )
-    .eq("season_id", seasonId);
+  // ⛔ A FACTORY, NOT A BUILDER. A PostgREST builder fires its request when
+  // awaited, so the retry has to construct a fresh one rather than await a
+  // spent object.
+  const { data, error } = await readWithOneRetry(
+    () =>
+      supabase
+        .from("season_teams")
+        .select(
+          "team:teams!season_teams_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)",
+        )
+        .eq("season_id", seasonId),
+    "enrolled teams read",
+  );
+  if (error) console.error("enrolled teams query failed:", error.message);
   const teams = (data ?? [])
     .map((r) => r.team)
     .filter(Boolean) as unknown as TeamSummary[];
   return teams.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * One enrolled team of a season, by the slug the schedule page's filter puts in
+ * the URL — or null if the season does not hold it.
+ *
+ * Built on `getEnrolledTeams` rather than querying `teams` directly, so the set
+ * of slugs an export accepts is exactly the set the filter can offer. A team
+ * that exists but is enrolled in another season — or another league — resolves
+ * to null here, and the export routes turn that into a 404.
+ *
+ * ⛔ Callers must NOT treat null as "no filter". A caller that fell back to the
+ * whole season on an unresolved slug would hand back six teams' games to
+ * someone who asked for one, which is the defect the team-scoped export exists
+ * to fix.
+ *
+ * ⚠️ Null also covers a read that failed twice — `getEnrolledTeams` retries and
+ * logs, but cannot report it through this return type. The export routes answer
+ * 404 either way, deliberately: that is the same answer `publicLeagueOfSeason`
+ * has always given for a failed read on the same request, and one read in a
+ * pair reporting 500 while the other reports 404 would be worse than either.
+ * The log line is what tells the two apart after the fact.
+ */
+export async function getEnrolledTeamBySlug(
+  seasonId: string,
+  slug: string,
+  opts: { client?: DbClient } = {},
+): Promise<TeamSummary | null> {
+  const teams = await getEnrolledTeams(seasonId, opts);
+  // Slugs are lower-case in the database; `?team=Sharks` should still resolve,
+  // the same allowance `resolveLeagueBySlug` makes for the league in the path.
+  const wanted = slug.toLowerCase();
+  return teams.find((t) => t.slug === wanted) ?? null;
 }
 
 export type TeamDetail = {

@@ -66,9 +66,40 @@ expects to find, and compensates when a write fails.
 validates its id with `isUuid`, fetches through a query helper, filters with
 `isExportableFixture`, and hands rows to a builder.
 
+The two season routes also take an optional `?team=<slug>`, resolved through
+`getEnrolledTeamBySlug` — built on `getEnrolledTeams`, so the slugs an export
+accepts are exactly the ones the schedule page's filter can offer.
+⛔ **A slug that does not resolve is a 404, never "no filter."** Falling back to
+the season is the defect the parameter closes: the caller asked for one team and
+would silently receive all of them. It covers the cross-league case for free — a
+team of another league is not enrolled in this season.
+
 ---
 
 ## 3. Decisions you can't recover from the code
+
+**Why a team-filtered export names the team, and why it may.** Until 2026-09-08
+both download buttons pointed at the bare season no matter what the page's team
+filter said, on the stated rule that "a filtered export would make the button's
+output depend on page state the downloaded file can't show"
+(`docs/superpowers/specs/2026-07-28-schedule-csv-export-design.md` §4). The bug
+that rule caused was worse than the one it prevented: picking a team and
+downloading returned all six teams' games, and the `.ics` dropped a whole season
+into a calendar someone had filtered a single team out of.
+
+The objection is answered rather than overruled. A filtered file now says whose
+schedule it is with no page present to explain it: `exportFilename` puts the team
+in the download name (`obhl-sharks-schedule.csv`), and the `.ics` names the
+calendar `<League> — <Team> Schedule`. ⚠️ Remove either and the original
+objection is live again — a filtered file indistinguishable from the full one.
+
+⚠️ **A one-time `.ics` download cannot remove events already in a calendar.**
+Someone who imported the full season and then imports a team file keeps the other
+teams' events: the UIDs are stable (`game-<id>@obhl` — see the note below on why
+that matters), so the overlapping events update and the rest simply stay. That is
+iCalendar, not this code. The fix stops the *file* carrying games the caller did
+not ask for; a calendar already holding them needs those events deleted, or the
+calendar re-created from the new file.
 
 **Why `isExportableFixture` withholds only `cancelled`.** A cancelled game keeps
 its date, so listing it asserts a game happens when it doesn't. A postponed one

@@ -185,6 +185,12 @@ The page's team filter does **not** affect the download; the button always
 exports the full season. A filtered export would make the button's output depend
 on invisible page state.
 
+> **Superseded 2026-09-08.** This paragraph caused a bug: picking a team and
+> downloading returned every team's games. Both buttons now carry `?team=<slug>`
+> and the routes honour it. The "invisible page state" objection was answered
+> rather than overruled — the team is in the filename and in the `.ics` calendar
+> name, so the file states its own scope. See `EXPORTS_HANDOFF.md` §3.
+
 ## 5. Testing
 
 `src/lib/export/csv.test.ts`, vitest, colocated per the convention every module

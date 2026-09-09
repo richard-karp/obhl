@@ -215,6 +215,142 @@ test.describe("Path 4 — Schedule and game detail", () => {
     // Box score shows two numeric scores (away–home)
     await expect(page.locator("text=/\\d+/").first()).toBeVisible();
   });
+
+  /**
+   * The schedule page's team filter and its two download buttons used to
+   * disagree: the list narrowed to the selected team and the buttons kept
+   * pointing at `/api/schedule/<season>`, so "pick a team, download" handed
+   * back all six teams' games — and dropping that .ics into a calendar filled
+   * it with the whole season.
+   *
+   * Driven through the page rather than against the routes directly, because
+   * the defect was the LINK, not the route: a route that can filter is no use
+   * if the button never asks it to.
+   */
+  const csvRows = (body: string) =>
+    body
+      // Strip the UTF-8 BOM `buildScheduleCsv` opens with, then the header.
+      .replace(/^\uFEFF/, "")
+      .trim()
+      .split("\r\n")
+      .slice(1);
+
+  /** iCalendar folds at 75 octets; undo it before matching on any line. */
+  const unfold = (body: string) => body.replace(/\r\n[ \t]/g, "");
+
+  const icsSummaries = (body: string) =>
+    unfold(body)
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith("SUMMARY:"));
+
+  async function exportHrefs(page: import("@playwright/test").Page) {
+    return {
+      csv: await page
+        .getByRole("link", { name: "Download .csv" })
+        .getAttribute("href"),
+      ics: await page
+        .getByRole("link", { name: "Download .ics" })
+        .getAttribute("href"),
+    };
+  }
+
+  /**
+   * ⛔ DUCKS, NOT SHARKS, AND THE SEED IS THE REASON. `getSchedule` filters with
+   * `home_team_id.eq.<id>,away_team_id.eq.<id>` — an OR over two columns — and
+   * the seeded Sharks play 5 home games and 0 away ones, so a filter that had
+   * dropped the away half entirely would have returned the identical 5 rows and
+   * this test would have passed. The Ducks play 2 home and 3 away, so both sides
+   * of that OR carry rows, and the home/away assertion below pins them.
+   */
+  test("picking a team exports only that team's games", async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/obhl/schedule");
+    const all = await exportHrefs(page);
+
+    await page.goto("/obhl/schedule?team=ducks");
+    const ducks = await exportHrefs(page);
+    expect(ducks.csv).toContain("team=ducks");
+    expect(ducks.ics).toContain("team=ducks");
+
+    // One request per file: the body and the headers both come off the same
+    // response, so re-fetching to read a header only widens the window for the
+    // two to disagree.
+    const allCsvRes = await request.get(all.csv!);
+    const ducksCsvRes = await request.get(ducks.csv!);
+    const allCsv = csvRows(await allCsvRes.text());
+    const ducksCsv = csvRows(await ducksCsvRes.text());
+
+    // The season has games the Ducks are not in — otherwise the assertion
+    // below passes against a route that filters nothing.
+    expect(allCsv.some((r) => !r.includes("Ducks"))).toBe(true);
+    expect(ducksCsv.length).toBeGreaterThan(0);
+    expect(ducksCsv.length).toBeLessThan(allCsv.length);
+    for (const row of ducksCsv) expect(row).toContain("Ducks");
+
+    // ⛔ BOTH SIDES OF THE OR. `Date,Time,Home,Away`, and the seeded names hold
+    // no commas, so column 2 is Home and column 3 is Away. A filter matching
+    // only `home_team_id` still satisfies every assertion above; these two are
+    // what make that impossible.
+    const cols = ducksCsv.map((r) => r.split(","));
+    expect(cols.filter((c) => c[2] === "Ducks").length).toBeGreaterThan(0);
+    expect(cols.filter((c) => c[3] === "Ducks").length).toBeGreaterThan(0);
+    // Every row names the team on exactly one side — never both, which would
+    // mean a game against itself.
+    for (const c of cols)
+      expect([c[2], c[3]].filter((n) => n === "Ducks").length).toBe(1);
+
+    // The file says whose schedule it is, which is what the season-only export
+    // could not do and the reason it was left unfiltered for a year.
+    expect(ducksCsvRes.headers()["content-disposition"]).toContain(
+      "obhl-ducks-schedule.csv",
+    );
+
+    const allIcsBody = await (await request.get(all.ics!)).text();
+    const ducksIcsRes = await request.get(ducks.ics!);
+    const ducksIcsBody = await ducksIcsRes.text();
+    const allIcs = icsSummaries(allIcsBody);
+    const ducksIcs = icsSummaries(ducksIcsBody);
+    expect(ducksIcs.length).toBeGreaterThan(0);
+    expect(ducksIcs.length).toBeLessThan(allIcs.length);
+    for (const summary of ducksIcs) expect(summary).toContain("Ducks");
+
+    // ⛔ THE CALENDAR NAME, NOT JUST THE TEAM NAME. A bare `toContain("Ducks")`
+    // is already satisfied by the SUMMARY lines above, so it would stay green if
+    // the calendar stopped naming the team altogether — and that name is the
+    // whole reason a filtered export is allowed to exist (EXPORTS_HANDOFF §3).
+    // This is what a subscriber sees in their calendar app's sidebar.
+    expect(unfold(ducksIcsBody)).toContain("— Ducks Schedule");
+    expect(unfold(allIcsBody)).not.toContain("— Ducks Schedule");
+    expect(ducksIcsRes.headers()["content-disposition"]).toContain(
+      "obhl-ducks-schedule.ics",
+    );
+  });
+
+  /**
+   * ⛔ A team the season does not hold must 404, NOT fall back to the whole
+   * season. Falling back is the bug this fixes wearing a different hat: the
+   * caller asked for one team and would silently receive six.
+   *
+   * `anchors` is a real team in the OTHER seeded league, so this covers the
+   * cross-league case as well as the unknown one. The empty string covers a
+   * bare `?team=`, which `searchParams.get` answers with `""` rather than
+   * `null` — a truthiness test read that as "no team asked for" and served the
+   * whole season under a 200.
+   */
+  test("an export for a team outside the season is a 404, not the season", async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/obhl/schedule");
+    const { csv, ics } = await exportHrefs(page);
+
+    for (const team of ["anchors", "not-a-team", ""]) {
+      expect((await request.get(`${csv}?team=${team}`)).status()).toBe(404);
+      expect((await request.get(`${ics}?team=${team}`)).status()).toBe(404);
+    }
+  });
 });
 
 // ── Path 5: Teams list + team detail ───────────────────────────────────────
