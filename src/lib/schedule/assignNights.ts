@@ -18,6 +18,7 @@ import {
 } from "./participation";
 import { assignMatchups, type MatchupResult } from "./matchups";
 import { assignSlots } from "./slots";
+import { improveNightOrder } from "./nightOrder";
 import {
   evaluateConstraints,
   noConstraints,
@@ -1665,6 +1666,10 @@ function planByParticipation(
  *
  * `byesAdjNight` outranks weekday balance by the league's decision: an uneven
  * weekday split is preferable to a team sitting out two game nights in a row.
+ *
+ * Clustering sits LAST on purpose. It can only choose between plans that
+ * already tie on every other term, so it can never buy a shorter clustered
+ * stretch with a back-to-back — which is what keeps the night-order pass free.
  */
 function rankSchedule(
   plan: Plan,
@@ -1692,6 +1697,8 @@ function rankSchedule(
     sum((t) => spread(slot.get(t)!)),
     r.slotStreak3,
     r.slotConsecutive,
+    r.slotClusterWorstTeam,
+    r.slotClusterWindows,
   ];
 }
 
@@ -1808,6 +1815,56 @@ export function assignNights(
   // constraints set and Phase P returning null, the fallback ships anyway and
   // every request is then correctly reported unmet.
   const plannerHonours = plan === exact;
+
+  // Reordering nights moves clustering while carrying each night's games and
+  // ice times with it. Admissibility is judged on the WHOLE rank vector, so on a
+  // shape where reordering would cost byes, weekday balance or rematch spacing,
+  // every candidate is refused and the identity survives.
+  //
+  // This runs before `games`/`pairsByNight`/`slotOf` are read off `plan` below,
+  // so reassigning `plan.games` here is enough to carry the new night order
+  // through everything downstream that derives from `games` — no separate
+  // reindexing of those structures is needed. `nights` itself is never
+  // reordered, so `weekdayOfNight` (built straight from `nights`, not from
+  // `games`) is correctly left untouched.
+  const baseRank = rankSchedule(plan, nights, teamIds, meta);
+  // The last two entries are the clustering pair this task appended; everything
+  // above them is what must not get worse.
+  const CLUSTER_TAIL = 2;
+  const worstOf = (v: number[]) => v[v.length - 2];
+  const totalOf = (v: number[]) => v[v.length - 1];
+  const reordered = improveNightOrder(nights.length, (order) => {
+    // Position lookup, not `order.indexOf`: this runs once per annealing step.
+    const pos = new Array<number>(nights.length);
+    order.forEach((n, i) => (pos[n] = i));
+    const moved = plan.games.map((g) => ({ ...g, nightIndex: pos[g.nightIndex] }));
+    const rank = rankSchedule({ ...plan, games: moved }, nights, teamIds, meta);
+    let penalty = 0;
+    let noWorse = true;
+    for (let i = 0; i < rank.length - CLUSTER_TAIL; i++) {
+      const over = rank[i] - baseRank[i];
+      if (over > 0) {
+        noWorse = false;
+        penalty += over * 1_000_000;
+      }
+    }
+    const better =
+      worstOf(rank) < worstOf(baseRank) ||
+      (worstOf(rank) === worstOf(baseRank) && totalOf(rank) < totalOf(baseRank));
+    return {
+      cost: penalty + worstOf(rank) * 1_000 + totalOf(rank),
+      admissible: noWorse && better,
+    };
+  });
+  if (reordered.some((n, i) => n !== i)) {
+    const pos = new Array<number>(nights.length);
+    reordered.forEach((n, i) => (pos[n] = i));
+    plan = {
+      ...plan,
+      games: plan.games.map((g) => ({ ...g, nightIndex: pos[g.nightIndex] })),
+    };
+  }
+
   const { games, unscheduled } = plan;
 
   // Derive the report from the final placement.

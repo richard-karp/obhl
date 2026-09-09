@@ -365,3 +365,42 @@ describe("assignNights — full-season reference schedule", () => {
     expect(report.spacing.slotConsecutive).toBeLessThanOrEqual(55);
   });
 });
+
+// 6 teams, one game night a week, 3 sheets: everyone plays every week, so this
+// is the shape where night order is free to move. Measured 2026-09-09: without
+// the pass the worst team carries 14 clustered windows.
+describe("assignNights — ice-time clustering, 6 teams on one weeknight", () => {
+  const ts = teams(6);
+  const ns = enumerateNights("2026-09-08", {
+    weekdays: new Set([2]),
+    slotTimes: ["19:00", "20:15", "21:30"],
+    excluded: new Set<string>(),
+    maxNights: 23,
+  });
+  const { games, report } = assignNights(buildBalancedPairings(ts, 23), ns, ts);
+
+  it("schedules the whole season", () => {
+    expect(report.unscheduled).toBe(0);
+    expect(games.length).toBe(69);
+    for (const t of report.gamesPerTeam) expect(t.count).toBe(23);
+  });
+
+  it("keeps no team far worse off than the rest on ice time", () => {
+    // The floor measured by an exhaustive solver is 4. Assert the bound, not the
+    // floor: pinning 4 would be asserting search luck.
+    expect(report.spacing.slotClusterWorstTeam).toBeLessThanOrEqual(6);
+  });
+
+  it("buys that without giving up back-to-backs or runs", () => {
+    expect(report.spacing.slotConsecutive).toBeLessThanOrEqual(6);
+    expect(report.spacing.slotStreak3).toBe(0);
+    expect(report.spacing.rematchAdjNight).toBe(0);
+    expect(report.spacing.rematchConsecWeek).toBe(0);
+  });
+
+  it("still gives every team an even share of the three ice times", () => {
+    for (const s of report.slotShareByTeam) {
+      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(1);
+    }
+  });
+});
