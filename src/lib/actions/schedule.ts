@@ -890,6 +890,27 @@ export async function publishSchedule(
     });
   }
 
+  // ⛔ THE ONE-WAY DOOR, RECORDED. A publish the manager was warned about is the
+  // only path here that locks a season against explicit advice not to, and it
+  // left no trace: a FIRST publish deletes nothing, so `replace_schedule` below
+  // never fires, and the reversible half of this feature (`redateDraftSchedule`)
+  // was audited while the irreversible half was not. Awaited for the same reason
+  // as the constraints clear above — this is the record of a decision nobody can
+  // reconstruct from the rows.
+  if (stale) {
+    await logAudit({
+      user_id: user.id,
+      action: "publish_stale_schedule",
+      entity_type: "season",
+      entity_id: seasonId,
+      old_data: {
+        first_night: stale.firstNight,
+        passed_nights: stale.passedNights,
+      },
+      new_data: { published_games: row.published },
+    });
+  }
+
   // A replace deletes live games, which is the most destructive thing a manager
   // can do here. A first publish deletes nothing and stays unaudited, matching
   // the bar the rest of games.ts sets.
@@ -996,6 +1017,27 @@ export async function redateDraftSchedule(
     return { ok: false, message: "There's no draft to move." };
   }
 
+  const stale = staleDraft({
+    games: startsOf(rows),
+    now: new Date().toISOString(),
+  });
+  // Re-derived here rather than taken from the form. The button's label is
+  // built from a render that may be minutes old, and this is a write: a second
+  // click on a draft another tab already moved must land on "nothing to do",
+  // not shift a good schedule another week into the future.
+  if (!stale) {
+    return {
+      ok: false,
+      message:
+        "This draft's first game hasn't been played over — nothing to move.",
+    };
+  }
+
+  // ⚠️ AFTER THE STALENESS CHECK, NOT BEFORE IT. Ordered the other way, an
+  // over-cap draft that is NOT stale was told to "discard it and generate again
+  // from a first game night that hasn't passed" — advice for a problem it does
+  // not have. Only reachable by a direct POST or a lost race, since the button
+  // renders only while stale, but the sentence was wrong when it appeared.
   // ⛔ SAID HERE, IN THE CALLER'S OWN TERMS, RATHER THAN LET THROUGH TO THE
   // WRITE PATH'S CEILING. `checkWrites` refuses a batch over MAX_GAME_WRITES
   // with "That plan changes N games, which is more than this can apply in one
@@ -1012,22 +1054,6 @@ export async function redateDraftSchedule(
     return {
       ok: false,
       message: `This draft holds ${rows.length} games, more than the ${MAX_GAME_WRITES} one move can rewrite at once. Discard it and generate again from a first game night that hasn't passed.`,
-    };
-  }
-
-  const stale = staleDraft({
-    games: startsOf(rows),
-    now: new Date().toISOString(),
-  });
-  // Re-derived here rather than taken from the form. The button's label is
-  // built from a render that may be minutes old, and this is a write: a second
-  // click on a draft another tab already moved must land on "nothing to do",
-  // not shift a good schedule another week into the future.
-  if (!stale) {
-    return {
-      ok: false,
-      message:
-        "This draft's first game hasn't been played over — nothing to move.",
     };
   }
 

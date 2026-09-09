@@ -98,14 +98,34 @@ export function PublishControls({
   // `key` on the call site in schedule-builder-panel.tsx, or reintroduce an
   // explicit reset, if that assumption ever stops holding.
   //
-  // ⚠️ The key also carries the stale night for the same reason: moving the
-  // draft forward leaves this component mounted with the dialog open and its
-  // warning no longer true. Remounting closes it, and the manager sees the
-  // section as it now stands.
-  const dialogOpen = open && !state?.ok;
+  // ⛔ THE STALE NIGHT IS NOT IN THAT KEY, AND MUST NOT BE — see the call site's
+  // own note. It was for one revision and silently swallowed the refusal toast.
+  // The reset below is what closes a dialog whose reason has gone away.
 
   const range = liveRange ? ` (${liveRange})` : "";
   const confirms = destructive || !!stale;
+
+  // ⛔ RESET WHEN THE REASON FOR CONFIRMING GOES AWAY, AND DURING RENDER RATHER
+  // THAN IN AN EFFECT. `open` is only ever set true by the trigger and is never
+  // cleared, which is safe as long as a successful publish unmounts this
+  // component under a fresh `key`. A RE-DATE is the case that does not: `stale`
+  // goes null, the render forks back to a plain button below, and `<Dialog>`
+  // unmounts WITHOUT Radix firing `onOpenChange` — leaving `open` stuck true, so
+  // a later render where `stale` is non-null again (time passes the new
+  // face-off, a server action revalidates) re-derives `dialogOpen` true and
+  // opens the confirm with nobody having clicked.
+  //
+  // ⚠️ This is React's documented "adjust state when a prop changes" pattern,
+  // not a stylistic choice: the same reset written as `useEffect(() =>
+  // setOpen(false))` trips `Calling setState synchronously within an effect can
+  // trigger cascading renders` — an eslint ERROR, and CI now runs lint.
+  const [wasConfirming, setWasConfirming] = useState(confirms);
+  if (wasConfirming !== confirms) {
+    setWasConfirming(confirms);
+    if (!confirms) setOpen(false);
+  }
+
+  const dialogOpen = open && !state?.ok;
 
   if (!confirms) {
     return (
