@@ -407,8 +407,17 @@ status line at the top of this file.
 ## Acceptance for the whole change
 
 ✅ **BAR 1 IS MET FOR ROSTERS-ONLY.** Run against a real esportsdesk source by
-the maintainer on 2026-09-09, and it worked: `runRosterOnlyImport` end to end,
-including the redirect into `/<slug>/seasons`.
+the maintainer on 2026-09-09: `runRosterOnlyImport` end to end, including the
+redirect into `/<slug>/seasons`.
+
+⛔ **And it did not pass cleanly — it exposed a silent data loss on the first
+try.** The roster parser required a jersey *number*; esportsdesk prints an
+unnumbered player's as `-`, so those rows matched nothing and the players were
+dropped with no error and no entry in `problems[]`. 9 players were missing from a
+league that had already been imported and looked correct. Fixed in PR #60.
+⚠️ **Note where it was: the parser** — the one layer every test in this change
+deliberately stubs. The shortfall machinery this spec spent four review rounds
+building cannot see a row the parser never produced.
 
 ⛔ **It is NOT met for a full migration.** `runEsportsdeskImport` adds the
 schedule block, the stats block and the `notes[]` shortfall machinery, and none

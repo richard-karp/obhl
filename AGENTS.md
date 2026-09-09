@@ -54,10 +54,20 @@ fetch and the database deliberately, and both e2e import specs stop at the form
 review rounds found six bugs in that path, four of them after a previous fix had
 "closed" it, and it creates a **public league with no delete UI**.
 
-✅ **Rosters-only HAS been run against a real esportsdesk source and worked**
-(the maintainer, 2026-09-09): `runRosterOnlyImport` — the parser, the team loop,
-`problems[]`, and the redirect into `/<slug>/seasons`. ⛔ **The FULL migration
-has not.** `runEsportsdeskImport` adds the schedule block, the stats block and
+✅ **Rosters-only HAS been run against a real esportsdesk source** (the
+maintainer, 2026-09-09): `runRosterOnlyImport` — the team loop, `problems[]`, and
+the redirect into `/<slug>/seasons` all work.
+
+⛔ **AND THAT RUN IMMEDIATELY FOUND A SILENT DATA LOSS THE UNIT TESTS COULD NOT
+— in the parser, which they stub.** The roster regex required a jersey *number*,
+and esportsdesk prints an unnumbered player's as `-`, so those rows matched
+nothing and the players vanished with no error and no shortfall: 9 lost from a
+league that had already been imported and looked fine, 83 from an all-unnumbered
+one. Fixed in PR #60. **This is the argument for the gate above** — six review
+rounds and 26 unit tests never touched it, because every one of them stubbed the
+parser out.
+
+⛔ **The FULL migration has not been run.** `runEsportsdeskImport` adds the schedule block, the stats block and
 the `notes[]` machinery on top, and none of that has met a real source. Treat a
 change to those as unverified. Steps:
 `docs/superpowers/specs/2026-09-08-league-creation-at-the-root-design.md`, under
