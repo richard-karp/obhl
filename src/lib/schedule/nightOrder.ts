@@ -46,7 +46,7 @@ export function improveNightOrder(
 ): number[] {
   const identity = Array.from({ length: nightCount }, (_, i) => i);
   if (nightCount < 3) return identity;
-  const { seed = 1, restarts = 4, steps = 6_000 } = opts ?? {};
+  const { seed = 1, restarts = 4, steps = 1_500 } = opts ?? {};
 
   const baseline = score(identity);
   let best = identity;

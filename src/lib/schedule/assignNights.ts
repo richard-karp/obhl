@@ -171,7 +171,7 @@ const SLOT_CANDIDATES: { streak3W: number; seed: number }[] = [
  * Roughly how long a full generate takes, for the progress indicator in the
  * schedule builder. Phase S dominates — every candidate above gets the whole
  * slot budget — so the estimate is that product plus a flat allowance for the
- * phases either side of it.
+ * phases either side of it, plus the night-order clustering pass below.
  *
  * Typical, NOT a bound: Phase P alone may spend solve(4_000) plus a 3 s plateau
  * sweep on a hard league. The allowance is sized against the ~1.3 s measured on
@@ -181,8 +181,22 @@ const SLOT_CANDIDATES: { streak3W: number; seed: number }[] = [
  * automatically — that has already happened once.
  */
 const PHASE_PM_ALLOWANCE_MS = 1_500;
+// `improveNightOrder`'s post-pass (gated to unconstrained generations — see the
+// call site below), tuned `restarts`/`steps` in `nightOrder.ts` down from 4/6000
+// to 4/1500 on 2026-09-09 specifically to keep this term small: at 4/6000 it
+// added ~5.4 s to the 8-team reference generate (26.3 s → 31.7 s), and at
+// 4/1500 it adds ~1.4 s (26.3 s → 27.6–27.7 s, measured three times) while still
+// reaching the same `slotClusterWorstTeam` of 4 on the 6-team/1-weeknight/3-slot
+// fixture (asserted <= 6) that 4/6000 reached — dropping further to steps=1000
+// or restarts=2/3 measurably breaks that bound (worst team jumps to 8). The
+// allowance rounds the measured ~1.4 s up the same way `PHASE_PM_ALLOWANCE_MS`
+// rounds its ~1.3 s. See `.superpowers/sdd/2026-09-09-ice-time-clustering/task-4-report.md`
+// for the full tuning table.
+const NIGHT_ORDER_ALLOWANCE_MS = 1_500;
 export const estimatedGenerateMs = () =>
-  SLOT_CANDIDATES.length * SLOT_BUDGET_MS + PHASE_PM_ALLOWANCE_MS;
+  SLOT_CANDIDATES.length * SLOT_BUDGET_MS +
+  PHASE_PM_ALLOWANCE_MS +
+  NIGHT_ORDER_ALLOWANCE_MS;
 
 /** Phase P jitter seeds to sample the bye-optimal plateau with, and the wall
  * clock the sampling may spend. Fixed and ordered, so the schedule stays
