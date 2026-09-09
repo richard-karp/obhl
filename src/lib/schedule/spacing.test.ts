@@ -477,3 +477,41 @@ describe("iceOutcome", () => {
     expect(out.seasonSpread).toBe(seasonSpread);
   }, 30_000);
 });
+
+describe("ice-time clustering", () => {
+  // Two teams, one game a week, so each team's slot sequence is exactly the
+  // list below. 6 games => two 5-game windows per team.
+  const seasonOf = (slots: number[]) => {
+    const nights = slots.map((_, i) => ({
+      date: new Date(Date.UTC(2026, 8, 1) + i * 7 * 86400000)
+        .toISOString()
+        .slice(0, 10),
+      slots: ["19:00", "20:15", "21:30"],
+    }));
+    const games = slots.map((s, i) => ({
+      home: "t1",
+      away: "t2",
+      nightIndex: i,
+      slotIndex: s,
+    }));
+    return spacingReport(games, nights, ["t1", "t2"]);
+  };
+
+  it("counts a window where one ice time takes 3 of 5 games", () => {
+    // windows: [2,2,2,0,1] -> three 2s, and [2,2,0,1,2] -> three 2s.
+    const r = seasonOf([2, 2, 2, 0, 1, 2]);
+    expect(r.slotClusterWorstTeam).toBe(2);
+    expect(r.slotClusterWindows).toBe(4); // both teams, both windows
+  });
+
+  it("counts nothing when the team rotates through the ice times", () => {
+    const r = seasonOf([0, 1, 2, 0, 1, 2]);
+    expect(r.slotClusterWorstTeam).toBe(0);
+    expect(r.slotClusterWindows).toBe(0);
+  });
+
+  it("ignores a season too short to hold a window", () => {
+    const r = seasonOf([2, 2, 2, 2]);
+    expect(r.slotClusterWindows).toBe(0);
+  });
+});
