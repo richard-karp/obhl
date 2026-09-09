@@ -192,6 +192,35 @@ are fixed; see §3. What follows are choices, not oversights.
   reordering the finished plan's nights, which carries each night's games and ice
   times together. See the spec for the measurements before trying either dead
   route again.
+  - **A third route was spiked and is also dead as stated (2026-09-09): steering
+    Phase M by tie-break.** `descend` picks with a strict `<`, so ties keep the
+    first candidate index, which looks like the obvious cause of the cycle. It is
+    not. Randomising the tie-break — with a counter confirming **232 ties are
+    genuinely hit and broken**, and the seed verified to reach `assignMatchups`
+    (8 calls, one per sampled participation matrix) — returns a **byte-identical
+    schedule** on every seed. The cycle is a strong attractor of Phase M's
+    objective, not a tie it happens to land on.
+  - **A weighted anti-periodicity term DOES work, and the weight it needs is the
+    warning.** Penalising a night for taking a matching already used within ±6
+    nights: 0 through 60_000 change nothing at all; **100_000 breaks the cycle**
+    (14 distinct matchup-sets instead of 5), taking the 6-team/23-night worst
+    team 14 → 7 with `rematchAdjNight`/`ConsecWeek`/`SameWeek` all still 0,
+    meetings/pair still 4-5, and `slotConsecutive` 6 → 5. Note the cliff is NOT
+    "above `MULT_W`" — 60_000 is above it and does nothing. Breaking the cycle
+    needs a *coordinated multi-night* change, because switching one night alone
+    breaks meeting counts and costs `MULT_W`; a weight only wins by being large
+    enough to buy a transiently-invalid state and trust the descent to repair it.
+    ⛔ **That is the same structure as `WD_SPLIT_W` below, and it has the same
+    answer: build a compound pass, do not ship a bigger number.** A term that
+    works by overpowering opponent balance is a loaded gun on a shape where the
+    repair does not land.
+  - **Where the value actually is.** Phase M alone reaches 7, which is *worse*
+    than the 4 the night-order pass already gets, so this is not an upgrade for
+    unconstrained seasons on its own. The prize is **constrained** seasons: the
+    night-order pass is gated off entirely when any constraint is set, so they
+    keep the full worst-team 14 today. A Phase M fix needs no post-hoc
+    relabelling, so pins stay valid by construction — which is exactly why the
+    night-order pass had to be gated in the first place.
 - **12+ teams playing per night**: Phase M declines. `planByWeeks` already
   produces a perfect schedule for that shape, so nothing is lost — but a league
   that grows into a case where it *doesn't* would need Phase M to handle larger
