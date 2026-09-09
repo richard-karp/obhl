@@ -176,3 +176,32 @@ metric worse than it is today.
   never touches a game's home/away, so `homeAway`'s work is carried through
   untouched. (That caveat was written against the dead round-reordering route,
   where it did apply.)
+
+## Tuning the pass (measured 2026-09-09)
+
+`improveNightOrder`'s `restarts`/`steps` were swept on the 8-team reference
+season (generate wall-clock) against the 6-team/1-weeknight/3-slot fixture
+(quality). Baseline with the pass present but doing no search: 26.26 s generate,
+`slotClusterWorstTeam` 14/14/14 — matching the pre-branch number.
+
+| restarts | steps | 8-team generate | added | 6-team `slotClusterWorstTeam` (3 runs) | verdict |
+|---|---|---|---|---|---|
+| 4 | 6,000 | 31.56–31.77 s | ~5.4 s | 4, 4, 4 | too slow |
+| 2 | 6,000 | 28.93 s | 2.67 s | 6, 6, 6 | passes with zero margin |
+| 4 | 3,000 | 28.98 s | 2.72 s | 4, 4, 4 | full quality, still > 2 s |
+| 4 | 2,000 | 28.11 s | 1.85 s | 4, 4, 4 | full quality, at target |
+| **4** | **1,500** | **27.62–27.67 s** | **~1.4 s** | **4, 4, 4** | **chosen** |
+| 4 | 1,000 | 27.20 s | 0.94 s | 8, 8, 8 | breaks the ≤ 6 bound |
+| 3 | 1,500 | 27.34 s | 1.08 s | 8, 8, 8 | breaks the ≤ 6 bound |
+| 2 | 1,500 | 27.02 s | 0.76 s | 8 | breaks the ≤ 6 bound |
+
+⚠️ **There is a cliff here, not a slope.** Between `steps` 1,500 and 1,000 the
+quality collapses straight from 4 to 8 — no setting was found holding an
+intermediate value. So `4/1500` is simultaneously the cheapest and the
+highest-margin option on this fixture rather than a compromise, and shaving
+`steps` further to save a second does not buy a slightly worse schedule, it
+buys the pre-branch one. Re-measure the whole table rather than nudging a
+number if this is ever revisited.
+
+`NIGHT_ORDER_ALLOWANCE_MS` (1_500) rounds the measured ~1.4 s up, the same
+convention `PHASE_PM_ALLOWANCE_MS` already uses for its own ~1.3 s.

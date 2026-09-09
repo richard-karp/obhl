@@ -204,8 +204,9 @@ const PHASE_PM_ALLOWANCE_MS = 1_500;
 // fixture (asserted <= 6) that 4/6000 reached — dropping further to steps=1000
 // or restarts=2/3 measurably breaks that bound (worst team jumps to 8). The
 // allowance rounds the measured ~1.4 s up the same way `PHASE_PM_ALLOWANCE_MS`
-// rounds its ~1.3 s. See `.superpowers/sdd/2026-09-09-ice-time-clustering/task-4-report.md`
-// for the full tuning table.
+// rounds its ~1.3 s. The full sweep, and the quality CLIFF between steps 1500 and
+// 1000 (worst team 4 -> 8, with nothing in between), are in
+// `docs/superpowers/specs/2026-09-09-ice-time-clustering-design.md`.
 const NIGHT_ORDER_ALLOWANCE_MS = 1_500;
 /**
  * `constrained` mirrors the pass's own gate (`!resolved.empty` at the call site
