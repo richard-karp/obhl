@@ -890,6 +890,10 @@ current URL space.
 ## 5 — Smaller, deliberately deferred
 
 - **The deferred code gaps and IA approach C** — ✅ **ALL RESOLVED 2026-09-09**, and that worklist is now a record rather than a queue → `docs/worklists/2026-09-07-9466c507-deferred-code-work.md`. Item 1 shipped as PR #46; items 2, 5 and 6 as PRs #49, #53/#54 and #48; item 4 was CLOSED as no-change (the divergence is deliberate and documented); item 7's spec is PR #50 and its blocker shipped as #52. ⛔ **Item 3 (a clock-shifted CI run) is the single exception — PR #51, still open**, because GitHub refuses a workflow-file change from an OAuth app without `workflow` scope. ⚠️ That file supersedes _From the sixth review of #24_ below for items 4-6.
+  📄 **The merge itself, and why #51 and #47 are in odd states →**
+  `docs/worklists/2026-09-09-c1a35e-deferred-work-merged.md` (70 lines). It is a
+  record, not a queue — read it only if you are wondering why #51 will not merge,
+  or before trusting a unit-test count from any branch.
 
 ### ⛔ FIRST POST-LAUNCH JOB — the schedule-write RPC (decided 2026-09-06)
 
