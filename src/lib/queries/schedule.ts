@@ -324,9 +324,21 @@ const READ_RETRY_DELAY_MS = 150;
  * ⛔ TAKES A FACTORY, NOT A BUILDER. A PostgREST builder is a thenable that
  * fires its request when awaited; the retry has to construct a fresh one rather
  * than await a spent object.
+ *
+ * ⚠️ EXPORTED, because `publishSchedule` reads the draft's dates before it
+ * calls the terminal RPC and that read fails closed — so a single 502 there
+ * turns a publish into a refusal, which is precisely the blip measured on this
+ * project. Same safety argument: it is a GET, and running it twice is
+ * indistinguishable from running it once.
  */
-async function readWithOneRetry<T extends { error: unknown }>(
+export async function readWithOneRetry<T extends { error: unknown }>(
   run: () => PromiseLike<T>,
+  /**
+   * Which read is retrying, for the log line below. Defaults to this file's own
+   * caller so the seven reads in `getPublishState` keep the exact message CI's
+   * diagnostics step greps for.
+   */
+  label = "publish state read",
 ): Promise<T> {
   const first = await run();
   if (!first.error) return first;
@@ -342,7 +354,7 @@ async function readWithOneRetry<T extends { error: unknown }>(
   // second try and the builder rendered normally, so anything watching stderr
   // for genuine failures should not see this one.
   console.warn(
-    "publish state read retried:",
+    `${label} retried:`,
     (first.error as { message?: string })?.message ?? String(first.error),
   );
 

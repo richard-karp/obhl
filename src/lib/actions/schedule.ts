@@ -10,6 +10,11 @@ import { assignNights } from "@/lib/schedule/assignNights";
 import { enumerateNights } from "@/lib/schedule/capacity";
 import { isPastGameNight } from "@/lib/schedule/startDate";
 import {
+  shiftDateByWeeks,
+  staleDraft,
+  type StaleDraft,
+} from "@/lib/schedule/staleDraft";
+import {
   planOneOff,
   planRepair,
   checkOneOffWrite,
@@ -22,6 +27,7 @@ import {
 import {
   getScheduleConstraints,
   getSeasonNights,
+  readWithOneRetry,
   type SeasonNight,
 } from "@/lib/queries/schedule";
 import { checkNightMove, moveNightTo } from "@/lib/schedule/nights";
@@ -29,6 +35,7 @@ import { checkNightMove, moveNightTo } from "@/lib/schedule/nights";
 // exported from here: every export of a `"use server"` module becomes a
 // client-callable server action, and this one takes an admin client.
 import { writeGames } from "@/lib/schedule/writeGames";
+import { MAX_GAME_WRITES } from "@/lib/schedule/gameWrites";
 import {
   constraintConflicts,
   describeConstraint,
@@ -702,6 +709,65 @@ function revalidateAfterPublish() {
 }
 
 /**
+ * The draft's game nights measured against today, or `null` when it starts
+ * today or later.
+ *
+ * ⛔ WHY THIS IS READ AT PUBLISH AT ALL, given `isPastGameNight`'s docstring
+ * argues against checking the date here. It argues against REFUSING here, and
+ * it is right: a manager who typed a past date into the generate form must hear
+ * about it while they can still act on it cheaply, not after they have reviewed
+ * a draft. That covers the date the draft was MADE with. It cannot cover a
+ * draft made with a perfectly good future date and published after that date
+ * has passed — the rebuild workflow, generate early in the week and publish
+ * later, walks through that window every time it is used.
+ *
+ * So this reads, and its caller warns. Neither refuses on the date alone.
+ *
+ * `"unreadable"` is its own answer, not folded into `null`: publishing is a
+ * one-way door, and treating a failed read as "not stale" would put the one
+ * check standing between a manager and a permanently locked season on the
+ * happy path only.
+ */
+async function staleDraftFor(
+  admin: Admin,
+  seasonId: string,
+): Promise<StaleDraft | null | "unreadable"> {
+  const { rows, error } = await readDraftGames(admin, seasonId);
+  if (error) {
+    console.error("draft date read failed:", error);
+    return "unreadable";
+  }
+  return staleDraft({ games: startsOf(rows), now: new Date().toISOString() });
+}
+
+/**
+ * Every draft game in the season, id and time, oldest first.
+ *
+ * ⛔ RETRIED ONCE, LIKE EVERY READ IN `getPublishState` AND FOR THE SAME
+ * MEASURED REASON. A Kong 502 is a valid HTTP response, so nothing below this
+ * retries it — and this read fails closed on the publish path, so absorbing one
+ * blip is the difference between a publish that goes through and a manager told
+ * their schedule did not go live.
+ */
+async function readDraftGames(admin: Admin, seasonId: string) {
+  const { data, error } = await readWithOneRetry(
+    () =>
+      admin
+        .from("games")
+        .select("id, scheduled_at")
+        .eq("season_id", seasonId)
+        .eq("is_draft", true)
+        .order("scheduled_at", { ascending: true }),
+    "draft dates read",
+  );
+  return { rows: data ?? [], error: error?.message ?? null };
+}
+
+/** The games that carry a time. An undated row has no start to compare. */
+const startsOf = (rows: { scheduled_at: string | null }[]): string[] =>
+  rows.flatMap((g) => (g.scheduled_at ? [g.scheduled_at] : []));
+
+/**
  * Publish the draft schedule, replacing whatever is already live.
  *
  * The delete and the promotion happen inside `replace_published_schedule` so
@@ -724,6 +790,39 @@ export async function publishSchedule(
   );
   if (!target) return { ok: false, message: "No season selected." };
   const { seasonId, manager: user } = target;
+
+  // ⛔ A DRAFT THAT AGED BETWEEN GENERATE AND PUBLISH — the one case neither
+  // end was checking. See `staleDraftFor` for why the check belongs here and
+  // the refusal does not.
+  //
+  // ⚠️ A WARNING WITH AN ACKNOWLEDGEMENT, NOT A REFUSAL, and the difference is
+  // deliberate. Publishing a schedule whose first night has passed is a real
+  // thing to want: the games were played on Tuesday and the manager is
+  // publishing on Thursday, before entering the scores. What must not happen is
+  // publishing it *without knowing*, because it trips `season_is_started` on
+  // the spot and generate, replace and remove refuse from then on, permanently.
+  //
+  // `stale_ok` carries the first night the manager was actually warned about,
+  // so it cannot be a blanket "yes": a tab that warned about a night the draft
+  // no longer starts on — because another tab regenerated or re-dated it — is
+  // refused again and re-renders with the warning it should have shown.
+  const stale = await staleDraftFor(admin, seasonId);
+  if (stale === "unreadable") {
+    return {
+      ok: false,
+      message:
+        "Couldn't check the draft's dates, so nothing was published. Reload and try again.",
+    };
+  }
+  if (stale && String(formData.get("stale_ok") ?? "") !== stale.firstNight) {
+    revalidateAfterPublish();
+    return {
+      ok: false,
+      message: `This draft's first game night (${formatLongDate(
+        stale.firstNight,
+      )}) has already passed — publishing it would start the season in the past and lock it for good. Reload the builder to move the draft forward, or confirm from there.`,
+    };
+  }
 
   const { data, error } = await admin.rpc("replace_published_schedule", {
     p_season: seasonId,
@@ -791,6 +890,27 @@ export async function publishSchedule(
     });
   }
 
+  // ⛔ THE ONE-WAY DOOR, RECORDED. A publish the manager was warned about is the
+  // only path here that locks a season against explicit advice not to, and it
+  // left no trace: a FIRST publish deletes nothing, so `replace_schedule` below
+  // never fires, and the reversible half of this feature (`redateDraftSchedule`)
+  // was audited while the irreversible half was not. Awaited for the same reason
+  // as the constraints clear above — this is the record of a decision nobody can
+  // reconstruct from the rows.
+  if (stale) {
+    await logAudit({
+      user_id: user.id,
+      action: "publish_stale_schedule",
+      entity_type: "season",
+      entity_id: seasonId,
+      old_data: {
+        first_night: stale.firstNight,
+        passed_nights: stale.passedNights,
+      },
+      new_data: { published_games: row.published },
+    });
+  }
+
   // A replace deletes live games, which is the most destructive thing a manager
   // can do here. A first publish deletes nothing and stays unaudited, matching
   // the bar the rest of games.ts sets.
@@ -813,6 +933,227 @@ export async function publishSchedule(
       row.deleted > 0
         ? `Replaced the published schedule — removed ${row.deleted} games, published ${row.published}.`
         : `Published ${row.published} games.`,
+  };
+}
+
+export type RedateDraftState = { ok: boolean; message: string } | null;
+
+/**
+ * Move a whole draft forward by whole weeks, so a schedule that aged past its
+ * own first game night can still be published as the manager reviewed it.
+ *
+ * ⛔ WHOLE WEEKS, AND THAT IS THE FEATURE. A draft is matchups placed on
+ * particular weeknights in particular ice slots; the league booked Tuesdays at
+ * 19:00, 20:15 and 21:30, and nothing else. Shifting by an arbitrary number of
+ * days would put the season on ice nobody has, so the shift is the smallest
+ * whole number of weeks that puts the first night today or later — every
+ * weekday, every ice time, every matchup, bye and rematch gap preserved
+ * exactly. See `staleDraft`.
+ *
+ * ⚠️ WHAT IT CANNOT RE-CHECK, said here rather than discovered: the weeks off
+ * and holidays a manager excluded in the generate form are not stored anywhere
+ * — they are form fields, consumed by `enumerateNights` and gone — so a shifted
+ * night can land on a date the original generate deliberately skipped. The
+ * shifted dates all render in the builder's night list for exactly this reason.
+ * A manager who needs a different landing spot discards and regenerates.
+ *
+ * ⚠️ THE ALTERNATIVE TO THIS IS A REVIEWED DRAFT THE MANAGER CAN DO NOTHING
+ * WITH. `isPastGameNight` refuses a past date at generate specifically so that
+ * a manager is never left holding one; a stale draft with no way forward but
+ * "discard and start again" would recreate that failure at the other end.
+ *
+ * Nothing about participation changes — same teams, same opponents, same
+ * counts, only the calendar moves — so the repair engine has no part in this.
+ */
+export async function redateDraftSchedule(
+  _prev: RedateDraftState,
+  formData: FormData,
+): Promise<RedateDraftState> {
+  const admin = createAdminClient();
+  const target = await targetSeasonForManager(
+    admin,
+    String(formData.get("season_id") ?? ""),
+  );
+  if (!target) return { ok: false, message: "No season selected." };
+  const { seasonId, manager } = target;
+
+  // A started season can never publish this draft, so moving it would be a
+  // write with no outcome. Same gate, same fail-closed reading of it, as
+  // generate: an unreadable gate is not permission.
+  const { data: startedGuard, error: startedError } = await admin.rpc(
+    "season_is_started",
+    { p_season: seasonId },
+  );
+  if (startedError) {
+    return {
+      ok: false,
+      message:
+        "Couldn't check whether the season has started — nothing was changed.",
+    };
+  }
+  if (startedGuard !== false) {
+    return {
+      ok: false,
+      message: "The season is under way — its draft can no longer be moved.",
+    };
+  }
+
+  // The season's end rides along on the same round trip. It changes nothing
+  // about whether the move happens — see the note where the message is built —
+  // so it is read here rather than adding a second await to the happy path.
+  const [{ rows, error }, season] = await Promise.all([
+    readDraftGames(admin, seasonId),
+    admin.from("seasons").select("ends_on").eq("id", seasonId).maybeSingle(),
+  ]);
+  if (error) {
+    console.error("draft read failed:", error);
+    return {
+      ok: false,
+      message:
+        "Couldn't read the draft, so nothing was moved. Reload and try again.",
+    };
+  }
+  if (rows.length === 0) {
+    return { ok: false, message: "There's no draft to move." };
+  }
+
+  const stale = staleDraft({
+    games: startsOf(rows),
+    now: new Date().toISOString(),
+  });
+  // Re-derived here rather than taken from the form. The button's label is
+  // built from a render that may be minutes old, and this is a write: a second
+  // click on a draft another tab already moved must land on "nothing to do",
+  // not shift a good schedule another week into the future.
+  if (!stale) {
+    return {
+      ok: false,
+      message:
+        "This draft's first game hasn't been played over — nothing to move.",
+    };
+  }
+
+  // ⚠️ AFTER THE STALENESS CHECK, NOT BEFORE IT. Ordered the other way, an
+  // over-cap draft that is NOT stale was told to "discard it and generate again
+  // from a first game night that hasn't passed" — advice for a problem it does
+  // not have. Only reachable by a direct POST or a lost race, since the button
+  // renders only while stale, but the sentence was wrong when it appeared.
+  // ⛔ SAID HERE, IN THE CALLER'S OWN TERMS, RATHER THAN LET THROUGH TO THE
+  // WRITE PATH'S CEILING. `checkWrites` refuses a batch over MAX_GAME_WRITES
+  // with "That plan changes N games, which is more than this can apply in one
+  // go" — a true sentence about an internal batch limit, offered to a manager
+  // whose only question is what to do now. A draft this size is reachable (the
+  // generate form takes up to 200 games per team and the insert has no cap), and
+  // the honest answer is that this button cannot help them.
+  //
+  // ⚠️ NOT CHUNKED, deliberately. Splitting the move across transactions trades
+  // a refusal for the chance of a half-moved season — some nights in the past,
+  // some in the future, and no single thing to undo. That is strictly worse
+  // than saying so.
+  if (rows.length > MAX_GAME_WRITES) {
+    return {
+      ok: false,
+      message: `This draft holds ${rows.length} games, more than the ${MAX_GAME_WRITES} one move can rewrite at once. Discard it and generate again from a first game night that hasn't passed.`,
+    };
+  }
+
+  // Night by night, each to the same date `weeks` on. `moveNightTo` is what
+  // keeps this a WALL-CLOCK move rather than an instant one: a game on the ice
+  // at 19:00 is on the ice at 19:00 on the new date, whichever side of the DST
+  // boundary either falls on.
+  const byNight = new Map<
+    string,
+    { id: string; scheduledAt: string | null }[]
+  >();
+  for (const g of rows) {
+    if (!g.scheduled_at) continue;
+    const date = leagueDateKey(g.scheduled_at);
+    (byNight.get(date) ?? byNight.set(date, []).get(date)!).push({
+      id: g.id,
+      scheduledAt: g.scheduled_at,
+    });
+  }
+  const moves = [...byNight.entries()].flatMap(([date, games]) =>
+    moveNightTo(games, shiftDateByWeeks(date, stale.weeks)),
+  );
+  if (moves.length !== rows.length) {
+    // A draft game with no time on it. The generator gives every game one and
+    // only a postponed game clears it, which cannot happen to a draft — so this
+    // is a fail-closed floor, not a path. Moving the dated half of a schedule
+    // and silently leaving the rest behind is the wrong answer to it.
+    return {
+      ok: false,
+      message:
+        "This draft has a game with no time on it — discard it and generate again.",
+    };
+  }
+
+  const problem = await writeGames(
+    admin,
+    seasonId,
+    manager.id,
+    "redate_draft_schedule",
+    moves.map((m) => ({
+      id: m.id,
+      next: { scheduled_at: m.scheduledAt },
+      expectScheduledAt: m.from,
+      prev: { scheduled_at: m.from },
+    })),
+    ["scheduled"],
+    // ⛔ DRAFT ROWS ONLY. A season in "replace" mode holds a live schedule and a
+    // draft at once, and every id here came from a draft-scoped read — but this
+    // write moves a whole season's worth of dates, and an unscoped write that
+    // ever did reach a published row would move games teams have in their
+    // calendars. Scoped, so it cannot.
+    true,
+  );
+  if (problem) return { ok: false, message: problem };
+
+  await logAudit({
+    user_id: manager.id,
+    action: "redate_draft_schedule",
+    entity_type: "season",
+    entity_id: seasonId,
+    old_data: { first_night: stale.firstNight, games: moves.length },
+    new_data: { first_night: stale.shiftedFirstNight, weeks: stale.weeks },
+  });
+
+  // The draft shows on the builder and on the season setup hub, and nowhere
+  // else — a draft is invisible to the public schedule and the feeds until it
+  // is published.
+  revalidatePath("/[league]/schedule-builder", "page");
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
+
+  // ⚠️ REPORTED, NOT REFUSED, and the asymmetry with `checkNightMove` is
+  // deliberate. That guard refuses moving a PUBLISHED night past `ends_on`
+  // because a live schedule is a promise to teams. A draft is not published at
+  // all, and the builder already lets a manager publish one that overruns —
+  // `overrunsSeason` in the panel only warns — so refusing the move here would
+  // be stricter than the publish it exists to enable, and would leave a stale
+  // draft with no way forward but discard. The manager gets told instead.
+  //
+  // A failed season read costs the sentence, not the move: the panel derives
+  // the same overrun banner from its own read, so nothing goes unsaid.
+  if (season.error) {
+    console.error("season end read failed:", season.error.message);
+  }
+  const lastNight = [...byNight.keys()].sort().at(-1);
+  const overruns =
+    !!season.data?.ends_on &&
+    !!lastNight &&
+    shiftDateByWeeks(lastNight, stale.weeks) > season.data.ends_on;
+
+  return {
+    ok: true,
+    message:
+      `Moved the draft forward ${stale.weeks} week${
+        stale.weeks === 1 ? "" : "s"
+      } — it now starts ${formatLongDate(stale.shiftedFirstNight)}.` +
+      (overruns
+        ? ` It now runs past the season's end (${formatLongDate(
+            season.data!.ends_on,
+          )}) — extend the season or shorten the schedule.`
+        : ""),
   };
 }
 
