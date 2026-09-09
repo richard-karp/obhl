@@ -28,12 +28,34 @@ function admin() {
  * the date; a spec that repeats it can disagree with the fixture it runs against.
  */
 async function fallStart(): Promise<string> {
-  const { data } = await admin()
+  const db = admin();
+  const { data: league, error: le } = await db
+    .from("leagues")
+    .select("id")
+    .eq("slug", "obhl")
+    .single();
+  // ⛔ FAIL BY NAME, LIKE `expectGenerateFormUsable`. `data!.starts_on` on an
+  // empty read threw "Cannot read properties of null", which then surfaced as
+  // the failure of EVERY test in this file with nothing pointing at the fixture.
+  // And scoped to the league: both leagues carry a "Spring 2026", so an
+  // unscoped `.single()` breaks the moment a second one reuses "Fall 2026".
+  if (le || !league) {
+    throw new Error(`Seed has no 'obhl' league: ${le?.message ?? "not found"}`);
+  }
+  const { data, error } = await db
     .from("seasons")
     .select("starts_on")
+    .eq("league_id", league.id)
     .eq("name", "Fall 2026")
     .single();
-  return data!.starts_on as string;
+  if (error || !data) {
+    throw new Error(
+      `Seed has no Fall 2026 season in obhl — check supabase/seed.sql: ${
+        error?.message ?? "not found"
+      }`,
+    );
+  }
+  return data.starts_on as string;
 }
 
 /**
@@ -262,7 +284,9 @@ test.describe("Path 24 — schedule constraints", () => {
     await page.getByRole("button", { name: "Add request" }).click();
 
     await expect(
-      requestList(page).filter({ hasText: `${name} byes on ${await fallStart()}` }),
+      requestList(page).filter({
+        hasText: `${name} byes on ${await fallStart()}`,
+      }),
     ).toBeVisible();
 
     await page
@@ -270,7 +294,9 @@ test.describe("Path 24 — schedule constraints", () => {
       .first()
       .click();
     await expect(
-      requestList(page).filter({ hasText: `${name} byes on ${await fallStart()}` }),
+      requestList(page).filter({
+        hasText: `${name} byes on ${await fallStart()}`,
+      }),
     ).toHaveCount(0);
   });
 
@@ -296,7 +322,9 @@ test.describe("Path 24 — schedule constraints", () => {
     await page.getByLabel("Date", { exact: true }).fill(await fallStart());
     await page.getByRole("button", { name: "Add request" }).click();
     await expect(
-      requestList(page).filter({ hasText: `${name} byes on ${await fallStart()}` }),
+      requestList(page).filter({
+        hasText: `${name} byes on ${await fallStart()}`,
+      }),
     ).toBeVisible();
 
     await firstTeamName(page);
@@ -304,7 +332,9 @@ test.describe("Path 24 — schedule constraints", () => {
     await page.getByLabel("Date", { exact: true }).fill(await fallStart());
     await page.getByRole("button", { name: "Add request" }).click();
     await expect(
-      requestList(page).filter({ hasText: `${name} plays on ${await fallStart()}` }),
+      requestList(page).filter({
+        hasText: `${name} plays on ${await fallStart()}`,
+      }),
     ).toBeVisible();
 
     await page.getByLabel("First game night").fill(await fallStart());

@@ -315,8 +315,9 @@ test.describe("Path 27 — changing a live schedule", () => {
 
     // A free date. ⚠️ NOT because of its weekday — that reason is wrong and
     // cost a reviewer a false finding on 2026-09-07. `YEAR` floats with the
-    // clock, so June 16 lands on a Tue or Thu in 2033, 2037, 2039, 2041 and
-    // 2042. It is free because this fixture generates only 18 games from
+    // clock, so June 16 lands on a Tue or Thu in 2033, 2037, 2039, 2043 and
+    // 2044 (an earlier revision of this comment said 2041 and 2042; those are a
+    // Sunday and a Monday). It is free because this fixture generates only 18 games from
     // `FIRST_NIGHT` (6 per team, 2 sheets = 9 nights), which run Jan 11 to
     // Feb 3 — measured. June is four months past the last night, on every
     // weekday. If games_per_team ever grows enough to reach June, derive this

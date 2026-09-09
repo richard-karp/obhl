@@ -41,7 +41,7 @@ load-bearing:
 | ----------------- | ------------------ | ---------------------------------------------------- | --------------------- |
 | Spring (league 1) | 15 games, 10 final | scoring, standings, recap, cancelled-game visibility | `current_date − 120d` |
 | Spring (league 2) | 6 games, 4 final   | the second-league half of the same                   | `current_date − 119d` |
-| Fall 2026         | 1 game             | **unstarted**, generatable — the builder specs       | `current_date + 8d`   |
+| Fall 2026         | 0 games            | **unstarted**, generatable — the builder specs       | `date_trunc('week', current_date + 14) + 1` (+9…+15d) |
 
 Those 14 finalized games are what every scoring assertion runs against. Move
 Spring forward and the fixture holds results that have not happened yet. Fall is

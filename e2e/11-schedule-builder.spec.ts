@@ -23,12 +23,34 @@ function admin() {
  * the date; a spec that repeats it can disagree with the fixture it runs against.
  */
 async function fallStart(): Promise<string> {
-  const { data } = await admin()
+  const db = admin();
+  const { data: league, error: le } = await db
+    .from("leagues")
+    .select("id")
+    .eq("slug", "obhl")
+    .single();
+  // ⛔ FAIL BY NAME, LIKE `expectGenerateFormUsable`. `data!.starts_on` on an
+  // empty read threw "Cannot read properties of null", which then surfaced as
+  // the failure of EVERY test in this file with nothing pointing at the fixture.
+  // And scoped to the league: both leagues carry a "Spring 2026", so an
+  // unscoped `.single()` breaks the moment a second one reuses "Fall 2026".
+  if (le || !league) {
+    throw new Error(`Seed has no 'obhl' league: ${le?.message ?? "not found"}`);
+  }
+  const { data, error } = await db
     .from("seasons")
     .select("starts_on")
+    .eq("league_id", league.id)
     .eq("name", "Fall 2026")
     .single();
-  return data!.starts_on as string;
+  if (error || !data) {
+    throw new Error(
+      `Seed has no Fall 2026 season in obhl — check supabase/seed.sql: ${
+        error?.message ?? "not found"
+      }`,
+    );
+  }
+  return data.starts_on as string;
 }
 
 async function signedInAs(
@@ -231,8 +253,8 @@ test.describe("Path 17 — Schedule Builder", () => {
   test("generates a balanced draft with equal games per team", async ({
     page,
   }) => {
-    // These tests drive Fall 2026 (Sep 15 2026 – Mar 31 2027), not the active
-    // season — start on its first night. A date outside the window still
+    // These tests drive the Fall season, not the active one — start on its
+    // first night, which `fallStart()` reads from the seed rather than restating. A date outside the window still
     // generates (drafts aren't bounded by the season start), so this reads as
     // passing while drafting a schedule months before the season it belongs to.
 

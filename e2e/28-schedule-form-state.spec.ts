@@ -32,12 +32,34 @@ function admin() {
  * the date; a spec that repeats it can disagree with the fixture it runs against.
  */
 async function fallStart(): Promise<string> {
-  const { data } = await admin()
+  const db = admin();
+  const { data: league, error: le } = await db
+    .from("leagues")
+    .select("id")
+    .eq("slug", "obhl")
+    .single();
+  // ⛔ FAIL BY NAME, LIKE `expectGenerateFormUsable`. `data!.starts_on` on an
+  // empty read threw "Cannot read properties of null", which then surfaced as
+  // the failure of EVERY test in this file with nothing pointing at the fixture.
+  // And scoped to the league: both leagues carry a "Spring 2026", so an
+  // unscoped `.single()` breaks the moment a second one reuses "Fall 2026".
+  if (le || !league) {
+    throw new Error(`Seed has no 'obhl' league: ${le?.message ?? "not found"}`);
+  }
+  const { data, error } = await db
     .from("seasons")
     .select("starts_on")
+    .eq("league_id", league.id)
     .eq("name", "Fall 2026")
     .single();
-  return data!.starts_on as string;
+  if (error || !data) {
+    throw new Error(
+      `Seed has no Fall 2026 season in obhl — check supabase/seed.sql: ${
+        error?.message ?? "not found"
+      }`,
+    );
+  }
+  return data.starts_on as string;
 }
 
 async function signedInAsManager(page: Page) {
@@ -235,9 +257,7 @@ async function fillEverything(page: Page) {
   // Thursday landed in a later one.
   const monthsAhead = await skipMonthsAhead();
   for (let i = 0; i < monthsAhead; i++) {
-    await popover
-      .getByRole("button", { name: "Go to the Next Month" })
-      .click();
+    await popover.getByRole("button", { name: "Go to the Next Month" }).click();
   }
   // ⛔ EXCLUDE THE OUTSIDE DAYS, OR `.first()` CLICKS THE WRONG MONTH. The
   // calendar renders with `showOutsideDays` (the default in
@@ -276,7 +296,9 @@ test.describe("Path 26 — the generate form's state", () => {
     await expect(page.getByText("Balance report")).toBeVisible(AFTER_GENERATE);
 
     // Uncontrolled inputs.
-    await expect(page.getByLabel("First game night")).toHaveValue(await fallStart());
+    await expect(page.getByLabel("First game night")).toHaveValue(
+      await fallStart(),
+    );
     await expect(page.getByLabel("Games per team")).toHaveValue("4");
     await expect(page.getByLabel(/Ice-time slots/)).toHaveValue(SLOT_TIMES);
     await expect(
@@ -319,7 +341,9 @@ test.describe("Path 26 — the generate form's state", () => {
       .getAttribute("value");
     await teamSelect.selectOption(teamValue!);
     await page.getByLabel("Request", { exact: true }).selectOption("slot_on");
-    await page.getByLabel("Date", { exact: true }).fill(await aWeekIntoSeason());
+    await page
+      .getByLabel("Date", { exact: true })
+      .fill(await aWeekIntoSeason());
     await page.getByLabel("Ice time").fill("20:00");
     await page.getByRole("button", { name: "Add request" }).click();
 
@@ -327,7 +351,9 @@ test.describe("Path 26 — the generate form's state", () => {
     await expect(requestList(page)).toHaveCount(1);
 
     // …and took nothing with it.
-    await expect(page.getByLabel("First game night")).toHaveValue(await fallStart());
+    await expect(page.getByLabel("First game night")).toHaveValue(
+      await fallStart(),
+    );
     await expect(page.getByLabel("Games per team")).toHaveValue("4");
     await expect(page.getByLabel(/Ice-time slots/)).toHaveValue(SLOT_TIMES);
     await expect(
@@ -358,7 +384,9 @@ test.describe("Path 26 — the generate form's state", () => {
       .getAttribute("value");
     await teamSelect.selectOption(teamValue!);
     await page.getByLabel("Request", { exact: true }).selectOption("slot_on");
-    await page.getByLabel("Date", { exact: true }).fill(await aWeekIntoSeason());
+    await page
+      .getByLabel("Date", { exact: true })
+      .fill(await aWeekIntoSeason());
     await page.getByLabel("Ice time").fill("20:00");
     await page.getByRole("button", { name: "Add request" }).click();
     await expect(requestList(page)).toHaveCount(1);
