@@ -406,12 +406,30 @@ status line at the top of this file.
 
 ## Acceptance for the whole change
 
-⛔ **BAR 1 BELOW HAS NEVER BEEN RUN — not before the merge and not after it.** It
-needs an outbound fetch to esportsdesk, which no test makes. As of 2026-09-09 the
-importer's only exercise is unit tests that stub the fetch and the database. This
-is stated here because the section reads as a checklist, and a reader who assumes
-a merged change met its own acceptance would be wrong about the one bar that
-matters most. Whoever runs it should strike this paragraph.
+✅ **BAR 1 IS MET FOR ROSTERS-ONLY.** Run against a real esportsdesk source by
+the maintainer on 2026-09-09: `runRosterOnlyImport` end to end, including the
+redirect into `/<slug>/seasons`.
+
+⛔ **And it did not pass cleanly — it exposed a silent data loss on the first
+try.** The roster parser required a jersey *number*; esportsdesk prints an
+unnumbered player's as `-`, so those rows matched nothing and the players were
+dropped with no error and no entry in `problems[]`. 9 players were missing from a
+league that had already been imported and looked correct. Fixed in PR #60,
+merged `cc98744` — the jersey cell is now matched by shape, accepting the `-`
+and empty-cell placeholders as well as a number.
+⚠️ **Note where it was: the parser** — the one layer every test in this change
+deliberately stubs. The shortfall machinery this spec spent four review rounds
+building cannot see a row the parser never produced.
+
+⛔ **It is NOT met for a full migration.** `runEsportsdeskImport` adds the
+schedule block, the stats block and the `notes[]` shortfall machinery, and none
+of that has met a real source — no test makes the outbound fetch either. Bar 2
+(force a partial import and confirm the shortfall is named) is also unrun.
+
+⚠️ **This paragraph previously said the importer had "NEVER BEEN RUN", which was
+false when written.** It was inferred from the absence of a test rather than
+asked, and the maintainer had already run it. The absence of a test is evidence
+about tests, not about the world.
 
 1. On an instance with **zero** leagues, a signed-in manager can create the first
    one entirely through the UI, with no SQL. ⚠️ This is the bar the change exists to
