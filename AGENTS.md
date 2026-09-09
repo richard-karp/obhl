@@ -6,9 +6,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Where the reasoning lives
 
-Two areas of this codebase carry decisions that the code cannot explain on its
-own, and both have traps that look like tidying. Read the relevant handoff
-**before** changing either — they are written to be skimmed, and each says up
+Four areas of this codebase carry decisions that the code cannot explain on its
+own, and each has traps that look like tidying. Read the relevant handoff
+**before** changing one — they are written to be skimmed, and each says up
 front which section matters for which kind of change.
 
 - **`LAUNCH_READINESS_HANDOFF.md`** — the outstanding work between here and two
@@ -22,8 +22,9 @@ front which section matters for which kind of change.
 - **`EXPORTS_HANDOFF.md`** — the CSV and calendar exports, the single read path
   through `src/lib/queries/schedule.ts`, the single *write* path for a schedule
   edit through `src/lib/schedule/gameWrites.ts` (§2 — an UPDATE by id, never an
-  upsert, and no transaction behind it), the `?team=` filter both season exports
-  must carry, and what postponing a game does to its date. Section 4 describes a
+  upsert — the write itself is the `apply_game_writes` RPC from `0045`, one
+  transaction), the `?team=` filter both season exports must carry, and what
+  postponing a game does to its date. Section 4 describes a
   way to silently corrupt game rows while believing you are simplifying; read it
   before touching postponement or the one-off planner. §6 holds the seed's
   home/away skew, which will pass a team filter that only works on half the

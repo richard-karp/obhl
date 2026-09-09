@@ -53,20 +53,37 @@ making `seasonId` optional — a caller who then forgets it silently reads the
 whole league — and don't season-scope the feed, which would delete past games out
 of calendars that already hold them.
 
-**`src/lib/schedule/gameWrites.ts`** — the single write path for a schedule
-*edit*, new with #38 (`c87764e`). Not the only code that writes `games` at all —
-scoring, the postponement RPCs and `replace_published_schedule` each own their
-own — but the only one the three editing actions go through: `rescheduleNight`,
-`applyScheduleRepair`, `applyOneOffGame`. `applyGameWrites` is pure and
-unit-tested there; `writeGames` in `src/lib/actions/schedule.ts` binds it to
-Supabase and files the audit entry its failures need.
+**The single write path for a schedule *edit*** is the `apply_game_writes` RPC
+(`supabase/migrations/0045_apply_game_writes.sql`), called once from
+`src/lib/schedule/writeGames.ts:74`. Not the only code that writes `games` at
+all — scoring, the postponement RPCs and `replace_published_schedule` each own
+their own — but the only one the editing actions go through. There are **seven**
+of those, in two files: `redateDraftSchedule`, `rescheduleNight`,
+`applyOneOffGame` and `applyScheduleRepair` in `src/lib/actions/schedule.ts`,
+and `exchangeTeams`, `exchangeSlots` and `retimeGame` in
+`src/lib/actions/schedule-edits.ts`. `writeGames` also files the audit entry a
+failure needs.
 
-⛔ Every one is an **UPDATE by id, never an upsert.** An upsert INSERTs when the
-id is gone, which resurrects a deleted game as a live fixture — `is_draft`
-defaults false. It pre-flights, writes each row conditionally on the values it
-expects to find, and compensates when a write fails.
-⚠️ There is no transaction behind any of it; that is
-`LAUNCH_READINESS_HANDOFF.md` §5's first post-launch job.
+`src/lib/schedule/gameWrites.ts` no longer performs the write. It holds the
+payload shapes and the pure, unit-tested pre-flight — `checkWrites`,
+`payloadFor`, `resultFrom`.
+
+⛔ Still an **UPDATE by id, never an upsert**, and the decision now lives in SQL
+rather than TypeScript. An upsert INSERTs when the id is gone, which resurrects
+a deleted game as a live fixture — `is_draft` defaults false.
+
+✅ **There IS a transaction now, and this paragraph used to deny it.** `0045`
+does the batch as one statement in one transaction under
+`pg_advisory_xact_lock` on the season, so the compensation machinery is gone and
+with it the `stuck` and `indeterminate` outcomes — `WriteFailure.kind` is now
+`"conflict" | "failed"` only, and `gameWrites.ts` asks you not to re-add a
+third. The sentence here previously called this
+`LAUNCH_READINESS_HANDOFF.md` §5's "first post-launch job"; it shipped in
+`d28595a`. ✅ That handoff now agrees — its items table and its §5 section both
+read DONE, checked 2026-09-09. ⚠️ They agree only because two documents were
+corrected separately, which is the duplication §6 warns about below: if these
+two ever disagree again, `src/lib/schedule/writeGames.ts` is the copy that
+cannot be stale.
 
 **Three routes**, all thin: `[seasonId]/route.ts` (season `.ics`),
 `[seasonId]/schedule.csv/route.ts`, `team/[teamId]/feed.ics/route.ts`. Each
@@ -240,9 +257,9 @@ if you "simplify" it away:
 
 **The trap.** `SeasonNightGame.scheduledAt` holds the game's *own* `scheduled_at`
 — null when postponed — and **not** the date its night was derived from. The
-one-off repair hands that field to `applyGameWrites`
-(`src/lib/schedule/gameWrites.ts`, via `writeGames` in
-`src/lib/actions/schedule.ts`). If you ever conflate the two, the repair will
+one-off repair hands that field down the write path — `payloadFor`
+(`src/lib/schedule/gameWrites.ts`) into `writeGames`
+(`src/lib/schedule/writeGames.ts`) and on to the `apply_game_writes` RPC. If you ever conflate the two, the repair will
 resurrect a date that was cleared on purpose and leave a row claiming both a
 schedule and a postponement. `groupIntoNights` keeps them apart deliberately:
 `Slot.at` for placement and ordering, `game.scheduledAt` for what gets written.
@@ -261,10 +278,11 @@ row over again, now with a second victim.
 
 ## 5. Deliberately not done
 
-1. **`npm run build` does not typecheck test files.** It passed clean while
-   `tsc --noEmit` reported two real errors in a test. A `"typecheck": "tsc
-   --noEmit"` script closes it. Smallest item here, and the one that already
-   caught a real mistake.
+1. ~~**`npm run build` does not typecheck test files.**~~ ✅ **DONE.**
+   `package.json` carries `"typecheck": "tsc --noEmit && tsc --noEmit -p
+   e2e/tsconfig.json"`, and `.github/workflows/ci.yml` runs it on every PR
+   alongside `npm run lint` and `npm test`. Left in place rather than deleted so
+   the list's numbering keeps matching anything that cites it.
 2. **The one-off e2e never exercises locking by status.** Its seeded games are
    all in the past, so every night locks by date. `nights.test.ts` covers the
    rule directly, but the integration path is untested.
