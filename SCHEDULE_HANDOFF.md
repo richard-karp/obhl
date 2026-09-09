@@ -27,6 +27,7 @@ an exact fit):
 | **G2.** Each pairing split evenly over the weekdays it plays (`pairingWeekdayExcess`) † | 42 (9 of 28 matchups off ideal) | **0** (all 28 at ideal) |
 | **G3.** Ice-time share per team *per weekday* (`slotWeekdaySpread`) † | 44 | **0** (best-of-k; 8 is the guaranteed bound — see §5) |
 | **G4.** Three-game runs in one ice time (`slotStreak3`) † | 4 | **0** |
+| **G5.** Worst team's clustered 5-game windows (`slotClusterWorstTeam`) | 14 | **4** (6-team/1-weeknight/3-slot reference) |
 
 † **These five rows use a different "before".** Every row above them compares
 against the *old pre-participation pipeline*. The four-goal rows compare against
@@ -182,6 +183,15 @@ A code review of this work turned up two defects — the slack ladder computing
 identical quotas on every rung, and nothing bounding Phase P's total time. Both
 are fixed; see §3. What follows are choices, not oversights.
 
+- **Clustering is fixed by night order, not by Phase S or Phase M.** Two routes
+  were built and measured dead on 2026-09-09: permuting the rounds
+  `buildBalancedPairings` emits changes nothing (Phase M takes the pairings as a
+  multiset and re-derives the periodic cycle itself), and varying Phase M's seed
+  changes nothing (its rematch terms are threshold-based, so the cycle is one of
+  many zero-cost orderings and the descent always lands on it). What works is
+  reordering the finished plan's nights, which carries each night's games and ice
+  times together. See the spec for the measurements before trying either dead
+  route again.
 - **12+ teams playing per night**: Phase M declines. `planByWeeks` already
   produces a perfect schedule for that shape, so nothing is lost — but a league
   that grows into a case where it *doesn't* would need Phase M to handle larger
