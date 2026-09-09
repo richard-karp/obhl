@@ -63,7 +63,7 @@ the redirect into `/<slug>/seasons` all work.
 and esportsdesk prints an unnumbered player's as `-`, so those rows matched
 nothing and the players vanished with no error and no shortfall: 9 lost from a
 league that had already been imported and looked fine, 83 from an all-unnumbered
-one. Fixed in PR #60. **This is the argument for the gate above** — six review
+one. Fixed in PR #60, merged `cc98744`. **This is the argument for the gate above** — six review
 rounds and 26 unit tests never touched it, because every one of them stubbed the
 parser out.
 

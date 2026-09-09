@@ -414,7 +414,9 @@ redirect into `/<slug>/seasons`.
 try.** The roster parser required a jersey *number*; esportsdesk prints an
 unnumbered player's as `-`, so those rows matched nothing and the players were
 dropped with no error and no entry in `problems[]`. 9 players were missing from a
-league that had already been imported and looked correct. Fixed in PR #60.
+league that had already been imported and looked correct. Fixed in PR #60,
+merged `cc98744` — the jersey cell is now matched by shape, accepting the `-`
+and empty-cell placeholders as well as a number.
 ⚠️ **Note where it was: the parser** — the one layer every test in this change
 deliberately stubs. The shortfall machinery this spec spent four review rounds
 building cannot see a row the parser never produced.
