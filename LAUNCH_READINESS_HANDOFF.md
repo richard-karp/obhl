@@ -17,12 +17,11 @@
      SQL. See _Getting locked out_.
    - ⛔ **A SCHEDULE PUBLISHED WITH A PAST DATE LOCKS THE SEASON INSTANTLY AND
      FOR GOOD.** `season_is_started` (`0026`) counts only `not is_draft`, so a
-     past-dated DRAFT is invisible to the gate and looks completely fine — until
-     it is published, at which point generate, replace and remove all refuse
-     permanently. ✅ **The generate guard is MERGED** (item 9, PR #35): a past
-     first game night is now refused at generate. ⛔ **PUBLISH is unguarded
-     either way, and a draft generated before 2026-09-05 never met the guard —
-     discard it, do not publish it.** **Read the date before publishing.**
+     past-dated DRAFT is invisible to the gate until it is published, at which
+     point generate, replace and remove all refuse permanently. ✅ Guarded at
+     both ends now — refused at GENERATE (item 9, PR #35) and warned at PUBLISH
+     with a one-click move forward (PR #46, in review). ⚠️ That warning CONFIRMS
+     rather than refuses: "Publish anyway" is still one click from the lock.
    - ✅ **`gh pr create` WORKS from an agent** — measured 2026-09-06, PR #40, no
      prompt. The line here calling mutating `gh` classifier-denied was wrong and
      cost a handoff; only `vercel env` is untested. On a red CI run,
@@ -80,7 +79,7 @@ under _Open — waiting on a person_ below, and nothing outstanding is elsewhere
 
 - ✅ **CODE — the 4 harness items are FIXED** (2026-09-06, PR #40, CI green).
   §5 _The final pre-launch pass_ carries each one and how it was verified. ⛔ One
-  harness item is left and it is DATED: §5 _The fixture dates_, 2026-09-16.
+  harness item is in review, not merged: §5 _The fixture dates_, PR #44.
 - **A PERSON — the user, and no agent can do any of them: 5 items**, under
   _Open — waiting on a person_. ⛔ Exactly one is dated: **rebuild the schedule
   before 2026-09-10 23:00 UTC**, the published season's first game night, after
@@ -173,7 +172,7 @@ design, so assume the gap and check the list rather than the flag.
 | 6   | `0039`-`0043` not pushed                                                       | `supabase db push`                | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides                                                                                                                                                                                                                         |
 | 7   | Staff can set a password, but only a commissioner can give them one            | a domain, then Supabase dashboard | **OPEN — only phase 1 is left, and it needs a DOMAIN BOUGHT FIRST** — ✅ phases 2-3 merged 2026-09-06 (#36, `32262b5`): reset trigger, `/set-password`, password field on `/login`. ⛔ No production email has ever been sent, so the reset half is unproven and nobody should be told it works. Runbook in _The other half of auth_. ⚠️ No app env key is involved |
 | 8   | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code                              | ✅ **closed 2026-09-05** — steps 1-6 shipped as #31 (which collapsed #25-#29); step 7, the prose, is this commit. Spec: `docs/superpowers/specs/2026-09-05-unified-url-space-design.md`                                                                                                                                                                             |
-| 9   | **A past first-game-night locks the season on publish**                        | code                              | ✅ **closed 2026-09-05 — PR #35, on `main` as `72b4148`** — reproduced, then guarded at generate. ⛔ Publish stays unguarded regardless — see _Item 9 — the guard, built_                                                                                                                                                                                           |
+| 9   | **A past first-game-night locks the season on publish**                        | code                              | ✅ **closed 2026-09-05 — PR #35, on `main` as `72b4148`** — reproduced, then guarded at generate. ✅ The publish half followed 2026-09-08 (PR #46) — warned, not refused, with a one-click move forward; see _Item 9 — the guard, built_                                                                                                                                                                                           |
 
 ⛔ **Do not re-file 1-3.** They are kept as rows, rather than deleted, because a
 reader who knows this file by its old shape will otherwise assume they were
@@ -842,19 +841,32 @@ no new draft can carry a past date:
   so it stops the typing, not the request.
 - `e2e/11-schedule-builder.spec.ts` — two tests: the `min` bound, and a
   server-side refusal that strips `min` first so it proves the trustworthy half.
+- `e2e/31-stale-draft.spec.ts` — the publish half (PR #46): the warning, the
+  move, the acknowledged publish, and a server refusal that strips the hidden
+  acknowledgement for the same reason the generate test strips `min`.
 
 ⚠️ **Today itself passes**, and the bound is computed in the LEAGUE's zone via
 `leagueDateKey`, not server-UTC — UTC runs up to five hours ahead of Eastern and
 would refuse a legitimate same-day generate every evening after 7pm.
 
-⛔ **The residual risk, and it is not theoretical: PUBLISH IS STILL UNGUARDED.**
-`publishSchedule` checks no dates. The guard stops a past-dated draft being
-_created_; a draft that already exists from before it can still be published and
-still locks the season for good. Guarding publish was rejected deliberately —
-by then the manager has a reviewed draft they can do nothing with, and the
-message arrives too late to act on cheaply — but that argument covers where the
-_message_ goes, not whether publish should refuse at all. If a past-dated draft
-is ever found in the wild, discard it; do not press Publish to "see".
+✅ **The residual risk this section carried is CLOSED — PR #46, in review.**
+`publishSchedule` now reads the draft's dates, and the builder warns with a
+one-click move forward by whole weeks (`src/lib/schedule/staleDraft.ts`,
+`redateDraftSchedule`, `StaleDraftNotice`). It CONFIRMS rather than refuses,
+because the argument above is right about where the _message_ goes and wrong
+only about whether one is owed: a manager whose games really were played on
+Tuesday and who is publishing on Thursday needs it to go through, so "Publish
+anyway" still exists — behind a dialog that names what it costs, and behind an
+acknowledgement the server re-derives so a stale tab cannot supply it.
+
+⛔ **Staleness is measured against the FACE-OFF, not the calendar day**, and that
+distinction is the whole of the fix. `season_is_started` fires on
+`scheduled_at < now()`, so a first night that is still _today_ but whose ice
+time has gone is exactly as dangerous as one from last week. Two independent
+reviews caught a day-granular first version — and caught its one-click move
+landing a draft on a game that had already started, which would have created the
+state the button exists to escape. If you touch that predicate, read
+`staleDraft.test.ts` first: both directions are pinned there.
 
 **The reproduction, which is why this stopped being a code reading.** With the
 guard temporarily removed, a first game night of `2020-01-06` generated a
@@ -873,6 +885,8 @@ design on that branch — not from the plan, which needs rewriting against the
 current URL space.
 
 ## 5 — Smaller, deliberately deferred
+
+- **The deferred code gaps and IA approach C** — item 1 (a draft that ages between generate and publish) SHIPPED 2026-09-08, PR #46; the other six are parked, none started → `docs/worklists/2026-09-07-9466c507-deferred-code-work.md`. ⚠️ That file supersedes _From the sixth review of #24_ below for items 4-6.
 
 ### ⛔ FIRST POST-LAUNCH JOB — the schedule-write RPC (decided 2026-09-06)
 
@@ -1017,7 +1031,7 @@ run is still deterministic — but the number no longer identifies a spec, and #
 own ordering note ("the spec that ran before it") is now ambiguous. Renumber #38's
 pair to `28-` and `29-`, which keeps their order relative to each other.
 
-### The fixture dates — ⛔ `11-` and `23-` break from 2026-09-16, OPEN
+### The fixture dates — ✅ FIXED, in review as PR #44 (not yet merged)
 
 ⛔ **Dated, and it is the only outstanding code item in this file.** Found
 2026-09-06 during the review of PR #40; not fixed there, because fixing it means
