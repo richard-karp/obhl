@@ -25,13 +25,22 @@
    the two e2e specs named in step 6. ⚠️ **Re-measure the baseline, do not quote
    one** — counts move with every merge.
 
-**Status: BUILT 2026-09-08, uncommitted at the time of writing.** All seven steps
-below are implemented; typecheck, 472 unit tests and specs 02/08/16/17/20/27/31 are
-green. ⚠️ Three things in the pages below were WRONG when written and are corrected
-in place — each correction is marked **[corrected after building]**, and the largest
-is §5, whose original justification does not hold. Read those before trusting a
-paragraph that surrounds them. What the build additionally found is in
-*What building this changed*, at the end; read that before touching the RLS half.
+**Status: MERGED to `main` 2026-09-09 in `8e2066f` (PR #55, 21 commits).** All
+seven steps shipped. On the merge commit: typecheck clean, **517 unit tests over 41
+files**, eslint clean, full e2e green in CI.
+
+⚠️ **PR #55, not #47.** #47 was the original and GitHub auto-closed it the instant
+its base branch `docs/deferred-code-work` (#45) merged and was deleted — a closed
+PR's base cannot be retargeted and it cannot be reopened once the base is gone.
+#55 is the same 21 commits rebased onto `main`; verified content-identical by
+diffing the two heads, which differ only in files `main` itself changed.
+
+⚠️ **Several things in the pages below were WRONG when written and are corrected in
+place**, marked **[corrected after building]** or **[corrected after review]**. The
+largest is §5, whose original justification does not hold. Read the corrections
+before trusting the paragraph around them. What the build and six review rounds
+additionally found is in *What building this changed*, at the end; read that before
+touching the RLS half.
 
 No deadline attached. It is independent of every item in
 `docs/worklists/2026-09-07-9466c507-deferred-code-work.md`, and in particular it is

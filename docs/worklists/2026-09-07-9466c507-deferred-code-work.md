@@ -23,10 +23,18 @@
 3. Every claim below is marked **measured** (watched appear on 2026-09-07) or
    **read** (a reading of the code, not run). Nothing is unmarked.
 4. Verify the tree with: `npm run typecheck && npx vitest run && npx eslint src e2e`.
-   ⚠️ **472, AND IT STAYS 472.** Measured 2026-09-08 on `origin/main`: 472 tests
-   over 38 files, with two `@typescript-eslint/no-unused-vars` warnings in
-   `src/lib/schedule/writeGames.test.ts` as the eslint floor. Neither number
-   changes when PR #44 lands.
+   ⚠️ **517 over 41 files**, measured 2026-09-09 on the merge commit `8e2066f`,
+   with two `@typescript-eslint/no-unused-vars` warnings in
+   `src/lib/schedule/writeGames.test.ts` still the eslint floor.
+
+   ⚠️ **472 WAS RIGHT AND IS NOW SUPERSEDED — do not read the block below as
+   still current.** It stayed 472 through #44 exactly as it says. What moved it
+   was PR #55 (league creation at the root), which added 26 tests in two new
+   files — 19 in `src/lib/actions/import.test.ts`, 7 in
+   `src/lib/actions/seasons.test.ts` — landing alongside #46/#53/#54 in the same
+   window. The block below is kept because its LESSON is what keeps being
+   needed: measure the MERGE, not a branch. 517 is a merge-commit measurement
+   for that reason.
    ⛔ **480 IS A STALE-BRANCH ARTEFACT, NOT A FUTURE BASELINE, AND THIS LINE HAS
    NOW BEEN WRONG THREE TIMES.** PR #44's branch really does report 480 over 37
    files, and #44 deletes nothing — the branch is simply behind `main` by two

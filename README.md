@@ -97,8 +97,16 @@ identity.
    - `SUPABASE_SECRET_KEY` (server-only)
    - `NEXT_PUBLIC_SITE_URL` (your production URL)
 6. **Bootstrap the first manager**: create the user in the Supabase dashboard and
-   insert a `profiles` row with `role = 'league_manager'`, then use **People &
-   Roles** in-app to add everyone else.
+   insert a `profiles` row with `role = 'league_manager'`. This is the only step
+   that needs the dashboard — a manager with no league yet can still sign in and
+   reach the next one.
+7. **Create the first league** in-app at **`/manage/leagues/new`**, which imports
+   a league from an esportsdesk URL (rosters only, or a full migration with the
+   schedule and results). A signed-in manager also reaches it from the "New
+   league" link on the landing page. Until 2026-09-08 this page lived at
+   `/<league>/import` and so needed a league to already exist — the first league
+   on an instance had to be inserted by hand in SQL. It does not any more.
+8. **Add everyone else** from **People & Roles** inside the new league.
 
 ### Test / staging deploy (one-click dev login on)
 
