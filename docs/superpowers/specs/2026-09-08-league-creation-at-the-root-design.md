@@ -406,6 +406,13 @@ status line at the top of this file.
 
 ## Acceptance for the whole change
 
+⛔ **BAR 1 BELOW HAS NEVER BEEN RUN — not before the merge and not after it.** It
+needs an outbound fetch to esportsdesk, which no test makes. As of 2026-09-09 the
+importer's only exercise is unit tests that stub the fetch and the database. This
+is stated here because the section reads as a checklist, and a reader who assumes
+a merged change met its own acceptance would be wrong about the one bar that
+matters most. Whoever runs it should strike this paragraph.
+
 1. On an instance with **zero** leagues, a signed-in manager can create the first
    one entirely through the UI, with no SQL. ⚠️ This is the bar the change exists to
    clear; test it against a fresh `npm run db:reset`, not against the seed.
