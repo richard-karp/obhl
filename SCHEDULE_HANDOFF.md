@@ -78,9 +78,12 @@ exactly. Only *then* does it matter who plays whom.
 
 ## 3. Architecture
 
-`assignNights` runs two independent planners and keeps the better one
-(`rankSchedule` compares them lexicographically in the ranked priority order:
-everything placed ▸ weekday ▸ byes ▸ rematch ▸ ice time).
+`assignNights` runs two independent planners and keeps the better one.
+`rankSchedule` (`assignNights.ts:1669`) compares them lexicographically:
+everything placed ▸ **adjacent-night byes** ▸ weekday ▸ the rest of the byes ▸
+rematch ▸ pairing weekday excess ▸ ice time. ⚠️ `byesAdjNight` outranking
+weekday balance is a league decision, not an accident — this summary used to
+omit it, and a reader "restoring" the simpler order would quietly undo it.
 
 **`planByParticipation`** — the primary, in three phases:
 
@@ -96,10 +99,13 @@ undoes what generation achieved: measured on `oneOff.test.ts`'s fixture, the rep
 without `weekdayOfNight` drives season ice spread 4 → 0 while pushing per-weekday
 spread 19 → 36; with it, per-weekday goes 19 → 17.
 
-Generation calls `assignSlots` **four times**, not once — the best-of-k candidate
-set in §5 — and keeps the winner by `compareIceOutcome`. The repair still calls it
-once: it is a mid-season interaction where a user is waiting, not a once-a-season
-job, so it does not spend four budgets.
+Generation calls `assignSlots` **five times**, not once — the best-of-k
+candidate set in §5, `SLOT_CANDIDATES` at `assignNights.ts:161` — and keeps the
+winner by `compareIceOutcome`. The repair still calls it once: it is a
+mid-season interaction where a user is waiting, not a once-a-season job, so it
+does not spend five budgets. (This said "four" while §5, §7 and §1 all said
+five; the count moved when the fifth candidate was added and only some of the
+prose followed.)
 
 Phase P is exact (branch and bound, admissible bound from a min-adjacency DP,
 plus O(teams×weekdays) arithmetic pre-checks that refute impossible weekday
@@ -158,9 +164,9 @@ Same-or-better than the old pipeline everywhere tested; never worse.
 | 8t/2slot/28n/14gp, 4t/2slot | tie — e.g. with only 4 of 8 teams playing a night every team byes every week, so rule 3 is genuinely unreachable (`byeConsecWeek=104` is the floor) |
 | 7t/3slot/11n, 12t/6slot/24n, over-capacity | tie — participation path declines, fallback handles them |
 
-Generate time: ~20.8 s for the reference, of which ~20 s is Phase S deliberately
-grinding on the ice-time metrics — four candidates at ~5 s each (see §5). It was
-~5.76 s when Phase S ran a single candidate. The rest of the pipeline
+Generate time: ~26 s for the reference, of which the bulk is Phase S
+deliberately grinding on the ice-time metrics — five candidates at ~5 s each
+(see §5); it was ~21 s at four, and ~5.76 s when Phase S ran a single candidate. The rest of the pipeline
 is ~500 ms. Two awkward calendars — Mon/Wed/Fri and one with a 3-week mid-season
 gap — add ~2 s in Phase P, where the long search also buys something real (a
 rule-1 breach cleared on the first, `byeConsecWeek` 3→1 on the second). Both
@@ -285,7 +291,7 @@ are fixed; see §3. What follows are choices, not oversights.
   (`assignNights.ts`) selects among bye-optimal participation matrices while knowing
   nothing about how they will slot. It is the obvious lever if a future cadence
   leaves Phase S short — but it is expensive: `plateauScore` ranks ~8 sampled
-  matrices at 10–30 ms each, against Phase S's ~20 s, so scoring them on Phase S means
+  matrices at 10–30 ms each, against Phase S's ~26 s, so scoring them on Phase S means
   running Phase S once per candidate. Never tried; selection and seeding reached
   every target without it.
 - **`planByWeeks` (the fallback) keeps its week-only bye logic.** It only runs for
@@ -383,12 +389,14 @@ are fixed; see §3. What follows are choices, not oversights.
 - Tests: `assignNights.test.ts` (includes a full reference-season regression
   suite asserting every goal), `participation.test.ts`, `matchups.test.ts`.
   Cadence coverage for the *slot* metrics lives in `matchups.test.ts` too, under
-  `describe("assignSlots weekday split")`, alongside Phase M's — not in a
-  `slots.test.ts`.
+  `describe("assignSlots weekday split")`, alongside Phase M's — and not in
+  `slots.test.ts`, which does exist but covers Phase S under manager
+  constraints (pins, `slot_bias`, `compareIceOutcome` bias ranking).
 
-Verify with `npx vitest run` (**444 pass across 32 files** — watched
-2026-09-06 at `c87764e`; the count moves with every branch, so re-run rather than
-quote it), `npm run lint`, `npx tsc --noEmit`.
+Verify with `npx vitest run` (**517 pass across 41 files** — watched
+2026-09-09; the count moves with every branch, so re-run rather than quote it —
+it read 444 for three days after it stopped being true), `npm run lint`,
+`npm run typecheck`.
 
 The suite runs Phase S at production's 5 s budget (`vitest.config.ts`), so it takes
 ~36 s. That is deliberate: a shorter budget once hid a real defect by building
@@ -417,9 +425,11 @@ record of the reasoning, but two of its decisions were overruled during executio
 and are marked ⛔ in its Global Constraints — read those before trusting anything
 else in it. What shipped is in §5 here.
 
-**One e2e follow-up is open (2026-09-06).** `11-schedule-builder`,
-`14-one-off-game` and `23-schedule-constraints` seed the generate form without
-checking whether the builder came up in `getPublishState`'s fail-closed
-"This season's games couldn't be read" state, in which there is no form to fill.
-It is tracked, with its fix, as items 1-2 of _The final pre-launch pass_ in
-`LAUNCH_READINESS_HANDOFF.md` §5 — the one place open work is listed.
+**That e2e follow-up is CLOSED.** `11-schedule-builder`, `14-one-off-game` and
+`23-schedule-constraints` used to seed the generate form without checking
+whether the builder came up in `getPublishState`'s fail-closed "This season's
+games couldn't be read" state, in which there is no form to fill. All three now
+guard it: `expectGenerateFormUsable` is defined in each and asserts on that
+locator before touching the form. `LAUNCH_READINESS_HANDOFF.md` §5 records _The
+final pre-launch pass_ as ✅ ALL FOUR FIXED. Nothing in this document's scope is
+open.

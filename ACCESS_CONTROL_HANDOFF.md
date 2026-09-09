@@ -19,8 +19,11 @@
 3. Numbers here were **watched appear**. Where a claim is a reading of the code
    rather than a measurement, it says so in those words.
 4. Verify with `npm test && npm run test:e2e`. Baseline:
-   **250 unit passed; 118 e2e passed, 1 skipped, 0 failed** (measured
-   2026-09-01). The unit count is unchanged and was watched three times over,
+   **517 unit passed across 41 files** (measured 2026-09-09). ⚠️ This line read
+   "250 unit passed; 118 e2e passed" — measured 2026-09-01 — for long enough
+   that the unit figure was off by more than 2x, which makes it useless as a
+   did-I-break-something reference. Re-measure rather than quote it. The
+   2026-09-01 run was watched three times over,
    because the schedule tests are wall-clock bounded and one green run proves
    nothing. e2e went 117 → **118**: the added test is the audit-visibility one
    in `e2e/10-rules.spec.ts` described below. The skip is the AI-summary test,
@@ -55,7 +58,9 @@ _Open — waiting on a person_ there for the current list.**
 
 `.github/workflows/ci.yml`, on every PR and every push to `main`, in two jobs:
 
-- **check** — `npm run typecheck`, then `npm test`. No database, no browser.
+- **check** — `npm run typecheck`, `npm run lint`, then `npm test`. No database,
+  no browser. (The lint step was added later, with its rationale inline in the
+  workflow, and this line did not follow it for a while.)
 - **e2e** — `npx supabase start`, an `.env.local` written from `supabase status
 -o env`, then `npm run test:e2e`. Playwright's `globalSetup` resets and seeds
   the database and `playwright.config.ts` starts the dev server, so the job
@@ -170,7 +175,7 @@ role must be able to set a password.
 sweep** (verified 2026-09-06 at `c87764e`). `rescheduleNight`,
 `previewOneOffGame`, `applyOneOffGame`, `previewScheduleRepair` and
 `applyScheduleRepair` all resolve their season through
-`targetSeasonForManager` (`src/lib/actions/schedule.ts:93`), which guards with
+`targetSeasonForManager` (`src/lib/actions/schedule.ts:99`), which guards with
 `requireLeagueManager(() => leagueOfSeason(seasonId, admin))` — the league comes
 from the SEASON, never from caller input, so a hand-made request naming another
 league's season is refused rather than obeyed. ⚠️ **`league-guards.test.ts` is a
@@ -217,8 +222,12 @@ Each of these cost a review round or a wrong fix in the session that built it.
   (`src/components/shared/staff-links.tsx`, formerly `components/manage/manage-nav.tsx`).
   Which links a viewer sees is decided by MEMBERSHIP, in a component — it says
   nothing about what the server will allow. Every page under `[league]/(manage)`
-  still calls its own `requireLeagueManager` / `requireLeagueRole`, and the route
-  group's layout still has `if (!user) redirect("/login")`. ⚠️ Removing a link
+  still refuses on its own, and the route group's layout still has
+  `if (!user) redirect("/login")`. Ten of the eleven call `requireLeagueManager`
+  / `requireLeagueRole`; the exception is `dashboard/page.tsx`, which uses
+  `isLeagueMember` conditionally so an account with no role still reaches the
+  "no role yet" explainer — which is why `league-guards.test.ts` accepts
+  `await isLeagueMember(` in its `LEAGUE_GUARDS` regex. ⚠️ Removing a link
   removes nothing: the URL still resolves and the guard is the only thing between
   it and the data. When #39 landed, all 11 manage pages were audited individually
   to confirm exactly that, and `e2e/27-one-chrome.spec.ts` asserts a page which
@@ -233,17 +242,23 @@ Each of these cost a review round or a wrong fix in the session that built it.
   `feat/manual-schedule-edits` moved `cancelGame`, `postponeGame`,
   `restoreGame` and `rescheduleGame` to manager-only. **The action guards are now
   the only thing standing there.** A scorekeeper's own session, with the
-  publishable key, still writes `status`, `scheduled_at`, `home_team_id` and
+  publishable key, still wrote `status`, `scheduled_at`, `home_team_id` and
   `away_team_id` directly — measured, not reasoned: `e2e/30-schedule-edits.spec.ts`
-  carries a `test.fixme` that cancels a published game and gets no error back.
+  carried a `test.fixme` that cancelled a published game and got no error back.
+  ⚠️ Past tense throughout this paragraph: `0046` below closed it, the `fixme` is
+  gone, and the same file now has three live tests asserting the refusal. The
+  history is kept because the SHAPE of the hole is the lesson, not its status.
   ⚠️ **A tighter `with check` CANNOT fix this**, which is why the fix is a
   trigger: a policy sees only NEW, and telling "a scorekeeper edited the goals"
   from "a scorekeeper moved the game" needs OLD as well.
 
   **`0046_schedule_columns_are_managers_only.sql` closes it.** A `before update`
   row trigger refuses a non-manager who changes `scheduled_at`, either team id,
-  `is_draft`, `season_id`, `postponed_from`, or who moves `status` into or out of
-  the scoring lifecycle (`scheduled` / `in_progress` / `final`). Scoring is
+  `is_draft`, `season_id`, `postponed_from`, `label`, `division_id`, or who moves
+  `status` into or out of the scoring lifecycle (`scheduled` / `in_progress` /
+  `final`). ⚠️ `label` and `division_id` belong in that list and were missing
+  from it here — `label` is in `GameFields`, and the migration itself notes it
+  "was missing here for one commit". Scoring is
   untouched: finalize and reopen stay inside that set. `service_role` and
   `postgres` pass through — the admin client's authorisation is the guards in
   `src/lib/auth`, not this trigger.
