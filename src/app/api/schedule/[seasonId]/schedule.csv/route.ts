@@ -22,13 +22,14 @@ export async function GET(
   if (!isUuid(seasonId)) return new Response("Not found", { status: 404 });
 
   // ⛔ AN UNRESOLVED SLUG IS A 404, NOT "no filter" — see the sibling `.ics`
-  // route. A fallback to the season would hand six teams' games to a caller who
-  // asked for one, which is the whole defect this parameter closes.
+  // route, including why this tests `=== null` rather than falsiness. A
+  // fallback to the season would hand six teams' games to a caller who asked
+  // for one, which is the whole defect this parameter closes.
   const teamSlug = request.nextUrl.searchParams.get("team");
-  const team = teamSlug
-    ? await getEnrolledTeamBySlug(seasonId, teamSlug)
-    : null;
-  if (teamSlug && !team) return new Response("Not found", { status: 404 });
+  const team =
+    teamSlug === null ? null : await getEnrolledTeamBySlug(seasonId, teamSlug);
+  if (teamSlug !== null && !team)
+    return new Response("Not found", { status: 404 });
 
   const [games, league] = await Promise.all([
     getSchedule(seasonId, { teamId: team?.id }),
