@@ -40,6 +40,19 @@ function twoNightsPerWeek(
   return ns;
 }
 
+// ⛔ THE SUITE MUST RUN THE SEARCH PRODUCTION RUNS. `vitest.config.ts` used to
+// pin OBHL_SLOT_RESTARTS to 2000 while `assignNights.ts` defaulted to 20000, so
+// every quality bound below was a claim about a program nobody ran: at 20000 the
+// two ice-time clustering tests in this file fail with "expected 13 to be less
+// than or equal to 6". Measured 2026-09-09; see
+// `docs/superpowers/specs/2026-09-09-schedule-variations-design.md` §1.
+//
+// A test config may raise a TIMEOUT. It may not override a constant that shapes
+// the search.
+it("runs Phase S at the production default, not a test-only one", () => {
+  expect(process.env.OBHL_SLOT_RESTARTS).toBeUndefined();
+});
+
 describe("assignNights", () => {
   it("schedules all 6-team games, no team twice a night, 5 games each", () => {
     const ts = teams(6);

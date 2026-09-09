@@ -142,7 +142,32 @@ function envInt(name: string, fallback: number): number {
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
-const SLOT_RESTARTS = envInt("OBHL_SLOT_RESTARTS", 20_000);
+/**
+ * Phase S restart count. **1,000, and not more** — this search is
+ * non-monotonic, and more of it returns a worse schedule.
+ *
+ * Measured 2026-09-09 on 6 teams / one weeknight / 3 sheets / 23 weeks,
+ * worst-team clustered windows by restart count:
+ *
+ *   250 -> 6 (and back-to-backs 6 -> 8)   500 -> 4   1,000 -> 4   2,000 -> 4
+ *   4,000 -> 13   8,000 -> 10   20,000 -> 13
+ *
+ * It is NOT the 5 s budget truncating the sweep: given a 60 s budget so it
+ * completes, 4,000 still returns 13. The cause (a reading, not a measurement) is
+ * that `compareIceOutcome` picks among `SLOT_CANDIDATES` without seeing
+ * clustering at all, so a better-searched candidate wins its own comparator from
+ * a basin the night-order post-pass cannot permute out of.
+ *
+ * 1,000 is the geometric centre of the measured-good band [500, 2,000]; all
+ * three return identical schedules on both reference leagues. The 8-team
+ * reference league is unchanged at every value from 500 to 20,000.
+ *
+ * ⛔ `vitest.config.ts` MUST NOT override this. It pinned 2,000 here while this
+ * defaulted to 20,000, and the ice-time clustering tests pass at 2,000 and fail
+ * at 20,000 — so the whole schedule suite was a claim about a search production
+ * did not run. `assignNights.test.ts` asserts the variable is unset.
+ */
+const SLOT_RESTARTS = envInt("OBHL_SLOT_RESTARTS", 1_000);
 const SLOT_BUDGET_MS = envInt("OBHL_SLOT_BUDGET_MS", 5_000);
 
 /**

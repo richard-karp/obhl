@@ -23,13 +23,22 @@ export default defineConfig({
     // worse than leaving the season alone, and the test only passed because the
     // fixture it built was a 400 ms season.
     //
-    // Overridable from the environment so slower hardware (CI) has a lever if
-    // it cannot reach the quality bounds within the budget. The defaults are
-    // unchanged and are what runs locally — raise the variable, never lower the
-    // assertions, or the bounds stop meaning anything.
+    // ⛔ DO NOT ADD `OBHL_SLOT_RESTARTS` BACK. It was pinned to 2000 here while
+    // `assignNights.ts` defaulted to 20000, and the two ice-time clustering
+    // tests pass at 2000 and fail at 20000 ("expected 13 to be less than or
+    // equal to 6"). Every quality bound in the schedule suite was a claim about
+    // a search production did not run, and the feature PR #62 shipped reached
+    // the league as 14 -> 13 rather than 14 -> 4. The restart count now lives in
+    // exactly one place: `SLOT_RESTARTS` in `assignNights.ts`, where it is
+    // documented against the sweep that chose it.
+    // `assignNights.test.ts` asserts this variable is unset.
+    //
+    // A test config may raise a TIMEOUT — see `testTimeout` below. It may not
+    // override a constant that shapes the search. `OBHL_SLOT_BUDGET_MS` stays
+    // because it is set to the production default, so it documents rather than
+    // diverges.
     env: {
       OBHL_SLOT_BUDGET_MS: process.env.OBHL_SLOT_BUDGET_MS ?? "5000",
-      OBHL_SLOT_RESTARTS: process.env.OBHL_SLOT_RESTARTS ?? "2000",
     },
     // ⛔ RAISED BECAUSE THE DEFAULT COLLIDES WITH THE SEARCH ABOVE. Vitest
     // defaults to 5000 ms per test, and a single `assignNights` runs Phase S
