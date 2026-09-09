@@ -22,7 +22,8 @@ account.
 
 ## Local development
 
-Prerequisites: **Node 20+**, **Docker** (for the local Supabase stack).
+Prerequisites: **Node 22** (pinned in `.nvmrc` and declared as `engines` in
+`package.json`; CI reads the same file), **Docker** (for the local Supabase stack).
 
 ```bash
 npm install

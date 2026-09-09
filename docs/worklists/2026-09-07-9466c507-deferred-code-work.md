@@ -1,10 +1,25 @@
 # 9466c507 — the deferred code work: 6 gaps and IA approach C
 
-**Protocol — read this and nothing else to resume.**
+# ✅ CLOSED 2026-09-09. Every item is resolved and on `main`.
 
-1. This file is self-contained. Every item still open here is **parked, not in
-   flight** — nothing is half-done, and no item depends on another. Item 1 is the
-   exception and is marked SHIPPED; it is kept for its reasoning, not as work.
+**This is a record now, not a queue.** Nothing here is outstanding work. It is
+kept because the reasoning is what makes the shipped code readable — and because
+several of its own claims turned out to be wrong in ways worth remembering: see
+the baseline note in §4, and item 7's cost estimate.
+
+| Item                            | Outcome                                                                                                                                                                                      |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — stale draft at publish      | **PR #46**, plus five review fixes. The one-way door is now audited, and a comment telling the next reader to reintroduce a fixed bug is gone                                                |
+| 2 — no e2e drove a draft edit   | **PR #49**. Three review rounds; the first two versions passed against a completely broken guard                                                                                             |
+| 3 — no clock-shifted CI run     | **PR #51 — the one item NOT merged.** GitHub refuses it from an OAuth app without `workflow` scope, since it touches `.github/workflows/`. Merge it from the web UI                          |
+| 4 — `slot_on` two slot lists    | **CLOSED, no change needed.** Deliberate on both sides, documented at `schedule.ts:1432-1444`                                                                                                |
+| 5 — four never-triaged findings | `refuteConstraints` fixed (**#53**), dead metrics deleted (**#54**), the `forcedByeCredits` claim found **overstated**, `save_rules` revert and the `saveRules` race left alone deliberately |
+| 6 — CI lint + Node pin          | **PR #48**. Caught a real `setState`-in-effect error within the hour                                                                                                                         |
+| 7 — IA approach C               | Spec in **PR #50**, recommending defer; its stated blocker shipped as **PR #52**                                                                                                             |
+
+**Protocol, if you are reading this as history.**
+
+1. This file is self-contained. Every item is resolved above; none of it is work.
    ⛔ Do NOT read `docs/superpowers/specs/2026-09-07-manual-schedule-edits-design.md`
    (239 lines) unless you are doing item 7; its IA section is quoted below in full.
    ⛔ Do NOT read `LAUNCH_READINESS_HANDOFF.md` (1150+ lines) to find these items —
@@ -23,10 +38,13 @@
 3. Every claim below is marked **measured** (watched appear on 2026-09-07) or
    **read** (a reading of the code, not run). Nothing is unmarked.
 4. Verify the tree with: `npm run typecheck && npx vitest run && npx eslint src e2e`.
-   ⚠️ **472, AND IT STAYS 472.** Measured 2026-09-08 on `origin/main`: 472 tests
-   over 38 files, with two `@typescript-eslint/no-unused-vars` warnings in
-   `src/lib/schedule/writeGames.test.ts` as the eslint floor. Neither number
-   changes when PR #44 lands.
+   ⚠️ **CURRENT: 491 tests over 39 files**, measured on `main` 2026-09-09 once the
+   whole chain had merged. The eslint floor is unchanged: the same two
+   `@typescript-eslint/no-unused-vars` warnings in
+   `src/lib/schedule/writeGames.test.ts`, which is still there.
+   ⚠️ **HISTORICAL, and the reason this line is worth reading at all:** before the
+   merge `origin/main` was **472 over 38**, and that did not move when PR #44
+   landed by itself.
    ⛔ **480 IS A STALE-BRANCH ARTEFACT, NOT A FUTURE BASELINE, AND THIS LINE HAS
    NOW BEEN WRONG THREE TIMES.** PR #44's branch really does report 480 over 37
    files, and #44 deletes nothing — the branch is simply behind `main` by two
@@ -48,13 +66,11 @@
 **Status, 2026-09-08. Every item has been taken to a decision, so read this file
 as the reasoning behind them rather than as a queue.**
 
-⛔ **NOTHING BELOW IS MERGED.** Every PR named here was OPEN as of 2026-09-08,
-`main` included none of them, and the past-tense verbs in this section describe
-what a PR _does_, not what has landed. Item 1 is "SHIPPED" only in the sense that
-its code is written and in review. Before relying on any of it, check: a session
-resuming cold could otherwise skip re-verification believing `main` carries these
-fixes. It does not — `src/lib/schedule/staleDraft.ts`, for one, exists only on
-`feat/stale-draft-publish-guard`.
+✅ **ALL MERGED as of 2026-09-09, except item 3 (PR #51).** This block used to say
+the exact opposite, and was right when written — every PR here was open on
+2026-09-08. It is corrected rather than deleted because the failure it warned
+about is real and recurring: read cold, "a PR does this" and "this has landed"
+look identical, and the verbs give you nothing.
 
 - **2** — draft-row edit e2e: **PR #49**. ⛔ Note for anyone extending it: the
   obvious version of that test PASSES against a fully broken guard. A night swap
