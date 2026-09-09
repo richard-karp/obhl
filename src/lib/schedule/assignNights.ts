@@ -19,16 +19,10 @@ import {
 import { assignMatchups, type MatchupResult } from "./matchups";
 import { assignSlots } from "./slots";
 import {
-  constrainedTeams,
   evaluateConstraints,
-  forcedByeCredits,
   noConstraints,
-  perTeamByeMetrics,
-  ZERO_CREDITS,
-  type ByeCredits,
   type ConstraintOutcome,
   type ResolvedConstraints,
-  type TeamByeMetrics,
 } from "./constraints";
 
 /**
@@ -83,9 +77,16 @@ export type BalanceReport = {
    * The metrics as the search sees them — **raw**, including breaches a
    * manager's own forced byes made unavoidable.
    *
-   * Presentation subtracts `constraintCredits` from the four bye rows; use
-   * `presentSpacing` in `constraints.ts` rather than doing it by hand, so the
-   * report a manager reads and the report a test asserts on cannot drift.
+   * Presentation subtracts the credits from `forcedByeCredits` off the four bye
+   * rows; use `presentSpacing` in `constraints.ts` rather than doing it by hand,
+   * so the report a manager reads and the report a test asserts on cannot drift.
+   *
+   * ⚠️ This report deliberately does NOT carry those credits. Whoever presents
+   * the metrics computes them: `schedule-builder-panel.tsx` does it from the
+   * PERSISTED games, and is not a caller of this function at all — no caller of
+   * `assignNights` needs them, `generateSchedule` reads only `report.constraints`.
+   * One source rather than two — a report field nothing read, and a
+   * recomputation that did.
    */
   spacing: SpacingReport;
   /**
@@ -93,17 +94,6 @@ export type BalanceReport = {
    * placed games. Empty when none were set.
    */
   constraints: ConstraintOutcome[];
-  /**
-   * Bye-rule breaches attributable to forced byes — what presentation subtracts
-   * from `spacing`. All zero when nothing is constrained.
-   */
-  constraintCredits: ByeCredits;
-  /**
-   * Per-team bye rows, flagged with whether that team is one the manager
-   * constrained. This is what makes collateral legible: a reader can see which
-   * breaches trace to a request and which landed on somebody else.
-   */
-  teamMetrics: TeamByeMetrics[];
 };
 
 /** Everything `assignNights` takes beyond the pairings and the calendar. */
@@ -1874,7 +1864,6 @@ export function assignNights(
       slotAt.set(`${ti}:${g.nightIndex}`, g.slotIndex);
     }
   }
-  const byed = (t: number, n: number) => !playsMatrix[t][n];
   // ⛔ `items.length`, NOT `empty`. `empty` asks "did anything reach a solver
   // phase", which is the right question for the short-circuits above and the
   // WRONG one here. An unresolved constraint contributes to none of the four
@@ -1894,11 +1883,6 @@ export function assignNights(
           plannerHonours,
           plannerRan: exact !== null,
         });
-  const constraintCredits =
-    resolved.empty || !plannerHonours
-      ? ZERO_CREDITS
-      : forcedByeCredits(resolved, { nights, teamIds, byed });
-
   return {
     games,
     pairsByNight,
@@ -1924,13 +1908,6 @@ export function assignNights(
       minRematchGapNights: minGap,
       spacing: spacingReport(games, nights, teamIds),
       constraints,
-      constraintCredits,
-      teamMetrics: perTeamByeMetrics({
-        nights,
-        teamIds,
-        byed,
-        constrained: constrainedTeams(resolved),
-      }),
     },
   };
 }

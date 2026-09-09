@@ -813,61 +813,6 @@ export function forcedByeCredits(
   return credits;
 }
 
-/** Per-team bye metrics, so a reader can see which breaches sit on which team. */
-export type TeamByeMetrics = ByeCredits & {
-  team: string;
-  constrained: boolean;
-};
-
-export function perTeamByeMetrics(opts: {
-  nights: Night[];
-  teamIds: string[];
-  byed: (team: number, night: number) => boolean;
-  /** Team indexes carrying at least one resolved constraint. */
-  constrained: Set<number>;
-}): TeamByeMetrics[] {
-  const { nights, teamIds, byed, constrained } = opts;
-  const meta = buildNightMeta(nights);
-  return teamIds.map((team, t) => {
-    const row: TeamByeMetrics = {
-      team,
-      constrained: constrained.has(t),
-      ...ZERO_CREDITS,
-    };
-    const byeWeekdays = new Map<number, Set<number>>();
-    for (const w of meta.sortedWeeks) {
-      const byedNights = meta.weekNights.get(w)!.filter((ni) => byed(t, ni));
-      if (byedNights.length === 0) continue;
-      if (byedNights.length >= 2) row.byesMultiWeek++;
-      byeWeekdays.set(w, new Set(byedNights.map((ni) => meta.weekday[ni])));
-    }
-    for (let i = 1; i < meta.sortedWeeks.length; i++) {
-      const a = meta.sortedWeeks[i - 1];
-      const b = meta.sortedWeeks[i];
-      if (b - a !== 1) continue;
-      const wa = byeWeekdays.get(a);
-      const wb = byeWeekdays.get(b);
-      if (!wa || !wb) continue;
-      row.byesConsecWeek++;
-      if ([...wa].some((d) => wb.has(d))) row.byesConsecWeekSameDay++;
-    }
-    for (let ni = 1; ni < nights.length; ni++) {
-      if (byed(t, ni) && byed(t, ni - 1)) row.byesAdjNight++;
-    }
-    return row;
-  });
-}
-
-/** Team indexes named by at least one resolved constraint. */
-export function constrainedTeams(resolved: ResolvedConstraints): Set<number> {
-  const out = new Set<number>();
-  for (const item of resolved.items) {
-    if (item.unresolved || item.team < 0) continue;
-    out.add(item.team);
-  }
-  return out;
-}
-
 /**
  * The bye metrics as a manager should read them: raw, less the breaches their
  * own forced byes made unavoidable.
