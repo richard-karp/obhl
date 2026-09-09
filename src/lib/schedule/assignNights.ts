@@ -115,6 +115,19 @@ export type BalanceReport = {
 export type AssignOptions = {
   /** Manager constraints, already resolved against these exact nights. */
   constraints?: ResolvedConstraints;
+  /**
+   * Which of the equally-valid schedules to return. Default 1, and the default
+   * MUST stay 1 — a season regenerated without this option has to come back
+   * byte-identical, which is the promise `PLATEAU_SEEDS` documents.
+   *
+   * Offsets every phase's PRNG by `(seed - 1) * 1000`, a stride wider than any
+   * phase's own seed list so two variations never share a draw. Phase M's seed
+   * alone is a DEAD LEVER — it re-derives its cycle and returns the same answer
+   * for every seed, measured over eight — so this has to reach Phase P's plateau
+   * sweep, the five Phase S candidates and the night-order pass to move
+   * anything.
+   */
+  seed?: number;
 };
 
 const matchupKey = (a: string, b: string) => [a, b].sort().join("|");
@@ -1445,6 +1458,8 @@ function planByParticipation(
   meta: Meta,
   smeta: NightMeta,
   resolved: ResolvedConstraints,
+  /** `(AssignOptions.seed - 1) * 1000`; 0 for the default schedule. */
+  seedOffset: number,
 ): Plan | null {
   const T = teamIds.length;
   const N = nights.length;
@@ -1529,6 +1544,7 @@ function planByParticipation(
       nightWeekday: smeta.weekday,
       targets,
       restarts: pairings.length <= 200 ? 12 : 4,
+      seed: 1 + seedOffset,
     });
     // A non-zero error means some pair would meet more or fewer times than the
     // caller asked for; that's opponent balance, so the matrix is unusable.
@@ -1561,12 +1577,12 @@ function planByParticipation(
   // and check it can be paired at all; only buy the long search once that's
   // known — otherwise a calendar that was never going to work burns the whole
   // budget on its way to being thrown away.
-  let part = solve(300, PLATEAU_SEEDS[0]);
+  let part = solve(300, PLATEAU_SEEDS[0] + seedOffset);
   if (!part) return null;
   let matched = match(part);
   if (!matched) return null;
   if (!part.optimal) {
-    const better = solve(4_000, PLATEAU_SEEDS[0]);
+    const better = solve(4_000, PLATEAU_SEEDS[0] + seedOffset);
     if (better && byeRuleCost(better) < byeRuleCost(part)) {
       const m = match(better);
       if (m) {
@@ -1589,7 +1605,7 @@ function planByParticipation(
   // not expected to bind — see `PLATEAU_SAMPLE_MS`.
   const sampleUntil = Date.now() + PLATEAU_SAMPLE_MS;
   let bestScore = plateauScore(part, matched);
-  for (const seed of PLATEAU_SEEDS.slice(1)) {
+  for (const seed of PLATEAU_SEEDS.slice(1).map((x) => x + seedOffset)) {
     if (Date.now() > sampleUntil) break;
     const p = solve(300, seed);
     if (!p) continue;
@@ -1682,10 +1698,18 @@ function planByParticipation(
       biases: resolved.biases.length > 0 ? resolved.biases : undefined,
     });
 
-  let slotOf = assignSlots({ ...slotArgs, ...SLOT_CANDIDATES[0] });
+  let slotOf = assignSlots({
+    ...slotArgs,
+    ...SLOT_CANDIDATES[0],
+    seed: SLOT_CANDIDATES[0].seed + seedOffset,
+  });
   let bestOutcome = outcomeFor(slotOf);
   for (const cand of SLOT_CANDIDATES.slice(1)) {
-    const trial = assignSlots({ ...slotArgs, ...cand });
+    const trial = assignSlots({
+      ...slotArgs,
+      ...cand,
+      seed: cand.seed + seedOffset,
+    });
     const out = outcomeFor(trial);
     if (compareIceOutcome(out, bestOutcome) < 0) {
       slotOf = trial;
@@ -1806,6 +1830,7 @@ export function assignNights(
   const meta = buildMeta(nights);
   const smeta = buildNightMeta(nights);
   const resolved = options?.constraints ?? noConstraints();
+  const seedOffset = ((options?.seed ?? 1) - 1) * 1000;
 
   let plan = planByWeeks(pairings, nights, teamIds, meta, smeta);
   const exact = planByParticipation(
@@ -1815,6 +1840,7 @@ export function assignNights(
     meta,
     smeta,
     resolved,
+    seedOffset,
   );
 
   // ⛔ `planByWeeks` CANNOT honour constraints. It searches over placed games
@@ -2010,7 +2036,10 @@ export function assignNights(
         cost: penalty + worstOf(rank) * 1_000 + totalOf(rank),
         admissible: noWorse && better,
       };
-    });
+      // ⚠️ `restarts`/`steps` deliberately left at nightOrder.ts's defaults —
+      // they sit on a measured cliff (1500 steps reaches worst-team 4, 1000
+      // reaches 8, nothing in between). Only the seed varies here.
+    }, { seed: 1 + seedOffset });
     if (reordered.some((n, i) => n !== i)) {
       const pos = new Array<number>(nights.length);
       reordered.forEach((n, i) => (pos[n] = i));

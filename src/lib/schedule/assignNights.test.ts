@@ -382,6 +382,41 @@ describe("assignNights — full-season reference schedule", () => {
 // 6 teams, one game night a week, 3 sheets: everyone plays every week, so this
 // is the shape where night order is free to move. Measured 2026-09-09: without
 // the pass the worst team carries 14 clustered windows.
+// Six seeds gave six distinct schedules when this was measured (see
+// `docs/superpowers/specs/2026-09-09-schedule-variations-design.md` §4). Two is
+// all this needs to assert: that the lever is connected at all.
+//
+// ⛔ Compares `scheduledAt`, the only positional field that is persisted.
+// Comparing `nightIndex` would pass against a generator that changed nothing a
+// manager can see — the exact failure mode the first clustering attempt shipped.
+describe("assignNights — seeds produce different schedules", () => {
+  const ts = teams(6);
+  const ns = enumerateNights("2026-09-08", {
+    weekdays: new Set([2]),
+    slotTimes: ["19:00", "20:15", "21:30"],
+    excluded: new Set<string>(),
+    maxNights: 23,
+  });
+  const pairings = buildBalancedPairings(ts, 23);
+  const stamps = (seed?: number) =>
+    assignNights(pairings, ns, ts, seed === undefined ? undefined : { seed })
+      .games.map((g) => `${g.home}|${g.away}|${g.scheduledAt}`)
+      .sort()
+      .join("\n");
+
+  it("returns the same schedule for the same seed", () => {
+    expect(stamps(1)).toBe(stamps(1));
+  });
+
+  it("returns a different schedule for a different seed", () => {
+    expect(stamps(2)).not.toBe(stamps(1));
+  });
+
+  it("defaults to seed 1", () => {
+    expect(stamps()).toBe(stamps(1));
+  });
+});
+
 describe("assignNights — ice-time clustering, 6 teams on one weeknight", () => {
   const ts = teams(6);
   const SLOT_TIMES = ["19:00", "20:15", "21:30"];
