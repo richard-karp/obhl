@@ -74,6 +74,25 @@ declare
   pos player_position;
   g record;
   hg int; ag int;
+  -- ⛔ WEEKDAY-STABLE, NOT JUST "SOME DAYS AGO". Every league-1 game is a
+  -- Tuesday and every league-2 game a Wednesday; `28-`'s SKIP_DAY is a
+  -- day-of-month that must land on a Thursday. `date_trunc('week', …)` returns
+  -- the ISO Monday, so +1 is Tuesday and +2 is Wednesday.
+  --
+  -- ⚠️ `current_date` IS UTC, SO THE WHOLE FIXTURE STEPS FORWARD AT UTC
+  -- MIDNIGHT, NOT LOCAL MIDNIGHT — 20:00 Eastern in EDT, and 19:00 once the
+  -- league is on EST. The Postgres container runs in UTC, so an
+  -- evening `db:reset` seeds against tomorrow's date. Watched 2026-09-07 at
+  -- 20:14 EDT: the same reset that produced a 2026-05-05 anchor that morning
+  -- produced 2026-05-12 that evening — a SEVEN-day jump, because the extra day
+  -- crossed a week boundary and `date_trunc` snaps to it. That is correct and
+  -- self-consistent (every spec derives from these same values, and all of them
+  -- read the date back from the database or use `getUTC*`), but it means a
+  -- morning run and an evening run exercise different fixtures. If you are ever
+  -- chasing a failure that reproduces only at one time of day, this is why.
+  v_l1_anchor  date := date_trunc('week', current_date - 120)::date + 1;
+  v_l2_anchor  date := date_trunc('week', current_date - 120)::date + 2;
+  v_fall_anchor date := date_trunc('week', current_date + 14)::date + 1;
 begin
   -- ============================================================ OCEANVIEW
   insert into leagues (name, slug, is_public)
@@ -81,7 +100,10 @@ begin
     returning id into v_league;
 
   insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system)
-    values (v_league, 'Spring 2026', date '2026-05-12', date '2026-06-30', true,
+    -- ⚠️ THE YEAR IN THIS NAME IS NOT A CLAIM ABOUT THE DATES. The name is the
+    -- handle 17 assertions use to find this season; the dates are relative to
+    -- today. Do not "fix" the mismatch by pinning the dates back.
+    values (v_league, 'Spring 2026', v_l1_anchor, v_l1_anchor + 49, true,
             '{"win":2,"tie":1,"loss":0}'::jsonb)
     returning id into v_season;
 
@@ -98,13 +120,13 @@ begin
   insert into announcements (league_id, title, body, published_at) values
     (v_league, 'Playoffs start the week of June 22',
      'Top four teams qualify. Seeding is by points, then head-to-head. Check the standings page for the latest picture.',
-     timestamptz '2026-06-01 09:00-04'),
+     (v_l1_anchor + 20 + time '09:00') at time zone 'America/New_York'),
     (v_league, 'New ice time added: Tuesday 9:30 PM',
      'To balance the schedule we''ve added a late Tuesday slot. The schedule builder has spread these evenly so no team is stuck with it.',
-     timestamptz '2026-05-22 12:00-04'),
+     (v_l1_anchor + 10 + time '12:00') at time zone 'America/New_York'),
     (v_league, 'Reminder: jerseys must match the roster number',
      'Scorekeepers credit goals by number. If your number doesn''t match the roster, your points may not be recorded. Captains, please confirm your lineups.',
-     timestamptz '2026-05-12 08:00-04');
+     (v_l1_anchor +  0 + time '08:00') at time zone 'America/New_York');
 
   team_names  := array['Sharks','Bears','Wolves','Ducks','Hawks','Bisons'];
   team_slugs  := array['sharks','bears','wolves','ducks','hawks','bisons'];
@@ -139,21 +161,21 @@ begin
   -- Oceanview schedule: single round-robin, 5 rounds x 3 games. Rounds 1-3 final.
   for g in
     select * from (values
-      (1, 1, 2, timestamptz '2026-05-12 19:00-04'),
-      (1, 3, 6, timestamptz '2026-05-12 20:15-04'),
-      (1, 4, 5, timestamptz '2026-05-12 21:30-04'),
-      (2, 1, 3, timestamptz '2026-05-19 19:00-04'),
-      (2, 2, 4, timestamptz '2026-05-19 20:15-04'),
-      (2, 5, 6, timestamptz '2026-05-19 21:30-04'),
-      (3, 1, 4, timestamptz '2026-05-26 19:00-04'),
-      (3, 2, 6, timestamptz '2026-05-26 20:15-04'),
-      (3, 3, 5, timestamptz '2026-05-26 21:30-04'),
-      (4, 1, 5, timestamptz '2026-06-09 19:00-04'),
-      (4, 2, 3, timestamptz '2026-06-09 20:15-04'),
-      (4, 4, 6, timestamptz '2026-06-09 21:30-04'),
-      (5, 1, 6, timestamptz '2026-06-16 19:00-04'),
-      (5, 2, 5, timestamptz '2026-06-16 20:15-04'),
-      (5, 3, 4, timestamptz '2026-06-16 21:30-04')
+      (1, 1, 2, (v_l1_anchor +  0 + time '19:00') at time zone 'America/New_York'),
+      (1, 3, 6, (v_l1_anchor +  0 + time '20:15') at time zone 'America/New_York'),
+      (1, 4, 5, (v_l1_anchor +  0 + time '21:30') at time zone 'America/New_York'),
+      (2, 1, 3, (v_l1_anchor +  7 + time '19:00') at time zone 'America/New_York'),
+      (2, 2, 4, (v_l1_anchor +  7 + time '20:15') at time zone 'America/New_York'),
+      (2, 5, 6, (v_l1_anchor +  7 + time '21:30') at time zone 'America/New_York'),
+      (3, 1, 4, (v_l1_anchor + 14 + time '19:00') at time zone 'America/New_York'),
+      (3, 2, 6, (v_l1_anchor + 14 + time '20:15') at time zone 'America/New_York'),
+      (3, 3, 5, (v_l1_anchor + 14 + time '21:30') at time zone 'America/New_York'),
+      (4, 1, 5, (v_l1_anchor + 28 + time '19:00') at time zone 'America/New_York'),
+      (4, 2, 3, (v_l1_anchor + 28 + time '20:15') at time zone 'America/New_York'),
+      (4, 4, 6, (v_l1_anchor + 28 + time '21:30') at time zone 'America/New_York'),
+      (5, 1, 6, (v_l1_anchor + 35 + time '19:00') at time zone 'America/New_York'),
+      (5, 2, 5, (v_l1_anchor + 35 + time '20:15') at time zone 'America/New_York'),
+      (5, 3, 4, (v_l1_anchor + 35 + time '21:30') at time zone 'America/New_York')
     ) as t(rnd, h, a, sched)
   loop
     if g.rnd <= 3 then
@@ -174,8 +196,13 @@ begin
   declare
     v_fall uuid;
   begin
+    -- ⛔ THIS IS THE SEASON THE WHOLE CHANGE EXISTS FOR. It must be UNSTARTED
+    -- for the builder specs to work: `season_is_started` flipping is what
+    -- locks the builder and falsifies `11-`'s stated premise. The anchor is a
+    -- Tuesday 9–15 days out for every possible weekday of "today".
+    -- ⚠️ The year in the name is not a claim about the dates.
     insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system)
-      values (v_league, 'Fall 2026', date '2026-09-15', date '2027-03-31', false,
+      values (v_league, 'Fall 2026', v_fall_anchor, v_fall_anchor + 197, false,
               '{"win":2,"tie":1,"loss":0}'::jsonb)
       returning id into v_fall;
 
@@ -196,7 +223,10 @@ begin
     returning id into v_league;
 
   insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system)
-    values (v_league, 'Spring 2026', date '2026-05-13', date '2026-06-29', true,
+    -- ⚠️ THE YEAR IN THIS NAME IS NOT A CLAIM ABOUT THE DATES. The name is the
+    -- handle 17 assertions use to find this season; the dates are relative to
+    -- today. Do not "fix" the mismatch by pinning the dates back.
+    values (v_league, 'Spring 2026', v_l2_anchor, v_l2_anchor + 47, true,
             '{"win":2,"tie":1,"loss":0}'::jsonb)
     returning id into v_season;
 
@@ -209,10 +239,10 @@ begin
   insert into announcements (league_id, title, body, published_at) values
     (v_league, 'Welcome to the Harbor Rec spring season',
      'Four teams, six weeks, one trophy. Schedules and standings update automatically as scorekeepers finalize each game.',
-     timestamptz '2026-05-13 09:00-04'),
+     (v_l2_anchor + 0 + time '09:00') at time zone 'America/New_York'),
     (v_league, 'Some players are crossing over from Oceanview',
      'A few skaters suit up in both leagues this spring — their profiles are shared, so the same person shows up under each league.',
-     timestamptz '2026-05-15 10:00-04');
+     (v_l2_anchor + 2 + time '10:00') at time zone 'America/New_York');
 
   team_names  := array['Anchors','Gulls','Mariners','Tide'];
   team_slugs  := array['anchors','gulls','mariners','tide'];
@@ -252,12 +282,12 @@ begin
   -- Harbor schedule: 4-team single round-robin, 3 rounds x 2 games. Rounds 1-2 final.
   for g in
     select * from (values
-      (1, 1, 4, timestamptz '2026-05-13 19:00-04'),
-      (1, 2, 3, timestamptz '2026-05-13 20:15-04'),
-      (2, 1, 3, timestamptz '2026-05-20 19:00-04'),
-      (2, 4, 2, timestamptz '2026-05-20 20:15-04'),
-      (3, 1, 2, timestamptz '2026-06-10 19:00-04'),
-      (3, 3, 4, timestamptz '2026-06-10 20:15-04')
+      (1, 1, 4, (v_l2_anchor +  0 + time '19:00') at time zone 'America/New_York'),
+      (1, 2, 3, (v_l2_anchor +  0 + time '20:15') at time zone 'America/New_York'),
+      (2, 1, 3, (v_l2_anchor +  7 + time '19:00') at time zone 'America/New_York'),
+      (2, 4, 2, (v_l2_anchor +  7 + time '20:15') at time zone 'America/New_York'),
+      (3, 1, 2, (v_l2_anchor + 28 + time '19:00') at time zone 'America/New_York'),
+      (3, 3, 4, (v_l2_anchor + 28 + time '20:15') at time zone 'America/New_York')
     ) as t(rnd, h, a, sched)
   loop
     if g.rnd <= 2 then

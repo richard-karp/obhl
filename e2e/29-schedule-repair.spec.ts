@@ -112,8 +112,15 @@ async function expectGenerateFormUsable(page: Page) {
   }
 }
 
-const SEASON = "Repair Test 2027";
-const FIRST_NIGHT = "2027-01-05";
+/**
+ * ⛔ COMPUTED, NEVER PINNED. This spec seeded `Repair Test 2027` at a literal
+ * 2027-01-05 and would have broken in January 2027 exactly as `11-` was about to
+ * break in September 2026. Same defect, further out.
+ */
+const YEAR = new Date().getUTCFullYear() + 2;
+const SEASON = `Repair Test ${YEAR}`;
+const FIRST_NIGHT = `${YEAR}-01-05`;
+const SEASON_END = `${YEAR}-06-30`;
 
 /** See `11-schedule-builder.spec.ts` — Phase S runs five candidates. */
 const AFTER_GENERATE = { timeout: 45_000 };
@@ -206,7 +213,7 @@ async function seedFutureSeason(page: Page) {
   if ((await row.count()) === 0) {
     await page.getByLabel("Name").fill(SEASON);
     await page.getByLabel("Season starts").fill(FIRST_NIGHT);
-    await page.getByLabel("Season ends (incl. playoffs)").fill("2027-06-30");
+    await page.getByLabel("Season ends (incl. playoffs)").fill(SEASON_END);
     await page.getByRole("button", { name: /Create season/i }).click();
     await expect(page).toHaveURL(/\/seasons\/[0-9a-f-]{36}/);
     await page.goto("/obhl/seasons");
@@ -306,9 +313,17 @@ test.describe("Path 27 — changing a live schedule", () => {
     await page.getByRole("button", { name: "Move night" }).click();
     await expect(page.getByText(/already runs \d+ games?/)).toBeVisible();
 
-    // A free date, mid-week so it cannot collide with a Tue/Thu night.
+    // A free date. ⚠️ NOT because of its weekday — that reason is wrong and
+    // cost a reviewer a false finding on 2026-09-07. `YEAR` floats with the
+    // clock, so June 16 lands on a Tue or Thu in 2033, 2037, 2039, 2043 and
+    // 2044 (an earlier revision of this comment said 2041 and 2042; those are a
+    // Sunday and a Monday). It is free because this fixture generates only 18 games from
+    // `FIRST_NIGHT` (6 per team, 2 sheets = 9 nights), which run Jan 11 to
+    // Feb 3 — measured. June is four months past the last night, on every
+    // weekday. If games_per_team ever grows enough to reach June, derive this
+    // date instead of pinning the month and day.
     const before = await publishedGameIds();
-    await page.getByLabel("New date").fill("2027-06-16");
+    await page.getByLabel("New date").fill(`${YEAR}-06-16`);
     await page.getByRole("button", { name: "Move night" }).click();
     await expect(page.getByText(/^Moved \d+ games? from /)).toBeVisible();
 
@@ -316,7 +331,7 @@ test.describe("Path 27 — changing a live schedule", () => {
     await page.goto("/obhl/schedule-builder");
     await expect(
       page.getByLabel("Night to move").locator("option", {
-        hasText: "June 16, 2027",
+        hasText: `June 16, ${YEAR}`,
       }),
     ).toHaveCount(1);
     await expect(
@@ -483,7 +498,7 @@ test.describe("Path 27 — changing a live schedule", () => {
   }) => {
     await signedInAsManager(page);
     // The seeded season, explicitly: `seedFutureSeason` may have left this
-    // spec's own 2027 season active.
+    // spec's own future season active.
     await page.goto("/obhl/seasons");
     await page
       .getByRole("row", { name: /Spring 2026/ })
