@@ -280,6 +280,84 @@ describe("refuteConstraints", () => {
       ),
     ).toEqual([]);
   });
+
+  it("refuses a bye_in_week on a week that has no bye to give", () => {
+    // Week 0 is nights 0 and 1, and here they run TWO games each. With four
+    // teams that seats everybody: byesAvailable = 4 - 2*2 = 0, both nights.
+    //
+    // ⛔ THE BUDGET ARITHMETIC CANNOT SEE THIS, which is why it went unrefuted.
+    // The season holds 8 nights and each team plays 5 games, so the budget is 3
+    // byes — ample. The set "fits" while being impossible, and the search then
+    // runs to exhaustion and fails without saying why.
+    const fullFirstWeek = {
+      ...opts,
+      gamesPerTeam: new Array(4).fill(5),
+      gamesPerNight: [2, 2, 1, 1, 1, 1, 1, 1],
+    };
+
+    const out = refuteConstraints(
+      resolve([c("1", "a", "bye_in_week", { week_of: NIGHTS[0].date })]),
+      fullFirstWeek,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain("no bye to give");
+
+    // ⛔ TWO CONTROLS, because "it returned a message" is not the claim.
+    //
+    // The same impossibility asked as `bye_on` was ALWAYS refused — that is
+    // what made the gap a real inconsistency rather than a missing feature.
+    expect(
+      refuteConstraints(
+        resolve([c("1", "a", "bye_on", { date: NIGHTS[0].date })]),
+        fullFirstWeek,
+      )[0],
+    ).toContain("0 byes to give");
+
+    // And the identical request one week later, where the nights run one game
+    // and can host it, must still say nothing.
+    expect(
+      refuteConstraints(
+        resolve([c("1", "a", "bye_in_week", { week_of: NIGHTS[2].date })]),
+        fullFirstWeek,
+      ),
+    ).toEqual([]);
+  });
+
+  it("reads correctly when the week holds a single game night", () => {
+    // ⛔ THE COMMONEST LEAGUE SHAPE, and the one the first version of this
+    // message got wrong: it produced "all 1 of its nights seat every one of the
+    // 4 teams". One night a week, two games on it, four teams — nobody byes.
+    //
+    // Five nights and four games a team leaves a budget of one, so the budget
+    // check above stays silent and this asserts on exactly one sentence.
+    const weekly: Night[] = [
+      "2026-09-07",
+      "2026-09-14",
+      "2026-09-21",
+      "2026-09-28",
+      "2026-10-05",
+    ].map((date) => ({ date, slots: SLOTS }));
+
+    const out = refuteConstraints(
+      resolveConstraints(
+        [c("1", "a", "bye_in_week", { week_of: weekly[1].date })],
+        { nights: weekly, teamIds: TEAMS },
+      ),
+      {
+        teamIds: TEAMS,
+        nameOf,
+        gamesPerTeam: new Array(4).fill(4),
+        gamesPerNight: [2, 2, 2, 1, 1],
+        weekOfNight: buildNightMeta(weekly).week,
+      },
+    );
+
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain(
+      "its only game night seats every one of the 4 teams",
+    );
+    expect(out[0]).not.toContain("all 1 of");
+  });
 });
 
 describe("evaluateConstraints", () => {

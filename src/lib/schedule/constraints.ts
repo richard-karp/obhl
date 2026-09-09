@@ -447,6 +447,68 @@ export function refuteConstraints(
     }
   }
 
+  /**
+   * ⛔ A `bye_in_week` ON A WEEK THAT HAS NO BYE TO GIVE. The budget arithmetic
+   * above cannot see this one: it charges the request against the SEASON's
+   * total bye budget, which is normally ample, while the week itself may seat
+   * every team on every one of its nights.
+   *
+   * The same impossibility asked as `bye_on` has always been refused — by the
+   * per-night loop below, with "only has 0 byes to give". Asked as
+   * `bye_in_week` it was not refused at all.
+   *
+   * ⚠️ MEASURED 2026-09-08, because the first version of this comment guessed
+   * and guessed wrong. The generator does NOT hang and does NOT go silent: it
+   * returns in ~20ms with a COMPLETE draft and reports the request as unmet via
+   * `NO_PLAN_REASON` — "the generator could not build a schedule that forces
+   * game nights on this calendar". So what this check buys is a precise
+   * sentence naming the team and the week in place of a generic one about the
+   * calendar, plus consistency with `bye_on`. It is not a rescue from a slow or
+   * a silent failure, and nobody should read it as one.
+   *
+   * ⛔ AND IT COSTS A DRAFT. `generateSchedule` treats anything this function
+   * returns as fatal. In DATE mode that is free — the `g` step-down loop drops
+   * games-per-team and the request usually comes back satisfied, which is
+   * strictly better than before. In COUNT mode there is nowhere to step, so the
+   * manager gets this refusal instead of the draft they used to get. Decided
+   * with the user 2026-09-08: that draft ignored the request anyway, and
+   * `bye_on` has always answered the same question this way.
+   *
+   * Weeks that already hold a forced bye are skipped for the same reason the
+   * budget loop treats them as paid for: the forced bye satisfies the
+   * disjunction, and if that forced bye is itself impossible the per-night loop
+   * is the one that says so.
+   */
+  const nightsOfWeek = new Map<number, number[]>();
+  weekOfNight.forEach((w, n) => {
+    const list = nightsOfWeek.get(w);
+    if (list) list.push(n);
+    else nightsOfWeek.set(w, [n]);
+  });
+  for (let t = 0; t < T; t++) {
+    const paidByForced = new Set([...byeNights[t]].map((n) => weekOfNight[n]));
+    for (const w of byeWeeks[t]) {
+      if (paidByForced.has(w)) continue;
+      const inWeek = nightsOfWeek.get(w) ?? [];
+      // ⚠️ A week holding no game nights never reaches here: `resolveConstraints`
+      // marks that request `unresolved` ("the week of X holds no game nights")
+      // before it can become a `byeInWeek` entry. Skipped rather than described,
+      // so this cannot invent a sentence for a state with no way to occur — an
+      // earlier revision carried exactly that dead branch.
+      if (inWeek.length === 0) continue;
+      if (inWeek.some((n) => T - 2 * (gamesPerNight[n] ?? 0) > 0)) continue;
+      // Singular matters: one game night a week is the commonest league shape,
+      // and "all 1 of its nights seat" is what this said before.
+      const seats =
+        inWeek.length === 1
+          ? "its only game night seats"
+          : `all ${inWeek.length} of its game nights seat`;
+      out.push(
+        `${nameOf(teamIds[t])} is asked to bye in a week that has no bye to give — ${seats} every one of the ${T} teams. Drop that request or run fewer games that week.`,
+      );
+    }
+  }
+
   for (let n = 0; n < N; n++) {
     const byesAvailable = T - 2 * gamesPerNight[n];
     let forcedOff = 0;
