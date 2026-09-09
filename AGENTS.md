@@ -47,15 +47,21 @@ front which section matters for which kind of change.
   show it. Read it before touching a guard, an RLS policy, or anything under
   `src/lib/auth`.
 
-⛔ **The esportsdesk importer has never been run end to end — by any test or any
-person.** `src/lib/actions/import.test.ts` (19 tests) and `seasons.test.ts` (7)
-stub the fetch and the database deliberately, and both e2e import specs stop at
-the form, so a green suite says nothing about the real parser or the real
-writes. Six review rounds found six bugs in that path, four of them after a
-previous fix had "closed" it. It creates a **public league with no delete UI**,
-so treat a change there as unverified until someone imports a real esportsdesk
-URL. Steps: `docs/superpowers/specs/2026-09-08-league-creation-at-the-root-design.md`,
-under *Acceptance*.
+⚠️ **The esportsdesk importer has NO automated end-to-end coverage.**
+`src/lib/actions/import.test.ts` (19 tests) and `seasons.test.ts` (7) stub the
+fetch and the database deliberately, and both e2e import specs stop at the form
+— so a green suite says nothing about the real parser or the real writes. Six
+review rounds found six bugs in that path, four of them after a previous fix had
+"closed" it, and it creates a **public league with no delete UI**.
+
+✅ **Rosters-only HAS been run against a real esportsdesk source and worked**
+(the maintainer, 2026-09-09): `runRosterOnlyImport` — the parser, the team loop,
+`problems[]`, and the redirect into `/<slug>/seasons`. ⛔ **The FULL migration
+has not.** `runEsportsdeskImport` adds the schedule block, the stats block and
+the `notes[]` machinery on top, and none of that has met a real source. Treat a
+change to those as unverified. Steps:
+`docs/superpowers/specs/2026-09-08-league-creation-at-the-root-design.md`, under
+*Acceptance*.
 
 `docs/superpowers/specs/` holds the per-change design docs these summarise,
 including the alternatives that were considered and rejected. Reach for a spec
