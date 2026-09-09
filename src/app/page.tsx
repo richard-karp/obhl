@@ -92,6 +92,29 @@ export default async function LandingPage() {
 
   const cluster = <AccountCluster user={user && { role: user.role }} />;
 
+  // ⚠️ THE ROLE, WITH NO MEMBERSHIP CHECK — and this is the one page where that
+  // is right rather than the mistake `staff-links.tsx` warns about. Everywhere
+  // else a role is paired with membership because the role is instance-wide and
+  // the page belongs to a league. This page belongs to none, and the act it is
+  // offering — creating a league — has no league to be a member of yet. It is
+  // exactly the check `requireManager()` makes on the page behind this link, and
+  // the two must agree or the link renders for someone the page turns away.
+  //
+  // ⛔ THIS IS THE ONLY ROUTE IN FOR A MANAGER WHO BELONGS TO NO LEAGUE. The
+  // staff row that carries the same link is drawn by `[league]/layout.tsx` for
+  // members only, so such an account never sees it. That account is the one
+  // creating the first league on a fresh instance, which is the case this whole
+  // page's empty state used to dead-end.
+  const canCreateLeague = user?.role === "league_manager";
+  const newLeagueLink = (
+    <Link
+      href="/manage/leagues/new"
+      className="hover:bg-secondary/60 text-muted-foreground hover:text-foreground rounded-md border px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors"
+    >
+      New league
+    </Link>
+  );
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-10">
       <div className="mb-10 flex items-start justify-between gap-4">
@@ -109,7 +132,20 @@ export default async function LandingPage() {
           controls across the full width.
         */}
         {user ? (
-          <div className="flex items-center gap-2">{cluster}</div>
+          <div className="flex items-center gap-2">
+            {/*
+              ⚠️ `leagues.length > 0` IS NOT REDUNDANT WITH THE EMPTY STATE'S
+              OWN COPY OF THIS LINK — it is what stops the two rendering at
+              once. Both conditions held on a league-less instance, which is
+              exactly the case this page exists to unblock, so the one state
+              that mattered most drew the button twice. It also made
+              `getByRole("link", { name: "New league" })` match two elements,
+              a strict-mode failure waiting for the first test to meet an
+              empty database.
+            */}
+            {canCreateLeague && leagues.length > 0 ? newLeagueLink : null}
+            {cluster}
+          </div>
         ) : (
           cluster
         )}
@@ -118,10 +154,28 @@ export default async function LandingPage() {
       {leagues.length === 0 ? (
         // A freshly bootstrapped database renders this: the site is up before
         // any league exists.
-        <EmptyState
-          title="No leagues yet"
-          description="Once a league is published it will appear here."
-        />
+        //
+        // ⛔ FOR A MANAGER THIS WAS A DEAD END, and closing it is the point of
+        // moving league creation out here. "Once a league is published it will
+        // appear here" is true for a visitor and useless to the one person who
+        // can do something about it — and until this link existed, the only way
+        // to create the first league on an instance was to write the row by
+        // hand, because the importer lived at `/<league>/import` and there was
+        // no league to put in that URL.
+        //
+        // ⚠️ BESIDE `EmptyState`, NOT INSIDE IT. That component takes
+        // title/description/icon/className and has no children slot; widening a
+        // shared component for one caller is the wrong trade when a sibling does
+        // the job.
+        <div className="space-y-4">
+          <EmptyState
+            title="No leagues yet"
+            description="Once a league is published it will appear here."
+          />
+          {canCreateLeague ? (
+            <div className="flex justify-center">{newLeagueLink}</div>
+          ) : null}
+        </div>
       ) : (
         <ul className="space-y-3">
           {leagues.map((l) => (

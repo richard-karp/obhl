@@ -300,7 +300,8 @@ function placedGames(arranged: [number, number][][]): PlacedGame[] {
 
 /**
  * Reject schedules the phases can't take. Published games aren't guaranteed to
- * come from the generator — `/import` exists — so this is a real path, and the
+ * come from the generator — the esportsdesk importer exists — so this is a real
+ * path, and the
  * caller degrades to "no repair" rather than failing outright.
  */
 function precheck(opts: PlanOneOffOptions): string | null {
