@@ -13,6 +13,54 @@
  */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+
+function admin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SECRET_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+}
+
+/**
+ * The seeded Fall season's first night, read from the database.
+ *
+ * ⛔ NEVER RESTATE THIS DATE. It used to be `const FIRST_NIGHT = "2026-09-15"`,
+ * which was the seed's own literal — and on 2026-09-16 that season would have
+ * STARTED, locking the builder and falsifying this spec's premise. The seed owns
+ * the date; a spec that repeats it can disagree with the fixture it runs against.
+ */
+async function fallStart(): Promise<string> {
+  const db = admin();
+  const { data: league, error: le } = await db
+    .from("leagues")
+    .select("id")
+    .eq("slug", "obhl")
+    .single();
+  // ⛔ FAIL BY NAME, LIKE `expectGenerateFormUsable`. `data!.starts_on` on an
+  // empty read threw "Cannot read properties of null", which then surfaced as
+  // the failure of EVERY test in this file with nothing pointing at the fixture.
+  // And scoped to the league: both leagues carry a "Spring 2026", so an
+  // unscoped `.single()` breaks the moment a second one reuses "Fall 2026".
+  if (le || !league) {
+    throw new Error(`Seed has no 'obhl' league: ${le?.message ?? "not found"}`);
+  }
+  const { data, error } = await db
+    .from("seasons")
+    .select("starts_on")
+    .eq("league_id", league.id)
+    .eq("name", "Fall 2026")
+    .single();
+  if (error || !data) {
+    throw new Error(
+      `Seed has no Fall 2026 season in obhl — check supabase/seed.sql: ${
+        error?.message ?? "not found"
+      }`,
+    );
+  }
+  return data.starts_on as string;
+}
 
 async function signedInAsManager(page: Page) {
   await page.goto("/login");
@@ -95,15 +143,91 @@ async function expectGenerateFormUsable(page: Page) {
 /** See `11-schedule-builder.spec.ts` — Phase S runs five candidates. */
 const AFTER_GENERATE = { timeout: 45_000 };
 
-/** The first game night of the window these tests generate over. */
-const FIRST_NIGHT = "2026-09-15";
-
 /** Non-default ice times, so "still what I typed" cannot pass by accident. */
 const SLOT_TIMES = "18:45, 20:00";
 
-/** A Thursday inside the season, skipped — far enough out to not starve it. */
-const SKIP_DAY = "24";
-const SKIP_CHIP = "Sep 24";
+/**
+ * A Thursday inside the season, skipped — far enough out not to starve it.
+ *
+ * ⛔ COMPUTED, BECAUSE "24" WAS ONLY A THURSDAY IN 2026. This is a day-of-month
+ * typed into a date picker, and the test's meaning depends on the weekday it
+ * lands on, not on the number.
+ */
+async function skipDate(): Promise<Date> {
+  const start = new Date(`${await fallStart()}T12:00:00Z`);
+  const d = new Date(start);
+  d.setUTCDate(d.getUTCDate() + 14); // well inside the window
+  while (d.getUTCDay() !== 4) d.setUTCDate(d.getUTCDate() + 1); // 4 = Thursday
+  return d;
+}
+
+async function skipDay(): Promise<string> {
+  return String((await skipDate()).getUTCDate());
+}
+
+const MONTH_ABBR = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+/**
+ * The "Month Day" chip the calendar renders for `skipDate()` (e.g. "Oct 8") —
+ * matches `shortLabel()` in `schedule-generate-form.tsx`, which formats with
+ * `{ month: "short", day: "numeric" }`.
+ *
+ * ⛔ COMPUTED FOR THE SAME REASON `skipDay` IS. The old literal "Sep 24" baked
+ * in both the day AND the month; walking 14+ days to the next Thursday from a
+ * moving anchor can land in a different month than the season's first night.
+ */
+async function skipChip(): Promise<string> {
+  const d = await skipDate();
+  return `${MONTH_ABBR[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
+/**
+ * How many months after the season's first night `skipDate()` falls.
+ *
+ * ⛔ NEEDED BECAUSE THE PICKER OPENS ON THE FIRST NIGHT'S MONTH. The "Pick
+ * dates" popover's calendar (`schedule-generate-form.tsx`) sets
+ * `defaultMonth={parseKey(seasonStart)}` and shows one month at a time. If
+ * `skipDate()` crosses into a later month, its day-of-month number belongs to
+ * a day that ISN'T rendered yet — the calendar has to be advanced first, or a
+ * same-numbered day in the wrong (visible) month gets clicked instead.
+ */
+async function skipMonthsAhead(): Promise<number> {
+  const start = new Date(`${await fallStart()}T12:00:00Z`);
+  const target = await skipDate();
+  return (
+    (target.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+    (target.getUTCMonth() - start.getUTCMonth())
+  );
+}
+
+/**
+ * A date inside the season, a week after its first night — used only to give
+ * a `slot_on` request a valid date; nothing here checks which weekday it
+ * lands on.
+ *
+ * ⛔ COMPUTED FOR THE SAME REASON `secondTuesday()` is in
+ * `23-schedule-constraints.spec.ts`. This used to be the literal
+ * `"2026-09-22"`, a week after the old fixed `FIRST_NIGHT`. With a moving
+ * anchor that literal can land before the season even starts.
+ */
+async function aWeekIntoSeason(): Promise<string> {
+  const d = new Date(`${await fallStart()}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 7);
+  return d.toISOString().slice(0, 10);
+}
 
 /** The listed manager requests, and only those — see `23-schedule-constraints`. */
 function requestList(page: Page) {
@@ -118,7 +242,7 @@ async function fillEverything(page: Page) {
   // there is no form here at all, and a bare `fill` waits out the whole test
   // budget saying only "waiting for getByLabel".
   await expectGenerateFormUsable(page);
-  await page.getByLabel("First game night").fill(FIRST_NIGHT);
+  await page.getByLabel("First game night").fill(await fallStart());
   await page.getByLabel("Games per team").fill("4");
   await page.getByLabel(/Ice-time slots/).fill(SLOT_TIMES);
   await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
@@ -129,14 +253,30 @@ async function fillEverything(page: Page) {
   // not, the cause is React's form reset rather than a remount.
   await page.getByRole("button", { name: "Pick dates" }).click();
   const popover = page.locator('[data-slot="popover-content"]');
+  // The popover opens on the first night's month — advance it if the skipped
+  // Thursday landed in a later one.
+  const monthsAhead = await skipMonthsAhead();
+  for (let i = 0; i < monthsAhead; i++) {
+    await popover.getByRole("button", { name: "Go to the Next Month" }).click();
+  }
+  // ⛔ EXCLUDE THE OUTSIDE DAYS, OR `.first()` CLICKS THE WRONG MONTH. The
+  // calendar renders with `showOutsideDays` (the default in
+  // `components/ui/calendar.tsx`), so the previous month's tail days appear as
+  // gridcells BEFORE this month's own — and they carry day numbers in the high
+  // twenties, exactly where a skipped Thursday can land. When the numbers
+  // coincide, `.first()` picks the previous month's cell, which is `disabled`
+  // (it is before the season start) and the click times out. Measured
+  // 2026-09-07 against a fixture anchored to 2026-10-13: 3 tests failed with
+  // "element is not enabled". It would have started happening on its own on
+  // 2026-09-28, and on 105 of the following 800 days.
   await popover
-    .locator("button")
-    .filter({ hasText: new RegExp(`^${SKIP_DAY}$`) })
+    .locator('[role="gridcell"]:not([data-outside]) button')
+    .filter({ hasText: new RegExp(`^${await skipDay()}$`) })
     .first()
     .click();
   await popover.getByRole("button", { name: "Add", exact: true }).click();
   await page.keyboard.press("Escape");
-  await expect(page.getByText(SKIP_CHIP)).toBeVisible();
+  await expect(page.getByText(await skipChip())).toBeVisible();
 }
 
 test.describe("Path 26 — the generate form's state", () => {
@@ -156,7 +296,9 @@ test.describe("Path 26 — the generate form's state", () => {
     await expect(page.getByText("Balance report")).toBeVisible(AFTER_GENERATE);
 
     // Uncontrolled inputs.
-    await expect(page.getByLabel("First game night")).toHaveValue(FIRST_NIGHT);
+    await expect(page.getByLabel("First game night")).toHaveValue(
+      await fallStart(),
+    );
     await expect(page.getByLabel("Games per team")).toHaveValue("4");
     await expect(page.getByLabel(/Ice-time slots/)).toHaveValue(SLOT_TIMES);
     await expect(
@@ -167,7 +309,7 @@ test.describe("Path 26 — the generate form's state", () => {
     ).toBeChecked();
 
     // React state.
-    await expect(page.getByText(SKIP_CHIP)).toBeVisible();
+    await expect(page.getByText(await skipChip())).toBeVisible();
 
     await page.getByRole("button", { name: "Discard draft" }).click();
     await expect(page.getByText("No draft schedule")).toBeVisible();
@@ -199,7 +341,9 @@ test.describe("Path 26 — the generate form's state", () => {
       .getAttribute("value");
     await teamSelect.selectOption(teamValue!);
     await page.getByLabel("Request", { exact: true }).selectOption("slot_on");
-    await page.getByLabel("Date", { exact: true }).fill("2026-09-22");
+    await page
+      .getByLabel("Date", { exact: true })
+      .fill(await aWeekIntoSeason());
     await page.getByLabel("Ice time").fill("20:00");
     await page.getByRole("button", { name: "Add request" }).click();
 
@@ -207,7 +351,9 @@ test.describe("Path 26 — the generate form's state", () => {
     await expect(requestList(page)).toHaveCount(1);
 
     // …and took nothing with it.
-    await expect(page.getByLabel("First game night")).toHaveValue(FIRST_NIGHT);
+    await expect(page.getByLabel("First game night")).toHaveValue(
+      await fallStart(),
+    );
     await expect(page.getByLabel("Games per team")).toHaveValue("4");
     await expect(page.getByLabel(/Ice-time slots/)).toHaveValue(SLOT_TIMES);
     await expect(
@@ -216,7 +362,7 @@ test.describe("Path 26 — the generate form's state", () => {
     await expect(
       page.locator('label:has-text("Thu") input[name="weekdays"]'),
     ).toBeChecked();
-    await expect(page.getByText(SKIP_CHIP)).toBeVisible();
+    await expect(page.getByText(await skipChip())).toBeVisible();
 
     // Clean up: the season's stored requests outlive the test otherwise.
     await page
@@ -238,7 +384,9 @@ test.describe("Path 26 — the generate form's state", () => {
       .getAttribute("value");
     await teamSelect.selectOption(teamValue!);
     await page.getByLabel("Request", { exact: true }).selectOption("slot_on");
-    await page.getByLabel("Date", { exact: true }).fill("2026-09-22");
+    await page
+      .getByLabel("Date", { exact: true })
+      .fill(await aWeekIntoSeason());
     await page.getByLabel("Ice time").fill("20:00");
     await page.getByRole("button", { name: "Add request" }).click();
     await expect(requestList(page)).toHaveCount(1);
@@ -258,7 +406,7 @@ test.describe("Path 26 — the generate form's state", () => {
 
     // Everything back to its default: the chips gone, the ice times back to the
     // seeded three, the weekdays unchecked.
-    await expect(page.getByText(SKIP_CHIP)).toHaveCount(0);
+    await expect(page.getByText(await skipChip())).toHaveCount(0);
     await expect(page.getByLabel(/Ice-time slots/)).toHaveValue(
       "19:00, 20:15, 21:30",
     );

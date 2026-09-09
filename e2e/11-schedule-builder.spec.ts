@@ -4,6 +4,54 @@
  */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+
+function admin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SECRET_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+}
+
+/**
+ * The seeded Fall season's first night, read from the database.
+ *
+ * ⛔ NEVER RESTATE THIS DATE. It used to be `const FIRST_NIGHT = "2026-09-15"`,
+ * which was the seed's own literal — and on 2026-09-16 that season would have
+ * STARTED, locking the builder and falsifying this spec's premise. The seed owns
+ * the date; a spec that repeats it can disagree with the fixture it runs against.
+ */
+async function fallStart(): Promise<string> {
+  const db = admin();
+  const { data: league, error: le } = await db
+    .from("leagues")
+    .select("id")
+    .eq("slug", "obhl")
+    .single();
+  // ⛔ FAIL BY NAME, LIKE `expectGenerateFormUsable`. `data!.starts_on` on an
+  // empty read threw "Cannot read properties of null", which then surfaced as
+  // the failure of EVERY test in this file with nothing pointing at the fixture.
+  // And scoped to the league: both leagues carry a "Spring 2026", so an
+  // unscoped `.single()` breaks the moment a second one reuses "Fall 2026".
+  if (le || !league) {
+    throw new Error(`Seed has no 'obhl' league: ${le?.message ?? "not found"}`);
+  }
+  const { data, error } = await db
+    .from("seasons")
+    .select("starts_on")
+    .eq("league_id", league.id)
+    .eq("name", "Fall 2026")
+    .single();
+  if (error || !data) {
+    throw new Error(
+      `Seed has no Fall 2026 season in obhl — check supabase/seed.sql: ${
+        error?.message ?? "not found"
+      }`,
+    );
+  }
+  return data.starts_on as string;
+}
 
 async function signedInAs(
   page: Page,
@@ -205,13 +253,13 @@ test.describe("Path 17 — Schedule Builder", () => {
   test("generates a balanced draft with equal games per team", async ({
     page,
   }) => {
-    // These tests drive Fall 2026 (Sep 15 2026 – Mar 31 2027), not the active
-    // season — start on its first night. A date outside the window still
+    // These tests drive the Fall season, not the active one — start on its
+    // first night, which `fallStart()` reads from the seed rather than restating. A date outside the window still
     // generates (drafts aren't bounded by the season start), so this reads as
     // passing while drafting a schedule months before the season it belongs to.
 
     await expectGenerateFormUsable(page);
-    await page.getByLabel("First game night").fill("2026-09-15");
+    await page.getByLabel("First game night").fill(await fallStart());
     await page.getByLabel("Games per team").fill("4");
     // Two game nights so weekday balance is exercised.
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
@@ -254,7 +302,7 @@ test.describe("Path 17 — Schedule Builder", () => {
     // were indistinguishable.
 
     await expectGenerateFormUsable(page);
-    await page.getByLabel("First game night").fill("2026-09-15");
+    await page.getByLabel("First game night").fill(await fallStart());
     await page.getByLabel("Games per team").fill("4");
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
     await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
@@ -277,7 +325,7 @@ test.describe("Path 17 — Schedule Builder", () => {
     // whether the generator had run and failed or never started.
 
     await expectGenerateFormUsable(page);
-    await page.getByLabel("First game night").fill("2026-09-15");
+    await page.getByLabel("First game night").fill(await fallStart());
     await page.getByLabel("Games per team").fill("4");
 
     await page.getByRole("button", { name: "Generate schedule" }).click();
@@ -354,7 +402,7 @@ test.describe("Path 17 — Schedule Builder", () => {
     // is what nothing covered before.
 
     await expectGenerateFormUsable(page);
-    await page.getByLabel("First game night").fill("2026-09-15");
+    await page.getByLabel("First game night").fill(await fallStart());
     await page.getByLabel("Games per team").fill("4");
     await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
     await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
@@ -398,7 +446,7 @@ test.describe("Path 17 — Schedule Builder", () => {
     // complete overlapping schedules, both live in the exports and standings.
     const generate = async () => {
       await expectGenerateFormUsable(page);
-      await page.getByLabel("First game night").fill("2026-09-15");
+      await page.getByLabel("First game night").fill(await fallStart());
       await page.getByLabel("Games per team").fill("4");
       await page
         .locator('label:has-text("Tue") input[name="weekdays"]')
@@ -513,7 +561,7 @@ test.describe("Path 17 — Schedule Builder", () => {
       name: "Remove published schedule",
     });
     if ((await removeButton.count()) === 0) {
-      await page.getByLabel("First game night").fill("2026-09-15");
+      await page.getByLabel("First game night").fill(await fallStart());
       await page.getByLabel("Games per team").fill("4");
       await page
         .locator('label:has-text("Tue") input[name="weekdays"]')
