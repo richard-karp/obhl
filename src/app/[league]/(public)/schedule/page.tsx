@@ -108,6 +108,14 @@ export default async function SchedulePage({
   const selected = team ? teams.find((t) => t.slug === team) : undefined;
   const games = await getSchedule(ctx.season.id, { teamId: selected?.id });
 
+  // The same filter the list above is built from, handed to the export routes.
+  // Derived from `selected` rather than the raw `team` param so an unknown slug
+  // — which leaves the list unfiltered — cannot make the buttons ask for a team
+  // the season does not hold and turn a download into a 404.
+  const exportQuery = selected
+    ? `?team=${encodeURIComponent(selected.slug)}`
+    : "";
+
   // Anchor on "now": upcoming games first (next up), then recent results
   // (most recently played first) — instead of opening at the season's start.
   const upcoming = games.filter(
@@ -170,13 +178,30 @@ export default async function SchedulePage({
           their own guard refuses. It stays where it belongs and is still
           reachable: the Schedule Builder page links to it twice.
         */}
+        {/*
+          ⚠️ BOTH DOWNLOADS CARRY THE TEAM FILTER, and they must keep carrying
+          it. Until they did, the list narrowed to the selected team and the two
+          buttons kept pointing at the bare season, so "pick a team, download"
+          returned all six teams' games — and the .ics dropped a whole season
+          into a calendar someone had filtered a single team out of.
+
+          The rule these replaced said the export was "always the full season"
+          because a filtered file could not show which state produced it. That
+          objection is answered rather than ignored: the routes put the team in
+          the filename and in the calendar's name, so the file says whose
+          schedule it is without the page being present to explain it. Restoring
+          the unfiltered link would reopen the bug; dropping the naming would
+          reopen the objection.
+        */}
         <Button asChild variant="outline" size="sm">
-          <Link href={`/api/schedule/${ctx.season.id}`}>Download .ics</Link>
+          <Link href={`/api/schedule/${ctx.season.id}${exportQuery}`}>
+            Download .ics
+          </Link>
         </Button>
-        {/* Always the full season — a filtered export would make the button's
-            output depend on page state the downloaded file can't show. */}
         <Button asChild variant="outline" size="sm">
-          <Link href={`/api/schedule/${ctx.season.id}/schedule.csv`}>
+          <Link
+            href={`/api/schedule/${ctx.season.id}/schedule.csv${exportQuery}`}
+          >
             Download .csv
           </Link>
         </Button>

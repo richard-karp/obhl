@@ -215,6 +215,108 @@ test.describe("Path 4 — Schedule and game detail", () => {
     // Box score shows two numeric scores (away–home)
     await expect(page.locator("text=/\\d+/").first()).toBeVisible();
   });
+
+  /**
+   * The schedule page's team filter and its two download buttons used to
+   * disagree: the list narrowed to the selected team and the buttons kept
+   * pointing at `/api/schedule/<season>`, so "pick a team, download" handed
+   * back all six teams' games — and dropping that .ics into a calendar filled
+   * it with the whole season.
+   *
+   * Driven through the page rather than against the routes directly, because
+   * the defect was the LINK, not the route: a route that can filter is no use
+   * if the button never asks it to.
+   */
+  const csvRows = (body: string) =>
+    body
+      // Strip the UTF-8 BOM `buildScheduleCsv` opens with, then the header.
+      .replace(/^\uFEFF/, "")
+      .trim()
+      .split("\r\n")
+      .slice(1);
+
+  /** VEVENT summaries, with iCalendar's 75-octet line folding undone. */
+  const icsSummaries = (body: string) =>
+    body
+      .replace(/\r\n[ \t]/g, "")
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith("SUMMARY:"));
+
+  async function exportHrefs(page: import("@playwright/test").Page) {
+    return {
+      csv: await page
+        .getByRole("link", { name: "Download .csv" })
+        .getAttribute("href"),
+      ics: await page
+        .getByRole("link", { name: "Download .ics" })
+        .getAttribute("href"),
+    };
+  }
+
+  test("picking a team exports only that team's games", async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/obhl/schedule");
+    const all = await exportHrefs(page);
+
+    await page.goto("/obhl/schedule?team=sharks");
+    const sharks = await exportHrefs(page);
+    expect(sharks.csv).toContain("team=sharks");
+    expect(sharks.ics).toContain("team=sharks");
+
+    const allCsv = csvRows(await (await request.get(all.csv!)).text());
+    const sharksCsv = csvRows(await (await request.get(sharks.csv!)).text());
+
+    // The season has games the Sharks are not in — otherwise the assertion
+    // below passes against a route that filters nothing.
+    expect(allCsv.some((r) => !r.includes("Sharks"))).toBe(true);
+    expect(sharksCsv.length).toBeGreaterThan(0);
+    expect(sharksCsv.length).toBeLessThan(allCsv.length);
+    for (const row of sharksCsv) expect(row).toContain("Sharks");
+
+    // The file says whose schedule it is, which is what the season-only export
+    // could not do and the reason it was left unfiltered for a year.
+    const csvResponse = await request.get(sharks.csv!);
+    expect(csvResponse.headers()["content-disposition"]).toContain(
+      "obhl-sharks-schedule.csv",
+    );
+
+    const allIcs = icsSummaries(await (await request.get(all.ics!)).text());
+    const sharksIcs = icsSummaries(
+      await (await request.get(sharks.ics!)).text(),
+    );
+    expect(sharksIcs.length).toBeGreaterThan(0);
+    expect(sharksIcs.length).toBeLessThan(allIcs.length);
+    for (const summary of sharksIcs) expect(summary).toContain("Sharks");
+
+    const icsResponse = await request.get(sharks.ics!);
+    expect(await icsResponse.text()).toContain("Sharks");
+    expect(icsResponse.headers()["content-disposition"]).toContain(
+      "obhl-sharks-schedule.ics",
+    );
+  });
+
+  /**
+   * ⛔ A team the season does not hold must 404, NOT fall back to the whole
+   * season. Falling back is the bug this fixes wearing a different hat: the
+   * caller asked for one team and would silently receive six.
+   *
+   * `anchors` is a real team in the OTHER seeded league, so this covers the
+   * cross-league case as well as the unknown one.
+   */
+  test("an export for a team outside the season is a 404, not the season", async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/obhl/schedule");
+    const { csv, ics } = await exportHrefs(page);
+
+    for (const team of ["anchors", "not-a-team"]) {
+      expect((await request.get(`${csv}?team=${team}`)).status()).toBe(404);
+      expect((await request.get(`${ics}?team=${team}`)).status()).toBe(404);
+    }
+  });
 });
 
 // ── Path 5: Teams list + team detail ───────────────────────────────────────

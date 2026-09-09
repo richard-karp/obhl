@@ -38,6 +38,32 @@ export async function getEnrolledTeams(
   return teams.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * One enrolled team of a season, by the slug the schedule page's filter puts in
+ * the URL — or null if the season does not hold it.
+ *
+ * Built on `getEnrolledTeams` rather than querying `teams` directly, so the set
+ * of slugs an export accepts is exactly the set the filter can offer. A team
+ * that exists but is enrolled in another season — or another league — resolves
+ * to null here, and the export routes turn that into a 404.
+ *
+ * ⛔ Callers must NOT treat null as "no filter". A caller that fell back to the
+ * whole season on an unresolved slug would hand back six teams' games to
+ * someone who asked for one, which is the defect the team-scoped export exists
+ * to fix.
+ */
+export async function getEnrolledTeamBySlug(
+  seasonId: string,
+  slug: string,
+  opts: { client?: DbClient } = {},
+): Promise<TeamSummary | null> {
+  const teams = await getEnrolledTeams(seasonId, opts);
+  // Slugs are lower-case in the database; `?team=Sharks` should still resolve,
+  // the same allowance `resolveLeagueBySlug` makes for the league in the path.
+  const wanted = slug.toLowerCase();
+  return teams.find((t) => t.slug === wanted) ?? null;
+}
+
 export type TeamDetail = {
   team: TeamRow;
   roster: RosterEntry[];
