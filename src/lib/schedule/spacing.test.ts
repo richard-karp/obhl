@@ -442,8 +442,11 @@ describe("iceOutcome", () => {
   // Generates a real season, so it pays Phase S's full production budget — which
   // is the point of the test, and is why it needs more than the default 5 s.
   // Measured 2026-09-09: ~26 s before the night-order pass landed in
-  // `assignNights`, ~32 s after — that pass now runs unconditionally on every
-  // generation, so this budget carries the extra margin.
+  // `assignNights`, ~27.6 s after. The pass runs on THIS season because it is
+  // unconstrained — it is gated on `resolved.empty` — and after the
+  // 4/6000 → 4/1500 tuning it costs ~1.4 s, not the ~5.4 s (and ~32 s total)
+  // an earlier version of this comment recorded. The budget keeps the margin
+  // anyway: it is a timeout, not a measurement.
   it("agrees with spacingReport on a generated season", () => {
     const ts = Array.from({ length: 8 }, (_, i) => `t${i + 1}`);
     const ns = enumerateNights("2026-09-10", {
@@ -482,8 +485,23 @@ describe("iceOutcome", () => {
 });
 
 describe("ice-time clustering", () => {
-  // Two teams, one game a week, so each team's slot sequence is exactly the
-  // list below. 6 games => two 5-game windows per team.
+  /**
+   * One game a week for t1 vs t2 on the ice times in `slots`, plus a second
+   * game the same night between t3 and t4 that alternates between the other two
+   * sheets.
+   *
+   * ⚠️ THE SECOND PAIR IS WHAT PINS `slotClusterWorstTeam` AS A MAX. An earlier
+   * version of this helper ran t1 vs t2 alone, so both teams shared one slot
+   * sequence and every team's clustered-window count was identical — which
+   * means a last-team-wins bug (`report.slotClusterWorstTeam = clustered`,
+   * dropping the `>` test in `spacing.ts`) passes that fixture unchanged. t3/t4
+   * carry 0 clustered windows in every case below and are LAST in `teamIds`, so
+   * such an implementation now reports 0 where the max is 2.
+   *
+   * `(s + 1 + (i % 2)) % 3` is s+1 or s+2, never s — so the two games on a night
+   * never take the same sheet — and it alternates fast enough that neither t3
+   * nor t4 ever takes one ice time 3 times in 5.
+   */
   const seasonOf = (slots: number[]) => {
     const nights = slots.map((_, i) => ({
       date: new Date(Date.UTC(2026, 8, 1) + i * 7 * 86400000)
@@ -491,20 +509,24 @@ describe("ice-time clustering", () => {
         .slice(0, 10),
       slots: ["19:00", "20:15", "21:30"],
     }));
-    const games = slots.map((s, i) => ({
-      home: "t1",
-      away: "t2",
-      nightIndex: i,
-      slotIndex: s,
-    }));
-    return spacingReport(games, nights, ["t1", "t2"]);
+    const games = slots.flatMap((s, i) => [
+      { home: "t1", away: "t2", nightIndex: i, slotIndex: s },
+      {
+        home: "t3",
+        away: "t4",
+        nightIndex: i,
+        slotIndex: (s + 1 + (i % 2)) % 3,
+      },
+    ]);
+    return spacingReport(games, nights, ["t1", "t2", "t3", "t4"]);
   };
 
   it("counts a window where one ice time takes 3 of 5 games", () => {
     // windows: [2,2,2,0,1] -> three 2s, and [2,2,0,1,2] -> three 2s.
     const r = seasonOf([2, 2, 2, 0, 1, 2]);
+    // The max over teams, not the last team's: t3/t4 carry 0.
     expect(r.slotClusterWorstTeam).toBe(2);
-    expect(r.slotClusterWindows).toBe(4); // both teams, both windows
+    expect(r.slotClusterWindows).toBe(4); // t1 and t2, both windows
   });
 
   it("counts nothing when the team rotates through the ice times", () => {

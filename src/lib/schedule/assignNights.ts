@@ -63,6 +63,20 @@ export type ScheduledGame = {
   slotIndex: number;
 };
 
+/**
+ * The ONE way a game's stored timestamp is formed. `scheduledAt` is the only
+ * placement fact that persists — `src/lib/actions/schedule.ts` writes
+ * `scheduled_at` and nothing else — so every site that moves a game between
+ * (night, slot) has to re-derive it from exactly these two fields. Factored out
+ * on 2026-09-09 after the night-order pass rewrote `nightIndex` alone and left
+ * all 69 games of the 6-team fixture pointing at their pre-permutation date:
+ * `report.spacing` claimed a worst team of 4 while the persisted schedule was
+ * still the pre-branch 14. A single constructor makes that omission impossible
+ * to write by hand.
+ */
+const slotStamp = (nights: Night[], ni: number, s: number) =>
+  `${nights[ni].date}T${nights[ni].slots[s]}:00`;
+
 export type BalanceReport = {
   totalScheduled: number;
   unscheduled: number;
@@ -193,10 +207,17 @@ const PHASE_PM_ALLOWANCE_MS = 1_500;
 // rounds its ~1.3 s. See `.superpowers/sdd/2026-09-09-ice-time-clustering/task-4-report.md`
 // for the full tuning table.
 const NIGHT_ORDER_ALLOWANCE_MS = 1_500;
-export const estimatedGenerateMs = () =>
+/**
+ * `constrained` mirrors the pass's own gate (`!resolved.empty` at the call site
+ * in `assignNights`): a constrained generate never runs the night-order pass, so
+ * counting its allowance there over-stated the countdown by the full 1.5 s.
+ * Defaults to the unconstrained case, which is the common one and the one the
+ * bound in `generate-progress.test.ts` is written against.
+ */
+export const estimatedGenerateMs = (opts?: { constrained?: boolean }) =>
   SLOT_CANDIDATES.length * SLOT_BUDGET_MS +
   PHASE_PM_ALLOWANCE_MS +
-  NIGHT_ORDER_ALLOWANCE_MS;
+  (opts?.constrained ? 0 : NIGHT_ORDER_ALLOWANCE_MS);
 
 /** Phase P jitter seeds to sample the bye-optimal plateau with, and the wall
  * clock the sampling may spend. Fixed and ordered, so the schedule stays
@@ -316,10 +337,10 @@ function doSwap(
   nightTeams[n2].delete(g2.away);
   g1.nightIndex = n2;
   g1.slotIndex = s2;
-  g1.scheduledAt = `${nights[n2].date}T${nights[n2].slots[s2]}:00`;
+  g1.scheduledAt = slotStamp(nights, n2, s2);
   g2.nightIndex = n1;
   g2.slotIndex = s1;
-  g2.scheduledAt = `${nights[n1].date}T${nights[n1].slots[s1]}:00`;
+  g2.scheduledAt = slotStamp(nights, n1, s1);
   nightTeams[n2].add(g1.home);
   nightTeams[n2].add(g1.away);
   nightTeams[n1].add(g2.home);
@@ -373,8 +394,7 @@ function restore(
   for (let i = 0; i < games.length; i++) {
     games[i].nightIndex = snap[i].n;
     games[i].slotIndex = snap[i].s;
-    games[i].scheduledAt =
-      `${nights[snap[i].n].date}T${nights[snap[i].n].slots[snap[i].s]}:00`;
+    games[i].scheduledAt = slotStamp(nights, snap[i].n, snap[i].s);
   }
 }
 
@@ -716,7 +736,7 @@ function balanceWeekdays(
         const g = games[gi];
         g.nightIndex = ni;
         g.slotIndex = s;
-        g.scheduledAt = `${nights[ni].date}T${nights[ni].slots[s]}:00`;
+        g.scheduledAt = slotStamp(nights, ni, s);
       });
     }
   }
@@ -1304,7 +1324,7 @@ function placeWeek(
         home: p.home,
         away: p.away,
         round: p.round,
-        scheduledAt: `${nights[ni].date}T${nights[ni].slots[s]}:00`,
+        scheduledAt: slotStamp(nights, ni, s),
         nightIndex: ni,
         slotIndex: s,
       });
@@ -1657,7 +1677,7 @@ function planByParticipation(
         home: p.home,
         away: p.away,
         round: p.round,
-        scheduledAt: `${nights[ni].date}T${nights[ni].slots[s]}:00`,
+        scheduledAt: slotStamp(nights, ni, s),
         nightIndex: ni,
         slotIndex: s,
       });
@@ -1691,7 +1711,26 @@ function rankSchedule(
   teamIds: string[],
   meta: Meta,
 ): number[] {
-  const r = spacingReport(plan.games, nights, teamIds);
+  return rankFromReport(
+    plan,
+    spacingReport(plan.games, nights, teamIds),
+    teamIds,
+    meta,
+  );
+}
+
+/**
+ * The rank vector off an ALREADY-COMPUTED spacing report. Split out for the
+ * night-order pass, which needs `longestLayoffDays` from the same report for its
+ * own admissibility check (see the call site) and must not pay for a second
+ * `spacingReport` on every annealing step — it is the dominant cost there.
+ */
+function rankFromReport(
+  plan: Plan,
+  r: SpacingReport,
+  teamIds: string[],
+  meta: Meta,
+): number[] {
   const { slot, wd } = vectorsOf(plan.games, teamIds, meta);
   const sum = (f: (t: string) => number) =>
     teamIds.reduce((s, t) => s + f(t), 0);
@@ -1844,31 +1883,88 @@ export function assignNights(
   // would then honestly report that met request as unmet — exactly the
   // silent-downgrade the ⛔ block above (`needsPhaseP`) exists to prevent.
   // Re-checking constraints inside admissibility was considered and rejected:
-  // that's a constraint evaluation on every one of ~24k annealing steps. So
-  // this only ever runs on an unconstrained generation, where there is no
-  // pinned night to lose.
+  // that's a constraint evaluation on every one of ~6k annealing steps
+  // (4 restarts × 1500 steps — see `nightOrder.ts`). So this only ever runs on
+  // an unconstrained generation, where there is no pinned night to lose.
   //
-  // This runs before `games`/`pairsByNight`/`slotOf` are read off `plan` below,
-  // so reassigning `plan.games` here is enough to carry the new night order
-  // through everything downstream that derives from `games` — no separate
-  // reindexing of those structures is needed. `nights` itself is never
+  // ⛔ REWRITE `scheduledAt` WITH `nightIndex`, ALWAYS. An earlier version of
+  // this comment claimed reassigning `plan.games` with a new `nightIndex` was
+  // "enough to carry the new night order through everything downstream". It is
+  // not, and that was the whole feature's undoing: `scheduledAt` is a STORED
+  // field baked at creation (`slotStamp`, above), and it is the ONLY placement
+  // fact that persists — `src/lib/actions/schedule.ts` writes `scheduled_at`
+  // and never `nightIndex`/`slotIndex`. Measured 2026-09-09 on the 6-team
+  // fixture before the fix: `report.spacing` said worst team 4, 17 windows,
+  // while the schedule re-derived from `scheduledAt` — the database, both CSV
+  // exports, the calendar feed and the manager preview — was still the
+  // pre-branch 14 / 33, with all 69 of 69 games carrying a stale date.
+  //
+  // What IS true of the rest: this runs before `games`/`pairsByNight`/`slotOf`
+  // are read off `plan` below, so those in-memory structures do rebuild from
+  // the moved games with no separate reindexing. `nights` itself is never
   // reordered, so `weekdayOfNight` (built straight from `nights`, not from
   // `games`) is correctly left untouched.
   if (resolved.empty) {
-    const baseRank = rankSchedule(plan, nights, teamIds, meta);
+    const baseReport = spacingReport(plan.games, nights, teamIds);
+    const baseRank = rankFromReport(plan, baseReport, teamIds, meta);
     // The last two entries are the clustering pair this task appended; everything
     // above them is what must not get worse.
     const CLUSTER_TAIL = 2;
     const worstOf = (v: number[]) => v[v.length - 2];
     const totalOf = (v: number[]) => v[v.length - 1];
+
+    // ⚠️ A permutation carries each night's games AND their slot indexes onto
+    // whatever night lands in that position, so a 3-game block moved onto a
+    // 2-sheet night has a game at slot 2 that the night has no ice for — and,
+    // now that `scheduledAt` is rebuilt below, a literal `Tundefined:00` in the
+    // row that ships. Every other placement site consults per-night
+    // `slots.length` (`placeWeek`, `swapLegal`, `slotArgs`), so non-uniform
+    // nights are a supported shape; this is latent only because
+    // `enumerateNights` happens to give every night the same `slotTimes`. Refuse
+    // such an order outright AND penalise it on the same 1e6 scale as a rank
+    // regression, so the anneal is pushed off it rather than wandering there.
+    const slotsPerNight = nights.map((n) => n.slots.length);
+    const slotsNeeded = new Array<number>(nights.length).fill(0);
+    for (const g of plan.games) {
+      slotsNeeded[g.nightIndex] = Math.max(
+        slotsNeeded[g.nightIndex],
+        g.slotIndex + 1,
+      );
+    }
+
+    // ⚠️ `longestLayoffDays` is checked HERE but stays out of `rankSchedule`.
+    // The exemption there is correct for its own purpose: a rank-off compares
+    // two planners over the SAME calendar, where a three-week gap is a holiday
+    // no plan can beat, so ranking on it would pick plans for reasons outside
+    // their control. A night permutation is the opposite case — it genuinely
+    // moves which games sit either side of that gap, so on a bye-carrying,
+    // holiday-gapped league it could lengthen a team's worst layoff while every
+    // ranked term ties, and nothing would notice. `number | null`: null is "no
+    // team has two games to sit between", i.e. no constraint, on either side.
+    const baseLayoff = baseReport.longestLayoffDays;
+
     const reordered = improveNightOrder(nights.length, (order) => {
       // Position lookup, not `order.indexOf`: this runs once per annealing step.
       const pos = new Array<number>(nights.length);
       order.forEach((n, i) => (pos[n] = i));
-      const moved = plan.games.map((g) => ({ ...g, nightIndex: pos[g.nightIndex] }));
-      const rank = rankSchedule({ ...plan, games: moved }, nights, teamIds, meta);
-      let penalty = 0;
-      let noWorse = true;
+      let overflow = 0;
+      for (let n = 0; n < nights.length; n++) {
+        const short = slotsNeeded[n] - slotsPerNight[pos[n]];
+        if (short > 0) overflow += short;
+      }
+      const moved = plan.games.map((g) => ({
+        ...g,
+        nightIndex: pos[g.nightIndex],
+      }));
+      const report = spacingReport(moved, nights, teamIds);
+      const rank = rankFromReport(
+        { ...plan, games: moved },
+        report,
+        teamIds,
+        meta,
+      );
+      let penalty = overflow * 1_000_000;
+      let noWorse = overflow === 0;
       for (let i = 0; i < rank.length - CLUSTER_TAIL; i++) {
         const over = rank[i] - baseRank[i];
         if (over > 0) {
@@ -1876,9 +1972,14 @@ export function assignNights(
           penalty += over * 1_000_000;
         }
       }
+      const layoff = report.longestLayoffDays;
+      if (baseLayoff !== null && layoff !== null && layoff > baseLayoff) {
+        noWorse = false;
+      }
       const better =
         worstOf(rank) < worstOf(baseRank) ||
-        (worstOf(rank) === worstOf(baseRank) && totalOf(rank) < totalOf(baseRank));
+        (worstOf(rank) === worstOf(baseRank) &&
+          totalOf(rank) < totalOf(baseRank));
       return {
         cost: penalty + worstOf(rank) * 1_000 + totalOf(rank),
         admissible: noWorse && better,
@@ -1889,7 +1990,15 @@ export function assignNights(
       reordered.forEach((n, i) => (pos[n] = i));
       plan = {
         ...plan,
-        games: plan.games.map((g) => ({ ...g, nightIndex: pos[g.nightIndex] })),
+        games: plan.games.map((g) => {
+          const ni = pos[g.nightIndex];
+          // Both, together, through the one constructor. See the ⛔ above.
+          return {
+            ...g,
+            nightIndex: ni,
+            scheduledAt: slotStamp(nights, ni, g.slotIndex),
+          };
+        }),
       };
     }
   }
