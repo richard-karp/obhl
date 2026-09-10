@@ -18,6 +18,7 @@
     "test:e2e:headed": "playwright test --headed",
     "db:reset": "supabase db reset",
     "seed:users": "node --env-file-if-exists=.env.local scripts/seed-users.mjs",
+    "verify:fixture-clock": "node --env-file-if-exists=.env.local scripts/check-fixture-clock.mjs",
     "verify:auth": "node --env-file-if-exists=.env.local scripts/verify-auth.mjs",
     "verify:role-fallback": "node --env-file-if-exists=.env.local scripts/verify-role-fallback.mjs",
     "verify:office-password": "node --env-file-if-exists=.env.local scripts/verify-office-password.mjs",

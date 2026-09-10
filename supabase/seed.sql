@@ -90,9 +90,38 @@ declare
   -- read the date back from the database or use `getUTC*`), but it means a
   -- morning run and an evening run exercise different fixtures. If you are ever
   -- chasing a failure that reproduces only at one time of day, this is why.
-  v_l1_anchor  date := date_trunc('week', current_date - 120)::date + 1;
-  v_l2_anchor  date := date_trunc('week', current_date - 120)::date + 2;
-  v_fall_anchor date := date_trunc('week', current_date + 14)::date + 1;
+  --
+  -- ⏱ THE CLOCK-SHIFT KNOB. Whole weeks to move the ENTIRE fixture forward, so
+  -- CI can run the suite against the fixture a future date would produce. It is
+  -- 0 on every normal run, and at 0 the three anchors below are arithmetically
+  -- identical to what they were before this line existed — `+ 0 * 7` and
+  -- nothing else changed. `scripts/shift-seed-clock.sh` is what rewrites it;
+  -- see `.github/workflows/clock-shifted.yml` for why the job exists.
+  --
+  -- ⛔ WEEKS, NOT DAYS, AND THAT IS WHAT MAKES THE SHIFT HONEST. Every anchor
+  -- is `date_trunc('week', current_date ± k) + j`, and
+  -- `date_trunc('week', d + 7N) = date_trunc('week', d) + 7N`, so +N weeks here
+  -- yields EXACTLY the fixture this seed would produce N weeks from today:
+  -- same weekdays, same structure, a different calendar position. A shift in
+  -- DAYS would break the Tuesday/Wednesday/Thursday invariants documented
+  -- directly above and produce a fixture no future date could ever create.
+  --
+  -- ⛔ 0..11 ONLY, AND THE CEILING IS ARITHMETIC RATHER THAN TASTE. `now()`
+  -- does NOT move with this knob — nothing in a container can move Postgres's
+  -- clock without moving the host's — so the Spring seasons have to stay in the
+  -- past or `season_is_started` stops agreeing with the fixture and specs fail
+  -- for a reason that has nothing to do with the bug being hunted. League 1's
+  -- last game is `v_l1_anchor + 35` and `v_l1_anchor` lands 119-125 days back,
+  -- so that game sits 84-90 days in the past: +77 days (11 weeks) still lands
+  -- before today, while +84 can land ON today at 21:30 Eastern and read as
+  -- future. The Fall season has no games at all, so it is unstarted at any N.
+  -- ⚠️ Do not trust this paragraph — `scripts/check-fixture-clock.mjs` re-proves
+  -- every one of those invariants against the seeded database, and CI runs it
+  -- before the suite so a broken shift fails as itself.
+  v_shift_weeks int := 0;
+  v_l1_anchor  date := date_trunc('week', current_date + v_shift_weeks * 7 - 120)::date + 1;
+  v_l2_anchor  date := date_trunc('week', current_date + v_shift_weeks * 7 - 120)::date + 2;
+  v_fall_anchor date := date_trunc('week', current_date + v_shift_weeks * 7 + 14)::date + 1;
 begin
   -- ============================================================ OCEANVIEW
   insert into leagues (name, slug, is_public)
