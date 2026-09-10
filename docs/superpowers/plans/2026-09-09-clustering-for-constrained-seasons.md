@@ -242,22 +242,25 @@ All six `CONSTRAINT_KINDS` map to a field `nightClass` labels — `bye_on`,
 Nothing fails if a seventh kind is added.
 
 ```ts
-  // ⛔ THREE KINDS, AND THE OTHER THREE ARE HONESTLY UNCOVERED. Six teams over
-  // three sheets fills every night exactly, so all six teams play every night
-  // and NO team can ever bye: `bye_on`, `bye_week` and `bye_in_week` are
-  // infeasible here and report unmet whatever the pass does. The only fixture
-  // with real byes is the 8-team Mon+Thu league, and that one is too tight for
-  // the pass to find any admissible permutation — so it cannot exercise these
-  // labels either. Those three reach `nightClass` through `forced` and
-  // `byeInWeek`; `forced` IS covered below by `play_on`, `byeInWeek` is not.
+  // ⛔ TWO KINDS COVERED; `forced` AND `byeInWeek` ARE NOT, AND THAT IS THE
+  // HONEST STATE. Six teams over three sheets fills every night exactly, so all
+  // six play every night. That makes `bye_on`, `bye_week` and `bye_in_week`
+  // INFEASIBLE here, and it makes `play_on` UNFALSIFIABLE — satisfied by
+  // arithmetic whatever the pass does, so a `play_on` row would pass with
+  // `nightClass` deleted entirely and would claim a coverage it does not have.
+  // Between them those four kinds are the whole of the `forced` and `byeInWeek`
+  // label paths, so neither path is tested. The only fixture with real byes is
+  // the 8-team Mon+Thu league, and that one is too tight for the pass to find
+  // any admissible permutation, so it cannot exercise them either. Covering them
+  // needs a season with surplus nights — both bye-carrying and loose enough to
+  // permute — which has not been measured.
   //
   // ⛔ NO CONDITIONAL SKIP. An earlier draft ended `if (!verdict.satisfied)
   // return;`, which skips the assertion in exactly the case the test exists to
-  // catch — a guard that fails open. Every row here is one this shape can
-  // satisfy, so an unmet verdict is a real failure.
+  // catch. Both rows below are ones this shape can satisfy AND can fail, so an
+  // unmet verdict is a real failure.
   it.each([
     ["slot_on", "t3", { date: ns[11].date, time: "21:30" }],
-    ["play_on", "t2", { date: ns[7].date }],
     ["slot_bias", "t1", { from: ns[0].date, to: ns[11].date, prefer: "late" }],
   ])("a %s request survives the night-order pass", (kind, team, params) => {
     const r = resolveConstraints(
@@ -357,6 +360,13 @@ describe("assignNights — variations can be reduced but never raised", () => {
 
   // Only the clamp. Determinism for a fixed seed is already covered in
   // `assignNights.test.ts` and re-checking it here costs two more generates.
+  //
+  // ⚠️ THIS ONE FAILS BY TIMEOUT, not by assertion. Remove the clamp and
+  // `stamps(99)` attempts 99 draws — well past the limit below — so a
+  // regression reads as "Test timeout exceeded" rather than a mismatch. Real
+  // coverage, ugly signal; accepted because nothing in the codebase passes a
+  // value above the automatic count and a cleaner version would need another
+  // fixture to earn.
   it("clamps a request above the automatic count", () => {
     expect(stamps(99)).toBe(stamps(4));
   }, 180_000);
