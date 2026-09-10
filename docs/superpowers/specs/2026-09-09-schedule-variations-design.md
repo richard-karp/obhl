@@ -295,7 +295,10 @@ another generate — only while the form holds the counter.
   determinism promise stays false. Its output is insensitive across 40x of
   search, so nothing measurable is at stake today.
 - **The 8-team league gets no clustering benefit at all** (17 / 94, unchanged).
-- **Constrained seasons still get no clustering repair.**
+- ~~**Constrained seasons still get no clustering repair.**~~ **DONE**
+  2026-09-09 — night classes replaced the all-or-nothing gate and best-of-N was
+  restored for them; measured 15 → 5 on one `slot_on` pin. See
+  `2026-09-09-clustering-for-constrained-seasons-design.md`.
 
 ---
 

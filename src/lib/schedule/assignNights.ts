@@ -130,7 +130,7 @@ export type AssignOptions = {
   seed?: number;
   /**
    * How many seeds to draw this variation from, best-of by `rankSchedule`.
-   * Omitted means "decide from the game count and the constraint set".
+   * Omitted means "decide from the game count".
    *
    * ⚠️ A caller can only REDUCE the automatic count, never raise it — this is
    * clamped to it. The option exists so `generateSchedule`'s step-down retry
@@ -243,7 +243,7 @@ const SLOT_CANDIDATES: { streak3W: number; seed: number }[] = [
  * automatically — that has already happened once.
  */
 const PHASE_PM_ALLOWANCE_MS = 1_500;
-// `improveNightOrder`'s post-pass (gated to unconstrained generations — see the
+// `improveNightOrder`'s post-pass (runs on every generate — see `nightClass` at the
 // call site below), tuned `restarts`/`steps` in `nightOrder.ts` down from 4/6000
 // to 4/1500 on 2026-09-09 specifically to keep this term small: at 4/6000 it
 // added ~5.4 s to the 8-team reference generate (26.3 s → 31.7 s), and at
@@ -257,16 +257,16 @@ const PHASE_PM_ALLOWANCE_MS = 1_500;
 // `docs/superpowers/specs/2026-09-09-ice-time-clustering-design.md`.
 const NIGHT_ORDER_ALLOWANCE_MS = 1_500;
 /**
- * `constrained` mirrors the pass's own gate (`!resolved.empty` at the call site
- * in `assignNights`): a constrained generate never runs the night-order pass, so
- * counting its allowance there over-stated the countdown by the full 1.5 s.
- * Defaults to the unconstrained case, which is the common one and the one the
- * bound in `generate-progress.test.ts` is written against.
+ * ⚠️ NO `constrained` FLAG ANY MORE. It used to subtract the night-order
+ * allowance for a constrained generate, because the pass was switched off for
+ * one. `nightClass` means every season runs the pass, so every season pays for
+ * it — keeping the flag would have under-stated a constrained countdown by the
+ * full 1.5 s, the opposite of the error it was added to fix.
  */
-export const estimatedGenerateMs = (opts?: { constrained?: boolean }) =>
+export const estimatedGenerateMs = () =>
   SLOT_CANDIDATES.length * SLOT_BUDGET_MS +
   PHASE_PM_ALLOWANCE_MS +
-  (opts?.constrained ? 0 : NIGHT_ORDER_ALLOWANCE_MS);
+  NIGHT_ORDER_ALLOWANCE_MS;
 
 /** Phase P jitter seeds to sample the bye-optimal plateau with, and the wall
  * clock the sampling may spend. Fixed and ordered, so the schedule stays
@@ -1868,11 +1868,13 @@ export function assignNights(
   options?: AssignOptions,
 ): ReturnType<typeof assignNightsOnce> {
   const resolved = options?.constraints ?? noConstraints();
-  // A constrained season gets no night-order repair on ANY seed (the pass is
-  // gated on `resolved.empty` below), so every draw in a block would differ only
-  // in Phase P/M/S luck with no clustering repair on any of them — 4x the time
-  // for no product difference.
-  const auto = resolved.empty ? variationsFor(pairings.length) : 1;
+  // ⚠️ NOT gated on `resolved.empty` any more. It used to be, and correctly:
+  // with the night-order pass switched off for constrained seasons, no seed in a
+  // block could differ on clustering repair, so four draws cost 4x for nothing.
+  // `nightClass` lets the pass run on every season, which makes the block worth
+  // drawing again — measured 2026-09-09, one pinned season goes 15 -> 14 on the
+  // pass alone and 15 -> 5 once the block comes back.
+  const auto = variationsFor(pairings.length);
   const n = Math.max(1, Math.min(options?.variations ?? auto, auto));
   const base = options?.seed ?? 1;
   if (n === 1) return assignNightsOnce(pairings, nights, teamIds, options);
@@ -1907,7 +1909,26 @@ export function assignNights(
       meta,
     );
     const [consec, worst, windows] = v.slice(v.length - 3);
-    return [...v.slice(0, v.length - 3), worst, windows, consec];
+    return [
+      // ⛔ UNMET REQUESTS FIRST, above every balance and spacing term. None of
+      // `rankFromReport`'s seventeen entries encodes "did we meet the manager's
+      // request", and while a constrained season took a single draw that could
+      // not matter. A block makes it a coin toss — the same failure Phase S
+      // guards on `outcomeFor`, where a term invisible to the ranking lets the
+      // candidate honouring the request best lose to one that ignores it. An
+      // unmet request is a promise broken to a person; clustering is a
+      // preference.
+      //
+      // ⚠️ A NO-OP ON AN UNCONSTRAINED SEASON, and that is why it is safe to put
+      // first: `assignNights` returns `constraints: []` when
+      // `resolved.items.length === 0`, so this is a constant 0 across every draw
+      // and the lexicographic order is untouched.
+      r.report.constraints.filter((x) => !x.satisfied).length,
+      ...v.slice(0, v.length - 3),
+      worst,
+      windows,
+      consec,
+    ];
   };
   let best = assignNightsOnce(pairings, nights, teamIds, {
     ...options,
@@ -2042,18 +2063,25 @@ function assignNightsOnce(
   // shape where reordering would cost byes, weekday balance or rematch spacing,
   // every candidate is refused and the identity survives.
   //
-  // ⛔ GATED ON `resolved.empty` — a request names a SPECIFIC night index
+  // ⛔ CLASS-GATED, NOT CONSTRAINT-GATED. A request names a SPECIFIC night index
   // (`forced`, `slot_on`), which no entry in `rankSchedule` encodes. A
   // permutation can relabel which night holds a pinned block of games while
   // leaving every ranked metric no worse, so the rank vector alone cannot see
   // that it just moved a pin Phase P had honoured off the night it was pinned
-  // to. `evaluateConstraints` runs afterward, off the final `games`, so it
-  // would then honestly report that met request as unmet — exactly the
-  // silent-downgrade the ⛔ block above (`needsPhaseP`) exists to prevent.
-  // Re-checking constraints inside admissibility was considered and rejected:
-  // that's a constraint evaluation on every one of ~6k annealing steps
-  // (4 restarts × 1500 steps — see `nightOrder.ts`). So this only ever runs on
-  // an unconstrained generation, where there is no pinned night to lose.
+  // to. `evaluateConstraints` runs afterward, off the final `games`, so it would
+  // then honestly report that met request as unmet — exactly the silent
+  // downgrade the ⛔ block above (`needsPhaseP`) exists to prevent.
+  //
+  // This whole pass used to be switched OFF whenever `resolved.empty` was false,
+  // because the obvious repair — re-evaluating the constraints inside
+  // admissibility — is a constraint evaluation on each of ~6k annealing steps
+  // (4 restarts × 1500 steps, see `nightOrder.ts`). `nightClass` below is the
+  // cheap equivalent: forbid the permutations that COULD break a request rather
+  // than evaluate whether they did, at one O(nights) comparison folded into the
+  // ice-capacity loop that already runs.
+  //
+  // Measured 2026-09-09 on 6 teams / one weeknight / 3 sheets: one `slot_on` pin
+  // took worst-team clustering from 4 to 15 under the old gate. It is 5 now.
   //
   // ⛔ REWRITE `scheduledAt` WITH `nightIndex`, ALWAYS. An earlier version of
   // this comment claimed reassigning `plan.games` with a new `nightIndex` was
@@ -2072,7 +2100,51 @@ function assignNightsOnce(
   // the moved games with no separate reindexing. `nights` itself is never
   // reordered, so `weekdayOfNight` (built straight from `nights`, not from
   // `games`) is correctly left untouched.
-  if (resolved.empty) {
+  /**
+   * A permutation may only swap nights carrying the same label.
+   *
+   * ⛔ THE LABEL IS CORRECT ONLY BECAUSE IT COVERS ALL FOUR. Every field of
+   * `ResolvedConstraints` is position-sensitive, each to a different thing, and
+   * a label that misses one lets a permutation move a request the rank vector
+   * cannot see it moving:
+   *
+   *   | field                | position-sensitive to        | label      |
+   *   |----------------------|------------------------------|------------|
+   *   | `forced`, `slotPins` | the night index              | `FIX${n}`  |
+   *   | `byeInWeek`          | the week a night sits in     | `W${week}` |
+   *   | `biases`             | the night-window it names    | one bit    |
+   *
+   * That table is the completeness argument, and it is why the gate could not
+   * simply be narrowed to "no night-indexed requests": there is no field here
+   * that is safe to exempt. Preserving each night's CLASS is a different move —
+   * it keeps every one of those positions intact rather than trading one away.
+   *
+   * ⚠️ A BIAS IS NOT INVARIANT under a night permutation, which is the row most
+   * easily missed. `SlotBias.nights` is a per-night boolean WINDOW, so moving a
+   * game across the window boundary changes what the bias is scored over.
+   * Carrying each bias's membership bit is what keeps it honest — and a
+   * whole-season bias has the same bit on every night, so it costs nothing.
+   *
+   * With no requests every label is `"-|"`, every permutation is admissible, and
+   * this is exactly the behaviour the `resolved.empty` gate used to produce.
+   */
+  const nightClass = (() => {
+    const fixed = new Set<number>();
+    // Names one night's participation, and one night's ice time: both make that
+    // night a class of one, i.e. a fixed point of every admissible permutation.
+    for (const f of resolved.forced) fixed.add(f.night);
+    for (const sp of resolved.slotPins) fixed.add(sp.night);
+    const namedWeeks = new Set(resolved.byeInWeek.map((b) => b.week));
+    return nights.map((_, n) => {
+      if (fixed.has(n)) return `FIX${n}`;
+      const wk = namedWeeks.has(smeta.week[n]) ? `W${smeta.week[n]}` : "-";
+      const bias = resolved.biases
+        .map((b) => (b.nights[n] ? "1" : "0"))
+        .join("");
+      return `${wk}|${bias}`;
+    });
+  })();
+  {
     const baseReport = spacingReport(plan.games, nights, teamIds);
     const baseRank = rankFromReport(plan, baseReport, teamIds, meta);
     // The last two entries are the clustering pair this task appended; everything
@@ -2119,6 +2191,10 @@ function assignNightsOnce(
       for (let n = 0; n < nights.length; n++) {
         const short = slotsNeeded[n] - slotsPerNight[pos[n]];
         if (short > 0) overflow += short;
+        // A night may only move to a night of its own class. Scored through the
+        // same `overflow` penalty so the annealer can cross an inadmissible
+        // region on its way somewhere legal, exactly as it does for capacity.
+        if (nightClass[n] !== nightClass[pos[n]]) overflow += 10;
       }
       const moved = plan.games.map((g) => ({
         ...g,
