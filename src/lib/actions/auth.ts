@@ -7,8 +7,45 @@ import { devLoginEnabled } from "@/lib/auth/dev-login";
 import { passwordProblem } from "@/lib/auth/password";
 import { logAudit } from "@/lib/audit";
 import { resolveLeagueBySlug } from "@/lib/league/current";
+import { createAdminClient } from "@/utils/supabase/admin";
+import { findUserIdByEmail } from "@/lib/auth/users";
 
 export type AuthActionState = { ok: boolean; message: string } | null;
+
+/**
+ * Where a successful sign-in lands, decided by the account's role.
+ *
+ * ⛔ RESOLVED FROM THE EMAIL, NOT FROM THE SESSION, AND THAT IS NOT A STYLE
+ * CHOICE. The obvious version asks `getSessionUser()` right after the sign-in
+ * call. It would work today and break silently later: `getSessionUser` is
+ * `cache()`-memoized per request (`src/lib/auth/session.ts`), so the first
+ * caller in a request fixes the answer for all of them — and the day anything
+ * reads the session EARLIER in one of these actions, it returns the pre-sign-in
+ * `null`, this returns "/" forever, and no error is raised anywhere. It also
+ * depends on `auth.getClaims()` seeing a cookie written moments earlier in the
+ * same request.
+ *
+ * Both callers already hold the address, so neither hazard has to exist.
+ * Reading `profiles.role` directly is if anything sturdier than the JWT claim,
+ * which `roleFromProfile` exists precisely to paper over when the
+ * custom-access-token hook has not fired.
+ *
+ * Anything that is not a scorekeeper gets the picker: `/dashboard` is
+ * league-scoped and a sign-in cannot know which league was meant.
+ */
+async function landingFor(email: string): Promise<string> {
+  const admin = createAdminClient();
+  const id = await findUserIdByEmail(admin, email);
+  if (!id) return "/";
+  const { data } = await admin
+    .from("profiles")
+    .select("role")
+    .eq("id", id)
+    .maybeSingle();
+  // The only surface a scorekeeper is meant to use. See the page's own docblock
+  // for why it is `tonight` and not `score`.
+  return data?.role === "scorekeeper" ? "/manage/tonight" : "/";
+}
 
 /**
  * ⛔ WHY THESE TWO ACTIONS NEVER REPORT THE PROVIDER'S ERROR.
@@ -241,9 +278,7 @@ export async function signInWithPassword(
     path: "/",
     maxAge: 60 * 60 * 24 * 7,
   });
-  // The picker, not a dashboard: /dashboard is league-scoped, and a sign-in
-  // cannot know which league was meant. Same landing as `devSignIn`.
-  redirect("/");
+  redirect(await landingFor(email));
 }
 
 /**
@@ -301,6 +336,5 @@ export async function devSignIn(formData: FormData) {
     path: "/",
     maxAge: 60 * 60 * 24 * 7,
   });
-  // The picker, not a dashboard: /dashboard is league-scoped now.
-  redirect("/");
+  redirect(await landingFor(email));
 }

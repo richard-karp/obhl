@@ -117,10 +117,16 @@ export default async function DashboardPage({
 
       {user.role === "scorekeeper" ? (
         <div className="grid gap-4 sm:grid-cols-2">
+          {/*
+            Points at the cross-league night rather than this league's schedule.
+            A scorekeeper works both leagues from one page now, and the scoresheet
+            refuses them any game that is not today — so a link into a whole
+            season's schedule would mostly offer games they cannot open.
+          */}
           <ActionCard
-            href={`/${leagueSlug}/schedule`}
+            href="/manage/tonight"
             title="Score Games"
-            description="Open a game to set rosters, record goals and penalties, and finalize."
+            description="Tonight's games, across every league you keep score for."
           />
         </div>
       ) : null}

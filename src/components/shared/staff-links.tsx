@@ -39,10 +39,15 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
     // link in `staffLinks()` below, beside the League Office.
     { path: "/audit", label: "Audit Log" },
   ],
-  scorekeeper: [
-    { path: "/dashboard", label: "Dashboard" },
-    { path: "/schedule", label: "Score Games" },
-  ],
+  // ⛔ EMPTY ON PURPOSE — a scorekeeper's one link is absolute, added in
+  // `staffLinks` below, because `/manage/tonight` belongs to no league and this
+  // map's paths are all relative to `/<league>`. The key stays because the type
+  // is `Record<AppRole, ...>`; deleting it does not compile.
+  //
+  // The Dashboard link went with it. A scorekeeper's dashboard held exactly one
+  // card, pointing at the games list — so it was a click on the way to the place
+  // they were always going. `/manage/tonight` IS that place.
+  scorekeeper: [],
   captain: [{ path: "/dashboard", label: "Dashboard" }],
 };
 
@@ -249,6 +254,16 @@ function staffLinks(
     // league-relative, and the office is neither.
     ...(officeTier
       ? [{ path: "/manage/office", label: "League Office", absolute: true }]
+      : []),
+    // The scorekeeper's whole navigation. Absolute for the same reason as the
+    // two above: the page belongs to no league.
+    //
+    // ⚠️ This row is only drawn INSIDE a league, so a scorekeeper sees this link
+    // when they are on a scoresheet and nowhere else — which is exactly the
+    // journey it has to serve: it is the way back from a game to the night.
+    // Their way IN is the sign-in landing, not a link.
+    ...(role === "scorekeeper"
+      ? [{ path: "/manage/tonight", label: "Tonight", absolute: true }]
       : []),
   ];
 }

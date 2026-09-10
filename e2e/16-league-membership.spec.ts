@@ -57,7 +57,11 @@ async function signInAs(
 ) {
   await page.goto("/login");
   await page.getByRole("button", { name: label }).click();
-  await page.waitForURL("/");
+  // "One-league scorer" is a scorekeeper, and scorekeepers land on their own
+  // page rather than the picker.
+  await page.waitForURL(
+    label === "One-league scorer" ? "/manage/tonight" : "/",
+  );
 }
 
 /** The leagues a seeded account was actually confined to. */

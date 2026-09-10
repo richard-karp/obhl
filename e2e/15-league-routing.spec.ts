@@ -276,7 +276,8 @@ test.describe("Path 16 — Per-league routing", () => {
     try {
       await page.goto("/login");
       await page.getByRole("button", { name: "Scorekeeper" }).click();
-      await page.waitForURL("/");
+      // A scorekeeper's sign-in lands on `/manage/tonight`, not the picker.
+      await page.waitForURL("/manage/tonight");
 
       const res = await page.goto("/harbor");
       expect(res?.status()).toBe(200);
@@ -312,7 +313,10 @@ test.describe("Path 16 — Per-league routing", () => {
     try {
       await page.goto("/login");
       await page.getByRole("button", { name: "One-league scorer" }).click();
-      await page.waitForURL("/");
+      // ⚠️ A SCOREKEEPER, so the landing is `/manage/tonight`, not the picker.
+      // The label does not say "scorekeeper" anywhere, which is exactly how this
+      // one got missed when the landing changed.
+      await page.waitForURL("/manage/tonight");
       const res = await page.goto("/harbor");
       expect(res?.status()).toBe(404);
     } finally {

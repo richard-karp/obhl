@@ -22,9 +22,11 @@ async function signedInAs(
 ) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
-  // Sign-in lands on the league picker — there is no league-agnostic dashboard
-  // any more. Every caller below expects to be inside a league's manage tools.
-  await page.waitForURL("/");
+  // ⚠️ THE LANDING IS ROLE-DEPENDENT NOW. Everyone still lands on the league
+  // picker, except a scorekeeper, who lands on `/manage/tonight` — the only
+  // surface they are meant to use. Waiting for "/" unconditionally would hang
+  // here for the whole scorekeeper half of this file.
+  await page.waitForURL(role === "Scorekeeper" ? "/manage/tonight" : "/");
   await page.goto("/obhl/dashboard");
 }
 

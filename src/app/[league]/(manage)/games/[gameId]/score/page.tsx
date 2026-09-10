@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requireLeagueRole } from "@/lib/auth/guards";
 import { createClient } from "@/utils/supabase/server";
 import { resolveLeagueBySlug } from "@/lib/league/current";
@@ -19,7 +19,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { GameStatusBadge } from "@/components/shared/game-status-badge";
 import { PageHeader } from "@/components/shared/page-header";
-import { formatGameDateTime, leagueWeekday } from "@/lib/format";
+import {
+  formatGameDateTime,
+  isOnLeagueDate,
+  leagueToday,
+  leagueWeekday,
+} from "@/lib/format";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const byNumber = (a: { number: number | null }, b: { number: number | null }) =>
@@ -58,6 +63,33 @@ export default async function ScoreGamePage({
   // The id says nothing about which league it belongs to, so the slug in the
   // URL is the only claim of ownership — enforce it rather than trust it.
   if (!game || game.season.league_id !== league.id) notFound();
+
+  // ⛔ A SCOREKEEPER MAY ONLY OPEN TODAY'S GAMES.
+  //
+  // Managers and captains are untouched: a captain sets a dressed lineup from
+  // their own dashboard, and a manager is the escape hatch for a game still
+  // being entered after midnight — which the strict calendar day guarantees will
+  // happen, given the last slot starts at 9:40pm.
+  //
+  // ⚠️ THIS IS AN APP-LEVEL RULE AND NOTHING BELOW IT ENFORCES THE SAME THING.
+  // RLS still lets a scorekeeper's own session update any game in a league they
+  // belong to, bounded by `0046`'s trigger to the scoring columns. So this
+  // refuses the PAGE, not the write — deliberately, and recorded in
+  // `ACCESS_CONTROL_HANDOFF.md` so nobody mistakes it for the usual
+  // guard-plus-policy pair this codebase writes.
+  //
+  // ⚠️ Refused to `/manage/tonight`, NOT to `/` like every other guard here.
+  // This one fires at 12:01am on a game somebody was halfway through, and a
+  // silent bounce to a league picker is indistinguishable from a broken app —
+  // the same symptom that already cost this project a full round of
+  // misdiagnosis. Their own page, with tonight's date in its header, at least
+  // says what happened.
+  if (
+    user.role === "scorekeeper" &&
+    !isOnLeagueDate(game.scheduled_at, leagueToday())
+  ) {
+    redirect("/manage/tonight");
+  }
 
   const homeT = game.home_team as any;
   const awayT = game.away_team as any;

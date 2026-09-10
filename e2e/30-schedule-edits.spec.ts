@@ -63,7 +63,8 @@ async function expectGenerateFormUsable(page: Page) {
 async function signedInAs(page: Page, role: "Manager" | "Scorekeeper") {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
-  await page.waitForURL("/");
+  // A scorekeeper lands on `/manage/tonight`, not the picker.
+  await page.waitForURL(role === "Scorekeeper" ? "/manage/tonight" : "/");
   await page.goto("/obhl/dashboard");
 }
 
@@ -713,16 +714,27 @@ test.describe("Path 28 — manual schedule edits", () => {
   test("a scorekeeper cannot cancel, postpone or reschedule a game", async ({
     page,
   }) => {
+    // ⛔ VIA `/manage/tonight`, NOT VIA A LEAGUE'S SCHEDULE, AND BOTH HALVES OF
+    // THAT MATTER.
+    //
+    // A scorekeeper may only open games dated TODAY, and `/obhl/schedule`
+    // resolves to whatever season is ACTIVE — which, by the time this test runs,
+    // is the "Edit Test 2028" season the tests above create and activate. Every
+    // game in it is dated January 2028, so the scorekeeper correctly sees no
+    // scoresheet link at all and this test found nothing. That is the feature
+    // working, not a bug: measured against the real page, which showed an
+    // "Upcoming" list of 2028 dates and zero buttons.
+    //
+    // Their own page is season-agnostic — it filters by DATE across every league
+    // they keep score for — so it always has tonight's games regardless of which
+    // season some other test left active.
+    //
+    // ⚠️ And by HREF rather than the "Score" label: `scoreLabel` renders a final
+    // game as "Edit", and tonight's three games are a shared fixture that
+    // `05-scoring` and `33-scorekeeper-day` each finalize one of.
     await signedInAs(page, "Scorekeeper");
-    await page.goto("/obhl/schedule");
-    // ⛔ `exact`, and it is load-bearing. A scorekeeper's own staff nav holds a
-    // link called "Score Games", so a loose name match takes that instead and
-    // `.first()` clicks the nav — navigating back to this same page, where no
-    // scoresheet heading ever appears. `05-scoring` uses `exact` for the same
-    // reason.
-    const score = page
-      .getByRole("link", { name: "Score", exact: true })
-      .first();
+    await page.goto("/manage/tonight");
+    const score = page.locator('a[href$="/score"]').first();
     await expect(score).toBeVisible();
     await score.click();
 
