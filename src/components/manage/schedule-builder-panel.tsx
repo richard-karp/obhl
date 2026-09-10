@@ -970,7 +970,14 @@ export async function ScheduleBuilderPanel({
                   Counted per stretch rather than per game, and reported for the
                   single worst-off team rather than the league &mdash; this is
                   the complaint a manager brings, and it lands on one team
-                  rather than spreading.
+                  rather than spreading. The league carries{" "}
+                  <span className="font-medium">
+                    {spacing.slotClusterWindows}
+                  </span>{" "}
+                  in total: the closer that is to the figure above, the more of
+                  it one team is absorbing, and a total that rises while the
+                  worst-team figure falls is the schedule spreading the load
+                  rather than getting worse.
                   {slotCount > 0 && slotCount < 3 ? (
                     <>
                       {" "}
