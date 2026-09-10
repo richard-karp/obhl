@@ -5,6 +5,7 @@ import {
   useActionState,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
 } from "react";
@@ -515,6 +516,13 @@ export function ScheduleGenerateForm({
 }) {
   const [mode, setMode] = useState<"games" | "date">("games");
   const [skips, setSkips] = useState<SkipRange[]>([]);
+  const formRef = useRef<HTMLFormElement>(null);
+  /**
+   * Which schedule of the many equally-valid ones is on screen. Held here and
+   * not persisted — `seasons` has no column for a counter and it does not earn
+   * a migration — so a page reload starts over at 1.
+   */
+  const [variation, setVariation] = useState(1);
   const [pendingRange, setPendingRange] = useState<DateRange | undefined>();
   const [state, action, pending] = useActionState<GenerateState, FormData>(
     generateSchedule,
@@ -597,12 +605,40 @@ export function ScheduleGenerateForm({
    */
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const body = new FormData(e.currentTarget);
+    // Generate always means "the first schedule for these inputs".
+    setVariation(1);
+    dispatch(e.currentTarget, 1);
+  };
+
+  /**
+   * Dispatch the action with an explicit variation.
+   *
+   * ⛔ `v` is a PARAMETER, never read back from `variation` state. React batches
+   * the `setVariation` next to each caller, so reading the state here would
+   * dispatch the value from before the click and "Try a different schedule"
+   * would regenerate the schedule the manager just rejected.
+   *
+   * ⛔ AND THE TRY BUTTON IS `type="button"`, NOT A SECOND SUBMIT — see the
+   * note on `SubmitButton`. Generate stays the only submit in this form, so
+   * nothing re-opens React 19's form reset, and this takes exactly the path
+   * `onSubmit` takes once it has prevented the default.
+   */
+  const dispatch = (form: HTMLFormElement, v: number) => {
+    const body = new FormData(form);
+    body.set("variation", String(v));
     startTransition(() => action(body));
   };
 
+  const tryAnother = () => {
+    const form = formRef.current;
+    if (!form) return;
+    const next = variation + 1;
+    setVariation(next);
+    dispatch(form, next);
+  };
+
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <form ref={formRef} onSubmit={onSubmit} className="space-y-4">
       <input type="hidden" name="season_id" value={seasonId} />
       <input type="hidden" name="length_mode" value={mode} />
       <input type="hidden" name="excluded_dates" value={excludedValue} />
@@ -766,6 +802,21 @@ export function ScheduleGenerateForm({
 
       <div className="flex items-center gap-3 pt-1">
         <SubmitButton pending={pending} />
+        {/*
+          `type="button"`, dispatching through `dispatch` rather than submitting
+          — see the ⛔ on `dispatch` and the note on `SubmitButton`. A second
+          `type="submit"` here would put a second submitter back in this form,
+          which is the arrangement the unconditional `preventDefault` in
+          `onSubmit` exists to make unnecessary.
+        */}
+        <Button
+          type="button"
+          variant="outline"
+          disabled={pending}
+          onClick={tryAnother}
+        >
+          Try a different schedule
+        </Button>
         {pending ? (
           <GenerateProgressBar expectedMs={expectedMs} />
         ) : (
