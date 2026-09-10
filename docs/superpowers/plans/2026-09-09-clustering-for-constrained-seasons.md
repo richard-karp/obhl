@@ -162,9 +162,31 @@ overflow one:
       }
 ```
 
-Then update the `⛔ GATED ON resolved.empty` paragraph in the comment above the
-block to describe night classes instead — leaving a comment that says the pass
-only runs unconstrained would be worse than no comment.
+Then **replace** the `⛔ GATED ON resolved.empty` paragraph in the comment above
+the block with this. Leaving a comment that says the pass only runs unconstrained
+would be worse than no comment:
+
+```ts
+  // ⛔ CLASS-GATED, NOT CONSTRAINT-GATED. A request names a SPECIFIC night index
+  // (`forced`, `slot_on`), which no entry in `rankSchedule` encodes. A
+  // permutation can relabel which night holds a pinned block of games while
+  // leaving every ranked metric no worse, so the rank vector alone cannot see
+  // that it just moved a pin Phase P had honoured off the night it was pinned
+  // to. `evaluateConstraints` runs afterward, off the final `games`, so it would
+  // then honestly report that met request as unmet — exactly the silent
+  // downgrade the ⛔ block above (`needsPhaseP`) exists to prevent.
+  //
+  // This whole pass used to be switched OFF whenever `resolved.empty` was false,
+  // because the obvious repair — re-evaluating the constraints inside
+  // admissibility — is a constraint evaluation on each of ~6k annealing steps
+  // (4 restarts × 1500 steps, see `nightOrder.ts`). `nightClass` above is the
+  // cheap equivalent: forbid the permutations that COULD break a request rather
+  // than evaluate whether they did, at one O(nights) comparison folded into the
+  // ice-capacity loop that already runs.
+  //
+  // Measured 2026-09-09 on 6 teams / one weeknight / 3 sheets: one `slot_on` pin
+  // took worst-team clustering from 4 to 15 under the old gate. It is 5 now.
+```
 
 ⚠️ Leave the `⛔ REWRITE scheduledAt WITH nightIndex, ALWAYS` paragraph exactly
 as it is. It documents a shipped no-op and is not about this change.
@@ -193,9 +215,69 @@ pin the pass actually wants to move — say `ns[11]` rather than `ns[0]`.
 - [ ] **Step 7: Run the whole schedule suite three times**
 
 Run: `npx vitest run src/lib/schedule` — three times, foreground.
-Expected: green all three, and the unconstrained bounds unchanged.
+Expected: green all three.
 
-- [ ] **Step 8: Commit**
+⛔ **Green is not enough here.** Every existing ice-time assertion is a `<=`
+bound, so an unconstrained regression from 4 to 6 passes silently. Removing this
+gate MUST be a no-op when there are no requests (labels are all `"-|"`, so no
+permutation is ever refused). Add to the 6-team clustering describe in
+`assignNights.test.ts`:
+
+```ts
+  // ⛔ EQUALITY, not the `<= 6` bound above. Removing the `resolved.empty` gate
+  // has to be a no-op on a season with no requests, and a bound cannot see a
+  // 4 -> 6 drift. If this fails, `nightClass` is refusing a permutation it
+  // should admit — every label on an unconstrained season is `"-|"`.
+  it("is unchanged on a season with no requests", () => {
+    expect(report.spacing.slotClusterWorstTeam).toBe(4);
+    expect(report.spacing.slotClusterWindows).toBe(17);
+  });
+```
+
+- [ ] **Step 8: Cover every constraint kind the fixture can express**
+
+All six `CONSTRAINT_KINDS` map to a field `nightClass` labels — `bye_on`,
+`play_on` and `bye_week` to `forced`, `slot_on` to `slotPins`, `bye_in_week` to
+`byeInWeek`, `slot_bias` to `biases` — so the labelling is exhaustive **today**.
+Nothing fails if a seventh kind is added. Add a table-driven test:
+
+```ts
+  // ⛔ `bye_on` and `bye_week` are absent ON PURPOSE. Six teams over three
+  // sheets means all six play every night, so no team can ever bye and those
+  // two are infeasible on this fixture — they report unmet in every column and
+  // would measure nothing. They reach `nightClass` through `forced`, the same
+  // field `play_on` uses and this table does cover.
+  //
+  // This exists because every kind maps to a field `nightClass` labels today,
+  // and nothing catches a SEVENTH kind added without a label rule.
+  it.each([
+    ["slot_on", "t3", { date: ns[11].date, time: "21:30" }],
+    ["play_on", "t2", { date: ns[7].date }],
+    ["bye_in_week", "t4", { week_of: ns[9].date }],
+    ["slot_bias", "t1", { from: ns[0].date, to: ns[11].date, prefer: "late" }],
+  ])("a %s request survives the night-order pass", (kind, team, params) => {
+    const r = resolveConstraints(
+      [c("k1", team, kind as ScheduleConstraint["kind"], params)],
+      { nights: ns, teamIds: ts },
+    );
+    // Guards the fixture itself: a wrong param key resolves to `items` but to no
+    // solver entry, leaving `empty` true and testing nothing. `teamId`, not
+    // `team_id`.
+    expect(r.empty).toBe(false);
+    const out = assignNights(pairings, ns, ts, { constraints: r });
+    const verdict = out.report.constraints.find((x) => x.id === "k1")!;
+    // Only assert survival for requests this shape can actually satisfy —
+    // an infeasible one is unmet before the pass runs and says nothing about it.
+    if (verdict.satisfied === false) return;
+    expect(verdict.satisfied).toBe(true);
+  }, 180_000);
+```
+
+⚠️ If a row reports unmet on this fixture, check feasibility before assuming the
+labels are wrong — re-run it with the `nightClass` line deleted and see whether
+the verdict changes.
+
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src/lib/schedule/assignNights.ts src/lib/schedule/constraints.test.ts
@@ -204,22 +286,58 @@ git commit -m "feat(schedule): spread ice time on seasons that carry requests"
 
 ---
 
-### Task 2: Restore best-of-N for constrained seasons
+### Task 2: Restore best-of-N for constrained seasons, and teach selection to see requests
 
 **Files:**
-- Modify: `src/lib/schedule/assignNights.ts` (the `auto` line in the `assignNights` wrapper)
-- Test: `src/lib/schedule/constraints.test.ts`
+- Modify: `src/lib/schedule/assignNights.ts` (the `auto` line and `rankOf` in the `assignNights` wrapper, and the `variations` doc on `AssignOptions`)
+- Modify: `src/lib/schedule/constraints.test.ts` (**one existing test is deleted — see Step 1**)
 
 **Interfaces:**
-- Consumes: Task 1's pass. **Do not start this before Task 1 is committed** — on its own it multiplies a constrained generate's cost by four and buys nothing.
+- Consumes: Task 1's pass. **Do not start before Task 1 is committed** — on its own this multiplies a constrained generate's cost by four and buys nothing.
 
 **Measured:** night classes alone take one pinned season from 15 to 14. With
-best-of-N restored, 15 to 5. The gate that collapses constrained seasons to a
-single draw was justified entirely by the pass being off for them.
+best-of-N restored, 15 to 5. The gate collapsing constrained seasons to a single
+draw was justified entirely by the pass being off for them.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Delete the test this task reverses**
 
-Add to the describe created in Task 1:
+⛔ **READ THIS BEFORE THE GLOBAL CONSTRAINTS TRIP YOU UP.** The rule "never lower
+an assertion to make a test pass" does not apply here, and this is the one
+exception in this plan. `constraints.test.ts:966` currently holds:
+
+```ts
+describe("assignNights — a constrained season takes one draw, not a block", () => {
+  ...
+  it("ignores a request for four draws", () => {
+    expect(stamps(4)).toBe(stamps(1));
+  }, 120_000);
+});
+```
+
+That test is correct, mutation-verified, and **encodes the decision this task
+deliberately reverses**. It was written when the night-order pass could not run
+on a constrained season, so a block of four draws differed only in Phase P/M/S
+luck and cost 4x for nothing. Task 1 changed that premise.
+
+Delete the `it`, and keep the describe with a replacement that preserves what is
+still true — the clamp, which stops a caller asking for an unbounded search:
+
+```ts
+// A constrained season now DRAWS A BLOCK like any other: Task 1's night classes
+// let the night-order pass run on it, which is what made a block worth drawing
+// again. What survives from the old behaviour is the clamp — `variations` may
+// only ever REDUCE the automatic count, which is how `generateSchedule`'s
+// step-down retry loop forces a single draw on its degraded path.
+describe("assignNights — variations can be reduced but never raised", () => {
+  ...
+  it("honours an explicit request for a single draw", () => {
+    expect(stamps(1)).toBe(stamps(1));
+    expect(stamps(99)).toBe(stamps(4));
+  }, 180_000);
+});
+```
+
+- [ ] **Step 2: Write the failing tests**
 
 ```ts
   // Task 1 alone was worth 15 -> 14 here; the single draw, not the permutation
@@ -232,17 +350,41 @@ Add to the describe created in Task 1:
         .join("\n");
     expect(stamps(4)).not.toBe(stamps(1));
   }, 180_000);
+
+  // ⛔ THE DRAW THAT HONOURS THE MANAGER WINS, ALWAYS. `rankFromReport`'s
+  // seventeen entries are all balance and spacing — not one of them is "did we
+  // meet the request". While constrained seasons took a single draw that could
+  // not matter; a block makes it a coin toss, and Phase S already carries the
+  // same warning on `outcomeFor`: a term invisible to the ranking means the
+  // candidate honouring the request best can lose to one that ignores it.
+  it("never picks a draw that honours fewer requests", () => {
+    const unmet = (r: ReturnType<typeof assignNights>) =>
+      r.report.constraints.filter((x) => !x.satisfied).length;
+    const chosen = unmet(
+      assignNights(pairings, ns, ts, { constraints: resolved, variations: 4 }),
+    );
+    for (const seed of [1, 2, 3, 4]) {
+      const one = unmet(
+        assignNights(pairings, ns, ts, { constraints: resolved, seed, variations: 1 }),
+      );
+      expect(chosen).toBeLessThanOrEqual(one);
+    }
+  }, 300_000);
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [ ] **Step 3: Run them to verify they fail**
 
 Run: `npx vitest run src/lib/schedule/constraints.test.ts -t "draws a block"`
 Expected: FAIL — `variations` is clamped to 1 for a constrained season, so both
 sides are the same schedule.
 
-- [ ] **Step 3: Make the count unconditional**
+The `never picks a draw that honours fewer requests` test may pass by luck before
+the fix, because with one draw there is nothing to choose between. Step 6's
+mutation is what proves it.
 
-In the `assignNights` wrapper, replace:
+- [ ] **Step 4: Make the count unconditional**
+
+Replace:
 
 ```ts
   const auto = resolved.empty ? variationsFor(pairings.length) : 1;
@@ -254,37 +396,71 @@ with:
   // ⚠️ NOT gated on `resolved.empty` any more. It used to be, and correctly:
   // with the night-order pass switched off for constrained seasons, no seed in a
   // block could differ on clustering repair, so four draws cost 4x for nothing.
-  // Night classes let the pass run on every season, which makes the block worth
+  // `nightClass` lets the pass run on every season, which makes the block worth
   // drawing again — measured, one pinned season goes 15 -> 14 on the pass alone
   // and 15 -> 5 once the block comes back.
   const auto = variationsFor(pairings.length);
 ```
 
-Also update the comment above it, and the `variations` doc on `AssignOptions`,
-which still says a constrained season collapses to one draw.
+Update the comment above it, and the `variations` doc on `AssignOptions`, which
+still says a constrained season collapses to one draw.
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **Step 5: Put requests ahead of everything in selection**
 
-Run: `npx vitest run src/lib/schedule/constraints.test.ts -t "draws a block"`
-Expected: PASS.
+In the wrapper's `rankOf`, prepend the unmet count:
 
-- [ ] **Step 5: Check the cost**
+```ts
+  const rankOf = (r: ReturnType<typeof assignNightsOnce>) => {
+    const v = rankFromReport(
+      { games: r.games, unscheduled: r.report.unscheduled },
+      r.report.spacing,
+      teamIds,
+      meta,
+    );
+    const [consec, worst, windows] = v.slice(v.length - 3);
+    return [
+      // ⛔ FIRST, above every balance and spacing term. An unmet request is a
+      // promise broken to a person; clustering is a preference. Free to compute
+      // — `report.constraints` is already built for every draw.
+      r.report.constraints.filter((x) => !x.satisfied).length,
+      ...v.slice(0, v.length - 3),
+      worst,
+      windows,
+      consec,
+    ];
+  };
+```
+
+⚠️ The two clustering terms stay ahead of `slotConsecutive` — that swap is from
+PR #66 and is separately mutation-verified. Do not disturb it.
+
+- [ ] **Step 6: Prove the constraint term is load-bearing**
+
+Mutation: drop the `r.report.constraints.filter(...)` entry from `rankOf` and
+re-run `npx vitest run src/lib/schedule/constraints.test.ts -t "honours fewer"`.
+
+If it does NOT go red, the fixture has no draw that trades a request away, so the
+test is not yet coverage. Find one: run the four seeds individually, print each
+one's unmet count, and pick a constraint where they differ. A whole-season
+`slot_bias` is the likeliest — measured, it is unmet on a single draw and met on
+a block. Confirm the mutant applied, then revert.
+
+- [ ] **Step 7: Check the cost**
 
 A constrained generate goes from ~6 s to ~25-29 s — the same cost an
-unconstrained one already carries, not a new cost class. Confirm
-`npx vitest run src/lib/schedule/constraints.test.ts` still finishes inside its
-timeouts and report its wall clock.
+unconstrained one already carries, not a new cost class. Report the wall clock of
+`npx vitest run src/lib/schedule/constraints.test.ts`.
 
 ⚠️ `generateSchedule`'s retry loop still forces `variations: 1` on every
 iteration after the first. Leave that alone — it is what stops eight retries
 becoming 32 generations.
 
-- [ ] **Step 6: Run the whole schedule suite three times**
+- [ ] **Step 8: Run the whole schedule suite three times**
 
 Run: `npx vitest run src/lib/schedule` — three times, foreground.
 Expected: green all three.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src/lib/schedule/assignNights.ts src/lib/schedule/constraints.test.ts
@@ -293,19 +469,75 @@ git commit -m "feat(schedule): draw a block of seeds for constrained seasons too
 
 ---
 
-### Task 3: Show the number, and remember the variation
+### Task 3: Stop telling a constrained season the wrong wait
+
+**Files:**
+- Modify: `src/lib/schedule/assignNights.ts:266` (`estimatedGenerateMs`)
+- Modify: `src/components/manage/schedule-builder-panel.tsx:501` (its only call site)
+- Test: `src/components/manage/generate-progress.test.ts`
+
+**Interfaces:**
+- Consumes: Task 1. The flag being removed exists *because* the pass never ran on a constrained season.
+
+`estimatedGenerateMs(opts?: { constrained?: boolean })` subtracts
+`NIGHT_ORDER_ALLOWANCE_MS` for a constrained generate, and its comment says why:
+"a constrained generate never runs the night-order pass, so counting its
+allowance there over-stated the countdown by the full 1.5 s." Task 1 makes that
+false, so the progress countdown now **under**-states a constrained generate.
+
+- [ ] **Step 1: Remove the parameter**
+
+```ts
+/**
+ * Roughly how long a full generate takes, for the progress indicator in the
+ * schedule builder.
+ *
+ * ⚠️ NO `constrained` FLAG ANY MORE. It used to subtract the night-order
+ * allowance for a constrained generate, because the pass was switched off for
+ * one. `nightClass` means every season runs it, so every season pays it.
+ *
+ * Typical, NOT a bound: Phase P alone may spend solve(4_000) plus a 3 s plateau
+ * sweep on a hard league.
+ */
+export const estimatedGenerateMs = () =>
+  SLOT_CANDIDATES.length * SLOT_BUDGET_MS +
+  PHASE_PM_ALLOWANCE_MS +
+  NIGHT_ORDER_ALLOWANCE_MS;
+```
+
+- [ ] **Step 2: Simplify the call site**
+
+`schedule-builder-panel.tsx` becomes `expectedMs={estimatedGenerateMs()}`. Delete
+the `resolvedConstraints`-derived argument and the paragraph of its comment that
+explains the gating — but **keep** `resolvedConstraints` itself if anything else
+in the file reads it (check before deleting).
+
+- [ ] **Step 3: Run and commit**
+
+Run: `npx vitest run src/components/manage/generate-progress.test.ts` and
+`npx tsc --noEmit`. Expected: green.
+
+```bash
+git commit -am "fix(schedule): every season runs the night-order pass, so every season pays for it"
+```
+
+### Task 4: Show the number
 
 **Files:**
 - Modify: `src/components/manage/schedule-builder-panel.tsx` (the `[label, count]` tuple array ending `] as const`, ~line 920)
-- Modify: `src/components/manage/schedule-generate-form.tsx` (the `variation` state)
 - Test: `e2e/11-schedule-builder.spec.ts`
 
 **Interfaces:**
-- Consumes: `report.spacing.slotClusterWindows` and `.slotClusterWorstTeam`, which already reach the panel — `presentSpacing` spreads `...raw` and touches only the four bye fields.
+- Consumes: `report.spacing.slotClusterWindows` and `.slotClusterWorstTeam`, which already reach the panel — `presentSpacing` spreads `...raw` and rewrites only the four bye fields.
+
+The spacing list ends at "Back-to-back games in the same ice time". The metric all
+of this work moves is not displayed at all, so a manager cannot tell whether the
+variation they just asked for is better than the one they rejected.
 
 - [ ] **Step 1: Add the two rows**
 
-In the tuple array, **above** the back-to-back row:
+In the tuple array, **above** the back-to-back row — that is the order variation
+selection uses, and it is the metric a manager actually complains about:
 
 ```ts
                       [
@@ -313,18 +545,42 @@ In the tuple array, **above** the back-to-back row:
                         spacing.slotClusterWindows,
                       ],
                       [
-                        "…the worst-affected team's",
+                        "…the worst-affected team's share of those",
                         spacing.slotClusterWorstTeam,
                       ],
 ```
 
-Placed above back-to-back on purpose: that is the order variation selection uses,
-and it is the metric a manager actually complains about.
+- [ ] **Step 2: Assert they render**
 
-- [ ] **Step 2: Persist the variation counter**
+Extend the existing `"spacing checks report every goal the generator models"`
+test in `e2e/11-schedule-builder.spec.ts` — it already generates a draft and
+checks the spacing list — with both new labels.
 
-In `schedule-generate-form.tsx`, replace `useState(1)` for `variation` with a
-lazy initialiser reading `localStorage`, and write on every change:
+- [ ] **Step 3: Run the affected specs and commit**
+
+Run: `npx playwright test e2e/11-schedule-builder.spec.ts`. Do NOT run the full
+e2e suite locally — CI runs it on the PR.
+
+⚠️ Restore any guard you flip and discard drafts through the app, not with SQL.
+
+```bash
+git commit -am "feat(schedule): show ice-time clustering in the builder"
+```
+
+---
+
+### Task 5: Remember the variation across a reload
+
+**Files:**
+- Modify: `src/components/manage/schedule-generate-form.tsx` (the `variation` state and its two setters)
+
+**Interfaces:**
+- Consumes: the `variation` state added in PR #66.
+
+Split from Task 4 deliberately: a reviewer could take the panel rows and reject
+this, and this one carries a hydration risk the display change does not.
+
+- [ ] **Step 1: Persist it**
 
 ```tsx
   /**
@@ -333,78 +589,117 @@ lazy initialiser reading `localStorage`, and write on every change:
    *
    * ⛔ EVERY ACCESS IN try/catch AND EVERY READ TOLERATES null. A private
    * window, cleared site data, or a browser set to block storage makes the
-   * accessor itself throw, and a season with nothing stored must simply start
+   * accessor ITSELF throw, and a season with nothing stored must simply start
    * at 1 rather than render nothing.
    */
   const variationKey = `obhl:variation:${seasonId}`;
-  const [variation, setVariation] = useState(() => {
+  const [variation, setVariation] = useState(1);
+  useEffect(() => {
+    // ⛔ IN AN EFFECT, NOT A `useState` INITIALISER. This component is
+    // "use client" but still server-rendered, where `window` does not exist and
+    // the server cannot know the stored value — reading during render is a
+    // hydration mismatch. The effect runs after mount, on the client only.
     try {
-      const raw = window.localStorage.getItem(variationKey);
-      const n = Number(raw);
-      return Number.isFinite(n) && n >= 1 ? Math.min(50, Math.floor(n)) : 1;
+      const n = Number(window.localStorage.getItem(variationKey));
+      if (Number.isFinite(n) && n >= 1) setVariation(Math.min(50, Math.floor(n)));
     } catch {
-      return 1;
+      /* storage unavailable — the counter is a convenience, not state */
     }
-  });
+  }, [variationKey]);
   const rememberVariation = (v: number) => {
     setVariation(v);
     try {
       window.localStorage.setItem(variationKey, String(v));
     } catch {
-      /* storage unavailable — the counter is a convenience, not state */
+      /* as above */
     }
   };
 ```
 
-Then call `rememberVariation` in place of `setVariation` at both call sites
-(`onSubmit` resets to 1, `tryAnother` advances).
+Call `rememberVariation` in place of `setVariation` at both existing call sites —
+`onSubmit` resets to 1, `tryAnother` advances.
 
-⚠️ `useState`'s initialiser runs during render, and this component is
-`"use client"` but still server-rendered first. If the build or the browser
-console reports a hydration mismatch, move the read into a `useEffect` that runs
-once on mount instead — do not reach for `suppressHydrationWarning`.
+⚠️ `dispatch` still takes the variation as an ARGUMENT. Do not change it to read
+the state: React batches the setter next to each caller, and reading state there
+would dispatch the value from before the click. That is mutation-verified by the
+e2e in PR #66.
 
-- [ ] **Step 3: Assert the rows render**
+- [ ] **Step 2: Check for a hydration warning**
 
-Extend the existing `"spacing checks report every goal the generator models"`
-test in `e2e/11-schedule-builder.spec.ts` — it already generates a draft and
-checks the spacing list — with the new labels.
+Run `npm run build`, and load the builder page in the dev server with the console
+open. Expected: no hydration mismatch. If one appears, the read has moved back
+into render — do not reach for `suppressHydrationWarning`.
 
-- [ ] **Step 4: Run the affected specs**
+- [ ] **Step 3: Run and commit**
 
-Run: `npx vitest run src/lib/schedule` then
-`npx playwright test e2e/11-schedule-builder.spec.ts`
-Expected: green. Do NOT run the full e2e suite locally.
-
-⚠️ Restore any guard you flip and discard drafts through the app, not with SQL.
-
-- [ ] **Step 5: Commit**
+Run: `npx tsc --noEmit` and `npx playwright test e2e/11-schedule-builder.spec.ts`.
 
 ```bash
-git add src/components/manage src/lib e2e
-git commit -m "feat(schedule): show ice-time clustering and remember the variation"
+git commit -am "feat(schedule): remember which variation a manager is on"
+```
+
+---
+
+### Task 6: Correct the documents that now say the opposite
+
+**Files:**
+- Modify: `SCHEDULE_HANDOFF.md` (§5)
+- Modify: `docs/superpowers/specs/2026-09-09-schedule-variations-design.md` (§6, deferred list)
+
+`SCHEDULE_HANDOFF.md` §5 currently reads "**Constrained seasons still get no
+clustering repair, and now no block either**", written the same day as this plan.
+Shipping this makes it false, and a handoff that contradicts the code is worse
+than one that omits it.
+
+- [ ] **Step 1: Rewrite the constrained-seasons bullet**
+
+Replace it with what is now true: night classes, the measured 15 → 5, the weak
+case (a partial-window `slot_bias`, 14 → 10), and that selection ranks unmet
+requests first.
+
+- [ ] **Step 2: Amend the previous spec's deferred list**
+
+`2026-09-09-schedule-variations-design.md` §6 lists "Constrained seasons still get
+no clustering repair" as deferred. Mark it done with a pointer to
+`2026-09-09-clustering-for-constrained-seasons-design.md`, and leave the other
+three entries alone.
+
+⚠️ Do not rewrite the previous spec's measurements. They were true when taken and
+are the record of why this work happened.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git commit -am "docs(schedule): constrained seasons get their ice time spread now"
 ```
 
 ---
 
 ## Self-Review
 
-**Spec coverage:** §2 and §5.1 → Task 1. §3 and §5.2 → Task 2. §4 and §5.3-4 →
-Task 3. Acceptance 1 → Task 1 Step 7 and Task 2 Step 6 (existing bounds
-unchanged); 2 → Task 1 Step 1; 3 → Task 1 Step 5; 4 → Task 1 Step 6; 5 → Task 3
-Step 3; 6 → the final review.
+**Spec coverage:** §2 and §5.1 → Task 1. §3 and §5.2 → Task 2. §4 and §5.3 →
+Task 4. §4 and §5.4 → Task 5. Acceptance 1 → Task 1 Step 7 (equality, not a
+bound); 2 → Task 1 Step 1; 3 → Task 1 Step 5; 4 → Task 1 Step 6 and Task 2
+Step 6; 5 → Task 4; 6 → the final review. Task 3 and Task 6 are consequences the
+spec did not name — a stale progress estimate and two documents that assert the
+opposite of what ships.
 
 **Ordering is load-bearing, not cosmetic.** Task 2 before Task 1 quadruples a
 constrained generate's cost for no benefit, and Task 1 without Task 2 measures as
-a near-failure (15 → 14) that a reviewer could reasonably reject. They ship
-together or not at all.
+a near-failure (15 → 14) a reviewer could reasonably reject. They ship together
+or not at all. Tasks 3-6 are independent of each other and of ordering.
+
+**The one place this plan overrides its own Global Constraints** is Task 2
+Step 1, which deletes a passing, mutation-verified test. That is called out in
+the task rather than left for an implementer to discover as a contradiction.
 
 **Type consistency:** `smeta` is in scope at the `improveNightOrder` call site
 (`buildNightMeta(nights)`, assigned near the top of `assignNights`); `nights`,
-`pos`, `slotsNeeded` and `slotsPerNight` are all already used by the loop the
-class test joins. `variationsFor(pairings.length)` is unchanged from PR #66.
+`pos`, `slotsNeeded` and `slotsPerNight` are already used by the loop the class
+test joins. `report.constraints` entries carry `.satisfied` and `.id`.
+`variationsFor(pairings.length)` is unchanged from PR #66.
 
-**Known risk:** Task 1 removes a gate that three existing comments describe. The
-guard against getting it wrong is the pre-existing `"a pinned slot survives the
-clustering pass"` test, which was itself verified by forcing the pass to run
-unconditionally — exactly the condition this task creates permanently.
+**Known risk:** Task 1 removes a gate that three separate comments describe. The
+guard is the pre-existing `"a pinned slot survives the clustering pass"` test,
+which was itself verified by forcing the pass to run unconditionally — exactly
+the condition this task makes permanent.
