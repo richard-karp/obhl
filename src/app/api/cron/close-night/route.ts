@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { finalizeGameById } from "@/lib/games/finalize";
-import { leagueDayStart, leagueToday } from "@/lib/format";
+import { nightWindow } from "@/lib/games/close-night";
 
 /**
  * Closes the night: completes any game left `in_progress` after its day ended.
@@ -71,11 +71,12 @@ export async function GET(request: NextRequest) {
   // Everything that started before today's league day began. Uses the same
   // `leagueDayStart` the scorekeeper's own page filters with, so "the day" means
   // one thing across the feature.
-  const today = leagueToday();
-  // The league-local date of the night that just ended.
-  const d = new Date(`${today}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  const yesterday = d.toISOString().slice(0, 10);
+  // ⛔ THE WINDOW LIVES IN `nightWindow`, NOT HERE, SO IT CAN BE TESTED. This was
+  // inline date arithmetic, which meant the route's most important property — that
+  // it closes ONE night and cannot reach a game a manager reopened — had no
+  // coverage but a script run by hand. `close-night.test.ts` now kills the
+  // unbounded version in 14ms with no database.
+  const { from, to } = nightWindow();
 
   const { data: stale, error } = await admin
     .from("games")
@@ -97,8 +98,8 @@ export async function GET(request: NextRequest) {
     // is never swept. That is deliberate — closing a game days later would
     // recompute standings from a half-entered roster with no one watching. A
     // backlog is a thing to surface to a manager, not to silently finalize.
-    .gte("scheduled_at", leagueDayStart(yesterday))
-    .lt("scheduled_at", leagueDayStart(today))
+    .gte("scheduled_at", from)
+    .lt("scheduled_at", to)
     .limit(200);
 
   if (error) {
