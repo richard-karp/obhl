@@ -955,3 +955,34 @@ describe("assignNights — a pinned slot survives the clustering pass", () => {
     expect(outcome.satisfied).toBe(true);
   });
 });
+
+// A variation is normally the best of four draws ranked partly on clustering.
+// A CONSTRAINED season collapses that to a single draw, because `assignNights`
+// gates the night-order pass on `resolved.empty` — so no seed in a block can
+// differ on clustering repair, and ranking four of them would cost four times
+// the generate for no product difference. `variations` can only ever REDUCE the
+// automatic count, never raise it, which is what makes this hold even though
+// the caller here asks for four.
+describe("assignNights — a constrained season takes one draw, not a block", () => {
+  const ts = Array.from({ length: 6 }, (_, i) => `t${i + 1}`);
+  const ns = enumerateNights("2026-09-08", {
+    weekdays: new Set([2]),
+    slotTimes: ["19:00", "20:15", "21:30"],
+    excluded: new Set<string>(),
+    maxNights: 23,
+  });
+  const pairings = buildBalancedPairings(ts, 23);
+  const resolved = resolveConstraints(
+    [c("p1", "t3", "slot_on", { date: ns[11].date, time: "21:30" })],
+    { nights: ns, teamIds: ts },
+  );
+  const stamps = (variations: number) =>
+    assignNights(pairings, ns, ts, { constraints: resolved, variations })
+      .games.map((g) => `${g.home}|${g.away}|${g.scheduledAt}`)
+      .sort()
+      .join("\n");
+
+  it("ignores a request for four draws", () => {
+    expect(stamps(4)).toBe(stamps(1));
+  }, 120_000);
+});

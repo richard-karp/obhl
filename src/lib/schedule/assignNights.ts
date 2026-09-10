@@ -128,6 +128,16 @@ export type AssignOptions = {
    * anything.
    */
   seed?: number;
+  /**
+   * How many seeds to draw this variation from, best-of by `rankSchedule`.
+   * Omitted means "decide from the game count and the constraint set".
+   *
+   * ⚠️ A caller can only REDUCE the automatic count, never raise it — this is
+   * clamped to it. The option exists so `generateSchedule`'s step-down retry
+   * loop can force a single draw on its degraded path, not so a caller can ask
+   * for an unbounded search.
+   */
+  variations?: number;
 };
 
 const matchupKey = (a: string, b: string) => [a, b].sort().join("|");
@@ -1812,7 +1822,113 @@ function rankLess(a: number[], b: number[]): boolean {
   return false;
 }
 
+/**
+ * How many seeds a variation is chosen from, keyed on game count — the same
+ * signal `ilsRestartsFor` uses, so this is a function of the INPUT and never of
+ * the clock. A clock-sized N would make the schedule hardware-dependent, which
+ * is the bug `SLOT_RESTARTS` above exists about.
+ *
+ * The 8-team reference league (144 games) gets 1: measured 2026-09-09, it takes
+ * NOTHING from the night-order pass — worst-team 17 and 94 windows with the pass
+ * running and unconstrained, identical at every restart count from 500 to 20,000
+ * — so ranking four draws on clustering would spend 4x the time choosing between
+ * four schedules of identical quality.
+ *
+ * At <= 80 games a generate is ~6.6 s, so four is ~26 s: the SAME wall clock the
+ * manager waited before `SLOT_RESTARTS` dropped from 20,000.
+ */
+function variationsFor(gameCount: number): number {
+  if (gameCount <= 80) return 4;
+  if (gameCount <= 120) return 2;
+  return 1;
+}
+
+/**
+ * One schedule, best of a block of seeds.
+ *
+ * Generation is deterministic for a given input — deliberately, see
+ * `PLATEAU_SEEDS` — which left a manager who disliked a schedule with no way to
+ * ask for another: regenerating returned the byte-identical one, and reaching
+ * for a manager request instead switched the night-order clustering pass off
+ * entirely. `AssignOptions.seed` selects a variation; this picks the best draw
+ * within it.
+ *
+ * ⛔ Blind rerolling would be the WRONG product. Measured over six seeds on
+ * 6 teams / one weeknight / 3 sheets, worst-team clustering ran 4, 10, 13, 11,
+ * 4, 10 — so a bare "try another" button can hand the manager something worse
+ * than what they already rejected, which is what sends them back to hand-editing
+ * the schedule. `rankSchedule` runs on the FINISHED schedule, after the
+ * night-order pass, so it is the one comparator in the pipeline that can see
+ * clustering at all.
+ */
 export function assignNights(
+  pairings: Pairing[],
+  nights: Night[],
+  teamIds: string[],
+  options?: AssignOptions,
+): ReturnType<typeof assignNightsOnce> {
+  const resolved = options?.constraints ?? noConstraints();
+  // A constrained season gets no night-order repair on ANY seed (the pass is
+  // gated on `resolved.empty` below), so every draw in a block would differ only
+  // in Phase P/M/S luck with no clustering repair on any of them — 4x the time
+  // for no product difference.
+  const auto = resolved.empty ? variationsFor(pairings.length) : 1;
+  const n = Math.max(1, Math.min(options?.variations ?? auto, auto));
+  const base = options?.seed ?? 1;
+  if (n === 1) return assignNightsOnce(pairings, nights, teamIds, options);
+
+  const meta = buildMeta(nights);
+  /**
+   * `rankSchedule`'s vector with ONE change: the two clustering terms move
+   * ahead of `slotConsecutive`.
+   *
+   * ⛔ DO NOT "simplify" this back to plain `rankFromReport`. Measured
+   * 2026-09-09 on 6 teams / one weeknight / 3 sheets: seed 1 gives 6
+   * back-to-backs and worst-team 4, seed 2 gives 4 back-to-backs and worst-team
+   * 10. Under `rankSchedule`'s own order `slotConsecutive` outranks clustering,
+   * so best-of-4 picks seed 2 — and the manager gets a WORSE schedule from four
+   * draws than from the single default one, on precisely the metric this
+   * selection exists to improve.
+   *
+   * The two orders answer different questions and both are right for theirs.
+   * `rankSchedule` guards the night-order pass, where the rule is that a
+   * permutation must never trade away an established quality, so clustering
+   * ranks last as a pure tiebreaker. Choosing between complete, independently
+   * generated schedules is a trade, and there a team taking the same ice time
+   * three times in five weeks — the complaint this feature came from — is worse
+   * than one extra pair of back-to-back games. `slotStreak3` (three in a ROW)
+   * stays above clustering: it is strictly worse than three in five.
+   */
+  const rankOf = (r: ReturnType<typeof assignNightsOnce>) => {
+    const v = rankFromReport(
+      { games: r.games, unscheduled: r.report.unscheduled },
+      r.report.spacing,
+      teamIds,
+      meta,
+    );
+    const [consec, worst, windows] = v.slice(v.length - 3);
+    return [...v.slice(0, v.length - 3), worst, windows, consec];
+  };
+  let best = assignNightsOnce(pairings, nights, teamIds, {
+    ...options,
+    seed: (base - 1) * n + 1,
+  });
+  let bestRank = rankOf(best);
+  for (let i = 1; i < n; i++) {
+    const trial = assignNightsOnce(pairings, nights, teamIds, {
+      ...options,
+      seed: (base - 1) * n + 1 + i,
+    });
+    const rank = rankOf(trial);
+    if (rankLess(rank, bestRank)) {
+      best = trial;
+      bestRank = rank;
+    }
+  }
+  return best;
+}
+
+function assignNightsOnce(
   pairings: Pairing[],
   nights: Night[],
   teamIds: string[],
