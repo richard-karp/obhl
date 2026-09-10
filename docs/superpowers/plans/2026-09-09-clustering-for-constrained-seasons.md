@@ -234,48 +234,50 @@ permutation is ever refused). Add to the 6-team clustering describe in
   });
 ```
 
-- [ ] **Step 8: Cover every constraint kind the fixture can express**
+- [ ] **Step 8: Cover every constraint kind this fixture can satisfy**
 
 All six `CONSTRAINT_KINDS` map to a field `nightClass` labels — `bye_on`,
 `play_on` and `bye_week` to `forced`, `slot_on` to `slotPins`, `bye_in_week` to
 `byeInWeek`, `slot_bias` to `biases` — so the labelling is exhaustive **today**.
-Nothing fails if a seventh kind is added. Add a table-driven test:
+Nothing fails if a seventh kind is added.
 
 ```ts
-  // ⛔ `bye_on` and `bye_week` are absent ON PURPOSE. Six teams over three
-  // sheets means all six play every night, so no team can ever bye and those
-  // two are infeasible on this fixture — they report unmet in every column and
-  // would measure nothing. They reach `nightClass` through `forced`, the same
-  // field `play_on` uses and this table does cover.
+  // ⛔ THREE KINDS, AND THE OTHER THREE ARE HONESTLY UNCOVERED. Six teams over
+  // three sheets fills every night exactly, so all six teams play every night
+  // and NO team can ever bye: `bye_on`, `bye_week` and `bye_in_week` are
+  // infeasible here and report unmet whatever the pass does. The only fixture
+  // with real byes is the 8-team Mon+Thu league, and that one is too tight for
+  // the pass to find any admissible permutation — so it cannot exercise these
+  // labels either. Those three reach `nightClass` through `forced` and
+  // `byeInWeek`; `forced` IS covered below by `play_on`, `byeInWeek` is not.
   //
-  // This exists because every kind maps to a field `nightClass` labels today,
-  // and nothing catches a SEVENTH kind added without a label rule.
+  // ⛔ NO CONDITIONAL SKIP. An earlier draft ended `if (!verdict.satisfied)
+  // return;`, which skips the assertion in exactly the case the test exists to
+  // catch — a guard that fails open. Every row here is one this shape can
+  // satisfy, so an unmet verdict is a real failure.
   it.each([
     ["slot_on", "t3", { date: ns[11].date, time: "21:30" }],
     ["play_on", "t2", { date: ns[7].date }],
-    ["bye_in_week", "t4", { week_of: ns[9].date }],
     ["slot_bias", "t1", { from: ns[0].date, to: ns[11].date, prefer: "late" }],
   ])("a %s request survives the night-order pass", (kind, team, params) => {
     const r = resolveConstraints(
       [c("k1", team, kind as ScheduleConstraint["kind"], params)],
       { nights: ns, teamIds: ts },
     );
-    // Guards the fixture itself: a wrong param key resolves to `items` but to no
-    // solver entry, leaving `empty` true and testing nothing. `teamId`, not
-    // `team_id`.
+    // Guards the fixture itself: a wrong param key resolves into `items` but
+    // into no solver entry, leaving `empty` true and testing nothing.
+    // `teamId`, not `team_id`.
     expect(r.empty).toBe(false);
     const out = assignNights(pairings, ns, ts, { constraints: r });
-    const verdict = out.report.constraints.find((x) => x.id === "k1")!;
-    // Only assert survival for requests this shape can actually satisfy —
-    // an infeasible one is unmet before the pass runs and says nothing about it.
-    if (verdict.satisfied === false) return;
-    expect(verdict.satisfied).toBe(true);
+    expect(out.report.constraints.find((x) => x.id === "k1")!.satisfied).toBe(
+      true,
+    );
   }, 180_000);
 ```
 
-⚠️ If a row reports unmet on this fixture, check feasibility before assuming the
-labels are wrong — re-run it with the `nightClass` line deleted and see whether
-the verdict changes.
+⚠️ A whole-season `slot_bias` (`to: ns.at(-1)!.date`) is **not** satisfiable on a
+single draw here — measured — which is why this row uses the first half. Task 2
+uses the whole-season one deliberately, for the opposite reason.
 
 - [ ] **Step 9: Commit**
 
@@ -328,10 +330,34 @@ still true — the clamp, which stops a caller asking for an unbounded search:
 // again. What survives from the old behaviour is the clamp — `variations` may
 // only ever REDUCE the automatic count, which is how `generateSchedule`'s
 // step-down retry loop forces a single draw on its degraded path.
+//
+// ⚠️ A TEN-WEEK SEASON. The clamp is arithmetic and does not depend on season
+// length, and the 23-week fixture would spend ten full generates proving it.
+// PR #66 made exactly this mistake and fixed it the same way.
 describe("assignNights — variations can be reduced but never raised", () => {
-  ...
-  it("honours an explicit request for a single draw", () => {
-    expect(stamps(1)).toBe(stamps(1));
+  const shortNs = enumerateNights("2026-09-08", {
+    weekdays: new Set([2]),
+    slotTimes: ["19:00", "20:15", "21:30"],
+    excluded: new Set<string>(),
+    maxNights: 10,
+  });
+  const shortPairings = buildBalancedPairings(ts, 10);
+  const shortResolved = resolveConstraints(
+    [c("p1", "t3", "slot_on", { date: shortNs[4].date, time: "21:30" })],
+    { nights: shortNs, teamIds: ts },
+  );
+  const stamps = (variations: number) =>
+    assignNights(shortPairings, shortNs, ts, {
+      constraints: shortResolved,
+      variations,
+    })
+      .games.map((g) => `${g.home}|${g.away}|${g.scheduledAt}`)
+      .sort()
+      .join("\n");
+
+  // Only the clamp. Determinism for a fixed seed is already covered in
+  // `assignNights.test.ts` and re-checking it here costs two more generates.
+  it("clamps a request above the automatic count", () => {
     expect(stamps(99)).toBe(stamps(4));
   }, 180_000);
 });
@@ -358,14 +384,28 @@ describe("assignNights — variations can be reduced but never raised", () => {
   // same warning on `outcomeFor`: a term invisible to the ranking means the
   // candidate honouring the request best can lose to one that ignores it.
   it("never picks a draw that honours fewer requests", () => {
+    // ⛔ A WHOLE-SEASON `slot_bias`, NOT the `slot_on` pin above. Every draw
+    // satisfies the pin, so with that fixture `chosen` and all four singles are
+    // 0 unmet and this passes against a comparator carrying no constraint term
+    // at all. Measured 2026-09-09: a whole-season "prefer late" is UNMET on a
+    // single draw and MET on a block of four — the one fixture here where the
+    // draws actually disagree about a request.
+    const biased = resolveConstraints(
+      [c("b1", "t1", "slot_bias", {
+        from: ns[0].date,
+        to: ns.at(-1)!.date,
+        prefer: "late",
+      })],
+      { nights: ns, teamIds: ts },
+    );
     const unmet = (r: ReturnType<typeof assignNights>) =>
       r.report.constraints.filter((x) => !x.satisfied).length;
     const chosen = unmet(
-      assignNights(pairings, ns, ts, { constraints: resolved, variations: 4 }),
+      assignNights(pairings, ns, ts, { constraints: biased, variations: 4 }),
     );
     for (const seed of [1, 2, 3, 4]) {
       const one = unmet(
-        assignNights(pairings, ns, ts, { constraints: resolved, seed, variations: 1 }),
+        assignNights(pairings, ns, ts, { constraints: biased, seed, variations: 1 }),
       );
       expect(chosen).toBeLessThanOrEqual(one);
     }
@@ -434,16 +474,25 @@ In the wrapper's `rankOf`, prepend the unmet count:
 ⚠️ The two clustering terms stay ahead of `slotConsecutive` — that swap is from
 PR #66 and is separately mutation-verified. Do not disturb it.
 
+⚠️ **This is a no-op on an unconstrained season, and that is why it is safe.**
+`assignNights` returns `constraints: []` when `resolved.items.length === 0`, so
+the prepended count is a constant 0 across every draw and the lexicographic order
+is unchanged. Task 1 Step 7's equality assertion and PR #66's
+`"is the lexicographic minimum of the four seeds it draws from, by the selection
+order"` — which rebuilds the vector WITHOUT this term — both keep passing. If
+either goes red, the term is not constant and something else is wrong.
+
 - [ ] **Step 6: Prove the constraint term is load-bearing**
 
 Mutation: drop the `r.report.constraints.filter(...)` entry from `rankOf` and
 re-run `npx vitest run src/lib/schedule/constraints.test.ts -t "honours fewer"`.
 
-If it does NOT go red, the fixture has no draw that trades a request away, so the
-test is not yet coverage. Find one: run the four seeds individually, print each
-one's unmet count, and pick a constraint where they differ. A whole-season
-`slot_bias` is the likeliest — measured, it is unmet on a single draw and met on
-a block. Confirm the mutant applied, then revert.
+It should go red: the test's whole-season `slot_bias` is measured unmet on a
+single draw and met on a block, so without the term the selection has no reason
+to prefer the draw that meets it. If it stays green, print each of the four
+seeds' unmet counts — if they are all equal the fixture has stopped
+discriminating and needs replacing before this test means anything. Confirm the
+mutant applied, then revert.
 
 - [ ] **Step 7: Check the cost**
 
@@ -645,6 +694,9 @@ git commit -am "feat(schedule): remember which variation a manager is on"
 **Files:**
 - Modify: `SCHEDULE_HANDOFF.md` (§5)
 - Modify: `docs/superpowers/specs/2026-09-09-schedule-variations-design.md` (§6, deferred list)
+
+**Interfaces:**
+- Consumes: Tasks 1 and 2. This task describes their behaviour, so it can only be written truthfully once both have landed. Independent of Tasks 3-5.
 
 `SCHEDULE_HANDOFF.md` §5 currently reads "**Constrained seasons still get no
 clustering repair, and now no block either**", written the same day as this plan.
