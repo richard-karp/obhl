@@ -264,6 +264,13 @@ export async function ScheduleBuilderPanel({
   const rawSpacing =
     placed.length > 0 ? spacingReport(placed, spacingNights, teamRows) : null;
 
+  // Ice times this draft actually uses. Below three, a five-game window must
+  // hold three of one by pigeonhole, so `slotClusterWorstTeam` cannot reach zero
+  // however the games are arranged — and it grows with games per team. The
+  // caption says so rather than presenting an unreachable target next to advice
+  // ("add game nights") that would make the number worse.
+  const slotCount = placed.reduce((m, g) => Math.max(m, g.slotIndex + 1), 0);
+
   // ── Manager requests, checked against the draft on this page ───────────────
   //
   // Re-derived here rather than carried out of the generator, and that is
@@ -952,6 +959,35 @@ export async function ScheduleBuilderPanel({
                   schedule is fixed. Some are unavoidable when there are fewer
                   ice slots than half the teams (so not everyone plays every
                   night) — add ice times or game nights to drive these to zero.
+                </p>
+                <p className="text-muted-foreground mt-2 text-xs">
+                  Worst team&rsquo;s repeated ice times:{" "}
+                  <span className="font-medium">
+                    {spacing.slotClusterWorstTeam}
+                  </span>{" "}
+                  {spacing.slotClusterWorstTeam === 1 ? "stretch" : "stretches"}{" "}
+                  of five games with the same ice time three or more times.
+                  Counted per stretch rather than per game, and reported for the
+                  single worst-off team rather than the league &mdash; this is
+                  the complaint a manager brings, and it lands on one team
+                  rather than spreading. The league carries{" "}
+                  <span className="font-medium">
+                    {spacing.slotClusterWindows}
+                  </span>{" "}
+                  in total: the closer that is to the figure above, the more of
+                  it one team is absorbing, and a total that rises while the
+                  worst-team figure falls is the schedule spreading the load
+                  rather than getting worse.
+                  {slotCount > 0 && slotCount < 3 ? (
+                    <>
+                      {" "}
+                      With only {slotCount}{" "}
+                      {slotCount === 1 ? "ice time" : "ice times"}, any five
+                      games must put three in one of them, so this cannot reach
+                      zero at all &mdash; and adding game nights raises it.
+                      Adding a third ice time is what makes it improvable.
+                    </>
+                  ) : null}
                 </p>
                 {spacing.longestLayoffDays !== null ? (
                   <p className="text-muted-foreground mt-2 text-xs">
