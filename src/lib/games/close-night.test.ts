@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nightWindow } from "./close-night";
+import { isAuthorizedCron, nightWindow } from "./close-night";
 
 /**
  * The window the nightly sweep finalizes games in.
@@ -71,5 +71,53 @@ describe("nightWindow", () => {
     const w = nightWindow(new Date("2027-01-01T07:00:00Z"));
     expect(w.from).toBe("2026-12-31T05:00:00.000Z");
     expect(w.to).toBe("2027-01-01T05:00:00.000Z");
+  });
+});
+
+/**
+ * The cron route's bearer check.
+ *
+ * ⛔ IT HAS ALREADY BEEN WRONG ONCE, in a way no unit test existed to catch: the
+ * length guard compared `String.length` (UTF-16 code units) while
+ * `timingSafeEqual` compares BYTE length. Any header carrying a byte >= 0x80
+ * passed the guard and then made `timingSafeEqual` THROW — turning a clean 401
+ * into an unhandled 500 on an internet-reachable endpoint.
+ */
+describe("isAuthorizedCron", () => {
+  const SECRET = "s3cret-value";
+
+  it("accepts the matching bearer token", () => {
+    expect(isAuthorizedCron(`Bearer ${SECRET}`, SECRET)).toBe(true);
+  });
+
+  it("refuses a wrong token of the same length", () => {
+    expect(isAuthorizedCron("Bearer s3cret-VALUE", SECRET)).toBe(false);
+  });
+
+  it("refuses a missing header", () => {
+    expect(isAuthorizedCron(null, SECRET)).toBe(false);
+  });
+
+  it("refuses everything when the secret is unset", () => {
+    // ⛔ FAILS CLOSED. A deploy that forgets CRON_SECRET must do nothing, not
+    // expose a route that finalizes games to anyone who finds it.
+    expect(isAuthorizedCron("Bearer anything", undefined)).toBe(false);
+    expect(isAuthorizedCron("Bearer ", "")).toBe(false);
+  });
+
+  it("refuses a shorter and a longer token without throwing", () => {
+    expect(isAuthorizedCron("Bearer short", SECRET)).toBe(false);
+    expect(isAuthorizedCron(`Bearer ${SECRET}extra`, SECRET)).toBe(false);
+  });
+
+  it("refuses a non-ASCII header rather than throwing", () => {
+    // ⛔ THE REGRESSION. "é" is one UTF-16 code unit and two UTF-8 bytes, so a
+    // header the same STRING length as the expected value has a different BYTE
+    // length — which is exactly what made `timingSafeEqual` raise. This must
+    // return false, not blow up.
+    const sameStringLength = `Bearer ${"é".repeat(SECRET.length)}`;
+    expect(sameStringLength.length).toBe(`Bearer ${SECRET}`.length);
+    expect(() => isAuthorizedCron(sameStringLength, SECRET)).not.toThrow();
+    expect(isAuthorizedCron(sameStringLength, SECRET)).toBe(false);
   });
 });

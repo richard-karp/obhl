@@ -1,8 +1,7 @@
-import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { finalizeGameById } from "@/lib/games/finalize";
-import { nightWindow } from "@/lib/games/close-night";
+import { isAuthorizedCron, nightWindow } from "@/lib/games/close-night";
 
 /**
  * Closes the night: completes any game left `in_progress` after its day ended.
@@ -52,18 +51,17 @@ export async function GET(request: NextRequest) {
   // route is a public endpoint that finalizes games — anyone could close a night
   // early, mid-game. Fails CLOSED when the secret is unset, so a misconfigured
   // deploy does nothing rather than exposing it.
-  const secret = process.env.CRON_SECRET;
-  // ⚠️ BYTE LENGTHS, NOT STRING LENGTHS. `timingSafeEqual` THROWS on a length
-  // mismatch, and `String.length` counts UTF-16 code units while the buffer
-  // counts UTF-8 bytes — so a header carrying any byte >= 0x80 passed the guard
-  // and then raised, turning a 401 into an unhandled 500. Compare the buffers.
-  const offered = Buffer.from(request.headers.get("authorization") ?? "");
-  const expected = Buffer.from(`Bearer ${secret ?? ""}`);
-  const ok =
-    !!secret &&
-    offered.length === expected.length &&
-    timingSafeEqual(offered, expected);
-  if (!ok) {
+  // ⛔ THE COMPARISON LIVES IN `isAuthorizedCron`, NOT HERE, FOR THE SAME REASON
+  // THE WINDOW DOES: it had a bug (`String.length` in front of a byte-length
+  // `timingSafeEqual`, so a header with any byte >= 0x80 raised a 500 instead of
+  // returning a 401) and nothing but a hand-run script could have caught it.
+  // `close-night.test.ts` now kills that version with no server and no database.
+  if (
+    !isAuthorizedCron(
+      request.headers.get("authorization"),
+      process.env.CRON_SECRET,
+    )
+  ) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

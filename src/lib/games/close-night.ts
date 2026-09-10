@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { leagueDayStart, leagueToday } from "@/lib/format";
 
 /** A half-open range of UTC instants: `[from, to)`. */
@@ -38,4 +39,35 @@ export function nightWindow(now: Date = new Date()): NightWindow {
   const yesterday = d.toISOString().slice(0, 10);
 
   return { from: leagueDayStart(yesterday), to: leagueDayStart(today) };
+}
+
+/**
+ * Does this `Authorization` header carry the cron secret?
+ *
+ * ⛔ FAILS CLOSED ON AN UNSET SECRET. A deploy that forgets `CRON_SECRET` must do
+ * nothing at all, rather than leave a route that finalizes games open to anyone
+ * who finds the path. The visible symptom is a silent daily 401.
+ *
+ * ⛔ THE LENGTH GUARD COMPARES BYTES, NOT CHARACTERS, AND THAT IS THE BUG THIS
+ * FUNCTION EXISTS TO STOP REPEATING. `timingSafeEqual` THROWS when its inputs
+ * differ in byte length, so the guard in front of it must measure the same thing.
+ * An earlier version used `String.length` — UTF-16 code units — so a header
+ * containing any byte >= 0x80 (an accented character, say) could match on string
+ * length, differ on byte length, and make the comparison raise: an unhandled 500
+ * where a 401 belonged, on an internet-reachable endpoint.
+ *
+ * Constant-time once the lengths agree, so the comparison cannot leak the secret
+ * a byte at a time. Low practical risk over HTTPS with a random secret; it costs
+ * two lines.
+ */
+export function isAuthorizedCron(
+  header: string | null,
+  secret: string | undefined,
+): boolean {
+  if (!secret) return false;
+  const offered = Buffer.from(header ?? "");
+  const expected = Buffer.from(`Bearer ${secret}`);
+  return (
+    offered.length === expected.length && timingSafeEqual(offered, expected)
+  );
 }
