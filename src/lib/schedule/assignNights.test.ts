@@ -597,6 +597,16 @@ describe("assignNights — ice-time clustering, 6 teams on one weeknight", () =>
     for (const t of report.gamesPerTeam) expect(t.count).toBe(23);
   });
 
+  // ⛔ EQUALITY, not the `<= 6` bound below. Removing the `resolved.empty` gate
+  // from the night-order pass has to be a no-op on a season with no requests,
+  // and a bound cannot see a 4 -> 6 drift. If this fails, `nightClass` is
+  // refusing a permutation it should admit — every label on an unconstrained
+  // season is `"-|"`.
+  it("is unchanged on a season with no requests", () => {
+    expect(report.spacing.slotClusterWorstTeam).toBe(4);
+    expect(report.spacing.slotClusterWindows).toBe(17);
+  });
+
   it("keeps no team far worse off than the rest on ice time", () => {
     // The floor measured by an exhaustive solver is 4. Assert the bound, not the
     // floor: pinning 4 would be asserting search luck.
