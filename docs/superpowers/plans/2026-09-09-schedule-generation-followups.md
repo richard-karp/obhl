@@ -84,7 +84,7 @@ made the downstream result worse.**
 |---|---|---|
 | **0** | Cleanup | ✅ **done** — `3df5fa5` (PR #68) |
 | **1** | Guard the `MULT_W` ↔ `CHURN_W` coupling | ✅ **done** — `94b0262` (PR #69), 2 of 3 guards; the behavioural third is `it.todo` with the measurement showing why |
-| **2** | Narrow the constrained gate | ⛔ **NOT BUILT — premise false.** `b4a765b` (PR #70) records why |
+| **2** | Let a constrained season keep the night-order pass | ✅ **built as night classes** — PR #71. The *kind*-narrowing this row originally proposed is false; constraining the permutation is not. PR #70's test survives, its ⛔ gate note does not |
 | **3** | Make `slot_bias` winnable | ✅ **justified by measurement** — see below. Not built. |
 | **4** | Worst team vs. league total | ✅ **answered — levelling.** Follow-up below |
 
@@ -172,35 +172,81 @@ trivially failable.
 
 ---
 
-# 2. Narrow the constrained gate — ⛔ NOT BUILT, PREMISE FALSE
+# 2. Let a constrained season keep the night-order pass — ✅ BUILT AS NIGHT CLASSES (PR #71)
 
 The plan was to narrow `resolved.empty` to "no night-indexed requests", so a
 league whose only constraint is a `slot_bias` would keep the night-order pass.
 
-**It is wrong.** `SlotBias.nights` is a per-night mask — *"over THESE weeks, lean
-my games late"* — and `biasCost` charges only the games whose night index falls
-inside it. A permutation relabels which games are in the window, so the cost
-moves. `biasCost` is **not** invariant under night permutation.
+**That narrowing is wrong**, and why it is wrong is what the shipped fix is built
+on. `SlotBias.nights` is a per-night mask — *"over THESE weeks, lean my games
+late"* — and `biasCost` charges only the games whose night index falls inside it.
+A permutation relabels which games are in the window, so the cost moves.
+`biasCost` is **not** invariant under night permutation.
 
 All four resolved kinds are position-sensitive:
 
-| kind | sensitive to |
-|---|---|
-| `forced`, `slotPins` | the night index |
-| `byeInWeek` | the week a night sits in |
-| `biases` | the night-window the request names |
+| kind | sensitive to | what `nightClass` puts in the label |
+|---|---|---|
+| `forced`, `slotPins` | the night index | `FIX${n}` — a class of one |
+| `byeInWeek` | the week a night sits in | `W${week}` |
+| `biases` | the night-window the request names | one membership bit per bias |
 
-So `resolved.empty` is the right test, not a blunt one.
+## ⛔ "So the gate cannot be narrowed" does NOT follow — an earlier version of this section said it did
 
-⚠️ The narrowing is tempting *because the gate's comment named only `forced` and
-`slot_on`*, which makes a bias-only league look free to exempt. PR #70 adds a
-⛔ note at the gate and a test pinning the asymmetry with exact values (−8 inside
-the window, 0 after a pure permutation of the same nights).
+Every kind being position-sensitive rules out narrowing the gate **by constraint
+kind**. It says nothing about constraining the **permutation** instead, and that
+is the door PR #71 walked through: `nightClass` labels every night, a permutation
+may only swap nights carrying the same label, and position-sensitivity then holds
+by construction. The cost is one O(nights) comparison folded into the
+ice-capacity loop that already runs — not the per-annealing-step constraint
+evaluation (~6k steps) that the gate's own comment considered and rejected.
 
-⚠️ Had this shipped, the failure would not have been a crash:
+The table above is exactly what makes that sound. The label is correct **only
+because it covers all four kinds**; miss one and the pass silently moves a
+request off the night it was honoured on.
+
+## Measured
+
+6 teams / one weeknight / 3 sheets / 23 nights, one `slot_on` pinned on night 15:
+
+| | worst team | total windows |
+|---|---|---|
+| old gate — pass switched off | 15 | — |
+| night classes alone | 14 | — |
+| night classes + best-of-N restored | 4–5 | 18 |
+| unconstrained control | 4 | 17 |
+
+15 → 14 and 15 → 5 measured 2026-09-09 on PR #71; worst 4 / 18 windows and the
+control re-measured 2026-09-10, three runs, identical each time. **A constrained
+season now spreads ice time at the unconstrained floor.**
+
+## ⚠️ `periodicPass` must NOT run underneath it
+
+Same fixture, 2026-09-10, three runs, identical every time:
+
+| | worst team | total windows |
+|---|---|---|
+| night classes alone | 4 | 18 |
+| night classes **and** `periodicPass` | 6 | 20 |
+
+The two fixes do not compose — the same result §4 and PR #65 measured on
+*unconstrained* seasons, now reproduced on the constrained ones `periodicPass`
+was written for. `nightClass` lets the night-order pass run everywhere, so the
+collision moved with it. See §4.
+
+## What survives from the false premise
+
+⚠️ Had the *kind*-narrowing shipped, the failure would not have been a crash:
 `evaluateConstraints` runs afterwards off the final games, so it would have
 honestly reported a request as unmet that Phase S had honoured — a silent
 downgrade.
+
+PR #70's test — `biasCost` −8 inside the window, 0 after a pure permutation of
+the same nights — is what pins the `biases` row of the table, and is the reason
+`nightClass` carries a membership bit per bias rather than ignoring them. It
+stands. What does not stand is the ⛔ note PR #70 put at the gate saying the gate
+could not be narrowed: that note would talk the next reader out of the approach
+that works.
 
 ---
 
@@ -283,7 +329,17 @@ PR #68 computes the pair without ranking it.
 
 ---
 
-# 4. Worst team vs. league total — ✅ ANSWERED: LEVELLING
+# 4. Worst team vs. league total — ✅ ANSWERED: LEVELLING, but ⛔ SUPERSEDED
+
+⛔ **This section measures `periodicPass`, which is being retired.** The levelling
+finding below is true and worth keeping as a record of what that pass did. It is
+no longer a description of what ships: PR #71's night classes let the night-order
+pass run on constrained seasons too, and the two do not compose — night classes
+alone reach worst 4 / 18 windows on the 23-night fixture where both together
+reach 6 / 20 (§2). The verdict "the trade in PR #65 is a good one" was correct
+against the alternative available when it was taken, which was *no clustering fix
+at all* for a constrained season. That is no longer the alternative.
+
 
 Measured 2026-09-09 on the 40-night constrained fixture, per-team clustered
 windows re-derived from `scheduledAt`:
@@ -296,7 +352,9 @@ windows re-derived from `scheduledAt`:
 **Levelling, decisively.** One team carried **25 of 48** windows — over half the
 league's damage on one of six teams. Afterwards the spread is 9–11, nearly flat.
 The rising total is the arithmetic of levelling, not the pass moving a complaint
-from one manager to another. The trade in PR #65 is a good one.
+from one manager to another. Against the alternative of the day — a constrained
+season getting no clustering fix at all — the trade was a good one. Night classes
+reach worst 4 without the trade, so it is no longer the one on offer.
 
 ⚠️ **This fixture varies run to run**, unlike the 8-team reference. A third run
 gave `[12, 3, 10, 8, 10, 7]`, worst 12, total 50 — `periodicPass` is wall-clock
@@ -306,7 +364,8 @@ bounded, so a single run would have reported 58 or 50 and looked precise.
 
 Add a **bound** on the total to the 40-night test — it currently asserts nothing
 about it, so a drift back toward concentration is invisible in the suite, and the
-panel shows only the worst-team figure so it is invisible there too.
+panel showed only the worst-team figure so it was invisible there too — PR #64
+now reports the league total alongside it.
 
 ⛔ Size the bound off the measured **range**, not one run: worst spans 11–12 and
 total spans 50–58, so a pin fails intermittently. Something like
