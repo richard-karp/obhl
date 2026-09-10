@@ -175,8 +175,9 @@ export async function setStaffPassword(
   if (tooShort) return { ok: false, message: tooShort };
 
   const admin = createAdminClient();
-  // Lowercased on both sides — `findUserIdByEmail` compares against a lowercased
-  // address and a raw one is a miss, not an error.
+  // `email` is already lowercased where it is read, and `findUserIdByEmail`
+  // normalises again on its own side, so neither depends on the other getting it
+  // right. It used to depend on exactly that, and a caller eventually forgot.
   const id = await findUserIdByEmail(admin, email);
   if (!id) {
     return { ok: false, message: `No account for ${email}.` };

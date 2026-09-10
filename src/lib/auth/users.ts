@@ -17,18 +17,27 @@ type Admin = ReturnType<typeof createAdminClient>;
  * The loop stops at the first short page, and at a bound, so a backend that
  * ignores paging cannot spin here.
  *
- * `email` must already be lowercased — both call sites normalise their input,
- * and comparing a raw address against a lowercased one is a miss, not an error.
+ * ⛔ NORMALISES ITS OWN ARGUMENT, and that is not tidiness. This used to require
+ * a pre-lowercased address and treat a raw one as a MISS rather than an error —
+ * every call site normalised, so it worked, and the requirement was invisible
+ * until a new caller forgot. One did (`landingFor`, 2026-09-10): sign-in
+ * succeeded, the lookup silently missed, and a scorekeeper who capitalised their
+ * address was sent to the wrong page with nothing logged. The contract now lives
+ * here, where it cannot be forgotten, instead of in each caller's memory.
+ *
+ * Provably inert for the callers that existed when this changed — `people.ts`,
+ * `office.ts` and `seasons.ts` all `.trim().toLowerCase()` first.
  */
 export async function findUserIdByEmail(
   admin: Admin,
   email: string,
 ): Promise<string | null> {
+  const needle = email.trim().toLowerCase();
   const perPage = 200;
   for (let page = 1; page <= 50; page++) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
     if (error) return null;
-    const hit = data.users.find((u) => u.email?.toLowerCase() === email);
+    const hit = data.users.find((u) => u.email?.toLowerCase() === needle);
     if (hit) return hit.id;
     if (data.users.length < perPage) return null;
   }
