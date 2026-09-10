@@ -295,6 +295,32 @@ Each of these cost a review round or a wrong fix in the session that built it.
   is already tomorrow in UTC, so a UTC comparison drops the final game of every
   night off its own night.
 
+  ⛔ **THE BOUNDARY IS LOCAL MIDNIGHT, PLUS A SIX-HOUR TAIL FROM PUCK DROP, AND
+  THE TAIL IS LOAD-BEARING.** `hasStartedWithin` (`src/lib/format.ts`) keeps a
+  game that has already started openable for six hours, so a 9:40pm start stays
+  reachable until ~03:40.
+
+  It is there because **no write action carries a day check** — `finalizeGame`,
+  `bumpStat` and `setLineup` (`src/lib/actions/games.ts`) are unguarded by date.
+  Without the tail, a "Complete game" submitted at 00:01 **succeeds**, and the
+  re-render then refuses the scorekeeper the game they just finalized, with no
+  way back in to correct it. Refusing the write outright would have been kinder
+  than that; the tail avoids both.
+
+  ⚠️ **IT REACHES BACKWARD ONLY.** Tonight's later games are openable because
+  they are TODAY, not because of the tail. Making it symmetric would turn it into
+  the rolling window that was considered and rejected, where a scorekeeper
+  arriving at 6pm cannot prepare the 9:40 game's lineup.
+
+  ⚠️ `/manage/tonight` still lists **strictly today**. The tail widens what may be
+  OPENED, never what is listed — so a game from last night is unreachable by link
+  and reachable by URL for six hours, which is the intended asymmetry.
+
+  ⚠️ Moving the whole day boundary to ~04:00 instead was offered and declined
+  (2026-09-10). Either shape works; this one keeps "the day" meaning the calendar
+  day everywhere else. **Do not re-file the midnight cutoff as a bug** without
+  reading this paragraph first.
+
 - **⚠️ `/manage/tonight` IS NOT A REVERT OF `fbb0802`, AND IT IS NOT CALLED
   `score` FOR A REASON.** The old `/manage/score` was deleted and absorbed into
   the public schedule because it was "the same games in a table with a button on

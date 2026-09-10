@@ -21,6 +21,7 @@ import { GameStatusBadge } from "@/components/shared/game-status-badge";
 import { PageHeader } from "@/components/shared/page-header";
 import {
   formatGameDateTime,
+  hasStartedWithin,
   isOnLeagueDate,
   leagueToday,
   leagueWeekday,
@@ -78,15 +79,31 @@ export default async function ScoreGamePage({
   // `ACCESS_CONTROL_HANDOFF.md` so nobody mistakes it for the usual
   // guard-plus-policy pair this codebase writes.
   //
+  // ⛔ A GAME STILL IN PLAY STAYS OPEN PAST MIDNIGHT, and that clause is not a
+  // softening of the day rule — it is what stops the rule doing damage. NO WRITE
+  // ACTION CARRIES A DAY CHECK (`finalizeGame`, `bumpStat`, `setLineup`), so
+  // without the tail a "Complete game" at 00:01 SUCCEEDS and the re-render then
+  // refuses the scorekeeper the game they just finalized, with no way back in to
+  // correct it. Refusing them outright would be kinder than that.
+  //
+  // ⚠️ It reaches BACKWARD ONLY — six hours from puck drop, which covers a 9:40pm
+  // start until ~03:40. Tonight's later games are reachable because they are
+  // TODAY; if this reached forward it would become the rolling window that was
+  // considered and rejected, where nobody can prepare a lineup before the game
+  // starts. `/manage/tonight` still lists strictly today: this widens what may be
+  // OPENED, never what is shown.
+  //
   // ⚠️ Refused to `/manage/tonight`, NOT to `/` like every other guard here.
   // This one fires at 12:01am on a game somebody was halfway through, and a
   // silent bounce to a league picker is indistinguishable from a broken app —
   // the same symptom that already cost this project a full round of
   // misdiagnosis. Their own page, with tonight's date in its header, at least
   // says what happened.
+  const SCORING_TAIL_HOURS = 6;
   if (
     user.role === "scorekeeper" &&
-    !isOnLeagueDate(game.scheduled_at, leagueToday())
+    !isOnLeagueDate(game.scheduled_at, leagueToday()) &&
+    !hasStartedWithin(game.scheduled_at, SCORING_TAIL_HOURS)
   ) {
     redirect("/manage/tonight");
   }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  hasStartedWithin,
   isOnLeagueDate,
   leagueDayStart,
   leagueToday,
@@ -127,5 +128,50 @@ describe("leagueDayStart", () => {
   it("uses the offset at midnight on a spring-forward day", () => {
     // 8 Mar 2026 switches EST->EDT at 2am, so midnight is still EST (05:00Z).
     expect(leagueDayStart("2026-03-08")).toBe("2026-03-08T05:00:00.000Z");
+  });
+});
+
+describe("hasStartedWithin", () => {
+  // 9:40pm EDT on Mon 14 Sep — the last slot of a night.
+  const LAST_SLOT = "2026-09-15T01:40:00Z";
+
+  it("keeps a game open past local midnight", () => {
+    // 00:30 local, half an hour after the day rolled over. The scorekeeper is
+    // still entering the game they started before midnight; the day rule alone
+    // would have shut them out.
+    const at = new Date("2026-09-15T04:30:00Z");
+    expect(hasStartedWithin(LAST_SLOT, 6, at)).toBe(true);
+  });
+
+  it("is still open two hours after puck drop", () => {
+    expect(
+      hasStartedWithin(LAST_SLOT, 6, new Date("2026-09-15T03:40:00Z")),
+    ).toBe(true);
+  });
+
+  it("closes once the window has passed", () => {
+    // 6h01m after start — deep enough into the night that nobody is scoring.
+    expect(
+      hasStartedWithin(LAST_SLOT, 6, new Date("2026-09-15T07:41:00Z")),
+    ).toBe(false);
+  });
+
+  it("does not open a game that has not started yet", () => {
+    // ⛔ A TAIL, NOT A WINDOW. Tonight's later games are reachable because they
+    // are TODAY, not because of this — so this must never reach forward, or a
+    // game could be opened before its night.
+    expect(
+      hasStartedWithin(LAST_SLOT, 6, new Date("2026-09-15T00:00:00Z")),
+    ).toBe(false);
+  });
+
+  it("never opens an undated game", () => {
+    expect(hasStartedWithin(null, 6, new Date("2026-09-15T04:30:00Z"))).toBe(
+      false,
+    );
+  });
+
+  it("never opens an unparseable one", () => {
+    expect(hasStartedWithin("not a date", 6, new Date())).toBe(false);
   });
 });
