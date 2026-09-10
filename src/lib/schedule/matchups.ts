@@ -13,7 +13,8 @@
 import { SPACING_W, weekdayExcessScaled } from "./spacing";
 
 /** Meeting-count error dominates spacing: opponent balance is not tradeable. */
-const MULT_W = 50_000;
+// Exported for `weightCoupling.test.ts` — see `CHURN_W` in `oneOff.ts`.
+export const MULT_W = 50_000;
 /**
  * How hard to push each pairing's meetings towards an even weekday split, per
  * unit of `pairingWeekdayExcess` — the number `spacingReport` prints, so the
