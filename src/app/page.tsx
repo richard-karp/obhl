@@ -4,6 +4,7 @@ import { createClient } from "@/utils/supabase/server";
 import { getPublicLeagues } from "@/lib/league/current";
 import { EmptyState } from "@/components/shared/empty-state";
 import { AccountCluster } from "@/components/shared/account-cluster";
+import { ScorekeeperChrome } from "@/components/shared/scorekeeper-chrome";
 import { Badge } from "@/components/ui/badge";
 import { getSessionUser } from "@/lib/auth/session";
 import { getMemberLeagues } from "@/lib/auth/membership";
@@ -90,7 +91,22 @@ export default async function LandingPage() {
       .map(({ is_public, ...l }) => ({ ...l, staged: !is_public })),
   ];
 
-  const cluster = <AccountCluster user={user && { role: user.role }} />;
+  // ⛔ A SCOREKEEPER GETS THE MINIMAL CHROME HERE TOO, AND THE REASON IS THE
+  // SHARED CREDENTIAL. `AccountCluster` offers a "Password" link; the scorekeeper
+  // account is one login every volunteer uses, so a well-meaning tap on it
+  // changes the password out from under everyone else, mid-season, with nothing
+  // to say what happened.
+  //
+  // ⚠️ THEY REACH THIS PAGE MORE OFTEN THAN IT LOOKS. Every guard in the app
+  // refuses to `/` — `requireLeagueRole`, `requireRole`, `requireLeagueManagerOf`
+  // — so a scorekeeper who types a URL they may not have lands right here. That
+  // is why stripping it on `/tonight` alone was not enough.
+  const cluster =
+    user?.role === "scorekeeper" ? (
+      <ScorekeeperChrome role={user.role} showTonight />
+    ) : (
+      <AccountCluster user={user && { role: user.role }} />
+    );
 
   // ⚠️ THE ROLE, WITH NO MEMBERSHIP CHECK — and this is the one page where that
   // is right rather than the mistake `staff-links.tsx` warns about. Everywhere
