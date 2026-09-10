@@ -40,7 +40,10 @@ import {
 import type { Night } from "./assignNights";
 
 /** A plan's ice-time result, in the shape `compareIceOutcome` ranks. */
-const outcomeOf = (p: {
+// Exported for the shape guard in `weightCoupling.test.ts`: this builds an
+// `IceOutcome` for the REPAIR's ranking, so a field added to that type for the
+// generator's sake has to arrive here too.
+export const outcomeOf = (p: {
   slotSpreadAfter: number;
   spacingAfter: SpacingReport;
 }): IceOutcome => ({
@@ -65,7 +68,9 @@ const outcomeOf = (p: {
  * `SPACING` is a pure tiebreaker, `SOONEST` scales with distance from the
  * one-off so the repair lands early.
  */
-const CHURN_W = { FEWEST: 5_000, SPACING: 1, SOONEST: 200 };
+// Exported for `weightCoupling.test.ts`, which pins these against `SPACING_W`
+// and `MULT_W`. They are one side of a coupling no other test covers.
+export const CHURN_W = { FEWEST: 5_000, SPACING: 1, SOONEST: 200 };
 
 export type OneOffNight = {
   date: string;
@@ -134,7 +139,7 @@ export type IceMetric =
 //
 // The cost of leaving it out, stated plainly: a repair that materially worsens
 // clustering is offered without a `worseThan` flag and the dialog says nothing.
-const ICE_METRICS: IceMetric[] = [
+export const ICE_METRICS: IceMetric[] = [
   "seasonSpread",
   "weekdaySpread",
   "streak3",
