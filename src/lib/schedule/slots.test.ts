@@ -195,3 +195,67 @@ describe("compareIceOutcome bias ranking", () => {
     ).toBeGreaterThan(0);
   });
 });
+
+describe("a night permutation is not safe for slot_bias", () => {
+  /**
+   * ⛔ WHY `nightClass` CARRIES A MEMBERSHIP BIT PER BIAS. The night-order pass
+   * may only swap nights whose labels match (`nightClass` in `assignNights.ts`),
+   * and that label is correct only if it names every way a request can depend on
+   * a night's POSITION. A `slot_bias` looks like the one kind that cannot:
+   * `play_on`/`slot_on` name a night, `bye_in_week` names a week, but a bias is
+   * (team, prefer) and reads position-free — so leaving it out of the label, or
+   * exempting bias-only leagues from the pass altogether, both look free.
+   *
+   * Neither is. `SlotBias.nights` is a per-night mask — a from/to stretch of the
+   * season, "over THIS stretch, lean my games late" — and `biasCost` charges
+   * only the games whose night index falls inside it. Permuting nights relabels
+   * which games are in the window, so the cost moves. Below: one arrangement and
+   * a pure permutation of it, same games, same slots, different `biasCost`.
+   *
+   * ⚠️ The failure mode if this is misread is not a crash. `evaluateConstraints`
+   * runs afterwards off the final games, so it would honestly report a request
+   * as unmet that PHASE S had honoured — a bias is a Phase S cost term, and
+   * `evaluateConstraints` deliberately exempts `slot_bias` from the
+   * `plannerHonours` short-circuit. A silent downgrade, not an error.
+   *
+   * ⚠️ AN EARLIER VERSION OF THIS BLOCK DREW A STRONGER CONCLUSION THAN IT
+   * EARNS — that the gate therefore could not be narrowed and had to stay
+   * `resolved.empty`. What the asymmetry below rules out is narrowing the gate
+   * BY CONSTRAINT KIND. It says nothing against constraining the PERMUTATION,
+   * which is what night classes do, and which is what lets the pass run on a
+   * constrained season at all. Measured: worst-team clustering 15 under the old
+   * gate, 4 with night classes and the draw block restored.
+   *
+   * Related: `describe("iceOutcome bias")` above is already a pure night
+   * permutation (`biasCost` 0 → 4). This block exists as the NAMED landing spot
+   * for "is a bias position-sensitive?", not as new behavioural coverage — do
+   * not delete either as a duplicate of the other.
+   */
+  const pairsByNight: [number, number][][] = Array.from({ length: 4 }, () => [
+    [0, 1],
+    [2, 3],
+  ]);
+  // Team 0 late on nights 0-1, early on 2-3 …
+  const arrangement = [
+    [1, 0],
+    [1, 0],
+    [0, 1],
+    [0, 1],
+  ];
+  // … and the same four nights in a different order: 2,3,0,1.
+  const permuted = [arrangement[2], arrangement[3], arrangement[0], arrangement[1]];
+
+  const biases = [
+    { team: 0, nights: [true, true, false, false], prefer: "late" as const },
+  ];
+  const cost = (slotOf: number[][]) =>
+    iceOutcome({ teamCount: 4, pairsByNight, slotOf, biases }).biasCost;
+
+  it("moves biasCost, because the request names a stretch of the season", () => {
+    // Team 0 is on the late sheet for both nights inside the window.
+    expect(cost(arrangement)).toBe(-2 * SLOT_BIAS_W);
+    // After the permutation it is on the early sheet for both of them. Same
+    // games, same ice times, same season — only the night order changed.
+    expect(cost(permuted)).toBe(0);
+  });
+});
