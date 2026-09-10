@@ -221,6 +221,32 @@ are fixed; see §3. What follows are choices, not oversights.
     keep the full worst-team 14 today. A Phase M fix needs no post-hoc
     relabelling, so pins stay valid by construction — which is exactly why the
     night-order pass had to be gated in the first place.
+- ⛔ **A GREEN UNIT SUITE CAN HIDE A FEATURE THAT NEVER REACHES THE PRODUCT.**
+  The night-order pass improved `report.spacing.slotClusterWorstTeam` 14 → 4 and
+  passed 364 tests through four review rounds while shipping **nothing**:
+  `scheduledAt` is a *stored* field baked when a game is created, and
+  `src/lib/actions/schedule.ts` persists only that — never `nightIndex` or
+  `slotIndex`. The pass rewrote `nightIndex` alone, so every game kept its
+  pre-permutation date; re-derived from `scheduledAt` the worst team still read
+  14, with 69 of 69 games stale. Every test read the report; none read
+  `scheduledAt`. **When a change claims to improve a generated schedule, assert
+  the claim from the field the write path persists, not from the in-memory
+  report.** Found 2026-09-09 by the final whole-branch review, fixed in `ea62f62`
+  along with the `slotStamp` helper that now backs all six construction sites.
+- **Outstanding: constrained seasons get none of the clustering fix.** The
+  night-order pass is gated on `resolved.empty`, so a single manager request —
+  including a `slot_bias` — turns it off entirely and that league keeps the full
+  worst-team 14. The gate is correct (a pinned night is a promise the aggregate
+  rank vector cannot express) but blunt: it refuses the whole pass rather than
+  the permutations that would actually break a pin. The spiked Phase M route
+  above reaches 7 there and needs no post-hoc relabelling, so pins stay valid by
+  construction — but it needs a compound pass, not a weight. **This is the real
+  follow-up; it is not started.**
+- **Unmeasured: whether the 8-team Mon/Thu league benefits at all.** Before this
+  work it had 22 of 237 three-week windows at ≥60% one ice time. The pass runs on
+  it, but nobody has measured the before/after — plausibly much less room, since
+  byes and two weekdays leave more of the rank vector live, so more permutations
+  are refused. One generate each side answers it.
 - **12+ teams playing per night**: Phase M declines. `planByWeeks` already
   produces a perfect schedule for that shape, so nothing is lost — but a league
   that grows into a case where it *doesn't* would need Phase M to handle larger
