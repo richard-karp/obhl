@@ -11,7 +11,16 @@ import {
 } from "@/lib/league/of-entity";
 
 type AuditEntry = {
-  user_id: string;
+  /**
+   * Who did it, or `null` for something the system did on its own.
+   *
+   * ⚠️ NULLABLE BECAUSE THE COLUMN IS (`0021_audit_log.sql` — `user_id uuid
+   * references auth.users`, no NOT NULL), and because the nightly close-night
+   * sweep has no person behind it. Attributing a system action to whoever
+   * happened to touch the row last would be a lie in the one table whose whole
+   * job is saying who did what. The audit page already renders a null actor.
+   */
+  user_id: string | null;
   action: string;
   entity_type: string;
   entity_id: string;
