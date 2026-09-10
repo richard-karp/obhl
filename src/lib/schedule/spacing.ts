@@ -334,7 +334,7 @@ export const biasSign = (prefer: SlotBias["prefer"]): number =>
   prefer === "early" ? 1 : -1;
 
 /**
- * An ice-time result, in the four numbers `spacingReport` publishes plus the
+ * An ice-time result, in the six numbers `spacingReport` publishes plus the
  * manager's ice-time preference. Selection ranks these lexicographically rather
  * than blending them, because a blended scalar can and does prefer a candidate
  * that breaks the even season share to buy a flatter weekday split — the trade
@@ -350,6 +350,14 @@ export type IceOutcome = {
   /** `slotConsecutive`. */
   consecutive: number;
   /**
+   * `slotClusterWorstTeam` — the largest single team's clustered-window count.
+   * The worst team, not the league total, because the damage concentrates:
+   * a season measuring 33 windows in total had 14 on one team and 1 on another.
+   */
+  clusterWorst: number;
+  /** `slotClusterWindows` — the league total, used only to break a tie on the worst team. */
+  clusterTotal: number;
+  /**
    * Σ over every `slot_bias` of `biasSign × slot` for that team's games inside
    * the window. Zero whenever no bias is asked for, which is what keeps this
    * field invisible to an unconstrained generation.
@@ -360,7 +368,8 @@ export type IceOutcome = {
 /**
  * Lexicographic, lower is better. Negative when `a` beats `b`.
  *
- * Order: season share ▸ three-game runs ▸ per-weekday share ▸ ordinary repeats.
+ * Order: season share ▸ three-game runs ▸ per-weekday share ▸ ordinary repeats
+ * ▸ manager ice-time bias. Clustering is computed but NOT ranked — see below.
  *
  * `streak3` sits above `weekdaySpread` because the league states goal 4 as an
  * absolute — a team never runs three games deep in one ice time — while the
@@ -377,6 +386,23 @@ export function compareIceOutcome(a: IceOutcome, b: IceOutcome): number {
     a.streak3 - b.streak3 ||
     a.weekdaySpread - b.weekdaySpread ||
     a.consecutive - b.consecutive ||
+    // ⛔ THE CLUSTERING PAIR IS DELIBERATELY NOT RANKED HERE, AND IT WAS TRIED.
+    // Inserting `clusterWorst`/`clusterTotal` at this exact point measured as:
+    //
+    //   - inert on an unconstrained season — all five candidates land on
+    //     `clusterWorst` 17 or 18 and the winner takes it at season share 0,
+    //     weekday split 0, runs 0 and 48 repeats, so the comparison is decided
+    //     before clustering is ever read; and
+    //   - actively harmful on a constrained one, where the night-order pass is
+    //     gated off and these terms would sit directly above `biasCost`. On a
+    //     6-team fixture, bias satisfaction fell 2/3 → 1/3: clustering flipped
+    //     the winner away from the candidate honouring the manager's request.
+    //
+    // `iceOutcome` still computes the pair — the figure is wanted, and the
+    // agreement test below pins it — but ranking on it is what does not pay.
+    // Measured 2026-09-09 under the repo's vitest env (`OBHL_SLOT_RESTARTS`
+    // 2000), NOT production's 20_000; re-measure before revisiting.
+    //
     // Last, and it must be here at all: generation runs Phase S five times and
     // keeps the winner by this comparator, so a bias term living only inside
     // `assignSlots`' own cost would be invisible to the choice that ships — the
@@ -387,11 +413,31 @@ export function compareIceOutcome(a: IceOutcome, b: IceOutcome): number {
 }
 
 /**
- * The four ice-time numbers, computed straight from a slot assignment rather
+ * The ice-time numbers, computed straight from a slot assignment rather
  * than from placed games — so Phase S can rank candidates without building a
  * season for each one. Definitions are kept identical to `spacingReport`'s and
  * a test asserts they agree; change both together or neither.
  */
+/**
+ * Clustered windows for one team's chronological slot sequence: how many
+ * `CLUSTER_WINDOW`-game windows hold more than `CLUSTER_MAX_SAME` games in a
+ * single ice time.
+ *
+ * ⛔ ONE DEFINITION, TWO READERS. `spacingReport` computes this from placed
+ * games and `iceOutcome` from a raw slot assignment, and this file's contract is
+ * that the two agree. A hand-copied twin is how that contract rots, so both call
+ * here.
+ */
+function clusteredWindows(slots: number[], numSlots: number): number {
+  let clustered = 0;
+  for (let i = 0; i + CLUSTER_WINDOW <= slots.length; i++) {
+    const counts = new Array(numSlots).fill(0);
+    for (let j = i; j < i + CLUSTER_WINDOW; j++) counts[slots[j]]++;
+    if (Math.max(...counts) > CLUSTER_MAX_SAME) clustered++;
+  }
+  return clustered;
+}
+
 export function iceOutcome(opts: {
   teamCount: number;
   pairsByNight: [number, number][][];
@@ -437,6 +483,8 @@ export function iceOutcome(opts: {
   let weekdaySpread = 0;
   let streak3 = 0;
   let consecutive = 0;
+  let clusterWorst = 0;
+  let clusterTotal = 0;
   for (let t = 0; t < teamCount; t++) {
     const s = seq[t];
     if (s.length === 0) continue;
@@ -447,13 +495,28 @@ export function iceOutcome(opts: {
       if (i > 1 && s[i] === s[i - 1] && s[i] === s[i - 2]) streak3++;
     }
     seasonSpread += Math.max(...season) - Math.min(...season);
+
+    // Games, not nights — `seq[t]` holds only the games this team plays, so its
+    // byes are skipped by construction, exactly as `spacingReport` does.
+    const clustered = clusteredWindows(s, numSlots);
+    clusterTotal += clustered;
+    if (clustered > clusterWorst) clusterWorst = clustered;
+
     for (let d = 0; d < usedW.length; d++) {
       const c = new Array(numSlots).fill(0);
       for (let i = 0; i < s.length; i++) if (seqW[t][i] === d) c[s[i]]++;
       weekdaySpread += Math.max(...c) - Math.min(...c);
     }
   }
-  return { seasonSpread, weekdaySpread, streak3, consecutive, biasCost };
+  return {
+    seasonSpread,
+    weekdaySpread,
+    streak3,
+    consecutive,
+    clusterWorst,
+    clusterTotal,
+    biasCost,
+  };
 }
 
 export function spacingReport(
@@ -555,12 +618,10 @@ export function spacingReport(
     }
 
     // Rolling window over this team's games. `mine` is already chronological.
-    let clustered = 0;
-    for (let i = 0; i + CLUSTER_WINDOW <= mine.length; i++) {
-      const counts = new Array(numSlots).fill(0);
-      for (let j = i; j < i + CLUSTER_WINDOW; j++) counts[mine[j][1]]++;
-      if (Math.max(...counts) > CLUSTER_MAX_SAME) clustered++;
-    }
+    const clustered = clusteredWindows(
+      mine.map((m) => m[1]),
+      numSlots,
+    );
     report.slotClusterWindows += clustered;
     if (clustered > report.slotClusterWorstTeam)
       report.slotClusterWorstTeam = clustered;

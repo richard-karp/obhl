@@ -5,6 +5,7 @@ import {
   iceOutcome,
   compareIceOutcome,
   type PlacedGame,
+  type IceOutcome,
 } from "./spacing";
 import { assignNights, type Night } from "./assignNights";
 import { buildBalancedPairings } from "./roundRobin";
@@ -389,6 +390,8 @@ describe("compareIceOutcome", () => {
     weekdaySpread: 8,
     streak3: 0,
     consecutive: 46,
+    clusterWorst: 0,
+    clusterTotal: 0,
     biasCost: 0,
   };
 
@@ -481,7 +484,86 @@ describe("iceOutcome", () => {
       0,
     );
     expect(out.seasonSpread).toBe(seasonSpread);
+
+    // The clustering pair. `spacingReport` and `iceOutcome` compute the same
+    // quantities from different inputs, and this file's contract is that they
+    // stay identical — so a clustering figure that reaches the candidate
+    // rank-off has to agree with the one the report ships.
+    // Guard against a vacuous pass: if a future change drove this season to zero
+    // clustering, `0 === 0` would "agree" while testing nothing.
+    expect(out.clusterWorst).toBeGreaterThan(0);
+    expect(out.clusterWorst).toBe(report.spacing.slotClusterWorstTeam);
+    expect(out.clusterTotal).toBe(report.spacing.slotClusterWindows);
   }, 60_000);
+});
+
+describe("compareIceOutcome — clustering is computed but not ranked", () => {
+  const OUT = (o: Partial<IceOutcome> = {}): IceOutcome => ({
+    seasonSpread: 0,
+    weekdaySpread: 0,
+    streak3: 0,
+    consecutive: 0,
+    clusterWorst: 0,
+    clusterTotal: 0,
+    biasCost: 0,
+    ...o,
+  });
+
+  // ⛔ Ranking on clustering here was built, measured, and removed. It was inert
+  // on an unconstrained season (every candidate 17 or 18, the winner decided on
+  // the terms above it) and cost a manager an honoured request on a constrained
+  // one — bias satisfaction fell 2/3 → 1/3. These tests exist so that re-adding
+  // it is a deliberate act with a measurement behind it, not a tidy-looking edit.
+  it("ignores the clustering pair", () => {
+    expect(
+      compareIceOutcome(OUT({ clusterWorst: 3 }), OUT({ clusterWorst: 9 })),
+    ).toBe(0);
+    expect(
+      compareIceOutcome(OUT({ clusterTotal: 10 }), OUT({ clusterTotal: 40 })),
+    ).toBe(0);
+  });
+
+  // The regression removing it prevents: a bias difference must decide, whatever
+  // the clustering does. `biasCost` is the last tiebreak by contract.
+  it("lets biasCost decide regardless of clustering", () => {
+    expect(
+      compareIceOutcome(
+        OUT({ clusterWorst: 9, biasCost: 0 }),
+        OUT({ clusterWorst: 3, biasCost: 500 }),
+      ),
+    ).toBeLessThan(0);
+  });
+});
+
+describe("iceOutcome clustered windows", () => {
+  // Hand-computed, deterministic, independent of the generator: five nights,
+  // three sheets, three games a night. Every team's single five-game window
+  // holds three of one ice time, so each carries exactly one clustered window.
+  //
+  // ⚠️ THREE SHEETS, NOT TWO. On two sheets every five-game window is clustered
+  // by pigeonhole, so a two-sheet fixture cannot tell a working implementation
+  // from a broken one.
+  it("counts them on a fixture the generator did not produce", () => {
+    const pairsByNight: [number, number][][] = Array.from({ length: 5 }, () => [
+      [0, 1],
+      [2, 3],
+      [4, 5],
+    ]);
+    const out = iceOutcome({
+      teamCount: 6,
+      pairsByNight,
+      slotOf: [
+        [0, 1, 2],
+        [0, 1, 2],
+        [0, 1, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+      ],
+    });
+    // t0/t1 see [0,0,0,1,2]; t2/t3 [1,1,1,2,0]; t4/t5 [2,2,2,0,1].
+    expect(out.clusterWorst).toBe(1);
+    expect(out.clusterTotal).toBe(6);
+  });
 });
 
 describe("ice-time clustering", () => {
