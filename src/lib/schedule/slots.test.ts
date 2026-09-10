@@ -176,6 +176,8 @@ describe("compareIceOutcome bias ranking", () => {
     weekdaySpread: 0,
     streak3: 0,
     consecutive: 10,
+    clusterWorst: 0,
+    clusterTotal: 0,
     biasCost: 0,
   };
 

@@ -48,6 +48,8 @@ const outcomeOf = (p: {
   weekdaySpread: p.spacingAfter.slotWeekdaySpread,
   streak3: p.spacingAfter.slotStreak3,
   consecutive: p.spacingAfter.slotConsecutive,
+  clusterWorst: p.spacingAfter.slotClusterWorstTeam,
+  clusterTotal: p.spacingAfter.slotClusterWindows,
   // The repair does not re-run Phase P, so it takes no view on a manager's
   // `slot_bias`; every plan it compares carries the same 0 here and the term
   // cannot decide anything. What the repair DOES honour is `slot_on` — see the
@@ -121,6 +123,17 @@ export type OneOffPlan = {
 export type IceMetric =
   "seasonSpread" | "weekdaySpread" | "streak3" | "consecutive";
 
+// ⛔ CLUSTERING IS DELIBERATELY ABSENT, and that is a decision, not an omission.
+// `IceOutcome` carries `clusterWorst`/`clusterTotal` and `outcomeOf` builds
+// them, so extending this list is a one-line change — do not make it casually.
+// §5: the generator and the one-off repair rank ice time by different rules ON
+// PURPOSE ("do not unify them"), because the repair is judged against leaving a
+// published season alone rather than against a fresh search. Adding clustering
+// here would start flagging repairs as regressions on a metric the repair has no
+// mechanism to improve, on a season a manager has already seen.
+//
+// The cost of leaving it out, stated plainly: a repair that materially worsens
+// clustering is offered without a `worseThan` flag and the dialog says nothing.
 const ICE_METRICS: IceMetric[] = [
   "seasonSpread",
   "weekdaySpread",
