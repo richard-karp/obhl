@@ -105,38 +105,6 @@ export function isOnLeagueDate(
 }
 
 /**
- * Has this game started, and started recently enough to still be in play?
- *
- * ⛔ A TAIL, NOT A WINDOW, AND THE DIRECTION IS THE WHOLE POINT. It only ever
- * reaches BACKWARD from now. Tonight's later games are reachable because they
- * are TODAY — if this reached forward too it would become the rolling window
- * that was considered and rejected, where a scorekeeper arriving at 6pm cannot
- * prepare the 9:40 game.
- *
- * It exists because the day rule alone cuts at local midnight, and the last slot
- * of a night starts at 9:40pm: a scorekeeper still entering that game at 00:05
- * would be refused the page mid-shift. The writes never stopped working — no
- * action carries a day check — so without this the submit SUCCEEDS and the
- * re-render then locks them out of the game they just changed, which is worse
- * than refusing them outright.
- *
- * ⚠️ No timezone maths here on purpose: this is a duration between two instants,
- * and instants have no zone. The league zone only matters for deciding which
- * calendar DAY something falls on, which is `isOnLeagueDate`'s job.
- */
-export function hasStartedWithin(
-  scheduledAt: string | null,
-  hours: number,
-  now: Date = new Date(),
-): boolean {
-  if (!scheduledAt) return false;
-  const started = Date.parse(scheduledAt);
-  if (Number.isNaN(started)) return false;
-  const elapsed = now.getTime() - started;
-  return elapsed >= 0 && elapsed <= hours * 60 * 60 * 1000;
-}
-
-/**
  * League-local wall-clock time as "HH:MM", 24-hour.
  *
  * The counterpart of `leagueDateKey`, and it exists for the same reason: a
