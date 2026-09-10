@@ -231,11 +231,40 @@ are fixed; see §3. What follows are choices, not oversights.
   one and tells the manager, rather than returning a success message over an
   unchanged screen.
 
-- **Constrained seasons still get no clustering repair, and now no block
-  either.** Any stored manager request makes `resolved.empty` false, which gates
-  the night-order pass off; since no seed in a block could then differ on
-  clustering, `variations` collapses to 1 for them. Unmeasured whether the
-  Phase M compound pass would help.
+- **Constrained seasons get their ice time spread too, via night classes.** A
+  saved request used to switch the night-order pass off entirely — measured
+  2026-09-09 on 6 teams / one weeknight / 3 sheets, one `slot_on` pin took
+  worst-team clustering from 4 to **15**, and adding a request was therefore the
+  single worst thing a manager could do about a schedule they disliked. The gate
+  was right about the danger (a permutation can move a pinned block off its night
+  while every ranked metric ties) and its own comment records that re-evaluating
+  constraints per annealing step was rejected as too expensive at ~6k steps.
+  `nightClass` is the cheap equivalent: a permutation may only swap nights
+  carrying the same label, checked in one O(nights) comparison folded into the
+  ice-capacity loop. A pinned night is a class of one; a named week and a
+  `slot_bias` window keep their blocks. ⚠️ A bias is **not** invariant under a
+  permutation — `SlotBias.nights` is a per-night window — which is why the label
+  carries each bias's membership bit.
+
+  Both halves are needed and neither alone is worth shipping: 15 → **13** with
+  best-of-4 alone, 15 → **14** with night classes alone, 15 → **5** together. A
+  partial-window bias is the weak case (14 → 10) and correctly so — the window
+  partitions the season and nights may only shuffle within their side.
+
+  Variation selection now ranks **unmet requests first**, above every balance and
+  spacing term, because `rankFromReport` encodes none of them and a block of
+  draws could otherwise pick the one honouring fewer requests. It is a no-op on
+  an unconstrained season (`constraints` is `[]` when no request exists). ⚠️ It
+  is **not** mutation-verified: on every fixture measured, three of four draws
+  satisfy the request, so any rule lands on a satisfying one. It is insurance
+  against the case Phase S documents on `outcomeFor`, not a proven guard.
+
+  ⚠️ `forced` and `byeInWeek` label paths are **untested**. Every constraint kind
+  reaching them is either infeasible on the 6-team fixture (all six play every
+  night, so no team ever byes) or unfalsifiable there (`play_on` is satisfied by
+  arithmetic). The 8-team league has real byes but is too tight for the pass to
+  permute at all. Covering them needs a bye-carrying season that is also loose —
+  not measured.
 
 - **Clustering is fixed by night order, not by Phase S or Phase M.** Two routes
   were built and measured dead on 2026-09-09: permuting the rounds

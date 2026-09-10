@@ -243,7 +243,7 @@ const SLOT_CANDIDATES: { streak3W: number; seed: number }[] = [
  * automatically — that has already happened once.
  */
 const PHASE_PM_ALLOWANCE_MS = 1_500;
-// `improveNightOrder`'s post-pass (gated to unconstrained generations — see the
+// `improveNightOrder`'s post-pass (runs on every generate — see `nightClass` at the
 // call site below), tuned `restarts`/`steps` in `nightOrder.ts` down from 4/6000
 // to 4/1500 on 2026-09-09 specifically to keep this term small: at 4/6000 it
 // added ~5.4 s to the 8-team reference generate (26.3 s → 31.7 s), and at
@@ -257,16 +257,16 @@ const PHASE_PM_ALLOWANCE_MS = 1_500;
 // `docs/superpowers/specs/2026-09-09-ice-time-clustering-design.md`.
 const NIGHT_ORDER_ALLOWANCE_MS = 1_500;
 /**
- * `constrained` mirrors the pass's own gate (`!resolved.empty` at the call site
- * in `assignNights`): a constrained generate never runs the night-order pass, so
- * counting its allowance there over-stated the countdown by the full 1.5 s.
- * Defaults to the unconstrained case, which is the common one and the one the
- * bound in `generate-progress.test.ts` is written against.
+ * ⚠️ NO `constrained` FLAG ANY MORE. It used to subtract the night-order
+ * allowance for a constrained generate, because the pass was switched off for
+ * one. `nightClass` means every season runs the pass, so every season pays for
+ * it — keeping the flag would have under-stated a constrained countdown by the
+ * full 1.5 s, the opposite of the error it was added to fix.
  */
-export const estimatedGenerateMs = (opts?: { constrained?: boolean }) =>
+export const estimatedGenerateMs = () =>
   SLOT_CANDIDATES.length * SLOT_BUDGET_MS +
   PHASE_PM_ALLOWANCE_MS +
-  (opts?.constrained ? 0 : NIGHT_ORDER_ALLOWANCE_MS);
+  NIGHT_ORDER_ALLOWANCE_MS;
 
 /** Phase P jitter seeds to sample the bye-optimal plateau with, and the wall
  * clock the sampling may spend. Fixed and ordered, so the schedule stays

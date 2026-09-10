@@ -491,7 +491,7 @@ test.describe("Path 17 — Schedule Builder", () => {
   test("spacing checks report every goal the generator models", async ({
     page,
   }) => {
-    // The generator models four goals the panel is the only place a manager can
+    // The generator models six goals the panel is the only place a manager can
     // see. They are computed server-side per draft, so nothing below asserts a
     // *value* — a four-game fixture is not the reference season and its numbers
     // are its own. What is asserted is that each check reaches the screen, which
@@ -511,6 +511,13 @@ test.describe("Path 17 — Schedule Builder", () => {
       "Matchups off an even weekday split",
       "Uneven ice time within a night of the week",
       "Three games in a row in one ice time",
+      // The metric the ice-time work moves, and the one a manager actually
+      // complains about — "the same ice time three times in five weeks". It was
+      // computed and ranked on for a whole release before anything rendered it,
+      // so a manager could not tell whether "Try a different schedule" had
+      // improved the thing they asked about.
+      "Five-game stretches with three in one ice time",
+      "…the worst-affected team's share of those",
     ]) {
       await expect(page.getByText(label, { exact: true })).toBeVisible();
     }

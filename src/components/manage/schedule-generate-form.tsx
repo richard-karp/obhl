@@ -518,11 +518,45 @@ export function ScheduleGenerateForm({
   const [skips, setSkips] = useState<SkipRange[]>([]);
   const formRef = useRef<HTMLFormElement>(null);
   /**
-   * Which schedule of the many equally-valid ones is on screen. Held here and
-   * not persisted — `seasons` has no column for a counter and it does not earn
-   * a migration — so a page reload starts over at 1.
+   * Which schedule of the many equally-valid ones is on screen.
+   *
+   * ⚠️ `localStorage`, NOT a column on `seasons`. This is per-manager,
+   * per-browser scratch — a migration for a counter is disproportionate.
+   *
+   * ⛔ EVERY ACCESS IN try/catch AND EVERY READ TOLERATES null. A private
+   * window, cleared site data, or a browser set to block storage makes the
+   * accessor ITSELF throw, and a season with nothing stored must simply start
+   * at 1 rather than render nothing.
    */
-  const [variation, setVariation] = useState(1);
+  const variationKey = `obhl:variation:${seasonId}`;
+  const [variation, setVariation] = useState(() => {
+    // ⛔ A LAZY INITIALISER IS SAFE HERE ONLY BECAUSE `variation` IS NEVER
+    // RENDERED. It is read in `tryAnother` and written into the FormData in
+    // `dispatch`; it reaches no DOM node, so the server and the client can
+    // disagree about it without any hydration mismatch to reconcile. Add a
+    // `<input value={variation}>` and this has to move into an effect.
+    //
+    // The `typeof window` guard is for the server render, where there is no
+    // `localStorage` at all.
+    if (typeof window === "undefined") return 1;
+    try {
+      const n = Number(window.localStorage.getItem(variationKey));
+      return Number.isFinite(n) && n >= 1 ? Math.min(50, Math.floor(n)) : 1;
+    } catch {
+      // A private window, cleared site data, or a browser set to block storage
+      // makes the accessor ITSELF throw. The counter is a convenience, not
+      // state — starting over at 1 is a correct outcome, not a failure.
+      return 1;
+    }
+  });
+  const rememberVariation = (v: number) => {
+    setVariation(v);
+    try {
+      window.localStorage.setItem(variationKey, String(v));
+    } catch {
+      /* as above */
+    }
+  };
   const [pendingRange, setPendingRange] = useState<DateRange | undefined>();
   const [state, action, pending] = useActionState<GenerateState, FormData>(
     generateSchedule,
@@ -606,7 +640,7 @@ export function ScheduleGenerateForm({
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     // Generate always means "the first schedule for these inputs".
-    setVariation(1);
+    rememberVariation(1);
     dispatch(e.currentTarget, 1);
   };
 
@@ -633,7 +667,7 @@ export function ScheduleGenerateForm({
     const form = formRef.current;
     if (!form) return;
     const next = variation + 1;
-    setVariation(next);
+    rememberVariation(next);
     dispatch(form, next);
   };
 

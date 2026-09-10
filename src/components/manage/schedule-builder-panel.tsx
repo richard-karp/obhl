@@ -489,17 +489,7 @@ export async function ScheduleBuilderPanel({
                 // Read here rather than in the form: the generator's budget
                 // constants are server-side, and the form is a client
                 // component.
-                //
-                // The night-order pass is gated on an unconstrained generate, so
-                // its allowance has to be gated the same way or a constrained
-                // season is told 1.5 s more than it will take. `resolvedConstraints`
-                // is the same `resolve` the generator runs, one step stale: it is
-                // resolved against the CURRENT draft's nights, and the next
-                // generate builds its own. Adding a request is a round-trip
-                // submit, so this value is never behind the card the manager sees.
-                expectedMs={estimatedGenerateMs({
-                  constrained: !resolvedConstraints.empty,
-                })}
+                expectedMs={estimatedGenerateMs()}
               />
             </CardContent>
           </Card>
@@ -915,6 +905,18 @@ export async function ScheduleBuilderPanel({
                       [
                         "Three games in a row in one ice time",
                         spacing.slotStreak3,
+                      ],
+                      // Above back-to-back on purpose: that is the order
+                      // variation selection uses, and it is the metric a
+                      // manager actually complains about — "the same ice time
+                      // three times in five weeks".
+                      [
+                        "Five-game stretches with three in one ice time",
+                        spacing.slotClusterWindows,
+                      ],
+                      [
+                        "…the worst-affected team's share of those",
+                        spacing.slotClusterWorstTeam,
                       ],
                       [
                         "Back-to-back games in the same ice time",
