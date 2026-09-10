@@ -131,8 +131,14 @@ export async function GET(request: NextRequest) {
   // ⚠️ A run where everything failed must not report 200: Vercel's cron
   // monitoring watches the status, and a silent nightly failure is exactly what
   // this job exists to prevent elsewhere.
+  // ⚠️ THE WINDOW IS IN THE RESPONSE ON PURPOSE. Vercel's cron log shows the body,
+  // so a run that closed nothing says WHICH night it looked at rather than leaving
+  // you to guess between "no stale games" and "the window is wrong". It is also
+  // what lets `verify-close-night.mjs` place its fixture inside the real window
+  // instead of keeping a second copy of this date arithmetic — the copy would be
+  // free to drift from the code it is meant to be checking.
   return NextResponse.json(
-    { closed: closed.length, failed: failed.length },
+    { closed: closed.length, failed: failed.length, from, to },
     { status: failed.length > 0 && closed.length === 0 ? 500 : 200 },
   );
 }

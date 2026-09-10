@@ -34,19 +34,69 @@ const fail = (msg) => {
   process.exit(1);
 };
 
+// ⛔ THE FIXTURE MUST SIT INSIDE THE WINDOW, AND THE WINDOW COMES FROM THE ROUTE.
+// This script used to grab any game older than 48h. That silently stopped
+// verifying anything the moment `nightWindow` gained its lower bound: a 120-day-old
+// game is now correctly OUT of scope, the sweep closed nothing, and the script
+// blamed the anon-client bug in its failure text — pointing the next reader at a
+// bug that was not there. Asking the route which night it swept keeps the fixture
+// and the code under test on one definition instead of two that can drift.
+const probe = await fetch(`${site}/api/cron/close-night`, {
+  headers: { authorization: `Bearer ${cronSecret}` },
+});
+if (!probe.ok) fail(`cron probe returned ${probe.status}`);
+const window = await probe.json();
+if (!window.from || !window.to)
+  fail(`route reported no window: ${JSON.stringify(window)} — it must return from/to`);
+// ⚠️ THE PROBE IS A REAL SWEEP, NOT A DRY RUN. It should find nothing — the seed
+// dates games 120 days back and 14 forward, and this script restores everything it
+// touches. If it DID close something, that game was genuinely stale and the sweep
+// was right, but it is a mutation this script cannot undo and the database is
+// shared with the e2e suite. Stop and let a human look rather than continuing on
+// top of it.
+if (window.closed > 0)
+  fail(
+    `the probe closed ${window.closed} game(s) in ${window.from}..${window.to} — ` +
+      "real stale games, correctly swept, but NOT restorable from here. Check what " +
+      "was finalized before re-running.",
+  );
+// 7:00pm on the night that just ended: inside `[from, to)` with hours to spare at
+// either end, so a DST night (23h or 25h) cannot push it out.
+const during = new Date(
+  new Date(window.from).getTime() + 19 * 36e5,
+).toISOString();
+if (during >= window.to) fail(`computed ${during}, outside ${window.from}..${window.to}`);
+
 // A game from a PAST night, put into the state the sweep is meant to rescue:
 // in_progress with a real score on the roster.
 const { data: game } = await admin
   .from("games")
-  .select("id, season_id, home_team_id, status, scheduled_at")
+  .select(
+    "id, season_id, home_team_id, status, scheduled_at, home_goals, away_goals, finalized_at",
+  )
   .lt("scheduled_at", new Date(Date.now() - 36e5 * 48).toISOString())
   .eq("is_draft", false)
   .limit(1)
   .single();
 if (!game) fail("no past game to work with — reseed");
 
-const before = { status: game.status, goals: 0 };
-await admin.from("games").update({ status: "in_progress" }).eq("id", game.id);
+// ⛔ CAPTURE THE SCORE COLUMNS TOO, NOT JUST THE STATUS. `finalizeGameById`
+// RECOMPUTES `home_goals`/`away_goals`/`finalized_at` — that is the whole point of
+// it — so a restore that puts back only the status and the roster leaves the game
+// carrying a score this script invented. Every previous successful run did exactly
+// that, in a database the e2e suite shares. Restore everything the sweep writes.
+const before = {
+  status: game.status,
+  goals: 0,
+  scheduled_at: game.scheduled_at,
+  home_goals: game.home_goals,
+  away_goals: game.away_goals,
+  finalized_at: game.finalized_at,
+};
+await admin
+  .from("games")
+  .update({ status: "in_progress", scheduled_at: during })
+  .eq("id", game.id);
 
 // Give it a score the sweep must PRESERVE. If the roster read runs unprivileged
 // it comes back empty and the score lands 0-0 — which is what this catches.
@@ -95,8 +145,11 @@ const { data: after } = await admin
 
 if (after.status !== "final") {
   fail(
-    `game still ${after.status} after the sweep reported ${JSON.stringify(body)} — ` +
-      "this is the anon-client bug: the UPDATE matched no rows and reported success",
+    `game still ${after.status} after the sweep reported ${JSON.stringify(body)}.\n` +
+      `  The fixture was dated ${during}, inside ${window.from}..${window.to}.\n` +
+      "  In range + closed:0 means the UPDATE matched no rows and reported success" +
+      " — the anon-client bug.\n" +
+      "  Out of range means the window moved: check `nightWindow`, not the client.",
   );
 }
 if (after.home_goals !== expected) {
@@ -138,9 +191,18 @@ console.log("✓ audit entry filed with a null actor");
 // suite also uses. A script that dirties a shared fixture produces failures in
 // specs that never went near it, which is exactly the kind of confusion that
 // costs a debugging session.
-await admin.from("games").update({ status: before.status }).eq("id", game.id);
+await admin
+  .from("games")
+  .update({
+    status: before.status,
+    scheduled_at: before.scheduled_at,
+    home_goals: before.home_goals,
+    away_goals: before.away_goals,
+    finalized_at: before.finalized_at,
+  })
+  .eq("id", game.id);
 await admin
   .from("game_rosters")
   .update({ goals: before.goals })
   .eq("id", roster[0].id);
-console.log("✓ fixture restored (status and goals)");
+console.log("✓ fixture restored (status, score, date and roster)");
