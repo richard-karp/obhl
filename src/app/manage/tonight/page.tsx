@@ -72,7 +72,7 @@ export default async function ScoreTonightPage() {
   if (scorable.length === 0) redirect("/");
 
   const today = leagueToday();
-  const games = await getGamesOnDate(
+  const { games, readFailed } = await getGamesOnDate(
     scorable.map((l) => l.id),
     today,
   );
@@ -122,12 +122,21 @@ export default async function ScoreTonightPage() {
         </AccountCluster>
       </div>
 
-      <PageHeader
-        title="Tonight"
-        description={formatLongDate(`${today}T12:00:00Z`)}
-      />
+      <PageHeader title="Tonight" description={formatLongDate(today)} />
 
-      {games.length === 0 ? (
+      {readFailed ? (
+        /*
+          ⛔ NOT THE EMPTY STATE. "There are no games tonight" and "the read
+          failed" are different sentences, and this is the only page a
+          scorekeeper has — telling them the rink is quiet when the query errored
+          sends them home mid-shift. Same rule `getScheduleConstraints` states in
+          its own docblock.
+        */
+        <EmptyState
+          title="Couldn't load tonight's games"
+          description="Something went wrong reading the schedule — this is not the same as there being no games. Reload, and tell a manager if it keeps happening."
+        />
+      ) : games.length === 0 ? (
         <EmptyState
           title="No games today"
           description="When tonight's games are scheduled they'll appear here, ready to score."
@@ -156,7 +165,7 @@ export default async function ScoreTonightPage() {
                   scoreHref={
                     game.status === "cancelled"
                       ? undefined
-                      : `/${slugById.get(game.league_id)}/games/${game.id}/score`
+                      : `/${slugById.get(game.league_id) ?? ""}/games/${game.id}/score`
                   }
                 />
               ))}

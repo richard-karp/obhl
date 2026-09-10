@@ -258,10 +258,10 @@ function staffLinks(
     // The scorekeeper's whole navigation. Absolute for the same reason as the
     // two above: the page belongs to no league.
     //
-    // ⚠️ This row is only drawn INSIDE a league, so a scorekeeper sees this link
-    // when they are on a scoresheet and nowhere else — which is exactly the
-    // journey it has to serve: it is the way back from a game to the night.
-    // Their way IN is the sign-in landing, not a link.
+    // ⚠️ This row is drawn on every `/<league>` page a member opens — the public
+    // ones included, not only a scoresheet — so a scorekeeper carries this link
+    // wherever they wander inside a league. That is the journey it serves: the
+    // way BACK to the night. Their way in is the sign-in landing, not a link.
     ...(role === "scorekeeper"
       ? [{ path: "/manage/tonight", label: "Tonight", absolute: true }]
       : []),

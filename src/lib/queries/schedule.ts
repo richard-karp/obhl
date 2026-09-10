@@ -95,6 +95,18 @@ export async function getSchedule(
  */
 export type GameWithLeague = GameWithTeams & { league_id: string };
 
+/**
+ * Tonight's games, and whether the read that produced them actually worked.
+ *
+ * ⛔ `readFailed` IS THE POINT. `getScheduleConstraints` states the rule this
+ * follows: "No constraints" and "I was not allowed to look" must not be the same
+ * value. An empty array alone would tell a scorekeeper standing at the rink that
+ * there are no games tonight when in fact the query errored — on the only page
+ * they have, mid-shift. `SchedulePublishState` carries the same flag for the same
+ * reason.
+ */
+export type GamesOnDate = { games: GameWithLeague[]; readFailed: boolean };
+
 // `GAME_SELECT` plus the season embed. ⛔ NOT added to the shared constant:
 // six other readers use it, and every one of their result shapes would change
 // for a field none of them reads.
@@ -119,11 +131,12 @@ export async function getGamesOnDate(
   leagueIds: string[],
   dateKey: string,
   opts: { client?: DbClient } = {},
-): Promise<GameWithLeague[]> {
+): Promise<GamesOnDate> {
   // ⛔ Not merely an optimisation. Without this an empty list would build a
   // query with no league filter at all, which is an unfiltered read of every
-  // game in the instance for a viewer entitled to none.
-  if (leagueIds.length === 0) return [];
+  // game in the instance for a viewer entitled to none. Not a failure: a viewer
+  // with no scorable league genuinely has no games.
+  if (leagueIds.length === 0) return { games: [], readFailed: false };
 
   const supabase = opts.client ?? (await createClient());
   const day = dateKey.slice(0, 10);
@@ -142,15 +155,22 @@ export async function getGamesOnDate(
     .lt("scheduled_at", leagueDayStart(nextDay))
     .order("scheduled_at", { ascending: true });
 
-  if (error) console.error("games-on-date query failed:", error.message);
-  return (
+  if (error) {
+    console.error("games-on-date query failed:", error.message);
+    return { games: [], readFailed: true };
+  }
+  const games = (
     (data ?? []) as unknown as Array<
       GameWithTeams & { season: { league_id: string } | null }
     >
-  ).map(({ season, ...game }) => ({
-    ...game,
-    league_id: season?.league_id ?? "",
-  }));
+  )
+    // ⛔ A row whose league did not come back is DROPPED, not defaulted. The
+    // embed is `!inner`, so this cannot happen — but the alternative was a
+    // `?? ""` that builds `/undefined/games/<id>/score` and ships a dead link
+    // rather than showing one game fewer.
+    .filter((g) => !!g.season?.league_id)
+    .map(({ season, ...game }) => ({ ...game, league_id: season!.league_id }));
+  return { games, readFailed: false };
 }
 
 /**

@@ -44,8 +44,10 @@ async function anOldGameId(page: Page): Promise<string> {
   const hrefs = await page
     .locator('a[href*="/games/"][href$="/score"]')
     .evaluateAll((links) => links.map((l) => l.getAttribute("href") ?? ""));
-  // The results section holds the finalized rounds, which are the oldest games
-  // on the page and definitively not today.
+  // ⚠️ DOM ORDER, which on this page is the *Upcoming* section — the seeded
+  // rounds 4-5, which are `scheduled` yet ~85 days in the PAST. Not the results
+  // section, as an earlier version of this comment claimed. Either would do:
+  // what matters is only that the game is not today.
   const id = hrefs
     .map((h) => h.match(/\/games\/([^/]+)\/score$/)?.[1])
     .find((v): v is string => !!v);

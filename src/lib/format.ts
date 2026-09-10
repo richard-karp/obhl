@@ -48,6 +48,16 @@ export function leagueDateKey(iso: string): string {
  */
 export function leagueDayStart(day: string): string {
   const date = day.slice(0, 10);
+  // ⚠️ RAISES, AND DELIBERATELY DOES NOT DEGRADE LIKE ITS NEIGHBOURS.
+  // `isOnLeagueDate` and `leagueWeekday` answer a bad input with a refusal
+  // because they decide about ONE game and losing the page is worse. This one
+  // returns a range BOUND: there is no sensible day-start for a non-date, and
+  // inventing one would silently query the wrong window. `Intl.formatToParts`
+  // would throw anyway a few lines down — this only makes the message name the
+  // input instead of surfacing an opaque RangeError from inside Intl.
+  if (Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
+    throw new RangeError(`leagueDayStart: not a calendar date: ${day}`);
+  }
   const offsetAt = (at: Date) =>
     (
       new Intl.DateTimeFormat("en-US", {

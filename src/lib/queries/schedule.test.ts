@@ -61,10 +61,7 @@ function fakeClient(
         get(_target, prop) {
           if (prop === "then") {
             return (onOk: unknown, onErr: unknown) =>
-              settle().then(
-                onOk as never,
-                onErr as never,
-              );
+              settle().then(onOk as never, onErr as never);
           }
           // Symbols reach here during promise resolution; only `then` matters.
           if (typeof prop === "symbol") return undefined;
@@ -148,14 +145,14 @@ describe("getPublishState — a lost response is not a failed read", () => {
  * Deliberately dumber than `fakeClient` above: these tests care about the
  * ARGUMENTS (the range bounds), not about call ordering or retries.
  */
-function recordingClient(rows: unknown[] = []) {
+function recordingClient(rows: unknown[] = [], error: unknown = null) {
   const calls: Array<{ fn: string; args: unknown[] }> = [];
   const chainable: Record<string, unknown> = {};
   const proxy: unknown = new Proxy(chainable, {
     get(_target, prop) {
       if (prop === "then") {
         return (resolve: (v: unknown) => unknown) =>
-          resolve({ data: rows, error: null });
+          resolve({ data: error ? null : rows, error });
       }
       return (...args: unknown[]) => {
         calls.push({ fn: String(prop), args });
@@ -170,8 +167,9 @@ function recordingClient(rows: unknown[] = []) {
     },
   };
   const argsOf = (fn: string, first?: string) =>
-    calls.find((c) => c.fn === fn && (first === undefined || c.args[0] === first))
-      ?.args;
+    calls.find(
+      (c) => c.fn === fn && (first === undefined || c.args[0] === first),
+    )?.args;
   return { client: client as unknown as DbClient, calls, argsOf };
 }
 
@@ -219,8 +217,25 @@ describe("getGamesOnDate — the day's games, across leagues", () => {
     // A viewer with no scorable league must not turn into an unfiltered read.
     const { client, calls } = recordingClient();
 
-    expect(await getGamesOnDate([], "2026-09-14", { client })).toEqual([]);
+    expect(await getGamesOnDate([], "2026-09-14", { client })).toEqual({
+      games: [],
+      readFailed: false,
+    });
     expect(calls).toEqual([]);
+  });
+
+  it("reports a failed read rather than calling it an empty night", async () => {
+    // ⛔ THE WHOLE POINT OF `readFailed`. Returning a bare [] here would tell a
+    // scorekeeper standing at the rink that there are no games tonight when the
+    // query actually errored — on the only page they have. Same rule
+    // `getScheduleConstraints` states: "no rows" and "I was not allowed to look"
+    // must not be the same value.
+    const { client } = recordingClient([], { message: "boom" });
+
+    expect(await getGamesOnDate(["L1"], "2026-09-14", { client })).toEqual({
+      games: [],
+      readFailed: true,
+    });
   });
 
   it("lifts the embedded league id onto the row", async () => {
@@ -230,7 +245,9 @@ describe("getGamesOnDate — the day's games, across leagues", () => {
       { id: "g1", season: { league_id: "L2" } },
     ]);
 
-    const games = await getGamesOnDate(["L1", "L2"], "2026-09-14", { client });
+    const { games } = await getGamesOnDate(["L1", "L2"], "2026-09-14", {
+      client,
+    });
 
     expect(games[0].league_id).toBe("L2");
   });

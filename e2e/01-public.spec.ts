@@ -3,7 +3,8 @@
  * these exercise `/obhl`, the seeded Oceanview league.
  * Assumes seeded data: 6 Oceanview teams (Sharks/Bears/Wolves/Ducks/Hawks/Bisons),
  * 3 finalized rounds, 2 later rounds still `scheduled`, one round TONIGHT, and
- * 3 announcements.
+ * 3 announcements. (Harbor also gains one game tonight, for the cross-league
+ * assertions in `33-scorekeeper-day`.)
  *
  * ⚠️ The tonight round is the only fixture that is ever today, and it exists for
  * the scorekeeper's page (`33-scorekeeper-day`). Nothing in this file asserts an

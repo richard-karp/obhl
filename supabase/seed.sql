@@ -1,8 +1,12 @@
 -- Seed: TWO leagues so the league switcher and cross-league players are real.
---   * Oceanview Beer Hockey League — 6 teams, ~14 players each, 5 rounds
---     (rounds 1-3 final with goals/penalties, 4-5 upcoming).
---   * Harbor Rec Hockey League — 4 teams, ~12 players each, 3 rounds
---     (rounds 1-2 final, round 3 upcoming).
+--   * Oceanview Beer Hockey League — 6 teams, ~14 players each, 6 rounds
+--     (rounds 1-3 final with goals/penalties, 4-5 scheduled but PAST, 6 TONIGHT).
+--   * Harbor Rec Hockey League — 4 teams, ~12 players each, 4 rounds
+--     (rounds 1-2 final, round 3 scheduled but past, round 4 TONIGHT).
+-- ⚠️ The two "tonight" rounds are the only fixtures that are ever today, and
+-- they exist for the scorekeeper's page — see the TONIGHT blocks below. Rounds
+-- 4-5 of Oceanview are `scheduled` yet in the PAST, which is what lets the
+-- scoring specs open a game without one being today.
 -- Two Oceanview people also skate in Harbor (shared global identity).
 -- Plus a few league announcements. Deterministic (no random()).
 
@@ -113,13 +117,17 @@ begin
     -- ⚠️ THE YEAR IN THIS NAME IS NOT A CLAIM ABOUT THE DATES. The name is the
     -- handle 17 assertions use to find this season; the dates are relative to
     -- today. Do not "fix" the mismatch by pinning the dates back.
-    -- ⚠️ `ends_on` REACHES PAST TONIGHT ON PURPOSE. The rounds below sit ~120
-    -- days back, so `v_l1_anchor + 49` would leave tonight's games (added at the
-    -- foot of this league) outside their own season. Nothing enforces that, but
-    -- `schedule-builder-panel.tsx` compares the schedule's last date against
-    -- `ends_on` and warns about "no room for playoffs" — a warning that would
-    -- then be permanently on for the seeded league.
-    values (v_league, 'Spring 2026', v_l1_anchor, v_tonight + 14, true,
+    -- ⚠️ TONIGHT'S GAMES SIT OUTSIDE THIS RANGE, AND THAT IS FINE. A previous
+    -- version widened `ends_on` to cover them, justified by the schedule
+    -- builder's "no room for playoffs" warning. That justification was WRONG:
+    -- `overrunsSeason` (`schedule-builder-panel.tsx`) is computed from `byDate`,
+    -- which is built only from DRAFT games, and this season has none — so the
+    -- warning could never fire. Widening it also made Spring overlap Fall, which
+    -- it never did before, and Harbor's tonight game was left outside its own
+    -- `ends_on` regardless, so the rule was not even applied consistently.
+    -- Nothing in the app reads `ends_on` except display and that draft-only
+    -- check. Reverted.
+    values (v_league, 'Spring 2026', v_l1_anchor, v_l1_anchor + 49, true,
             '{"win":2,"tie":1,"loss":0}'::jsonb)
     returning id into v_season;
 
@@ -227,6 +235,13 @@ begin
   -- **Locate a scoresheet by `a[href$="/score"]`, never by the button label**,
   -- and if you need a game that is still unscored, count how many of these three
   -- the specs before yours have already used.
+  --
+  -- ⚠️ FINALIZING IS NOT THE ONLY WAY TO CONSUME ONE. `05-scoring` reaches these
+  -- games with `.last()` on the manager's schedule, and POSTPONING nulls
+  -- `scheduled_at` (`0025`) — which removes the game from this night entirely,
+  -- not just from one label. Any spec that cancels or postpones one of these must
+  -- restore it in a `finally`, or the damage surfaces later as an unrelated count
+  -- mismatch in a spec that never touched it.
   for g in
     select * from (values
       (6, 6, 1, (v_tonight + time '19:00') at time zone 'America/New_York'),
