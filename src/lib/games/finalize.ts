@@ -71,7 +71,14 @@ export async function finalizeGameById(
     .select("id, home_team_id, away_team_id")
     .eq("id", gameId)
     .single();
-  if (!game) return;
+  // ⛔ THROW, DO NOT RETURN. A silent return is indistinguishable from a
+  // completed finalize to every caller — `/api/cron/close-night` would count it
+  // among the games it closed. The sweep selected this id moments earlier, so a
+  // game that cannot now be read is an anomaly (a refused read reports no error
+  // either), and the caller needs to hear about it.
+  if (!game) {
+    throw new Error(`Finalize game failed: ${gameId} could not be read.`);
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: rostersRaw } = await (supabase as any)
@@ -102,7 +109,7 @@ export async function finalizeGameById(
       })),
   );
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("games")
     .update({
       status: "final",
@@ -113,8 +120,26 @@ export async function finalizeGameById(
       finalized_by: actorId,
       three_stars: threeStars as unknown as import("@/lib/db/types").Json,
     })
-    .eq("id", gameId);
+    .eq("id", gameId)
+    // ⛔ `.select("id")` SO THE WRITE CAN BE PROVEN, NOT ASSUMED. An RLS-refused
+    // UPDATE is not an error — it matches no rows and returns `error: null`, so
+    // `check()` below cannot see it. Without the returned rows this function
+    // succeeds silently on a write that did nothing, which is exactly how the
+    // nightly sweep ran as `anon` for a week while reporting games closed.
+    .select("id");
   check(error, "Finalize game");
+  // ⛔ AND THIS THROW MUST STAY IN FRONT OF `logAudit`. The audit write runs on
+  // the ADMIN client regardless of which client did the update, so returning
+  // here — or auditing first — files a `finalize_game` entry for a game that was
+  // never finalized: a false record in the one table whose job is saying what
+  // happened. Throwing lets the caller count it as failed; `/api/cron/close-night`
+  // reports that in its body, which is the only signal anyone gets at 2am.
+  if (!updated?.length) {
+    throw new Error(
+      `Finalize game failed: no rows updated for ${gameId}. The statement was ` +
+        "refused (an RLS-refused UPDATE reports no error) or the game is gone.",
+    );
+  }
 
   // ⛔ AWAITED, NOT `void`ed — because the nightly sweep calls this from a route
   // handler. On Vercel a function can be frozen the moment its response is sent,
