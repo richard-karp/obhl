@@ -87,22 +87,20 @@ test.describe("The scorekeeper's night", () => {
     await expect(page.getByText("Oceanview Beer Hockey League")).toBeVisible();
     await expect(page.getByText("Harbor Rec Hockey League")).toBeVisible();
 
-    // ⛔ AND NOTHING FROM ANOTHER DAY. This is the assertion the count was really
-    // standing in for: if the day window ever widened to a season, other dates
-    // would appear here. Rows render "Thu, Sep 10"-style dates in the league
-    // zone, so one distinct date means one night.
-    const dates = await page
-      .locator("time, [class*='whitespace-nowrap']")
-      .allInnerTexts();
-    const dayLabels = new Set(
-      dates
-        .map((t) => t.split("\n")[0].trim())
-        .filter((t) => /^\w{3}, \w{3} \d+$/.test(t)),
-    );
+    // ⛔ AND NOTHING FROM ANOTHER DAY — the assertion the count was standing in
+    // for. If the day window ever widened to a season, other dates appear here.
+    //
+    // ⚠️ IT BINDS TO `data-testid="game-date"` BECAUSE THE FIRST VERSION BOUND TO
+    // NOTHING. It used `locator("time, [class*='whitespace-nowrap']")` — there is
+    // no `<time>` element anywhere in src/, and the nowrap class belongs to
+    // buttons and badges — so the Set was always empty and `<= 1` always passed.
+    // Written to replace a brittle count and vacuous from birth.
+    const dates = await page.getByTestId("game-date").allInnerTexts();
+    expect(dates.length, "no game rows rendered at all").toBeGreaterThan(0);
     expect(
-      dayLabels.size,
-      `expected one night, saw ${[...dayLabels].join(" / ")}`,
-    ).toBeLessThanOrEqual(1);
+      new Set(dates.map((d) => d.trim())).size,
+      `expected one night, saw ${dates.join(" / ")}`,
+    ).toBe(1);
   });
 
   test("a scorekeeper sees only the leagues they keep score for", async ({
@@ -216,9 +214,22 @@ test.describe("The scorekeeper's night", () => {
     await goalieButtons.first().click();
     await page.waitForLoadState("networkidle");
 
-    // ⛔ The goalie is NOT among the lineup checkboxes — that is the change.
-    const firstBoxes = lineupForms.first().locator('input[type="checkbox"]');
-    const beforeCount = await firstBoxes.count();
+    // ⛔ THE ASSERTION IS ON THE DRESSED LINES, WHICH IS WHERE THE REGRESSION
+    // WOULD SHOW. The first version counted lineup CHECKBOXES before and after —
+    // but those come from `team_players` filtered to `position !== 'G'` and never
+    // touch `game_rosters`, so the count was constant no matter what the save
+    // did. It could not fail. Its companion assertion ("Empty-net goals" is
+    // visible) was true from page load too.
+    //
+    // A dressed line exists per `game_rosters` row, so if a lineup save deletes
+    // the goalie's row — the exact bug the paired change guards against — the
+    // count here drops.
+    const dressed = page.getByTestId("dressed-line");
+    const dressedAfterGoalie = await dressed.count();
+    expect(
+      dressedAfterGoalie,
+      "picking a goalie should dress them",
+    ).toBeGreaterThan(0);
 
     // Save the lineup again. Before the paired fix this deleted the goalie's
     // roster row, because the form no longer submits them.
@@ -228,11 +239,10 @@ test.describe("The scorekeeper's night", () => {
       .click();
     await page.waitForLoadState("networkidle");
 
-    // The goalie section still shows a goalie of record — the row survived.
     await expect(
-      lineupForms.first().locator('input[type="checkbox"]'),
-    ).toHaveCount(beforeCount);
-    await expect(page.getByText("Empty-net goals").first()).toBeVisible();
+      dressed,
+      "a lineup save must not undress anyone — the goalie is not in the form",
+    ).toHaveCount(dressedAfterGoalie);
   });
 
   test("a scoresheet gives the scorekeeper the minimal chrome and a way back", async ({

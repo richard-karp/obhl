@@ -122,7 +122,11 @@ export async function setLineup(formData: FormData) {
     .select("player_id")
     .eq("season_id", game.season_id)
     .eq("team_id", team_id)
-    .eq("position", "G");
+    .eq("position", "G")
+    // ⚠️ A DEPARTED goalie is not a current one. The score page's own roster read
+    // filters `left_on` and this must agree, or a transferred goalie stays
+    // un-removable from the lineup forever.
+    .is("left_on", null);
   check(keepersError, "Update lineup");
   const goalieIds = new Set((keepers ?? []).map((k) => k.player_id));
 
@@ -322,17 +326,15 @@ export async function setGoalie(formData: FormData) {
     // does an `on_conflict` that names no constraint (42P10) — swallowing either
     // leaves a named goalie with no dressed row and no goalie line in the box
     // score, silently.
-    const { error: dressError } = await supabase
-      .from("game_rosters")
-      .upsert(
-        {
-          game_id,
-          team_id: goalieTeamId,
-          player_id: goalie_id,
-          is_substitute: false,
-        },
-        { onConflict: "game_id,player_id", ignoreDuplicates: true },
-      );
+    const { error: dressError } = await supabase.from("game_rosters").upsert(
+      {
+        game_id,
+        team_id: goalieTeamId,
+        player_id: goalie_id,
+        is_substitute: false,
+      },
+      { onConflict: "game_id,player_id", ignoreDuplicates: true },
+    );
     check(dressError, "Set goalie");
   }
   revalidateAfterScore(game_id, true);

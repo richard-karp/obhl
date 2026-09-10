@@ -180,7 +180,17 @@ function GoalieAndEmptyNet({
   board: TeamBoard;
 }) {
   // Explicit pick takes priority; fall back to the configured suggestion.
-  const activeValue = board.goalieId
+  // ⛔ A SUGGESTION IS NOT A SELECTION, AND CONFLATING THEM COSTS A GOALIE THEIR
+  // GAME. `suggestedGoalieId` is a hint from the day's rota or the team default;
+  // nobody has confirmed it. It used to be harmless to draw it as selected,
+  // because dressing everyone via the lineup checkboxes gave `v_goalie_stats` its
+  // dressed-G fallback either way. Goalies left those checkboxes, so `setGoalie`
+  // is now the ONLY thing that creates their `game_rosters` row — and it runs
+  // only on an explicit tap. A scorekeeper who sees a filled button and moves on
+  // leaves `home_goalie_id` null AND no dressed goalie, so both branches of
+  // `v_goalie_stats` miss and the goalie gets no GP, no GAA, no W/L.
+  const isSet = board.goalieId != null;
+  const activeValue = isSet
     ? board.goalieIsSub
       ? "sub"
       : board.goalieId
@@ -208,7 +218,16 @@ function GoalieAndEmptyNet({
                 <Button
                   type="submit"
                   size="sm"
-                  variant={activeValue === opt.value ? "default" : "outline"}
+                  // Filled = confirmed. Muted = suggested but NOT yet set, so
+                  // it reads as "probably this one, tap to confirm" rather than
+                  // as done.
+                  variant={
+                    activeValue === opt.value
+                      ? isSet
+                        ? "default"
+                        : "secondary"
+                      : "outline"
+                  }
                   className="h-7 tabular-nums"
                 >
                   {opt.label}
@@ -329,6 +348,7 @@ function TeamPanel({
                 {board.dressed.map((line) => (
                   <div
                     key={line.rosterId}
+                    data-testid="dressed-line"
                     className="flex items-center gap-3 py-1.5"
                   >
                     <span className="w-10 shrink-0 text-lg font-bold tabular-nums">

@@ -30,14 +30,21 @@ import { leagueDayStart, leagueToday } from "@/lib/format";
  *
  * ⚠️ Scheduled at 06:00 UTC — 1am EST, 2am EDT. Safely past league midnight in
  * BOTH DST states, which a schedule pinned to local midnight cannot be, since
- * Vercel crons are UTC. The exact minute does not matter: the page guard already
- * locked the scorekeeper out at 00:00, so nothing can change between midnight
- * and the sweep. This is tidying, not enforcement.
+ * Vercel crons are UTC.
+ *
+ * ⛔ AND THE HOBBY PLAN ONLY PROMISES THE HOUR, NOT THE MINUTE. Vercel documents
+ * Hobby cron precision as "per-hour (±59 min)": a job set to `0 6 * * *` fires
+ * anywhere in 06:00-06:59 UTC. The drift is FORWARD — it never fires early — so
+ * the sweep still cannot start before the night it is closing has ended. That is
+ * load-bearing: a schedule set nearer local midnight would have had no such
+ * margin. Hobby also caps crons at ONCE PER DAY; a more frequent expression
+ * fails deployment outright.
  */
-// ⚠️ The default function timeout is generous, but the FIRST run over an existing
-// database can find far more stuck games than a normal night — each costing
-// several round trips — and a timeout mid-loop leaves the rest for tomorrow with
-// no resume. Raised, and the query is bounded below for the same reason.
+// ⚠️ 300 IS THE HOBBY CEILING, NOT AN ARBITRARY NUMBER. Vercel's function limits
+// give Hobby "300s default and maximum" under Fluid compute; Pro can go to 800.
+// A review round flagged this as a deploy-breaking 60s overrun — that limit is
+// historical and no longer applies. Checked against the docs on 2026-09-10 rather
+// than taken on either party's word.
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
@@ -46,14 +53,16 @@ export async function GET(request: NextRequest) {
   // early, mid-game. Fails CLOSED when the secret is unset, so a misconfigured
   // deploy does nothing rather than exposing it.
   const secret = process.env.CRON_SECRET;
-  const offered = request.headers.get("authorization") ?? "";
-  const expected = `Bearer ${secret ?? ""}`;
-  // Constant-time, so the comparison cannot leak the secret a byte at a time.
-  // Low practical risk over HTTPS with a random secret; it is two lines.
+  // ⚠️ BYTE LENGTHS, NOT STRING LENGTHS. `timingSafeEqual` THROWS on a length
+  // mismatch, and `String.length` counts UTF-16 code units while the buffer
+  // counts UTF-8 bytes — so a header carrying any byte >= 0x80 passed the guard
+  // and then raised, turning a 401 into an unhandled 500. Compare the buffers.
+  const offered = Buffer.from(request.headers.get("authorization") ?? "");
+  const expected = Buffer.from(`Bearer ${secret ?? ""}`);
   const ok =
     !!secret &&
     offered.length === expected.length &&
-    timingSafeEqual(Buffer.from(offered), Buffer.from(expected));
+    timingSafeEqual(offered, expected);
   if (!ok) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
@@ -62,14 +71,34 @@ export async function GET(request: NextRequest) {
   // Everything that started before today's league day began. Uses the same
   // `leagueDayStart` the scorekeeper's own page filters with, so "the day" means
   // one thing across the feature.
+  const today = leagueToday();
+  // The league-local date of the night that just ended.
+  const d = new Date(`${today}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  const yesterday = d.toISOString().slice(0, 10);
+
   const { data: stale, error } = await admin
     .from("games")
     .select("id")
     .eq("status", "in_progress")
     .eq("is_draft", false)
-    .lt("scheduled_at", leagueDayStart(leagueToday()))
-    // Bounded so one pathological night cannot run past the timeout and finish
-    // nothing. Anything beyond this is closed by the next run.
+    // ⛔ BOUNDED AT BOTH ENDS — THE NIGHT THAT JUST ENDED, AND ONLY THAT NIGHT.
+    //
+    // An earlier version had no lower bound and so selected EVERY `in_progress`
+    // game ever recorded. That is not a stale-data nuisance, it silently undoes
+    // the app's only undo: `reopenGameById` puts a past-dated game back to
+    // `in_progress`, and it has two callers — the scoresheet's Reopen button and
+    // `audit.ts`'s revert of a wrong `finalize_game`. A manager who corrected a
+    // mistaken finalize would find it re-finalized by the next 06:00 sweep, with
+    // a fresh audit entry attributed to nobody. The documented way to fix a bad
+    // finalize would have survived less than a day.
+    //
+    // ⚠️ THE COST OF THE BOUND, STATED: a game left open for MORE than one night
+    // is never swept. That is deliberate — closing a game days later would
+    // recompute standings from a half-entered roster with no one watching. A
+    // backlog is a thing to surface to a manager, not to silently finalize.
+    .gte("scheduled_at", leagueDayStart(yesterday))
+    .lt("scheduled_at", leagueDayStart(today))
     .limit(200);
 
   if (error) {
@@ -100,5 +129,11 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ closed: closed.length, failed: failed.length });
+  // ⚠️ A run where everything failed must not report 200: Vercel's cron
+  // monitoring watches the status, and a silent nightly failure is exactly what
+  // this job exists to prevent elsewhere.
+  return NextResponse.json(
+    { closed: closed.length, failed: failed.length },
+    { status: failed.length > 0 && closed.length === 0 ? 500 : 200 },
+  );
 }
