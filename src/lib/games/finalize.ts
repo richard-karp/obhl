@@ -1,4 +1,5 @@
 import { createClient } from "@/utils/supabase/server";
+import type { DbClient } from "@/lib/db/helpers";
 import { computeThreeStars } from "@/lib/utils/three-stars";
 import { logAudit } from "@/lib/audit";
 import { check, revalidateAfterScore } from "./shared";
@@ -27,8 +28,43 @@ import { check, revalidateAfterScore } from "./shared";
  */
 
 /** Caller MUST have verified `actorId` against the session and the league. */
-export async function finalizeGameById(gameId: string, actorId: string) {
-  const supabase = await createClient();
+export async function finalizeGameById(
+  gameId: string,
+  /**
+   * Who finalized it, or `null` for the nightly sweep.
+   *
+   * ⚠️ NULL IS A REAL VALUE HERE, not a missing one. `audit_log.user_id` is
+   * nullable (`0021`) and the audit page renders a null actor, so a system close
+   * is recorded honestly rather than attributed to whichever scorekeeper touched
+   * the game last — which would be a lie in the one table that exists to say who
+   * did what.
+   */
+  actorId: string | null,
+  /**
+   * The client every statement below runs on. Defaults to the caller's session.
+   *
+   * ⛔ THE NIGHTLY SWEEP MUST PASS THE ADMIN CLIENT, AND THIS PARAMETER EXISTS
+   * BECAUSE OMITTING IT IS SILENT. A cron request carries no auth cookie, so
+   * `createClient()` runs as `anon` — and then:
+   *
+   *  - the UPDATE below matches ZERO rows and returns NO error, because the
+   *    `games` write policies are `to authenticated`. That is the trap this
+   *    file's own docblock and `ACCESS_CONTROL_HANDOFF.md` both name: an
+   *    RLS-refused UPDATE is not an error, so `check()` sails through.
+   *  - `logAudit` writes on the ADMIN client regardless, so a `finalize_game`
+   *    entry lands in the league's audit log for a game that was never
+   *    finalized.
+   *  - worse, the `game_rosters` read is gated by `public read final
+   *    game_rosters` (`0008`), which exposes rows only for FINAL games — so an
+   *    in-progress game reads back as zero rosters and the score would be
+   *    written 0-0, destroying the very scores the sweep exists to preserve.
+   *
+   * All four statements have to run on the same privileged client; fixing only
+   * the UPDATE turns a no-op into data loss.
+   */
+  client?: DbClient,
+) {
+  const supabase = client ?? (await createClient());
 
   const { data: game } = await supabase
     .from("games")
@@ -80,7 +116,18 @@ export async function finalizeGameById(gameId: string, actorId: string) {
     .eq("id", gameId);
   check(error, "Finalize game");
 
-  void logAudit({
+  // ⛔ AWAITED, NOT `void`ed — because the nightly sweep calls this from a route
+  // handler. On Vercel a function can be frozen the moment its response is sent,
+  // so a fire-and-forget write after that point may simply never flush, and this
+  // entry is the ONLY record that the system closed the game. `saveRules` awaits
+  // its entry for the same class of reason: the entry is the only copy of
+  // something. Watched in local dev: the entry landed ~200ms AFTER the route had
+  // already returned, which is exactly the window that does not exist in
+  // production.
+  //
+  // ⚠️ Safe to await: `logAudit` swallows its own errors, so this cannot fail a
+  // finalize that already succeeded.
+  await logAudit({
     user_id: actorId,
     action: "finalize_game",
     entity_type: "game",

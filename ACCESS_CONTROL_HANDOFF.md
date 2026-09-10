@@ -280,7 +280,7 @@ Each of these cost a review round or a wrong fix in the session that built it.
   ABOUT IT.** Since 2026-09-10 a scorekeeper may only open a game whose
   LEAGUE-LOCAL date is today — enforced in
   `src/app/[league]/(manage)/games/[gameId]/score/page.tsx`, with the list of
-  those games at `/manage/tonight`. ⚠️ **There is no policy half.** This is a
+  those games at `/tonight`. ⚠️ **There is no policy half.** This is a
   deliberate exception to the guard-plus-RLS pair every other rule here has:
   `0032`'s `"scorekeeper update games"` is still date-blind, so a scorekeeper's
   own session, with the publishable key, can still write the scoring columns of
@@ -295,33 +295,52 @@ Each of these cost a review round or a wrong fix in the session that built it.
   is already tomorrow in UTC, so a UTC comparison drops the final game of every
   night off its own night.
 
-  ⛔ **THE BOUNDARY IS LOCAL MIDNIGHT, PLUS A SIX-HOUR TAIL FROM PUCK DROP, AND
-  THE TAIL IS LOAD-BEARING.** `hasStartedWithin` (`src/lib/format.ts`) keeps a
-  game that has already started openable for six hours, so a 9:40pm start stays
-  reachable until ~03:40.
+  ⛔ **THE BOUNDARY IS LOCAL MIDNIGHT, FULL STOP — AND THE WRITE PATH DOES NOT
+  SHARE IT.** `finalizeGame`, `bumpStat` and `setLineup` (`src/lib/actions/games.ts`)
+  carry no day check; only the page does. A submit at 00:01 therefore SUCCEEDS
+  and the re-render then refuses the scorekeeper the game they just changed.
 
-  It is there because **no write action carries a day check** — `finalizeGame`,
-  `bumpStat` and `setLineup` (`src/lib/actions/games.ts`) are unguarded by date.
-  Without the tail, a "Complete game" submitted at 00:01 **succeeds**, and the
-  re-render then refuses the scorekeeper the game they just finalized, with no
-  way back in to correct it. Refusing the write outright would have been kinder
-  than that; the tail avoids both.
+  Two things close that rather than the guard: the scorekeeper is signed out
+  when their day rolls over, and a nightly job completes any game left
+  `in_progress` (see _Closing the night_). ⚠️ A six-hour grace tail was built and
+  then **reverted** on 2026-09-10 — it let a game already in play stay open past
+  midnight, which directly contradicts both. Do not reintroduce it without
+  deciding what the auto-complete and the sign-out should then do.
 
-  ⚠️ **IT REACHES BACKWARD ONLY.** Tonight's later games are openable because
-  they are TODAY, not because of the tail. Making it symmetric would turn it into
-  the rolling window that was considered and rejected, where a scorekeeper
-  arriving at 6pm cannot prepare the 9:40 game's lineup.
+- **⛔ CLOSING THE NIGHT — the sweep, and the client it MUST use.** A Vercel cron
+  (`vercel.json`, 06:00 UTC = 1am EST / 2am EDT, past league midnight in both DST
+  states) calls `/api/cron/close-night`, which finalizes every game left
+  `in_progress` after its day. `in_progress` ONLY: `bumpStat` sets it the moment
+  anything is recorded, so it means "somebody scored this and did not finish",
+  where a `scheduled` game is one nobody touched and auto-finalizing it would
+  invent a 0-0 result.
 
-  ⚠️ `/manage/tonight` still lists **strictly today**. The tail widens what may be
-  OPENED, never what is listed — so a game from last night is unreachable by link
-  and reachable by URL for six hours, which is the intended asymmetry.
+  ⛔ **IT PASSES THE ADMIN CLIENT TO `finalizeGameById`, AND OMITTING THAT IS
+  SILENT IN THREE WAYS AT ONCE.** A cron request carries no auth cookie, so the
+  default `createClient()` runs as `anon`: the games UPDATE matches zero rows and
+  returns NO error (the *Traps* entry above), `logAudit` writes on the admin
+  client regardless and files a `finalize_game` entry for a game that was never
+  finalized, and — worst — the `game_rosters` read is gated by `public read final
+  game_rosters` (`0008`) which exposes rows only for FINAL games, so the score
+  would be recomputed from an empty roster and written 0-0. Fixing only the
+  UPDATE turns a harmless no-op into data loss. Found by review on 2026-09-10 and
+  verified with a live PATCH returning `Content-Range: */0` and no error body.
 
-  ⚠️ Moving the whole day boundary to ~04:00 instead was offered and declined
-  (2026-09-10). Either shape works; this one keeps "the day" meaning the calendar
-  day everywhere else. **Do not re-file the midnight cutoff as a bug** without
-  reading this paragraph first.
+  ⚠️ The actor is `null` — `audit_log.user_id` is nullable and both readers handle
+  it. A sweep is not a person, and naming the last scorekeeper would be a lie in
+  the one table that exists to say who did what.
 
-- **⚠️ `/manage/tonight` IS NOT A REVERT OF `fbb0802`, AND IT IS NOT CALLED
+  ⚠️ `CRON_SECRET` gates the route and it fails CLOSED. Unset means a silent daily
+  401 and games that never close.
+
+  ⚠️ **THERE IS NOWHERE IN THE REPO TO LEARN THAT FROM EXCEPT HERE.** `.gitignore`
+  matches `.env*`, so `.env.example` is untracked — a note added there is
+  invisible to anyone who clones. The value must be set in the Vercel project's
+  environment, and locally passed on the command line
+  (`CRON_SECRET=… npm run dev`) for `npm run verify:close-night` to reach the
+  route.
+
+- **⚠️ `/tonight` IS NOT A REVERT OF `fbb0802`, AND IT IS NOT CALLED
   `score` FOR A REASON.** The old `/manage/score` was deleted and absorbed into
   the public schedule because it was "the same games in a table with a button on
   each row". The new page is cross-league, one-day, and a RESTRICTION — the only

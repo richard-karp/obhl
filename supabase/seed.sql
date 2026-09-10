@@ -236,6 +236,18 @@ begin
   -- and if you need a game that is still unscored, count how many of these three
   -- the specs before yours have already used.
   --
+  -- ⛔ THE DAY RESTRICTION MADE THIS POOL MUCH SMALLER, AND THAT IS WHY IT BITES.
+  -- Before it, a scorekeeper could reach ~15 seeded games and no spec noticed
+  -- another consuming one. Now they can reach these four, every scorekeeper spec
+  -- in a serial run competes for them, and a spec that finalizes or cancels one
+  -- changes what LATER specs see. Measured 2026-09-10: nine failures across six
+  -- files, all of which passed in isolation.
+  --
+  -- ⚠️ THE LESSON FOR NEW SPECS: do not assert a COUNT of tonight's games, and do
+  -- not match the "Score" label. Assert the invariant instead — that every row is
+  -- today, and that the leagues shown are the ones the viewer scores. Those do
+  -- not weaken as the fixture is used up.
+  --
   -- ⚠️ FINALIZING IS NOT THE ONLY WAY TO CONSUME ONE. `05-scoring` reaches these
   -- games with `.last()` on the manager's schedule, and POSTPONING nulls
   -- `scheduled_at` (`0025`) — which removes the game from this night entirely,
