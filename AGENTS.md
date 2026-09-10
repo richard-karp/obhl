@@ -13,6 +13,26 @@ failure and not a conflict, and no amount of re-running fixes it. Such a PR need
 a human in the web UI, or `gh auth refresh -s workflow`. Measured 2026-09-09 on
 PR #51, which is open for exactly this reason.
 
+# Standing gate: a test config may not override a search constant
+
+⛔ **`vitest.config.ts` pinned `OBHL_SLOT_RESTARTS=2000` while `assignNights.ts`
+defaulted to `20000`.** The schedule generator's Phase S therefore ran a 10x
+longer search in production than in any test, and the two searches return
+different schedules: at 20,000 the ice-time clustering feature's own tests fail
+with `expected 13 to be less than or equal to 6`. PR #62 shipped a feature that
+worked only at CI's restart count — the league saw its worst team go 14 -> 13,
+not 14 -> 4, and the maintainer reported it as "not much better than before".
+Measured and fixed 2026-09-09; `assignNights.test.ts` now asserts the variable is
+unset.
+
+**The rule:** a test config may raise a **timeout** freely. It may not set a
+constant that shapes a search, a budget, or a result. The moment it does, every
+assertion downstream stops being evidence about the product.
+
+This is the second costume of the same mistake. The first was a feature that
+rewrote `nightIndex` while only `scheduledAt` was persisted: 364 tests green,
+nothing shipped. **Ask of any green suite: is this the program the user runs?**
+
 # Where the reasoning lives
 
 Four areas of this codebase carry decisions that the code cannot explain on its

@@ -27,7 +27,16 @@ an exact fit):
 | **G2.** Each pairing split evenly over the weekdays it plays (`pairingWeekdayExcess`) † | 42 (9 of 28 matchups off ideal) | **0** (all 28 at ideal) |
 | **G3.** Ice-time share per team *per weekday* (`slotWeekdaySpread`) † | 44 | **0** (best-of-k; 8 is the guaranteed bound — see §5) |
 | **G4.** Three-game runs in one ice time (`slotStreak3`) † | 4 | **0** |
-| **G5.** Worst team's clustered 5-game windows (`slotClusterWorstTeam`) | 14 | **4** (6-team/1-weeknight/3-slot reference) |
+| **G5.** Worst team's clustered 5-game windows (`slotClusterWorstTeam`) | 14 | **4** (6-team/1-weeknight/3-slot reference) ‡ |
+| **G6.** Distinct schedules a manager can ask for | 1 (fixed seed, no way to reroll) | **4 per variation block**, best-of by rank |
+
+‡ **G5 did not reach production until 2026-09-09, and the suite could not see
+it.** `vitest.config.ts` pinned `OBHL_SLOT_RESTARTS=2000` while `assignNights.ts`
+defaulted to `20000`; Phase S is non-monotonic, and at 20,000 the same league
+returns worst-team **13**, not 4. The league saw 14 -> 13. The restart default is
+now 1,000 (centre of the measured-good band [500, 2,000]) and the suite asserts
+the variable is unset — see §5 and
+`docs/superpowers/specs/2026-09-09-schedule-variations-design.md`.
 
 † **These five rows use a different "before".** Every row above them compares
 against the *old pre-participation pipeline*. The four-goal rows compare against
@@ -182,6 +191,51 @@ S effort if a deployment needs a faster round trip.
 A code review of this work turned up two defects — the slack ladder computing
 identical quotas on every rung, and nothing bounding Phase P's total time. Both
 are fixed; see §3. What follows are choices, not oversights.
+
+- **Phase S is non-monotonic: more restarts return a WORSE schedule.** Measured
+  2026-09-09 on 6 teams / one weeknight / 3 sheets, worst-team clustered windows
+  by `OBHL_SLOT_RESTARTS`: 250 -> 6, 500/1,000/2,000 -> 4, 4,000 -> 13,
+  8,000 -> 10, 20,000 -> 13. It is **not** the 5 s budget truncating the sweep —
+  given a 60 s budget so it completes, 4,000 still returns 13. `compareIceOutcome`
+  picks among the five `SLOT_CANDIDATES` **without seeing clustering at all**, so
+  a better-searched candidate wins its own comparator from a basin the
+  night-order post-pass cannot permute out of. The default is 1,000, chosen for
+  margin (centre of [500, 2,000], all three identical on both reference leagues),
+  and **it is tuning, not a mechanism fix** — a league shape not on that curve
+  could land anywhere. The structural fix, not attempted, is to let Phase S rank
+  its candidates on post-pass clustering (~1.4 s per candidate, affordable now
+  that restarts dropped).
+
+- **The 8-team reference league gets NOTHING from the clustering pass.** §5 used
+  to list it as unmeasured. It is measured: worst-team 17 and 94 windows, with
+  the pass running and unconstrained, identical at every restart count from 500
+  to 20,000. The likely reason (a reading, not a measurement) is that permuting
+  nights in a Mon+Thu league moves games between weekdays, breaking the 18/18
+  split ranked far above clustering, so almost no permutation is admissible.
+
+- **A variation is the best of four seeds, and selection reorders the rank
+  tail.** `AssignOptions.seed` offsets every phase PRNG by `(seed-1)*1000`;
+  `variations` says how many to draw, keyed on game count (4 under 80 games, 1
+  over 120) so it never depends on the clock. Selection uses `rankSchedule`'s
+  vector with the two clustering terms moved **ahead of** `slotConsecutive`. That
+  swap is load-bearing: without it best-of-4 picks (b2b 4, worst-team 10) over
+  (b2b 6, worst-team 4) and returns a worse schedule from four draws than from
+  one. `rankSchedule` itself is unchanged — it guards the night-order pass, where
+  a permutation must never trade away an established quality, and that is a
+  different question from choosing between complete schedules.
+
+- **A tight season has only one schedule, and the button says so.** Measured on
+  6 teams over two weeknights and three sheets: at 4 games a team (12 games, 4
+  nights) all four variations are byte-identical; at 8 there are 3 distinct; at
+  12 there are 4. `generateSchedule` compares the new draft against the outgoing
+  one and tells the manager, rather than returning a success message over an
+  unchanged screen.
+
+- **Constrained seasons still get no clustering repair, and now no block
+  either.** Any stored manager request makes `resolved.empty` false, which gates
+  the night-order pass off; since no seed in a block could then differ on
+  clustering, `variations` collapses to 1 for them. Unmeasured whether the
+  Phase M compound pass would help.
 
 - **Clustering is fixed by night order, not by Phase S or Phase M.** Two routes
   were built and measured dead on 2026-09-09: permuting the rounds
