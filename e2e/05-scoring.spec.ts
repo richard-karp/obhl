@@ -11,10 +11,10 @@ async function signedInAs(
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // ⚠️ THE LANDING IS ROLE-DEPENDENT NOW. Everyone still lands on the league
-  // picker, except a scorekeeper, who lands on `/manage/tonight` — the only
+  // picker, except a scorekeeper, who lands on `/tonight` — the only
   // surface they are meant to use. Waiting for "/" unconditionally would hang
   // here for the whole scorekeeper half of this file.
-  await page.waitForURL(role === "Scorekeeper" ? "/manage/tonight" : "/");
+  await page.waitForURL(role === "Scorekeeper" ? "/tonight" : "/");
   await page.goto("/obhl/dashboard");
 }
 
@@ -165,7 +165,7 @@ test.describe("Path 11 — Game management", () => {
     // ⛔ RESTORED IN `finally`. `.last()` now resolves to one of TONIGHT's games
     // — the only ones a scorekeeper can open — and postponing nulls
     // `scheduled_at` (`0025`). A failure between the two clicks would leave that
-    // game undated forever, taking it off `/manage/tonight` and surfacing later
+    // game undated forever, taking it off `/tonight` and surfacing later
     // as an unrelated count mismatch in `33-scorekeeper-day`. The sibling test
     // above already guards its cancel this way.
     try {

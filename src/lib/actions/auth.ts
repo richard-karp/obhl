@@ -50,7 +50,7 @@ async function landingForUser(userId: string): Promise<string> {
   }
   // The only surface a scorekeeper is meant to use. See the page's own docblock
   // for why it is `tonight` and not `score`.
-  return data?.role === "scorekeeper" ? "/manage/tonight" : "/";
+  return data?.role === "scorekeeper" ? "/tonight" : "/";
 }
 
 /**

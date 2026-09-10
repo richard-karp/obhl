@@ -63,8 +63,8 @@ async function expectGenerateFormUsable(page: Page) {
 async function signedInAs(page: Page, role: "Manager" | "Scorekeeper") {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
-  // A scorekeeper lands on `/manage/tonight`, not the picker.
-  await page.waitForURL(role === "Scorekeeper" ? "/manage/tonight" : "/");
+  // A scorekeeper lands on `/tonight`, not the picker.
+  await page.waitForURL(role === "Scorekeeper" ? "/tonight" : "/");
   await page.goto("/obhl/dashboard");
 }
 
@@ -714,7 +714,7 @@ test.describe("Path 28 — manual schedule edits", () => {
   test("a scorekeeper cannot cancel, postpone or reschedule a game", async ({
     page,
   }) => {
-    // ⛔ VIA `/manage/tonight`, NOT VIA A LEAGUE'S SCHEDULE, AND BOTH HALVES OF
+    // ⛔ VIA `/tonight`, NOT VIA A LEAGUE'S SCHEDULE, AND BOTH HALVES OF
     // THAT MATTER.
     //
     // A scorekeeper may only open games dated TODAY, and `/obhl/schedule`
@@ -733,7 +733,7 @@ test.describe("Path 28 — manual schedule edits", () => {
     // game as "Edit", and tonight's three games are a shared fixture that
     // `05-scoring` and `33-scorekeeper-day` each finalize one of.
     await signedInAs(page, "Scorekeeper");
-    await page.goto("/manage/tonight");
+    await page.goto("/tonight");
     const score = page.locator('a[href$="/score"]').first();
     await expect(score).toBeVisible();
     await score.click();

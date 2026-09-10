@@ -88,6 +88,16 @@ const nextConfig: NextConfig = {
       //
       // Ordering against the five rules above does not matter: none of their
       // sources matches `/<x>/import`.
+      // The scorekeeper's page moved out of /manage/ (0048 reserves `tonight`).
+      // Every other move in this file left a redirect behind; this one is
+      // unreleased, so nothing has the old address bookmarked — but the
+      // consistency is worth more than the two lines it costs, and a link pasted
+      // into a chat during testing should not 404.
+      {
+        source: "/manage/tonight",
+        destination: "/tonight",
+        permanent: true,
+      },
       {
         source: "/:league/import",
         destination: "/manage/leagues/new",

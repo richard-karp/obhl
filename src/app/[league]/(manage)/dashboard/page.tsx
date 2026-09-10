@@ -124,7 +124,7 @@ export default async function DashboardPage({
             season's schedule would mostly offer games they cannot open.
           */}
           <ActionCard
-            href="/manage/tonight"
+            href="/tonight"
             title="Score Games"
             description="Tonight's games, across every league you keep score for."
           />

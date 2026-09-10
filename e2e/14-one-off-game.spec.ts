@@ -42,10 +42,10 @@ async function signedInAs(
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // ⚠️ THE LANDING IS ROLE-DEPENDENT NOW. Everyone still lands on the league
-  // picker, except a scorekeeper, who lands on `/manage/tonight` — the only
+  // picker, except a scorekeeper, who lands on `/tonight` — the only
   // surface they are meant to use. Waiting for "/" unconditionally would hang
   // here for the whole scorekeeper half of this file.
-  await page.waitForURL(role === "Scorekeeper" ? "/manage/tonight" : "/");
+  await page.waitForURL(role === "Scorekeeper" ? "/tonight" : "/");
   await page.goto("/obhl/dashboard");
 }
 

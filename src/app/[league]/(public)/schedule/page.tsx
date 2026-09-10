@@ -81,7 +81,7 @@ function GroupedGames({
                 // ⛔ NOT JUST `canScore`. The scoresheet refuses a scorekeeper
                 // any game that is not today, so drawing the button on a game
                 // 120 days old would offer a control whose only outcome is a
-                // bounce back to `/manage/tonight`. A button that cannot work is
+                // bounce back to `/tonight`. A button that cannot work is
                 // worse than no button: it reads as a broken page rather than as
                 // a boundary. Managers are unaffected — they have no day limit.
                 scoreHref={

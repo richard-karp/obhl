@@ -34,6 +34,10 @@ export const RESERVED_LEAGUE_SLUGS = [
   // address that never resolves, with no UI to delete it. Widened in the DB by
   // `0047_reserve_set_password_slug.sql`; the two lists must match.
   "set-password",
+  // The scorekeeper's page, `src/app/tonight/`. Moved out of /manage/ because
+  // that segment names the role which cannot manage anything. Reserved in the DB
+  // by `0048_reserve_tonight_slug.sql`; the two lists must match.
+  "tonight",
   "_next",
 ] as const;
 
