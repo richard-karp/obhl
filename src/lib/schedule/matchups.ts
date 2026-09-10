@@ -67,42 +67,6 @@ const MAX_MATCHINGS = 1_000;
  * budget here. The single-night descent still covers those nights.
  */
 const MAX_JOINT_MATCHINGS = 5_000;
-/**
- * How far apart two nights may sit and still count as *the same matching twice*.
- * Six is the span the measurement that motivated this pass used: on a six-team,
- * one-weeknight season Phase M's descent lands on a five-night 1-factorisation
- * cycle, so every night repeats the one five before it and a ±6 window sees all
- * of them. Widening it costs nothing here but starts calling honest variety a
- * repeat on a longer cadence.
- */
-const PERIOD_SPAN = 6;
-/**
- * How many nights `periodicPass` re-deals together. **Four is a floor, not a
- * tuning knob.** With every team playing every night the union of *two* nights'
- * matchings is a 6-cycle and the union of *three* is a prism, and each of those
- * admits exactly one decomposition into perfect matchings — so a two- or
- * three-night re-deal can only permute the matchings the nights already hold,
- * never invent one. Four nights union to K6 minus a matching, which has exactly
- * two decompositions: the incumbent and one sharing no factor with it. Four is
- * the smallest window that can produce a matching the season did not already
- * have, which is the whole point. Smaller moves are still reachable inside it —
- * a night may keep its current matching.
- */
-const PERIOD_WINDOW = 4;
-/**
- * Ceiling on the candidates one window's re-deal may examine, so a wide cadence
- * cannot spend the whole wall-clock budget here. Six teams a night has 15
- * matchings, and `PERIOD_WINDOW` is 4, so before the union multiset prunes
- * anything the window can reach 15 + 15² + 15³ + 15⁴ = 54,240 — ABOVE this cap.
- * Pruning is what keeps it under in practice: measured max 1,335 examined at six
- * teams a night. ⚠️ The first shape where the cap actually binds is EIGHT teams,
- * not ten — measured 48 truncations on an 8-team/40-night season. A truncated
- * window simply keeps its current deal, so the result is a missed improvement,
- * never an invalid schedule. The cap is on
- * candidates *examined* rather than on deals found, because on a wide night the
- * sub-multiset test is the work and nearly all of it fails.
- */
-const MAX_PERIOD_NODES = 20_000;
 
 /**
  * A night the caller has already decided something about. `fixed` pins it to one
@@ -144,13 +108,6 @@ export type MatchupOptions = {
    * whose matching isn't among its candidates falls back to the greedy pick.
    */
   initial?: ([number, number][] | null)[];
-  /**
-   * Run the anti-periodicity compound pass (`periodicPass`). Off by default:
-   * generation turns it on only for the seasons that cannot get their clustering
-   * broken by reordering nights afterwards, and the mid-season repair never
-   * wants it — it re-chooses four nights at a time, which is churn.
-   */
-  breakPeriodicity?: boolean;
 };
 
 export type MatchupResult = {
@@ -237,7 +194,6 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
     nightConstraints,
     nightPenalty,
     initial,
-    breakPeriodicity = false,
   } = opts;
   const N = nightWeek.length;
   const rnd = mulberry32(seed);
@@ -385,57 +341,23 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
   // Skipped entirely on a one-weekday cadence, where `compoundPass` returns at
   // its first line: at the enumeration ceiling this is a thousand candidates a
   // night indexed twice over, and every mid-season repair pays for it four times.
-  //
-  // `periodicPass` reads the same index, so a one-weekday season builds it too
-  // once that pass is on — which is the shape it exists for.
-  const wantsPeriodic = breakPeriodicity && N >= PERIOD_WINDOW;
-  // One source for "does anything need the per-candidate key lists", so the two
-  // consumers cannot drift into a shape where `candKeys` is built and
-  // `withPair` is not — `tryJoint` would then hit `withPair[n2].get(k)!` on
-  // undefined. Unreachable today only because `compoundPass` returns at D < 2.
-  const wantsJoint = D > 1;
   const candKeys: number[][][] =
-    wantsJoint || wantsPeriodic
+    D > 1
       ? options.map((ms) =>
           ms.map((m) => m.map(([a, b]) => pairKey(a, b)).sort((x, y) => x - y)),
         )
       : [];
-  const withPair: Map<number, number[]>[] = (wantsJoint ? candKeys : []).map(
-    (ks) => {
-      const byKey = new Map<number, number[]>();
-      ks.forEach((keys, idx) => {
-        for (const k of keys) {
-          const list = byKey.get(k);
-          if (list) list.push(idx);
-          else byKey.set(k, [idx]);
-        }
-      });
-      return byKey;
-    },
-  );
-  /**
-   * Every candidate matching's identity as a small integer, shared across
-   * nights: two nights hold *the same matching* exactly when these agree.
-   * `periodicPass` asks that question tens of thousands of times, and the string
-   * key `matchingKey` builds is far too expensive to ask it with.
-   */
-  const matchId: number[][] = [];
-  if (wantsPeriodic) {
-    const idOfKeys = new Map<string, number>();
-    for (const ks of candKeys) {
-      matchId.push(
-        ks.map((k) => {
-          const s = k.join(",");
-          let id = idOfKeys.get(s);
-          if (id === undefined) {
-            id = idOfKeys.size;
-            idOfKeys.set(s, id);
-          }
-          return id;
-        }),
-      );
-    }
-  }
+  const withPair: Map<number, number[]>[] = candKeys.map((ks) => {
+    const byKey = new Map<number, number[]>();
+    ks.forEach((keys, idx) => {
+      for (const k of keys) {
+        const list = byKey.get(k);
+        if (list) list.push(idx);
+        else byKey.set(k, [idx]);
+      }
+    });
+    return byKey;
+  });
   // Merge buffers for that multiset comparison; a night holds at most T/2 games.
   const wantBuf = new Array<number>(T);
   const gotBuf = new Array<number>(T);
@@ -702,214 +624,10 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
     return false;
   };
 
-  // ── Anti-periodicity ──────────────────────────────────────────────────────
-  // Left-hand scratch for `periodicPass`: which window position a night holds
-  // while a re-deal is being tried (−1 outside it), and the candidate index the
-  // re-deal is currently trying at each of those positions.
-  const winAt = new Int32Array(N).fill(-1);
-  const pick: number[] = [];
-
-  /** A night's matching id under the re-deal in progress, or its current one. */
-  const idAt = (n: number): number =>
-    winAt[n] >= 0 ? matchId[n][pick[winAt[n]]] : matchId[n][choice[n]];
-
-  /**
-   * Repeats within ±`PERIOD_SPAN` that have at least one end inside the window,
-   * each counted once. Every other repeat in the season is identical for every
-   * re-deal of this window, so leaving them out of both sides of the comparison
-   * compares like with like at a fraction of the cost.
-   */
-  const localPeriodic = (win: number[]): number => {
-    let c = 0;
-    for (const n of win) {
-      const id = idAt(n);
-      const lo = Math.max(0, n - PERIOD_SPAN);
-      const hi = Math.min(N - 1, n + PERIOD_SPAN);
-      for (let m = lo; m <= hi; m++) {
-        // A repeat with both ends inside the window is counted at the earlier
-        // of them only, or a window's own repeats would be priced double.
-        if (m === n || (winAt[m] >= 0 && m < n)) continue;
-        if (idAt(m) === id) c++;
-      }
-    }
-    return c;
-  };
-
-  /** The same count over the whole season — the restart tie-break's key. */
-  const periodicTotal = (): number => {
-    if (!wantsPeriodic) return 0;
-    let c = 0;
-    for (let n = 0; n < N; n++) {
-      const id = matchId[n][choice[n]];
-      const hi = Math.min(N - 1, n + PERIOD_SPAN);
-      for (let m = n + 1; m <= hi; m++) if (matchId[m][choice[m]] === id) c++;
-    }
-    return c;
-  };
-
-  const mergeSorted = (x: number[], y: number[]): number[] => {
-    const out: number[] = [];
-    let i = 0;
-    let j = 0;
-    while (i < x.length && j < y.length)
-      out.push(x[i] <= y[j] ? x[i++] : y[j++]);
-    while (i < x.length) out.push(x[i++]);
-    while (j < y.length) out.push(y[j++]);
-    return out;
-  };
-
-  /** `rem` minus `keys` as multisets, or null when `keys` is not inside it. */
-  const without = (rem: number[], keys: number[]): number[] | null => {
-    const out: number[] = [];
-    let i = 0;
-    let j = 0;
-    while (i < rem.length && j < keys.length) {
-      if (rem[i] === keys[j]) {
-        i++;
-        j++;
-      } else if (rem[i] < keys[j]) out.push(rem[i++]);
-      else return null;
-    }
-    if (j < keys.length) return null;
-    while (i < rem.length) out.push(rem[i++]);
-    return out;
-  };
-
-  /**
-   * Re-deal one window of nights: every way of dealing the games those nights
-   * hold *between them* back out, one perfect matching per night. Takes the deal
-   * that breaks the most repeats, and only ever a strict gain.
-   *
-   * The union multiset is the invariant that makes this safe. Each night's
-   * candidates already cover exactly the teams Phase P has playing that night,
-   * so any deal keeps games-per-team and the no-team-twice-a-night rule; holding
-   * the union fixed keeps **every pair's meeting count exactly where it was**.
-   * That is what a weight cannot do — switching one night alone moves two
-   * meeting counts off target at `MULT_W` apiece, which is why the anti-
-   * periodicity term measured in `SCHEDULE_HANDOFF.md` §5 does nothing at all
-   * until it is large enough to buy a transiently-invalid schedule outright.
-   * Held whole, periodicity costs nothing and never has to outbid balance.
-   */
-  const tryWindow = (win: number[]): boolean => {
-    const k = win.length;
-    const cur = win.map((n) => choice[n]);
-    // A window of pinned nights has exactly one deal — its own.
-    if (win.every((n) => options[n].length < 2)) return false;
-    const keys = [...new Set(win.flatMap((n) => keysOfNight[n]))];
-    let curVal = localCost(keys);
-    for (let i = 0; i < k; i++) curVal += penalty[win[i]][cur[i]];
-    const curRematch = localRematch(keys);
-    for (let i = 0; i < k; i++) {
-      winAt[win[i]] = i;
-      pick[i] = cur[i];
-    }
-    const curPer = localPeriodic(win);
-    let union: number[] = [];
-    for (let i = 0; i < k; i++)
-      union = mergeSorted(union, candKeys[win[i]][cur[i]]);
-
-    for (const n of win) clearNight(n);
-    const bestPick: number[] = [...cur];
-    let found = false;
-    let bestPer = curPer;
-    let bestVal = Number.POSITIVE_INFINITY;
-    let nodes = 0;
-    const rec = (d: number, rem: number[]): void => {
-      if (d === k) {
-        if (rem.length > 0) return;
-        const per = localPeriodic(win);
-        if (per >= curPer) return;
-        // ⛔ Spacing and cost are FILTERS here, not terms to be outbid — the same
-        // rule `tryJoint` follows, for the same reason. Rematch spacing outranks
-        // ice time outright, and a deal that trades one for the other is a trade
-        // the league has already rejected; blending them would make it reachable
-        // on a rounding accident.
-        if (localRematch(keys) > curRematch + 1e-9) return;
-        let val = localCost(keys);
-        for (let i = 0; i < k; i++) val += penalty[win[i]][pick[i]];
-        if (val > curVal + 1e-9) return;
-        if (per < bestPer || (per === bestPer && val < bestVal - 1e-9)) {
-          found = true;
-          bestPer = per;
-          bestVal = val;
-          for (let i = 0; i < k; i++) bestPick[i] = pick[i];
-        }
-        return;
-      }
-      const n = win[d];
-      for (let idx = 0; idx < options[n].length; idx++) {
-        // Counted per candidate *examined*, not per candidate kept: on a wide
-        // night the `without` test is the work, and almost all of it fails.
-        if (nodes++ > MAX_PERIOD_NODES) return;
-        const next = without(rem, candKeys[n][idx]);
-        if (!next) continue;
-        pick[d] = idx;
-        for (const [a, b] of options[n][idx]) addMeeting(a, b, n);
-        rec(d + 1, next);
-        for (const [a, b] of options[n][idx]) removeMeeting(a, b, n);
-      }
-    };
-    try {
-      rec(0, union);
-      for (let i = 0; i < k; i++) applyNight(win[i], bestPick[i]);
-    } finally {
-      // ⛔ `winAt` is scratch shared with every later window. A throw inside the
-      // recursion would leave it >= 0 and poison every subsequent
-      // `localPeriodic` for the rest of the run — silently, as a wrong number
-      // rather than an error. Nothing throws today; this keeps that true.
-      for (const n of win) winAt[n] = -1;
-    }
-    return found;
-  };
-
-  /**
-   * Break up the periodic cycle Phase M's descent falls into, which is what
-   * leaves a team on the same sheet of ice week after week. Same shape as
-   * `compoundPass` above, and a strictly larger move: single-night descent
-   * cannot reach this at any weight, because every step towards it is a
-   * meeting-count violation on its own.
-   *
-   * Started only from a window that actually holds a repeat, so a season with no
-   * periodicity in it pays one scan of the repeat map and stops.
-   */
-  const periodicPass = (): boolean => {
-    if (!wantsPeriodic) return false;
-    const repeats = new Uint8Array(N);
-    for (let n = 0; n < N; n++) {
-      const id = matchId[n][choice[n]];
-      const hi = Math.min(N - 1, n + PERIOD_SPAN);
-      for (let m = n + 1; m <= hi; m++) {
-        if (matchId[m][choice[m]] !== id) continue;
-        repeats[n] = 1;
-        repeats[m] = 1;
-      }
-    }
-    for (let start = 0; start + PERIOD_WINDOW <= N; start++) {
-      let any = false;
-      for (let i = 0; i < PERIOD_WINDOW && !any; i++)
-        any = repeats[start + i] === 1;
-      if (!any) continue;
-      if (Date.now() > deadline) return false;
-      const win: number[] = [];
-      for (let i = 0; i < PERIOD_WINDOW; i++) win.push(start + i);
-      // Accepting invalidates the repeat map above, so hand back to the
-      // single-night descent and rescan from the new state next time.
-      if (tryWindow(win)) return true;
-    }
-    return false;
-  };
-
   const descend = () => {
     let improved = true;
     let pass = 0;
-    // ⛔ SCALES WITH SEASON LENGTH. `periodicPass` spends one descend pass per
-    // accepted re-deal, so passes grow at roughly 0.66·N — measured 12 at 23
-    // nights, 25 at 40, 53 at 80. A flat 60 therefore starts binding around
-    // N ≈ 90 and `descend` would return with periodicity only partly broken,
-    // silently. The wall-clock `deadline` check below is the real bound; this
-    // only stops a pathological non-convergence.
-    const maxPasses = Math.max(60, 2 * N);
-    while (improved && pass++ < maxPasses) {
+    while (improved && pass++ < 60) {
       improved = false;
       if (Date.now() > deadline) return;
       for (let n = 0; n < N; n++) {
@@ -936,9 +654,6 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
       // Single-night moves first: they are far cheaper to evaluate, and the
       // compound pass costs nothing once no pairing is off its split.
       if (!improved) improved = compoundPass();
-      // Cheapest-first again: the re-deal is the widest move here, and it costs
-      // nothing once the season holds no repeat inside `PERIOD_SPAN`.
-      if (!improved) improved = periodicPass();
     }
   };
 
@@ -955,12 +670,6 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
   // Everything *except* the weekday split: meeting counts, rematch spacing and
   // the caller's churn penalty, at exactly the prices `pairCost` gives them.
   let bestPrimary = Number.POSITIVE_INFINITY;
-  // Last key of all, and only ever a tie-break: the season's repeat count. Two
-  // restarts that agree on balance, spacing, churn AND weekday split are
-  // genuinely equal on everything this phase is ranked by, and taking the less
-  // periodic of them is free. Ranking it any higher would be the weight this
-  // pass exists to avoid.
-  let bestPeriodic = Number.POSITIVE_INFINITY;
   for (let r = 0; r < Math.max(1, restarts); r++) {
     if (r > 0 && Date.now() > deadline) break;
     if (r === 0 && initial) seedInitial();
@@ -975,16 +684,12 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
     // `compareIce`: the split is the lowest-priority goal here, so it may break
     // a tie and nothing more.
     const primary = total - splitCost();
-    const periodic = periodicTotal();
     const better =
       primary < bestPrimary - 1e-9 ||
-      (primary < bestPrimary + 1e-9 &&
-        (total < bestTotal - 1e-9 ||
-          (total < bestTotal + 1e-9 && periodic < bestPeriodic)));
+      (primary < bestPrimary + 1e-9 && total < bestTotal - 1e-9);
     if (better) {
       bestPrimary = primary;
       bestTotal = total;
-      bestPeriodic = periodic;
       bestChoice = [...choice];
     }
     if (bestTotal === 0) break;

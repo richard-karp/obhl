@@ -27,20 +27,7 @@ an exact fit):
 | **G2.** Each pairing split evenly over the weekdays it plays (`pairingWeekdayExcess`) † | 42 (9 of 28 matchups off ideal) | **0** (all 28 at ideal) |
 | **G3.** Ice-time share per team *per weekday* (`slotWeekdaySpread`) † | 44 | **0** (best-of-k; 8 is the guaranteed bound — see §5) |
 | **G4.** Three-game runs in one ice time (`slotStreak3`) † | 4 | **0** |
-| **G5.** Worst team's clustered 5-game windows (`slotClusterWorstTeam`) | 14 unconstrained / 16 constrained | **4** unconstrained, **6-9** constrained (6-team/1-weeknight/3-slot reference) ‡ |
-
-‡ **The constrained G5 figure is hardware- and budget-dependent, so it is a
-range, not a number.** Measured 2026-09-10, three runs per environment, all
-re-derived from `scheduledAt`: **6** under the default vitest env, **6** at
-`OBHL_SLOT_BUDGET_MS=1500`, and **9** at `OBHL_SLOT_RESTARTS=100`. An
-independent reviewer measured **8** at the default on different hardware. Phase S
-is wall-clock and restart bounded, so any single reading here is a property of
-the machine that took it. The test asserts `<= 12` for exactly this reason — a
-bound of 8, which the previous version used, goes red at reduced restarts.
-
-⚠️ Note also that `vitest.config.ts` pins `OBHL_SLOT_RESTARTS=2000` while
-production defaults to `20_000`, so every figure in this row is a test-config
-measurement rather than what a live generate produces.
+| **G5.** Worst team's clustered 5-game windows (`slotClusterWorstTeam`) | 14 | **4** (6-team/1-weeknight/3-slot reference) |
 
 † **These five rows use a different "before".** Every row above them compares
 against the *old pre-participation pipeline*. The four-goal rows compare against
@@ -226,19 +213,14 @@ are fixed; see §3. What follows are choices, not oversights.
     ⛔ **That is the same structure as `WD_SPLIT_W` below, and it has the same
     answer: build a compound pass, do not ship a bigger number.** A term that
     works by overpowering opponent balance is a loaded gun on a shape where the
-    repair does not land. **That pass is built** — `periodicPass` in
-    `matchups.ts`, 2026-09-09; see the bullet below. It reaches 6, not the
-    weight's 7, and it never has to outbid anything.
+    repair does not land.
   - **Where the value actually is.** Phase M alone reaches 7, which is *worse*
     than the 4 the night-order pass already gets, so this is not an upgrade for
     unconstrained seasons on its own. The prize is **constrained** seasons: the
     night-order pass is gated off entirely when any constraint is set, so they
-    kept the full worst-team 16 — this shape's 14 is the *unconstrained*
-    season's number, and a request costs two windows on top of it. A Phase M fix
-    needs no post-hoc
+    keep the full worst-team 14 today. A Phase M fix needs no post-hoc
     relabelling, so pins stay valid by construction — which is exactly why the
-    night-order pass had to be gated in the first place. Shipped 2026-09-09 as
-    `periodicPass`, gated to exactly those seasons; next bullet.
+    night-order pass had to be gated in the first place.
 - ⛔ **A GREEN UNIT SUITE CAN HIDE A FEATURE THAT NEVER REACHES THE PRODUCT.**
   The night-order pass improved `report.spacing.slotClusterWorstTeam` 14 → 4 and
   passed 364 tests through four review rounds while shipping **nothing**:
@@ -251,82 +233,20 @@ are fixed; see §3. What follows are choices, not oversights.
   the claim from the field the write path persists, not from the in-memory
   report.** Found 2026-09-09 by the final whole-branch review, fixed in `ea62f62`
   along with the `slotStamp` helper that now backs all six construction sites.
-- **Constrained seasons now get the clustering fix in Phase M (built
-  2026-09-09).** `periodicPass` in `matchups.ts` re-deals a window of nights
-  *together*: it takes the games those nights hold between them and deals them
-  back out, one perfect matching per night, over only those deals that keep the
-  window's union multiset **exactly**. Holding the union fixed holds every pair's
-  meeting count, so periodicity never has to outbid `MULT_W` — which is the whole
-  reason the weight above needed 100_000 and a transiently-invalid schedule to do
-  the same job. Same shape and same precedent as `compoundPass` a few bullets
-  down. Measured on the 6-team/23-Tuesday reference with one `slot_bias` on it,
-  three runs, identical every time:
-
-  | | pass off | pass on |
-  |---|---|---|
-  | `slotClusterWorstTeam` (from `scheduledAt`) | 16 | **6** |
-  | `slotClusterWindows` | 30 | **20** |
-  | distinct matchup-sets across 23 nights | 5 | **13** |
-  | `slotConsecutive` | 6 | **4** |
-  | `slotStreak3` / all three rematch metrics / all four bye metrics | 0 | 0 |
-  | meetings per pair / ice-share spread | 4–5 / 1 | 4–5 / 1 |
-  | the `slot_bias` itself | satisfied, mean slot 0.957 | satisfied, mean slot 0.957 |
-
-  - ⚠️ **THE 23-NIGHT NUMBERS DO NOT GENERALISE, AND THE SECOND METRIC CAN GO THE
-    OTHER WAY.** The same 6-team/one-weeknight shape at **40 nights**, one
-    `slot_bias`, measured once each side (the table above is three runs; this is
-    one):
-
-    | | pass off | pass on |
-    |---|---|---|
-    | `slotClusterWorstTeam` | 25 | **11** |
-    | `slotClusterWindows` | 48 | **58** ⚠️ |
-    | distinct matchup-sets across 40 nights | 5 | **15** |
-    | repeats within ±6 nights | 35 | **1** |
-
-    The worst team improves by 14, which is the ranked metric and the goal. The
-    season *total* rises. **Phase M cannot see ice times at all** — slots are
-    Phase S, which has not run yet — so this pass optimises periodicity as a
-    *proxy* for clustering, and on a longer season the proxy and the metric
-    diverge: the clustering gets spread more evenly over the teams and there is
-    more of it in total. Do not read "20 against 30" above as what this pass does
-    to `slotClusterWindows`; read it as what it did on one fixture. A pass that
-    could rank the real metric would have to run after Phase S, which is the
-    night-order pass, which is the one a constrained season cannot have.
-  - ⛔ **`PERIOD_WINDOW = 4` IS A FLOOR, NOT A TUNING KNOB.** With every team
-    playing every night the union of *two* nights' matchings is a 6-cycle and the
-    union of *three* is a prism, and each of those has exactly **one**
-    decomposition into perfect matchings — so a two- or three-night re-deal can
-    only hand the nights each other's matchings, never invent one, and the cycle
-    survives every permutation of itself. Four nights union to K6 minus a
-    matching, which has exactly **two** decompositions, and the second shares no
-    factor with the first: all four nights come back with matchings the season did
-    not have. Lowering it does not weaken the pass, it turns it off. (Smaller
-    moves are still reachable inside a four-night window — a night may keep what
-    it has.)
-  - ⛔ **Gated to `!resolved.empty` — the exact mirror of the night-order pass's
-    gate, and running both was measured, not assumed.** With `breakPeriodicity`
-    forced on for an *unconstrained* 6-team season the worst team goes 4 → **10**.
-    That is the coupling three bullets down — Phase M's output decides which
-    Phase S candidate wins — landing on the phase that was already at its floor.
-    The two mechanisms fix the same defect and the night-order pass fixes it
-    better; a season should get one or the other, never both.
-  - **Spacing and cost are filters here, not terms to outbid** — a re-deal that
-    worsens `localRematch` or the pair costs is refused outright, exactly as in
-    `tryJoint`. Periodicity is additionally the **last** key in the restart
-    selection, below the weekday split, so it can break an exact tie and nothing
-    more. Ranking it any higher would be the weight this pass exists to avoid.
-- **Measured, and the answer is nothing: the 8-team Mon/Thu league does not have
-  this problem.** Its 48 nights carry **38 distinct matchup-sets**, so no night
-  repeats another inside ±6 and `periodicPass` finds nothing to re-deal — with a
-  `slot_bias` set, worst team 18, 110 windows and 26.3 s with the pass on, and the
-  identical three numbers with it off. Byes and two weekdays give Phase M enough
-  variety on their own. **So that league's clustering has some other cause**, and
-  neither route in this section addresses it: the night-order pass is gated off by
-  its constraint and Phase M has no periodicity to break. Still unmeasured there:
-  what the night-order pass alone does for it *unconstrained* (before this work it
-  had 22 of 237 three-week windows at ≥60% one ice time) — one generate each side
-  answers that, and it is a different question from this one.
+- **Outstanding: constrained seasons get none of the clustering fix.** The
+  night-order pass is gated on `resolved.empty`, so a single manager request —
+  including a `slot_bias` — turns it off entirely and that league keeps the full
+  worst-team 14. The gate is correct (a pinned night is a promise the aggregate
+  rank vector cannot express) but blunt: it refuses the whole pass rather than
+  the permutations that would actually break a pin. The spiked Phase M route
+  above reaches 7 there and needs no post-hoc relabelling, so pins stay valid by
+  construction — but it needs a compound pass, not a weight. **This is the real
+  follow-up; it is not started.**
+- **Unmeasured: whether the 8-team Mon/Thu league benefits at all.** Before this
+  work it had 22 of 237 three-week windows at ≥60% one ice time. The pass runs on
+  it, but nobody has measured the before/after — plausibly much less room, since
+  byes and two weekdays leave more of the rank vector live, so more permutations
+  are refused. One generate each side answers it.
 - **12+ teams playing per night**: Phase M declines. `planByWeeks` already
   produces a perfect schedule for that shape, so nothing is lost — but a league
   that grows into a case where it *doesn't* would need Phase M to handle larger
@@ -511,9 +431,7 @@ are fixed; see §3. What follows are choices, not oversights.
 
 - `src/lib/schedule/participation.ts` — Phase P. `solveParticipation`,
   `chooseWeekdayByeTargets`, `describeParticipation`.
-- `src/lib/schedule/matchups.ts` — Phase M. `assignMatchups`, and its two
-  compound passes: `compoundPass`/`tryJoint` (weekday split) and `periodicPass`/
-  `tryWindow` (anti-periodicity, opt-in via `breakPeriodicity`).
+- `src/lib/schedule/matchups.ts` — Phase M. `assignMatchups`.
 - `src/lib/schedule/slots.ts` — Phase S. `assignSlots`.
 - `src/lib/schedule/assignNights.ts` — `planByParticipation`, `planByWeeks`,
   `rankSchedule`, entry point `assignNights`.

@@ -1504,20 +1504,6 @@ function planByParticipation(
       nightWeekday: smeta.weekday,
       targets,
       restarts: pairings.length <= 200 ? 12 : 4,
-      // ⛔ ON EXACTLY THE SEASONS THE NIGHT-ORDER PASS REFUSES. Both break the
-      // same defect — a team stuck on one sheet of ice week after week — and on
-      // an unconstrained season reordering nights does it better and far more
-      // cheaply: worst team 4 with the night-order pass alone, against 10 with
-      // this one turned on underneath it (measured 2026-09-09 on the 6-team
-      // reference — the two do not compose, they fight). So an unconstrained
-      // season wants that one and nothing else. It is gated on `resolved.empty` below,
-      // so a constrained season gets no clustering fix at all unless Phase M
-      // provides it. This is that fix: it re-deals games between nights, so
-      // nothing is relabelled afterwards and every pin Phase P honoured stays
-      // on the night it was pinned to by construction.
-      //
-      // Running BOTH was measured, not assumed — see `SCHEDULE_HANDOFF.md` §5.
-      breakPeriodicity: !resolved.empty,
     });
     // A non-zero error means some pair would meet more or fewer times than the
     // caller asked for; that's opponent balance, so the matrix is unusable.
@@ -1901,13 +1887,6 @@ export function assignNights(
   // that's a constraint evaluation on every one of ~6k annealing steps
   // (4 restarts × 1500 steps — see `nightOrder.ts`). So this only ever runs on
   // an unconstrained generation, where there is no pinned night to lose.
-  //
-  // A constrained season is not left without a clustering fix: Phase M's
-  // `periodicPass` covers it instead, turned on at the `assignMatchups` call
-  // above by this same gate read the other way round. It re-deals games between
-  // nights rather than relabelling nights, so a pin stays on its night by
-  // construction. The two are deliberately never both on — measured, an
-  // unconstrained season runs 4 → 10 with both.
   //
   // ⛔ REWRITE `scheduledAt` WITH `nightIndex`, ALWAYS. An earlier version of
   // this comment claimed reassigning `plan.games` with a new `nightIndex` was
