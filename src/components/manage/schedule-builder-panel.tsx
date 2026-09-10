@@ -906,18 +906,6 @@ export async function ScheduleBuilderPanel({
                         "Three games in a row in one ice time",
                         spacing.slotStreak3,
                       ],
-                      // Above back-to-back on purpose: that is the order
-                      // variation selection uses, and it is the metric a
-                      // manager actually complains about — "the same ice time
-                      // three times in five weeks".
-                      [
-                        "Five-game stretches with three in one ice time",
-                        spacing.slotClusterWindows,
-                      ],
-                      [
-                        "…the worst-affected team's share of those",
-                        spacing.slotClusterWorstTeam,
-                      ],
                       [
                         "Back-to-back games in the same ice time",
                         spacing.slotConsecutive,

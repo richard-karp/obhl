@@ -2103,10 +2103,26 @@ function assignNightsOnce(
   /**
    * A permutation may only swap nights carrying the same label.
    *
-   * ⚠️ A BIAS IS NOT INVARIANT under a night permutation, which is the trap
-   * here. `SlotBias.nights` is a per-night boolean WINDOW, so moving a game
-   * across the window boundary changes what the bias is scored over. Carrying
-   * each bias's membership bit in the label is what keeps it honest — and a
+   * ⛔ THE LABEL IS CORRECT ONLY BECAUSE IT COVERS ALL FOUR. Every field of
+   * `ResolvedConstraints` is position-sensitive, each to a different thing, and
+   * a label that misses one lets a permutation move a request the rank vector
+   * cannot see it moving:
+   *
+   *   | field                | position-sensitive to        | label      |
+   *   |----------------------|------------------------------|------------|
+   *   | `forced`, `slotPins` | the night index              | `FIX${n}`  |
+   *   | `byeInWeek`          | the week a night sits in     | `W${week}` |
+   *   | `biases`             | the night-window it names    | one bit    |
+   *
+   * That table is the completeness argument, and it is why the gate could not
+   * simply be narrowed to "no night-indexed requests": there is no field here
+   * that is safe to exempt. Preserving each night's CLASS is a different move —
+   * it keeps every one of those positions intact rather than trading one away.
+   *
+   * ⚠️ A BIAS IS NOT INVARIANT under a night permutation, which is the row most
+   * easily missed. `SlotBias.nights` is a per-night boolean WINDOW, so moving a
+   * game across the window boundary changes what the bias is scored over.
+   * Carrying each bias's membership bit is what keeps it honest — and a
    * whole-season bias has the same bit on every night, so it costs nothing.
    *
    * With no requests every label is `"-|"`, every permutation is admissible, and
