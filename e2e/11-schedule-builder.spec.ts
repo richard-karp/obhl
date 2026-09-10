@@ -291,6 +291,102 @@ test.describe("Path 17 — Schedule Builder", () => {
     await expect(page.getByText("No draft schedule")).toBeVisible();
   });
 
+  /**
+   * The manager-facing half of schedule variations.
+   *
+   * Generation is deterministic for a given input — deliberately — so before
+   * this button existed, a manager who disliked a schedule and pressed Generate
+   * again got the byte-identical one back forever, and reaching for a manager
+   * request instead switched the ice-time clustering pass off entirely.
+   *
+   * ⛔ Asserts on the rendered GAME LIST, not on the balance report. Every
+   * variation is equally balanced by construction, so the balance report is
+   * identical across all of them and an assertion there would pass against a
+   * button that did nothing at all.
+   *
+   * Longer timeout than `AFTER_GENERATE`: this runs two full generates, and
+   * under 80 games each one is a best-of-four.
+   */
+  test("Try a different schedule returns a different schedule", async ({
+    page,
+  }) => {
+    test.setTimeout(300_000);
+    await expectGenerateFormUsable(page);
+    await page.getByLabel("First game night").fill(await fallStart());
+    // ⛔ 12, NOT the 4 the other generate tests use. A TIGHT season has exactly
+    // one arrangement that meets every goal and every variation converges on it,
+    // so the button correctly returns the same schedule and this test cannot
+    // tell that from a button that does nothing. Measured 2026-09-09 on this
+    // shape — 6 teams, Tue+Thu, 3 sheets: at 4 games a team all four variations
+    // are byte-identical, at 8 there are 3 distinct, at 12 there are 4.
+    await page.getByLabel("Games per team").fill("12");
+    await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
+    await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
+
+    await page.getByRole("button", { name: "Generate schedule" }).click();
+    await expect(page.getByText("Balance report")).toBeVisible(AFTER_GENERATE);
+
+    /**
+     * The whole draft as one string, ice times included.
+     *
+     * ⛔ NOT the game picker's option text. Those read "Ducks @ Hawks —
+     * September 22, 2026" — teams and DATE, no time — so a variation that moves
+     * teams between ice times on the same night is invisible to it, and this
+     * test passed against a working button for exactly that reason. `#rg-at` is
+     * a datetime-local populated from the picked game's `localAt`, so selecting
+     * each game in turn reads the time the manager actually cares about. All
+     * client-side; no server round trip per game.
+     */
+    const draftSignature = async () => {
+      const opts = await page
+        .locator("#rg-game option")
+        .evaluateAll((os) =>
+          os
+            .map((o) => ({
+              value: (o as HTMLOptionElement).value,
+              label: (o as HTMLOptionElement).textContent ?? "",
+            }))
+            .filter((o) => o.value),
+        );
+      const out: string[] = [];
+      for (const o of opts) {
+        await page.selectOption("#rg-game", o.value);
+        // ⛔ BOTH HALVES, PAIRED. The label carries teams and date but no time;
+        // `#rg-at` carries date and time but no teams. Either alone describes
+        // only the CALENDAR — every schedule over these nights fills the same
+        // twelve (date, ice time) cells and plays the same twelve pairings — so
+        // either alone is identical across variations and passes against a
+        // button that changed the schedule completely. Both were written that
+        // way first, and both did.
+        out.push(`${o.label}#${await page.inputValue("#rg-at")}`);
+      }
+      return out.join("|");
+    };
+    const before = await draftSignature();
+    expect(before.length).toBeGreaterThan(20);
+
+    await page
+      .getByRole("button", { name: "Try a different schedule" })
+      .click();
+
+    // Proves the click actually dispatched a generate. Without this step a
+    // button that does nothing at all fails below as "schedule unchanged",
+    // which reads like a generator problem and is not one.
+    await expect(
+      page.getByRole("button", { name: "Generating…" }),
+    ).toBeVisible({ timeout: 20_000 });
+    // Completion. Waiting on "Balance report" instead would return instantly —
+    // that card is already on screen from the first generate.
+    await expect(
+      page.getByRole("button", { name: "Generate schedule" }),
+    ).toBeVisible({ timeout: 240_000 });
+
+    expect(await draftSignature()).not.toBe(before);
+
+    await page.getByRole("button", { name: "Discard draft" }).click();
+    await expect(page.getByText("No draft schedule")).toBeVisible();
+  });
+
   test("a generate reports its result instead of finishing in silence", async ({
     page,
   }) => {

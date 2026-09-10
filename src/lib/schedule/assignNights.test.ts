@@ -40,6 +40,19 @@ function twoNightsPerWeek(
   return ns;
 }
 
+// ⛔ THE SUITE MUST RUN THE SEARCH PRODUCTION RUNS. `vitest.config.ts` used to
+// pin OBHL_SLOT_RESTARTS to 2000 while `assignNights.ts` defaulted to 20000, so
+// every quality bound below was a claim about a program nobody ran: at 20000 the
+// two ice-time clustering tests in this file fail with "expected 13 to be less
+// than or equal to 6". Measured 2026-09-09; see
+// `docs/superpowers/specs/2026-09-09-schedule-variations-design.md` §1.
+//
+// A test config may raise a TIMEOUT. It may not override a constant that shapes
+// the search.
+it("runs Phase S at the production default, not a test-only one", () => {
+  expect(process.env.OBHL_SLOT_RESTARTS).toBeUndefined();
+});
+
 describe("assignNights", () => {
   it("schedules all 6-team games, no team twice a night, 5 games each", () => {
     const ts = teams(6);
@@ -369,6 +382,181 @@ describe("assignNights — full-season reference schedule", () => {
 // 6 teams, one game night a week, 3 sheets: everyone plays every week, so this
 // is the shape where night order is free to move. Measured 2026-09-09: without
 // the pass the worst team carries 14 clustered windows.
+// Six seeds gave six distinct schedules when this was measured (see
+// `docs/superpowers/specs/2026-09-09-schedule-variations-design.md` §4). Two is
+// all this needs to assert: that the lever is connected at all.
+//
+// ⛔ Compares `scheduledAt`, the only positional field that is persisted.
+// Comparing `nightIndex` would pass against a generator that changed nothing a
+// manager can see — the exact failure mode the first clustering attempt shipped.
+describe("assignNights — seeds produce different schedules", () => {
+  const ts = teams(6);
+  const ns = enumerateNights("2026-09-08", {
+    weekdays: new Set([2]),
+    slotTimes: ["19:00", "20:15", "21:30"],
+    excluded: new Set<string>(),
+    maxNights: 23,
+  });
+  const pairings = buildBalancedPairings(ts, 23);
+  // ⚠️ `variations: 1` throughout. This describe tests the SEED lever, not
+  // block selection — without it each call is a best-of-four and these three
+  // tests run eight generates apiece, which is both eight times the cost and
+  // past the 30 s `testTimeout`. Block selection has its own describe below.
+  const stamps = (seed?: number) =>
+    assignNights(pairings, ns, ts, { ...(seed === undefined ? {} : { seed }), variations: 1 })
+      .games.map((g) => `${g.home}|${g.away}|${g.scheduledAt}`)
+      .sort()
+      .join("\n");
+
+  // Hoisted: each of these is a full generate, and computing `stamps(1)` inside
+  // three separate `it`s ran it three times for no extra coverage.
+  const one = stamps(1);
+  const oneAgain = stamps(1);
+  const two = stamps(2);
+  const bare = stamps();
+
+  it("returns the same schedule for the same seed", () => {
+    expect(oneAgain).toBe(one);
+  });
+
+  it("returns a different schedule for a different seed", () => {
+    expect(two).not.toBe(one);
+  });
+
+  it("defaults to seed 1", () => {
+    expect(bare).toBe(one);
+  });
+});
+
+// A variation is the best of a block of seeds, ranked by `rankSchedule` — the
+// same lexicographic comparator the planner rank-off uses, whose last two
+// entries are the clustering terms. That is the ONLY place clustering can enter
+// selection: Phase S's own `compareIceOutcome` cannot see it, which is why more
+// Phase S search returns WORSE clustering (spec §2 of
+// `2026-09-09-schedule-variations-design.md`).
+describe("assignNights — a variation is the best of its block", () => {
+  const ts = teams(6);
+  const ns = enumerateNights("2026-09-08", {
+    weekdays: new Set([2]),
+    slotTimes: ["19:00", "20:15", "21:30"],
+    excluded: new Set<string>(),
+    maxNights: 10,
+  });
+  // ⚠️ A SHORT season on purpose. This describe tests the MECHANICS of block
+  // selection — that the winner is the block's lexicographic minimum and comes
+  // from the block — and those do not depend on season length. The quality
+  // claims (worst-team clustering <= 6) live on the full 23-week fixture below,
+  // which is the shape the league actually plays. Ten weeks keeps a generate at
+  // ~3 s instead of ~6.6 s, and this file runs a dozen of them.
+  const pairings = buildBalancedPairings(ts, 10);
+
+  // `rankSchedule` is module-private, so rebuild it here from the PUBLIC report
+  // — every term is reachable, and writing it out is what makes the ordering
+  // this test asserts on legible. Must stay in step with `rankFromReport`.
+  const spread = (a: number[]) =>
+    a.length ? Math.max(...a) - Math.min(...a) : 0;
+  const rankOf = (r: ReturnType<typeof assignNights>["report"]) => {
+    const sp = r.spacing;
+    return [
+      r.unscheduled,
+      sp.byesAdjNight,
+      r.nightShareByTeam.reduce((s, t) => s + spread(t.counts), 0),
+      sp.byesMultiWeek,
+      sp.byesConsecWeekSameDay,
+      sp.byesConsecWeek,
+      sp.rematchSameWeek,
+      sp.rematchAdjNight,
+      sp.rematchConsecWeekSameDay,
+      sp.rematchConsecWeek,
+      sp.pairingWeekdayExcess,
+      sp.slotWeekdaySpread,
+      r.slotShareByTeam.reduce((s, t) => s + spread(t.counts), 0),
+      sp.slotStreak3,
+      // ⚠️ Clustering ahead of `slotConsecutive` — the ONE way variation
+      // selection differs from `rankSchedule`, whose order this otherwise
+      // mirrors. `rankSchedule` guards the night-order pass, where a permutation
+      // must never trade away an established quality, so clustering ranks last
+      // as a pure tiebreaker. Choosing between complete schedules IS a trade,
+      // and three games in the same ice time inside five weeks is worse than one
+      // extra pair of back-to-backs. Under the unswapped order best-of-4 selects
+      // (b2b 4, worst-team 10) over (b2b 6, worst-team 4) — a worse schedule
+      // from four draws than from one.
+      sp.slotClusterWorstTeam,
+      sp.slotClusterWindows,
+      sp.slotConsecutive,
+    ];
+  };
+  const lessOrEqual = (a: number[], b: number[]) => {
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
+    return true;
+  };
+
+  // Computed once and shared: each of these is a full generate (~6.6 s), and
+  // running the block plus its four members per test doubled the file's cost.
+  const stamps = (r: ReturnType<typeof assignNights>) =>
+    r.games.map((g) => `${g.home}|${g.away}|${g.scheduledAt}`).sort().join("\n");
+  const chosen = assignNights(pairings, ns, ts, { variations: 4 });
+  const singles = [1, 2, 3, 4].map((seed) =>
+    assignNights(pairings, ns, ts, { seed, variations: 1 }),
+  );
+
+  it("is the lexicographic minimum of the four seeds it draws from, by the selection order", () => {
+    const best = rankOf(chosen.report);
+    for (const one of singles) {
+      expect(lessOrEqual(best, rankOf(one.report))).toBe(true);
+    }
+  });
+
+  it("returns a schedule that is actually one of the four", () => {
+    expect(singles.map(stamps)).toContain(stamps(chosen));
+  });
+
+  // ⛔ `home|away|scheduledAt`, never `scheduledAt` alone. Every schedule over
+  // this calendar fills the same (night, slot) cells, so comparing timestamps
+  // compares the CALENDAR and passes against two completely different
+  // schedules. This was written that way first, and it did exactly that.
+  it("variation 2 draws a different block than variation 1", () => {
+    const second = assignNights(pairings, ns, ts, { seed: 2, variations: 4 });
+    expect(stamps(second)).not.toBe(stamps(chosen));
+  });
+
+  // The regression this selection nearly shipped: ranked by `rankSchedule`'s own
+  // order, best-of-4 picks the seed with fewer back-to-backs and far worse
+  // clustering, so four draws produce a worse schedule than one. Measured
+  // 2026-09-09: seed 1 is (b2b 6, worst-team 4); seed 2 is (b2b 4, worst-team
+  // 10); plain `rankSchedule` selects seed 2.
+});
+
+// ⛔ THIS ONE NEEDS THE FULL 23-WEEK SEASON, and the short fixture above is why.
+// Selection orders the two clustering terms AHEAD of `slotConsecutive`, unlike
+// `rankSchedule`. Swapping them back is a one-line change that leaves every test
+// in the describe above green — verified by mutation — because on a ten-week
+// season no seed in the block trades back-to-backs against clustering.
+//
+// On the real 23-week shape it does: measured 2026-09-09, seed 1 is
+// (b2b 6, worst-team 4) and seed 2 is (b2b 4, worst-team 10), so under
+// `rankSchedule`'s own order best-of-four returns worst-team 10 — a WORSE
+// schedule from four draws than from the single default one, on exactly the
+// metric the whole feature exists to improve.
+describe("assignNights — best-of-N never trades clustering away", () => {
+  const ts = teams(6);
+  const ns = enumerateNights("2026-09-08", {
+    weekdays: new Set([2]),
+    slotTimes: ["19:00", "20:15", "21:30"],
+    excluded: new Set<string>(),
+    maxNights: 23,
+  });
+  const pairings = buildBalancedPairings(ts, 23);
+  const chosen = assignNights(pairings, ns, ts, { variations: 4 });
+  const first = assignNights(pairings, ns, ts, { seed: 1, variations: 1 });
+
+  it("never returns worse clustering than the plain first draw", () => {
+    expect(chosen.report.spacing.slotClusterWorstTeam).toBeLessThanOrEqual(
+      first.report.spacing.slotClusterWorstTeam,
+    );
+  });
+});
+
 describe("assignNights — ice-time clustering, 6 teams on one weeknight", () => {
   const ts = teams(6);
   const SLOT_TIMES = ["19:00", "20:15", "21:30"];

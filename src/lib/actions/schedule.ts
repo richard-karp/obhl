@@ -371,6 +371,25 @@ export async function generateSchedule(
     0,
     Math.min(60, Math.floor(Number(formData.get("games_per_team") ?? 0))),
   );
+  /**
+   * Which of the equally-valid schedules to build. "Try a different schedule"
+   * advances it; "Generate schedule" resets it to 1.
+   *
+   * Generation is deterministic for a given input — deliberately, see
+   * `PLATEAU_SEEDS` in `assignNights.ts` — so before this existed a manager who
+   * disliked a schedule and pressed Generate again got the byte-identical one
+   * back, forever. Reaching for a manager request instead made it worse: any
+   * stored request switches the night-order clustering pass off entirely.
+   *
+   * ⚠️ NOT PERSISTED, deliberately. `seasons` has no column for it and a counter
+   * does not earn a migration. The cost is that after a page reload the form
+   * starts from 1 again and may re-offer a schedule the manager already
+   * rejected. Clamped so a hand-edited form cannot ask for an unbounded search.
+   */
+  const variation = Math.max(
+    1,
+    Math.min(50, Math.floor(Number(formData.get("variation") ?? 1)) || 1),
+  );
   // Recurring weeknights the league plays (0=Sun..6=Sat) — one or more.
   const weekdays = new Set(formData.getAll("weekdays").map((d) => Number(d)));
   // Dates to skip (weeks off / holidays).
@@ -545,6 +564,13 @@ export async function generateSchedule(
       }
       result = assignNights(pairings, nights, teamIds, {
         constraints: check.resolved,
+        seed: variation,
+        // ⛔ ONE DRAW ON A RETRY. This loop runs up to 8 times, and a block of
+        // four inside it is up to 32 generations — minutes of wall clock, and
+        // past the function timeout on a large league. A retry is already the
+        // degraded path where placing the games at all beats picking the
+        // prettiest of four.
+        ...(tries > 0 ? { variations: 1 } : {}),
       });
       if (result.report.unscheduled === 0 || g <= 1 || tries >= 8) break;
       g -= 1;
@@ -595,6 +621,10 @@ export async function generateSchedule(
       if (check.refusal) return { ok: false, message: check.refusal };
       result = assignNights(pairings, nights, teamIds, {
         constraints: check.resolved,
+        seed: variation,
+        // ⛔ One draw once this loop has widened the calendar — same reasoning
+        // as the `date` branch above.
+        ...(extra > 0 ? { variations: 1 } : {}),
       });
       if (result.report.unscheduled === 0) break;
     }
@@ -618,6 +648,47 @@ export async function generateSchedule(
   // just be silent, it would be a positive claim that a draft exists when none
   // does. The two failures also leave the season in different states, so they
   // say different things.
+  /**
+   * What the season is showing right now, so a variation that lands on the same
+   * schedule can say so instead of looking broken.
+   *
+   * A tight season has ONE arrangement that meets every goal, and every
+   * variation converges on it. Measured 2026-09-09 on 6 teams over two
+   * weeknights and three sheets: at 4 games a team (12 games, 4 nights) all four
+   * variations are byte-identical; at 8 they give 3 distinct schedules and at 12
+   * they give 4. Without this the manager presses "Try a different schedule",
+   * waits half a minute, and sees the identical screen with a success message.
+   *
+   * Read BEFORE the delete below, which is what makes the comparison possible at
+   * all. Epoch millis, not the raw string: Postgres returns `scheduled_at`
+   * normalised to its own offset, so string equality against what we are about
+   * to insert would report every schedule as new.
+   */
+  const { data: priorDraft } = await admin
+    .from("games")
+    .select("home_team_id, away_team_id, scheduled_at")
+    .eq("season_id", seasonId)
+    .eq("is_draft", true);
+  const keyOfPrior = (priorDraft ?? [])
+    .map(
+      (g) =>
+        `${g.home_team_id}|${g.away_team_id}|${Date.parse(g.scheduled_at as string)}`,
+    )
+    .sort()
+    .join("\n");
+  const keyOfNew = games
+    .map(
+      (g) =>
+        `${g.home}|${g.away}|${Date.parse(`${g.scheduledAt}${leagueOffset(g.scheduledAt)}`)}`,
+    )
+    .sort()
+    .join("\n");
+  const unchanged =
+    priorDraft != null &&
+    priorDraft.length > 0 &&
+    priorDraft.length === games.length &&
+    keyOfPrior === keyOfNew;
+
   const { error: deleteError } = await admin
     .from("games")
     .delete()
@@ -679,6 +750,17 @@ export async function generateSchedule(
     return {
       ok: true,
       message: `Generated a ${games.length}-game draft schedule. ${unmet.length} of ${outcomes.length} manager request${outcomes.length === 1 ? "" : "s"} couldn't be met — see the preview below.`,
+    };
+  }
+  // Said plainly rather than left to be noticed. A manager who pressed "Try a
+  // different schedule" and got this back has reached the end of what this
+  // calendar allows, and the useful next move is a calendar change — not
+  // pressing the button again.
+  if (unchanged && variation > 1) {
+    return {
+      ok: true,
+      message:
+        "That's the same schedule again — this season has only one arrangement that meets every goal. Changing the ice times, the game nights or the games per team is what opens up alternatives.",
     };
   }
   return {
