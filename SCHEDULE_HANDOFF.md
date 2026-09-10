@@ -186,6 +186,13 @@ S effort if a deployment needs a faster round trip.
 
 ---
 
+> **Cross-session PR state (volatile, 2026-09-10):** eight schedule PRs are open
+> across two sessions, two of them duplicating each other's work, and six were
+> measured before the Phase S restart bug was found. The map, which evidence
+> transfers, and the one outstanding measurement are in
+> `docs/superpowers/2026-09-10-schedule-pr-stack.md`. Delete that file once the
+> stack has merged.
+
 ## 5. Known limits (all deliberate)
 
 A code review of this work turned up two defects — the slack ladder computing
