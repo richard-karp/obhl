@@ -221,7 +221,7 @@ function GoalieAndEmptyNet({
         {data.canScore ? (
           <div className="space-y-1">
             <span className="text-muted-foreground block text-[0.7rem] font-semibold uppercase">
-              Empty-net GA
+              Empty-net goals
             </span>
             <div className="flex items-center gap-1.5">
               <EmptyNetButton gameId={data.gameId} side={board.side} sign="−" />
@@ -237,7 +237,7 @@ function GoalieAndEmptyNet({
         Tap a goalie to set who&apos;s in net (W/L credit). &quot;Sub&quot; =
         substitute goalie, no individual stats.
         {data.canScore
-          ? " Empty-net GA = goals against an empty net — excluded from the goalie’s GAA."
+          ? " Empty-net goals = goals scored against an empty net — excluded from the goalie’s GAA."
           : ""}
       </p>
     </div>

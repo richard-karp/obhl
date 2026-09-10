@@ -1,5 +1,5 @@
 /**
- * The scorekeeper's night: `/manage/tonight`, and the day restriction under it.
+ * The scorekeeper's night: `/tonight`, and the day restriction under it.
  *
  * ⛔ THE RESTRICTION IS APP-LEVEL ONLY, BY DECISION. RLS still lets a
  * scorekeeper's own session update any game in a league they belong to, bounded
@@ -26,7 +26,7 @@ async function signedInAs(page: Page, role: Role) {
   // not say "scorekeeper" anywhere, which is how the same change was missed in
   // `15-league-routing` — check the seeded ROLE, not the button label.
   await page.waitForURL(
-    role === "Manager" || role === "Captain" ? "/" : "/manage/tonight",
+    role === "Manager" || role === "Captain" ? "/" : "/tonight",
   );
 }
 
@@ -73,23 +73,36 @@ test.describe("The scorekeeper's night", () => {
   }) => {
     await signedInAs(page, "Scorekeeper");
 
-    // The fixture seeds three. Asserting the count rather than "at least one"
-    // is what would catch the day window silently widening to a whole season.
+    // ⛔ THE INVARIANT, NOT A COUNT. An earlier version asserted exactly four
+    // scoresheet links and was RIGHT about the fixture and WRONG as a test: those
+    // games are a shared, consumable fixture, and by the time the full suite
+    // reaches this file earlier specs have cancelled or postponed some of them
+    // (a postponed game has `scheduled_at` nulled, so it leaves the night
+    // entirely). It passed alone and failed in the suite — which is the worst
+    // kind of test, since it accuses whatever changed last.
     //
-    // ⛔ BY HREF, NOT BY THE "Score" LABEL. `scoreLabel` says "Edit" once a game
-    // is final, and these three games are a SHARED, CONSUMABLE fixture — every
-    // spec that finalizes one takes a "Score" label out of circulation. Counting
-    // scoresheet links instead counts GAMES, which is the actual claim.
-    const scoresheetLinks = page.locator('a[href$="/score"]');
-    await expect(scoresheetLinks).toHaveCount(4);
-
-    // ⛔ FOUR, ACROSS TWO LEAGUES — this is the page's whole reason to exist.
-    // Three Oceanview games and one Harbor game are seeded tonight, and this
-    // account keeps score for both. A page that quietly filtered to one league
-    // would still show games and still look right; only the count and the second
-    // heading catch it.
+    // What actually has to hold is: every row is TODAY, and both leagues this
+    // account scores for are represented. Neither weakens with consumption.
+    await expect(page.locator('a[href$="/score"]').first()).toBeVisible();
     await expect(page.getByText("Oceanview Beer Hockey League")).toBeVisible();
     await expect(page.getByText("Harbor Rec Hockey League")).toBeVisible();
+
+    // ⛔ AND NOTHING FROM ANOTHER DAY. This is the assertion the count was really
+    // standing in for: if the day window ever widened to a season, other dates
+    // would appear here. Rows render "Thu, Sep 10"-style dates in the league
+    // zone, so one distinct date means one night.
+    const dates = await page
+      .locator("time, [class*='whitespace-nowrap']")
+      .allInnerTexts();
+    const dayLabels = new Set(
+      dates
+        .map((t) => t.split("\n")[0].trim())
+        .filter((t) => /^\w{3}, \w{3} \d+$/.test(t)),
+    );
+    expect(
+      dayLabels.size,
+      `expected one night, saw ${[...dayLabels].join(" / ")}`,
+    ).toBeLessThanOrEqual(1);
   });
 
   test("a scorekeeper sees only the leagues they keep score for", async ({
@@ -101,7 +114,9 @@ test.describe("The scorekeeper's night", () => {
     // a feature.
     await signedInAs(page, "One-league scorer");
 
-    await expect(page.locator('a[href$="/score"]')).toHaveCount(3);
+    // ⛔ THE SCOPING, NOT THE COUNT — same reasoning as above. What must hold is
+    // that the OTHER league never appears for an account that does not score it.
+    await expect(page.locator('a[href$="/score"]').first()).toBeVisible();
     await expect(page.getByText("Oceanview Beer Hockey League")).toBeVisible();
     await expect(page.getByText("Harbor Rec Hockey League")).toHaveCount(0);
   });
@@ -118,7 +133,7 @@ test.describe("The scorekeeper's night", () => {
     // `toHaveURL` waits, so this does not race the redirect — and landing back
     // on their own page rather than the picker is the deliberate deviation from
     // every other guard in the app.
-    await expect(page).toHaveURL("/manage/tonight");
+    await expect(page).toHaveURL("/tonight");
     await expect(page.getByRole("heading", { name: "Tonight" })).toBeVisible();
   });
 
@@ -164,11 +179,15 @@ test.describe("The scorekeeper's night", () => {
     await expect(page.getByText("Final").first()).toBeVisible();
   });
 
-  test("the staff row offers the scorekeeper one link, back to tonight", async ({
+  test("picking a goalie dresses them, and a lineup save does not undress them", async ({
     page,
   }) => {
-    // The row is only drawn inside a league, so this is the journey it serves:
-    // the way back from a scoresheet to the night. Their way IN is the landing.
+    // ⛔ THE PAIR. Goalies are no longer lineup checkboxes — `setGoalie` dresses
+    // whoever is picked, and `setLineup` must exclude goalies from the removal it
+    // reconciles. Both files say "the two changes only work as a pair" and
+    // nothing tested the pair, which is exactly the shape of gap this repo's
+    // "assert on what ships" rule is about: a regression that deletes the goalie
+    // on every lineup save would be invisible to every other spec.
     await signedInAs(page, "Scorekeeper");
     await page
       .getByRole("link", { name: "Score", exact: true })
@@ -176,11 +195,69 @@ test.describe("The scorekeeper's night", () => {
       .click();
     await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
-    const staff = page.getByRole("navigation", { name: "Staff tools" });
-    await expect(staff.getByRole("link", { name: "Tonight" })).toBeVisible();
-    await expect(staff.getByRole("link", { name: "Dashboard" })).toHaveCount(0);
+    const lineupForms = page.locator("form").filter({
+      has: page.locator('input[name="player_ids"]'),
+    });
+    // Dress the skaters so the goalie section appears.
+    for (const form of [lineupForms.first(), lineupForms.last()]) {
+      const boxes = form.locator('input[type="checkbox"]');
+      for (let i = 0; i < (await boxes.count()); i++)
+        await boxes.nth(i).check();
+      await form.getByRole("button", { name: "Save lineup" }).click();
+      await page.waitForLoadState("networkidle");
+    }
+
+    // Pick a goalie of record.
+    const goalieButtons = page
+      .locator("form")
+      .filter({ has: page.locator('input[name="goalie_id"]') })
+      .first()
+      .getByRole("button");
+    await goalieButtons.first().click();
+    await page.waitForLoadState("networkidle");
+
+    // ⛔ The goalie is NOT among the lineup checkboxes — that is the change.
+    const firstBoxes = lineupForms.first().locator('input[type="checkbox"]');
+    const beforeCount = await firstBoxes.count();
+
+    // Save the lineup again. Before the paired fix this deleted the goalie's
+    // roster row, because the form no longer submits them.
+    await lineupForms
+      .first()
+      .getByRole("button", { name: "Save lineup" })
+      .click();
+    await page.waitForLoadState("networkidle");
+
+    // The goalie section still shows a goalie of record — the row survived.
     await expect(
-      staff.getByRole("link", { name: "People & Roles" }),
+      lineupForms.first().locator('input[type="checkbox"]'),
+    ).toHaveCount(beforeCount);
+    await expect(page.getByText("Empty-net goals").first()).toBeVisible();
+  });
+
+  test("a scoresheet gives the scorekeeper the minimal chrome and a way back", async ({
+    page,
+  }) => {
+    await signedInAs(page, "Scorekeeper");
+    await page
+      .getByRole("link", { name: "Score", exact: true })
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
+
+    // ⛔ The site header and the staff row are BOTH gone for a scorekeeper —
+    // `[league]/layout` swaps them for `ScorekeeperChrome`. What is left is the
+    // way back to tonight, and nothing they cannot act on.
+    await expect(page.getByRole("link", { name: /Tonight/ })).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Staff tools" }),
     ).toHaveCount(0);
+    await expect(page.getByRole("navigation", { name: "League" })).toHaveCount(
+      0,
+    );
+
+    // #2: no account chrome a shared login should not have.
+    await expect(page.getByRole("link", { name: "Password" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
   });
 });

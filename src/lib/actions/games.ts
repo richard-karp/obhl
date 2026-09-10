@@ -98,9 +98,40 @@ export async function setLineup(formData: FormData) {
     .eq("is_substitute", false);
   const currentSet = new Set((current ?? []).map((r) => r.player_id));
 
+  // ⛔ GOALIES ARE NEVER REMOVED HERE, because they are never submitted here.
+  // The scoresheet's lineup checkboxes are SKATERS ONLY — who is in net is the
+  // goalie section's decision — so without this every lineup save would delete
+  // the goalie's roster row while `games.home_goalie_id` still named them, and
+  // their stats line would vanish from the box score. The two changes only work
+  // as a pair.
+  // ⛔ BOTH READS FAIL CLOSED. An earlier version discarded these errors and
+  // fell back to an empty goalie set — which does not mean "no goalies", it
+  // means "I could not find out", and the difference is a DELETED roster row
+  // carrying that goalie's stats. Failing open here loses data on exactly the
+  // path where something is already wrong.
+  const { data: game, error: gameError } = await supabase
+    .from("games")
+    .select("season_id")
+    .eq("id", game_id)
+    .maybeSingle();
+  check(gameError, "Update lineup");
+  if (!game) throw new Error("Update lineup failed: game not found");
+
+  const { data: keepers, error: keepersError } = await supabase
+    .from("team_players")
+    .select("player_id")
+    .eq("season_id", game.season_id)
+    .eq("team_id", team_id)
+    .eq("position", "G");
+  check(keepersError, "Update lineup");
+  const goalieIds = new Set((keepers ?? []).map((k) => k.player_id));
+
   const toAdd = [...checked].filter((p) => !currentSet.has(p));
   const toRemove = (current ?? [])
-    .filter((r) => r.player_id && !checked.has(r.player_id))
+    .filter(
+      (r) =>
+        r.player_id && !checked.has(r.player_id) && !goalieIds.has(r.player_id),
+    )
     .map((r) => r.id);
 
   if (toAdd.length) {
@@ -246,6 +277,75 @@ export async function setGoalie(formData: FormData) {
     .update(patch)
     .eq("id", game_id);
   check(error, "Set goalie");
+
+  // ⛔ CHOOSING A GOALIE DRESSES THEM, AND UNCHOOSING ONE UNDRESSES THEM.
+  // Since the lineup checkboxes became skaters-only, this is the ONLY thing that
+  // can put a goalie on the roster or take them off it — there is no checkbox to
+  // fall back on. Both halves are needed: without the insert a goalie of record
+  // has no row to carry their stats; without the delete, tapping #1 by mistake
+  // and then #31 leaves #1 dressed forever, a phantom GP in `v_skater_stats` and
+  // an arbitrary winner in `v_goalie_stats`'s fallback branch (`0015`).
+  const { data: g, error: gError } = await supabase
+    .from("games")
+    .select("home_team_id, away_team_id, season_id")
+    .eq("id", game_id)
+    .maybeSingle();
+  check(gError, "Set goalie");
+  const goalieTeamId = side === "home" ? g?.home_team_id : g?.away_team_id;
+
+  // ⚠️ FAILS CLOSED. Without a season we cannot tell which players are goalies,
+  // and "I could not find out" must not become "delete nothing that looks like a
+  // goalie" OR "delete everything" — so the undress is skipped entirely and the
+  // roster is left as it was.
+  if (goalieTeamId && g?.season_id) {
+    // ⚠️ ONLY A ROW WITH NOTHING RECORDED ON IT. A previous goalie who actually
+    // played has goals/assists/pim or was dressed deliberately; deleting that
+    // would lose real data to fix a mis-tap. A blank row is the one this action
+    // created and the one it may take back.
+    const { data: keepers, error: keepersError } = await supabase
+      .from("team_players")
+      .select("player_id")
+      .eq("season_id", g.season_id)
+      .eq("team_id", goalieTeamId)
+      .eq("position", "G");
+    check(keepersError, "Set goalie");
+    const previous = (keepers ?? [])
+      .map((k) => k.player_id)
+      .filter((id) => id !== goalie_id);
+    if (previous.length) {
+      const { error: undressError } = await supabase
+        .from("game_rosters")
+        .delete()
+        .eq("game_id", game_id)
+        .eq("team_id", goalieTeamId)
+        .in("player_id", previous)
+        .eq("is_substitute", false)
+        .eq("goals", 0)
+        .eq("assists", 0)
+        .eq("pim", 0);
+      check(undressError, "Set goalie");
+    }
+  }
+
+  if (goalie_id && goalieTeamId) {
+    // Idempotent: `ignoreDuplicates` leaves an existing row and its stats alone.
+    // ⚠️ THE ERROR IS CHECKED. An RLS-refused INSERT *does* error (42501), and so
+    // does an `on_conflict` that names no constraint (42P10) — swallowing either
+    // leaves a named goalie with no dressed row and no goalie line in the box
+    // score, silently.
+    const { error: dressError } = await supabase
+      .from("game_rosters")
+      .upsert(
+        {
+          game_id,
+          team_id: goalieTeamId,
+          player_id: goalie_id,
+          is_substitute: false,
+        },
+        { onConflict: "game_id,player_id", ignoreDuplicates: true },
+      );
+    check(dressError, "Set goalie");
+  }
   revalidateAfterScore(game_id, true);
 }
 

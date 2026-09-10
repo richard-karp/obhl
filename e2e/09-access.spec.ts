@@ -11,10 +11,10 @@ async function signedInAs(
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
   // ⚠️ THE LANDING IS ROLE-DEPENDENT NOW. Everyone still lands on the league
-  // picker, except a scorekeeper, who lands on `/manage/tonight` — the only
+  // picker, except a scorekeeper, who lands on `/tonight` — the only
   // surface they are meant to use. Waiting for "/" unconditionally would hang
   // here for the whole scorekeeper half of this file.
-  await page.waitForURL(role === "Scorekeeper" ? "/manage/tonight" : "/");
+  await page.waitForURL(role === "Scorekeeper" ? "/tonight" : "/");
   await page.goto("/obhl/dashboard");
 }
 
@@ -44,9 +44,11 @@ test.describe("Path 15 — Role-based access control", () => {
     await signedInAs(page, "Scorekeeper");
     await page.goto("/obhl/schedule");
     await expect(page.getByRole("heading", { name: "Schedule" })).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "Score", exact: true }).first(),
-    ).toBeVisible();
+    // ⛔ BY HREF, NOT BY THE "Score" LABEL. `scoreLabel` renders "Edit" once a
+    // game is final, and since the day restriction a scorekeeper only sees
+    // TONIGHT's handful — which earlier specs finalize and cancel. Matching the
+    // label made this test depend on how much of that shared fixture was left.
+    await expect(page.locator('a[href$="/score"]').first()).toBeVisible();
   });
 
   test("captain sees only their team's lineup form on the scoresheet", async ({
