@@ -50,7 +50,8 @@ const NEW_LEAGUE = "/manage/leagues/new";
 async function signInAs(page: Page, label: string) {
   await page.goto("/login");
   await page.getByRole("button", { name: label, exact: true }).click();
-  await page.waitForURL("/");
+  // Scorekeeper labels land on `/tonight`; everyone else on the picker.
+  await page.waitForURL(/scorer|scorekeeper/i.test(label) ? "/tonight" : "/");
 }
 
 const heading = (page: Page) =>

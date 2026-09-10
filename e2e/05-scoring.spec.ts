@@ -10,9 +10,11 @@ async function signedInAs(
 ) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
-  // Sign-in lands on the league picker — there is no league-agnostic dashboard
-  // any more. Every caller below expects to be inside a league's manage tools.
-  await page.waitForURL("/");
+  // ⚠️ THE LANDING IS ROLE-DEPENDENT NOW. Everyone still lands on the league
+  // picker, except a scorekeeper, who lands on `/tonight` — the only
+  // surface they are meant to use. Waiting for "/" unconditionally would hang
+  // here for the whole scorekeeper half of this file.
+  await page.waitForURL(role === "Scorekeeper" ? "/tonight" : "/");
   await page.goto("/obhl/dashboard");
 }
 
@@ -160,12 +162,20 @@ test.describe("Path 11 — Game management", () => {
     await page.getByRole("link", { name: "Score", exact: true }).last().click();
     await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
-    await page.getByRole("button", { name: "Postpone" }).click();
-    await page.waitForLoadState("networkidle");
-    await expect(page.getByText("Postponed").first()).toBeVisible();
-
-    await page.getByRole("button", { name: "Restore to scheduled" }).click();
-    await page.waitForLoadState("networkidle");
+    // ⛔ RESTORED IN `finally`. `.last()` now resolves to one of TONIGHT's games
+    // — the only ones a scorekeeper can open — and postponing nulls
+    // `scheduled_at` (`0025`). A failure between the two clicks would leave that
+    // game undated forever, taking it off `/tonight` and surfacing later
+    // as an unrelated count mismatch in `33-scorekeeper-day`. The sibling test
+    // above already guards its cancel this way.
+    try {
+      await page.getByRole("button", { name: "Postpone" }).click();
+      await page.waitForLoadState("networkidle");
+      await expect(page.getByText("Postponed").first()).toBeVisible();
+    } finally {
+      await page.getByRole("button", { name: "Restore to scheduled" }).click();
+      await page.waitForLoadState("networkidle");
+    }
   });
 
   test("AI game recap card visible on finalized game for manager", async ({

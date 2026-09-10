@@ -276,6 +276,51 @@ Each of these cost a review round or a wrong fix in the session that built it.
   without it the game is cancelled. If you ever need to re-verify this, do not
   do it through the e2e harness.
 
+- **⛔ THE SCOREKEEPER DAY RULE IS APP-ONLY, AND THAT IS THE ONE THING TO KNOW
+  ABOUT IT.** Since 2026-09-10 a scorekeeper may only open a game whose
+  LEAGUE-LOCAL date is today — enforced in
+  `src/app/[league]/(manage)/games/[gameId]/score/page.tsx`, with the list of
+  those games at `/tonight`. ⚠️ **There is no policy half.** This is a
+  deliberate exception to the guard-plus-RLS pair every other rule here has:
+  `0032`'s `"scorekeeper update games"` is still date-blind, so a scorekeeper's
+  own session, with the publishable key, can still write the scoring columns of
+  ANY game in their leagues, of any date — `0046` bounds *which columns*, never
+  *which game*. The account is also a SHARED credential by design (one
+  `scorekeeper@` login for every volunteer), so the password will circulate.
+  Both facts were weighed and accepted; they are written here so the next
+  reviewer does not report the gap as a discovery, and so anyone tightening it
+  knows the missing piece is a policy on `games`/`game_rosters`, not a guard.
+  ⚠️ The rule is `isOnLeagueDate` + `leagueToday` (`src/lib/format.ts`), and it
+  must stay in the league zone: the last slot of a night is 9:40pm Eastern, which
+  is already tomorrow in UTC, so a UTC comparison drops the final game of every
+  night off its own night.
+
+  ⛔ **THE BOUNDARY IS LOCAL MIDNIGHT, FULL STOP — AND THE WRITE PATH DOES NOT
+  SHARE IT.** `finalizeGame`, `bumpStat` and `setLineup` (`src/lib/actions/games.ts`)
+  carry no day check; only the page does. A submit at 00:01 therefore SUCCEEDS
+  and the re-render then refuses the scorekeeper the game they just changed.
+
+  ⚠️ WHAT CLOSES THAT TODAY IS ONLY THE SIGN-OUT at the day rollover. A nightly
+  job to complete games left `in_progress` was built and then HELD BACK — it is
+  on `feat/close-the-night`, out of this branch because it was wrong in three
+  separate ways across two review rounds and it rewrites finalized scores. Until
+  it lands, a game left open stays open. ⚠️ A six-hour grace tail was built and
+  then **reverted** on 2026-09-10 — it let a game already in play stay open past
+  midnight, which directly contradicts both. Do not reintroduce it without
+  deciding what the auto-complete and the sign-out should then do.
+
+- **⚠️ `/tonight` IS NOT A REVERT OF `fbb0802`, AND IT IS NOT CALLED
+  `score` FOR A REASON.** The old `/manage/score` was deleted and absorbed into
+  the public schedule because it was "the same games in a table with a button on
+  each row". The new page is cross-league, one-day, and a RESTRICTION — the only
+  surface a scorekeeper is meant to use — so that reasoning does not reach it.
+  ⛔ It cannot be called `score`: `next.config.ts` still carries
+  `/:league/score -> /:league/schedule`, `:league` matches ANY first segment
+  including `manage`, and redirects are checked BEFORE the filesystem — so a page
+  at `/manage/score` never renders. Watched happening. **Check any new
+  `/manage/<x>` path against that redirect list before choosing it**; the config
+  already documents the same hazard for `/manage/import`.
+
 - **Every export of a `"use server"` file is a callable endpoint.** "Internal
   helper" in a doc comment is not a boundary. `finalizeGameById` /
   `reopenGameById` were two unguarded ones taking the audit actor as a

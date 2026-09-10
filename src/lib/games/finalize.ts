@@ -27,7 +27,10 @@ import { check, revalidateAfterScore } from "./shared";
  */
 
 /** Caller MUST have verified `actorId` against the session and the league. */
-export async function finalizeGameById(gameId: string, actorId: string) {
+export async function finalizeGameById(
+  gameId: string,
+  actorId: string,
+) {
   const supabase = await createClient();
 
   const { data: game } = await supabase
@@ -80,7 +83,18 @@ export async function finalizeGameById(gameId: string, actorId: string) {
     .eq("id", gameId);
   check(error, "Finalize game");
 
-  void logAudit({
+  // ⛔ AWAITED, NOT `void`ed — because the nightly sweep calls this from a route
+  // handler. On Vercel a function can be frozen the moment its response is sent,
+  // so a fire-and-forget write after that point may simply never flush, and this
+  // entry is the ONLY record that the system closed the game. `saveRules` awaits
+  // its entry for the same class of reason: the entry is the only copy of
+  // something. Watched in local dev: the entry landed ~200ms AFTER the route had
+  // already returned, which is exactly the window that does not exist in
+  // production.
+  //
+  // ⚠️ Safe to await: `logAudit` swallows its own errors, so this cannot fail a
+  // finalize that already succeeded.
+  await logAudit({
     user_id: actorId,
     action: "finalize_game",
     entity_type: "game",

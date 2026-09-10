@@ -39,10 +39,11 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
     // link in `staffLinks()` below, beside the League Office.
     { path: "/audit", label: "Audit Log" },
   ],
-  scorekeeper: [
-    { path: "/dashboard", label: "Dashboard" },
-    { path: "/schedule", label: "Score Games" },
-  ],
+  // ⛔ EMPTY, AND THIS WHOLE ROW IS NOT DRAWN FOR THEM ANY MORE. `[league]/layout`
+  // gives a scorekeeper `ScorekeeperChrome` instead of the site header and this
+  // row — their only navigation is the Tonight button there. The key stays
+  // because the type is `Record<AppRole, ...>`; deleting it does not compile.
+  scorekeeper: [],
   captain: [{ path: "/dashboard", label: "Dashboard" }],
 };
 

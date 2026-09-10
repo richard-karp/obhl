@@ -22,9 +22,11 @@ async function signedInAs(
 ) {
   await page.goto("/login");
   await page.getByRole("button", { name: role }).click();
-  // Sign-in lands on the league picker — there is no league-agnostic dashboard
-  // any more. Every caller below expects to be inside a league's manage tools.
-  await page.waitForURL("/");
+  // ⚠️ THE LANDING IS ROLE-DEPENDENT NOW. Everyone still lands on the league
+  // picker, except a scorekeeper, who lands on `/tonight` — the only
+  // surface they are meant to use. Waiting for "/" unconditionally would hang
+  // here for the whole scorekeeper half of this file.
+  await page.waitForURL(role === "Scorekeeper" ? "/tonight" : "/");
   await page.goto("/obhl/dashboard");
 }
 
@@ -39,10 +41,10 @@ test.describe("Path 19 — Scorekeeper goalie buttons", () => {
 
     // The scorekeeper's game list is the public schedule now, with a
     // button per row for whoever may open a scoresheet.
-    await page
-      .getByRole("link", { name: "Score", exact: true })
-      .first()
-      .click();
+    // ⛔ BY HREF: a scorekeeper now sees only tonight's games, and by the time
+    // this file runs earlier specs have finalized some of them — at which point
+    // the button says "Edit" and a label match finds nothing.
+    await page.locator('a[href$="/score"]').first().click();
     await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
     // Dress all players for both teams so goalie section appears
@@ -215,7 +217,12 @@ test.describe("Path 21 — Captain sets goalie of record", () => {
     await gameLink.click();
     await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 
-    // Empty-net GA stepper is scorekeeper-only
-    await expect(page.getByText("EMPTY-NET GA")).not.toBeVisible();
+    // ⛔ THE LABEL, EXACTLY AS RENDERED. This read `"EMPTY-NET GA"` and passed on
+    // a case-insensitive substring match — until the label was renamed to
+    // "Empty-net goals", after which it matched nothing for ANY role and could
+    // no longer fail — `getByText` with a string is a case-insensitive SUBSTRING
+    // match, so it was real against the old label and vacuous against the new
+    // one. Keep it pinned to the string the component actually renders.
+    await expect(page.getByText("Empty-net goals")).toHaveCount(0);
   });
 });

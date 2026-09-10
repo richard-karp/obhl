@@ -13,7 +13,13 @@ import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { NoSeason } from "@/components/public/no-season";
 import { SeasonSwitcher } from "@/components/manage/season-switcher";
-import { formatLongDate, leagueDateKey, leagueTimeKey } from "@/lib/format";
+import {
+  formatLongDate,
+  isOnLeagueDate,
+  leagueDateKey,
+  leagueTimeKey,
+  leagueToday,
+} from "@/lib/format";
 import {
   ScheduleEditPanel,
   type EditableGame,
@@ -43,11 +49,21 @@ function GroupedGames({
   groups,
   league,
   canScore,
+  canManage,
+  today,
 }: {
   groups: ReturnType<typeof groupByDate>;
   league: string;
   /** Draw a Score button per game. See `canScoreLeague` — it is not a guard. */
   canScore: boolean;
+  /**
+   * Whether the viewer is a MANAGER, which decides whether the button appears on
+   * games that are not today. Managers keep every button; a scorekeeper only
+   * gets tonight's, because the scoresheet now refuses them any other date.
+   */
+  canManage: boolean;
+  /** Tonight, in the league zone, resolved once per render. */
+  today: string;
 }) {
   return (
     <div className="space-y-6">
@@ -62,8 +78,17 @@ function GroupedGames({
                 key={g.id}
                 game={g}
                 league={league}
+                // ⛔ NOT JUST `canScore`. The scoresheet refuses a scorekeeper
+                // any game that is not today, so drawing the button on a game
+                // 120 days old would offer a control whose only outcome is a
+                // bounce back to `/tonight`. A button that cannot work is
+                // worse than no button: it reads as a broken page rather than as
+                // a boundary. Managers are unaffected — they have no day limit.
                 scoreHref={
-                  canScore ? `/${league}/games/${g.id}/score` : undefined
+                  canScore &&
+                  (canManage || isOnLeagueDate(g.scheduled_at, today))
+                    ? `/${league}/games/${g.id}/score`
+                    : undefined
                 }
               />
             ))}
@@ -145,6 +170,9 @@ export default async function SchedulePage({
   // edit panel is the same trap: drawing it on `canScore` would offer two of
   // three entitled roles a control their own guard refuses.
   const canManage = await canManageLeague(resolved.id);
+  // Resolved once for the whole render: three `GroupedGames` ask, and the answer
+  // cannot change mid-render.
+  const today = leagueToday();
   const editable: EditableGame[] = canManage
     ? games
         // ⛔ `=== "scheduled"`, not `!== "final"`. Cancelled games keep their date,
@@ -261,6 +289,8 @@ export default async function SchedulePage({
                 groups={upcomingGroups}
                 league={slug}
                 canScore={canScore}
+                canManage={canManage}
+                today={today}
               />
             )}
           </section>
@@ -274,6 +304,8 @@ export default async function SchedulePage({
                 groups={resultGroups}
                 league={slug}
                 canScore={canScore}
+                canManage={canManage}
+                today={today}
               />
             </section>
           ) : null}
@@ -285,6 +317,8 @@ export default async function SchedulePage({
                 groups={cancelled}
                 league={slug}
                 canScore={canScore}
+                canManage={canManage}
+                today={today}
               />
             </section>
           ) : null}

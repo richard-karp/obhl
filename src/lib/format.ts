@@ -33,6 +33,78 @@ export function leagueDateKey(iso: string): string {
 }
 
 /**
+ * The UTC instant at which a league-zone calendar day begins.
+ *
+ * ⛔ DO NOT BUILD THIS FROM `leagueOffset`. That function samples NOON, which is
+ * the right choice for stamping an evening ice time and the wrong one for
+ * midnight: on 1 Nov 2026 the zone switches EDT->EST at 2am, so noon is -05:00
+ * while midnight is still -04:00. Stamping midnight with the noon offset puts
+ * the day's start an hour late and clips 00:00-01:00 off it.
+ *
+ * Two passes, because the offset depends on the very instant being computed:
+ * guess with the offset in force at midnight UTC, apply it, then re-read the
+ * offset at that candidate. The second read is the answer — a transition can
+ * move the candidate across itself once, never twice.
+ */
+export function leagueDayStart(day: string): string {
+  const date = day.slice(0, 10);
+  // ⚠️ RAISES, AND DELIBERATELY DOES NOT DEGRADE LIKE ITS NEIGHBOURS.
+  // `isOnLeagueDate` and `leagueWeekday` answer a bad input with a refusal
+  // because they decide about ONE game and losing the page is worse. This one
+  // returns a range BOUND: there is no sensible day-start for a non-date, and
+  // inventing one would silently query the wrong window. `Intl.formatToParts`
+  // would throw anyway a few lines down — this only makes the message name the
+  // input instead of surfacing an opaque RangeError from inside Intl.
+  if (Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
+    throw new RangeError(`leagueDayStart: not a calendar date: ${day}`);
+  }
+  const offsetAt = (at: Date) =>
+    (
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: LEAGUE_TZ,
+        timeZoneName: "longOffset",
+      })
+        .formatToParts(at)
+        .find((p) => p.type === "timeZoneName")?.value ?? "GMT-05:00"
+    ).replace("GMT", "") || "-05:00";
+
+  const guess = offsetAt(new Date(`${date}T00:00:00Z`));
+  const candidate = new Date(`${date}T00:00:00${guess}`);
+  return new Date(`${date}T00:00:00${offsetAt(candidate)}`).toISOString();
+}
+
+/**
+ * Today's league-zone calendar date ("YYYY-MM-DD").
+ *
+ * ⚠️ `now` IS A PARAMETER, NOT A CLOCK READ, and that is the whole reason this
+ * is testable. Nothing in this repo uses fake timers, so a function that read
+ * `new Date()` internally could only be tested by mocking the clock. Callers
+ * pass the value down; the default is the convenience.
+ */
+export function leagueToday(now: Date = new Date()): string {
+  return leagueDateKey(now.toISOString());
+}
+
+/**
+ * Is this game on the given league-zone date?
+ *
+ * ⛔ THE COMPARISON MUST BE IN THE LEAGUE ZONE, NOT UTC. The last slot of a
+ * night is 9:40pm Eastern, which is already the next day in UTC — comparing UTC
+ * dates would drop the final game of every night off its own night.
+ *
+ * Degrades to `false` rather than raising, matching `leagueWeekday`: a null
+ * `scheduled_at` is a postponed or unscheduled game (`0025` nulls it), and this
+ * runs on the scoring path, where refusing one game beats losing the page.
+ */
+export function isOnLeagueDate(
+  scheduledAt: string | null,
+  dateKey: string,
+): boolean {
+  if (!scheduledAt || Number.isNaN(Date.parse(scheduledAt))) return false;
+  return leagueDateKey(scheduledAt) === dateKey;
+}
+
+/**
  * League-local wall-clock time as "HH:MM", 24-hour.
  *
  * The counterpart of `leagueDateKey`, and it exists for the same reason: a

@@ -1,8 +1,12 @@
 -- Seed: TWO leagues so the league switcher and cross-league players are real.
---   * Oceanview Beer Hockey League — 6 teams, ~14 players each, 5 rounds
---     (rounds 1-3 final with goals/penalties, 4-5 upcoming).
---   * Harbor Rec Hockey League — 4 teams, ~12 players each, 3 rounds
---     (rounds 1-2 final, round 3 upcoming).
+--   * Oceanview Beer Hockey League — 6 teams, ~14 players each, 6 rounds
+--     (rounds 1-3 final with goals/penalties, 4-5 scheduled but PAST, 6 TONIGHT).
+--   * Harbor Rec Hockey League — 4 teams, ~12 players each, 4 rounds
+--     (rounds 1-2 final, round 3 scheduled but past, round 4 TONIGHT).
+-- ⚠️ The two "tonight" rounds are the only fixtures that are ever today, and
+-- they exist for the scorekeeper's page — see the TONIGHT blocks below. Rounds
+-- 4-5 of Oceanview are `scheduled` yet in the PAST, which is what lets the
+-- scoring specs open a game without one being today.
 -- Two Oceanview people also skate in Harbor (shared global identity).
 -- Plus a few league announcements. Deterministic (no random()).
 
@@ -93,6 +97,16 @@ declare
   v_l1_anchor  date := date_trunc('week', current_date - 120)::date + 1;
   v_l2_anchor  date := date_trunc('week', current_date - 120)::date + 2;
   v_fall_anchor date := date_trunc('week', current_date + 14)::date + 1;
+  -- ⛔ TONIGHT, IN THE LEAGUE'S ZONE — NOT `current_date`.
+  --
+  -- The scorekeeper's page lists games whose LEAGUE-LOCAL date is today, and
+  -- `leagueDateKey` reads them in `America/New_York`. `current_date` is UTC and
+  -- rolls at 20:00 Eastern (19:00 on EST), which is INSIDE the 19:00-23:00 window
+  -- these games occupy — so a fixture dated `current_date` would be dated
+  -- TOMORROW by the app for the whole second half of every evening, and would be
+  -- invisible on the very page it exists to test. The UTC-rollover trap is the
+  -- same one the comment above records; this is the one place it bites.
+  v_tonight date := (current_timestamp at time zone 'America/New_York')::date;
 begin
   -- ============================================================ OCEANVIEW
   insert into leagues (name, slug, is_public)
@@ -103,6 +117,16 @@ begin
     -- ⚠️ THE YEAR IN THIS NAME IS NOT A CLAIM ABOUT THE DATES. The name is the
     -- handle 17 assertions use to find this season; the dates are relative to
     -- today. Do not "fix" the mismatch by pinning the dates back.
+    -- ⚠️ TONIGHT'S GAMES SIT OUTSIDE THIS RANGE, AND THAT IS FINE. A previous
+    -- version widened `ends_on` to cover them, justified by the schedule
+    -- builder's "no room for playoffs" warning. That justification was WRONG:
+    -- `overrunsSeason` (`schedule-builder-panel.tsx`) is computed from `byDate`,
+    -- which is built only from DRAFT games, and this season has none — so the
+    -- warning could never fire. Widening it also made Spring overlap Fall, which
+    -- it never did before, and Harbor's tonight game was left outside its own
+    -- `ends_on` regardless, so the rule was not even applied consistently.
+    -- Nothing in the app reads `ends_on` except display and that draft-only
+    -- check. Reverted.
     values (v_league, 'Spring 2026', v_l1_anchor, v_l1_anchor + 49, true,
             '{"win":2,"tie":1,"loss":0}'::jsonb)
     returning id into v_season;
@@ -187,6 +211,58 @@ begin
       insert into games (season_id, home_team_id, away_team_id, scheduled_at, status, week, round)
         values (v_season, v_team_ids[g.h], v_team_ids[g.a], g.sched, 'scheduled', g.rnd, g.rnd);
     end if;
+  end loop;
+
+  -- ── TONIGHT ────────────────────────────────────────────────────────────
+  --
+  -- Three games on the league-local calendar date, at the same 19:00/20:15/21:30
+  -- slots as every other night. THE ONLY FIXTURE THAT IS EVER "TODAY".
+  --
+  -- ⛔ WITHOUT THIS THE SCOREKEEPER'S PAGE CANNOT BE TESTED AT ALL. Every other
+  -- game here is anchored ~120 days back or ~14 days forward, so under the
+  -- day restriction a scorekeeper can open exactly zero of them — the suite
+  -- would go green having exercised nothing.
+  --
+  -- Round 6, after the five that make up the round robin. Left `scheduled` so
+  -- the scoresheet has something to open, dress and finalize.
+  --
+  -- ⛔ THESE THREE ARE A SHARED, CONSUMABLE FIXTURE. They are the ONLY games a
+  -- scorekeeper can open, so every spec that finalizes one takes it out of
+  -- circulation for the specs that run after — and `scoreLabel` renders a final
+  -- game as "Edit", so a locator matching the literal "Score" then finds
+  -- nothing. That is measured, not predicted: `30-schedule-edits` failed exactly
+  -- this way once `05-scoring` and `33-scorekeeper-day` had each finalized one.
+  -- **Locate a scoresheet by `a[href$="/score"]`, never by the button label**,
+  -- and if you need a game that is still unscored, count how many of these three
+  -- the specs before yours have already used.
+  --
+  -- ⛔ THE DAY RESTRICTION MADE THIS POOL MUCH SMALLER, AND THAT IS WHY IT BITES.
+  -- Before it, a scorekeeper could reach ~15 seeded games and no spec noticed
+  -- another consuming one. Now they can reach these four, every scorekeeper spec
+  -- in a serial run competes for them, and a spec that finalizes or cancels one
+  -- changes what LATER specs see. Measured 2026-09-10: nine failures across six
+  -- files, all of which passed in isolation.
+  --
+  -- ⚠️ THE LESSON FOR NEW SPECS: do not assert a COUNT of tonight's games, and do
+  -- not match the "Score" label. Assert the invariant instead — that every row is
+  -- today, and that the leagues shown are the ones the viewer scores. Those do
+  -- not weaken as the fixture is used up.
+  --
+  -- ⚠️ FINALIZING IS NOT THE ONLY WAY TO CONSUME ONE. `05-scoring` reaches these
+  -- games with `.last()` on the manager's schedule, and POSTPONING nulls
+  -- `scheduled_at` (`0025`) — which removes the game from this night entirely,
+  -- not just from one label. Any spec that cancels or postpones one of these must
+  -- restore it in a `finally`, or the damage surfaces later as an unrelated count
+  -- mismatch in a spec that never touched it.
+  for g in
+    select * from (values
+      (6, 6, 1, (v_tonight + time '19:00') at time zone 'America/New_York'),
+      (6, 5, 2, (v_tonight + time '20:15') at time zone 'America/New_York'),
+      (6, 4, 3, (v_tonight + time '21:30') at time zone 'America/New_York')
+    ) as t(rnd, h, a, sched)
+  loop
+    insert into games (season_id, home_team_id, away_team_id, scheduled_at, status, week, round)
+      values (v_season, v_team_ids[g.h], v_team_ids[g.a], g.sched, 'scheduled', g.rnd, g.rnd);
   end loop;
 
   -- A season that has not started: no games at all, so season_is_started() is
@@ -287,7 +363,20 @@ begin
       (2, 1, 3, (v_l2_anchor +  7 + time '19:00') at time zone 'America/New_York'),
       (2, 4, 2, (v_l2_anchor +  7 + time '20:15') at time zone 'America/New_York'),
       (3, 1, 2, (v_l2_anchor + 28 + time '19:00') at time zone 'America/New_York'),
-      (3, 3, 4, (v_l2_anchor + 28 + time '20:15') at time zone 'America/New_York')
+      (3, 3, 4, (v_l2_anchor + 28 + time '20:15') at time zone 'America/New_York'),
+      -- ⛔ TONIGHT, IN THE SECOND LEAGUE. This one game is what makes the
+      -- scorekeeper page's CROSS-LEAGUE claim testable at the page level rather
+      -- than only in the query's unit tests. `scorekeeper@` belongs to both
+      -- leagues and must see FOUR games under TWO headings;
+      -- `single-league-scorer@` belongs only to obhl and must still see the same
+      -- three under one. Without it every test renders a single group and the
+      -- grouping — the whole point of the page — goes unexercised.
+      --
+      -- 20:45 rather than one of Oceanview's own slots, so the two leagues are
+      -- distinguishable by time as well as by heading. The page groups by league
+      -- and orders within a group, so this does not interleave — it just makes a
+      -- mixed-up render obvious to read.
+      (4, 2, 4, (v_tonight + time '20:45') at time zone 'America/New_York')
     ) as t(rnd, h, a, sched)
   loop
     if g.rnd <= 2 then

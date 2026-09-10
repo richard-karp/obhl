@@ -87,7 +87,11 @@ export function GameRow({
   const body = (
     <div className="hover:bg-muted/40 flex items-center gap-3 rounded-lg border p-3 transition-colors">
       <div className="text-muted-foreground w-16 shrink-0 text-xs">
-        <div>{formatGameDate(game.scheduled_at)}</div>
+        {/* `data-testid` so a test can assert WHICH night is listed. There is no
+            `<time>` element here and the class list is shared with buttons and
+            badges, so a locator without this hook silently matches nothing — an
+            assertion built on one passed vacuously until 2026-09-10. */}
+        <div data-testid="game-date">{formatGameDate(game.scheduled_at)}</div>
         <div>{formatGameTime(game.scheduled_at)}</div>
       </div>
       <div className="min-w-0 flex-1 space-y-1 text-sm">

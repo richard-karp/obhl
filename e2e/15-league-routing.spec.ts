@@ -276,13 +276,21 @@ test.describe("Path 16 — Per-league routing", () => {
     try {
       await page.goto("/login");
       await page.getByRole("button", { name: "Scorekeeper" }).click();
-      await page.waitForURL("/");
+      // A scorekeeper's sign-in lands on `/tonight`, not the picker.
+      await page.waitForURL("/tonight");
 
       const res = await page.goto("/harbor");
       expect(res?.status()).toBe(200);
-      await expect(
-        page.getByRole("link", { name: "All leagues" }),
-      ).toBeVisible();
+      // ⚠️ THE 200 IS THE ASSERTION. This used to also check for an "All leagues"
+      // link, which lives in the site header's account cluster — and a
+      // SCOREKEEPER no longer gets that header at all: `[league]/layout` swaps it
+      // for `ScorekeeperChrome`, deliberately, because a shared account must not
+      // be offered a Password link. Keeping that check would pin chrome this role
+      // is specifically not meant to have.
+      //
+      // The page rendering rather than 404ing is what "opens for a member" means,
+      // and the staged-league guard is what this test is about.
+      await expect(page.getByRole("link", { name: /Tonight/ })).toBeVisible();
 
       // ...and they are still only a scorekeeper there: no manager affordances.
       await page.goto("/harbor/rules");
@@ -312,7 +320,10 @@ test.describe("Path 16 — Per-league routing", () => {
     try {
       await page.goto("/login");
       await page.getByRole("button", { name: "One-league scorer" }).click();
-      await page.waitForURL("/");
+      // ⚠️ A SCOREKEEPER, so the landing is `/tonight`, not the picker.
+      // The label does not say "scorekeeper" anywhere, which is exactly how this
+      // one got missed when the landing changed.
+      await page.waitForURL("/tonight");
       const res = await page.goto("/harbor");
       expect(res?.status()).toBe(404);
     } finally {

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { leagueWeekday, weekdayOf } from "./format";
+import {
+  isOnLeagueDate,
+  leagueDayStart,
+  leagueToday,
+  leagueWeekday,
+  weekdayOf,
+} from "./format";
 
 // 0 = Sunday, matching Date#getDay and the day_of_week column.
 const MON = 1;
@@ -45,5 +51,81 @@ describe("weekdayOf", () => {
 
   it("ignores anything after the date", () => {
     expect(weekdayOf("2026-09-14T23:59:00Z")).toBe(1);
+  });
+});
+
+describe("leagueToday", () => {
+  // `now` is a parameter rather than a clock read so these stay pure — nothing
+  // in this repo uses fake timers, and the page passes the value down anyway.
+  it("reads the league-zone date, not the UTC one", () => {
+    // 9:40pm EDT on Monday 14 Sep is already Tuesday 15th in UTC. The
+    // scorekeeper's night is still the 14th.
+    expect(leagueToday(new Date("2026-09-15T01:40:00Z"))).toBe("2026-09-14");
+  });
+
+  it("holds across the EST/EDT boundary", () => {
+    // 9:40pm EST on 12 Jan is 02:40 UTC on the 13th.
+    expect(leagueToday(new Date("2026-01-13T02:40:00Z"))).toBe("2026-01-12");
+  });
+});
+
+describe("isOnLeagueDate", () => {
+  const NIGHT = "2026-09-14";
+
+  it("matches a late game that has already rolled over in UTC", () => {
+    // The whole point: the last slot of the night is 9:40pm Eastern, which is
+    // the next day in UTC. Comparing UTC dates would drop it off its own night.
+    expect(isOnLeagueDate("2026-09-15T01:40:00Z", NIGHT)).toBe(true);
+  });
+
+  it("matches the first slot of the night", () => {
+    expect(isOnLeagueDate("2026-09-14T23:00:00Z", NIGHT)).toBe(true);
+  });
+
+  it("rejects the night before", () => {
+    expect(isOnLeagueDate("2026-09-13T23:00:00Z", NIGHT)).toBe(false);
+  });
+
+  it("rejects the night after", () => {
+    expect(isOnLeagueDate("2026-09-15T23:00:00Z", NIGHT)).toBe(false);
+  });
+
+  it("rejects an undated game", () => {
+    // `scheduled_at` is nullable, and postponing sets it to null (0025). An
+    // undated game is never today.
+    expect(isOnLeagueDate(null, NIGHT)).toBe(false);
+  });
+
+  it("rejects rather than raising on an unparseable timestamp", () => {
+    // Same reasoning as leagueWeekday: this runs on the scoring path, where
+    // refusing one game beats losing the page.
+    expect(isOnLeagueDate("not a date", NIGHT)).toBe(false);
+  });
+});
+
+describe("leagueDayStart", () => {
+  it("is midnight in the league zone, as a UTC instant", () => {
+    // Midnight EDT is 04:00Z.
+    expect(leagueDayStart("2026-09-14")).toBe("2026-09-14T04:00:00.000Z");
+  });
+
+  it("is midnight EST in winter", () => {
+    expect(leagueDayStart("2026-01-12")).toBe("2026-01-12T05:00:00.000Z");
+  });
+
+  it("uses the offset at MIDNIGHT on a fall-back day, not at noon", () => {
+    // ⛔ 1 Nov 2026 switches EDT->EST at 2am local, so midnight is still EDT
+    // (04:00Z) even though noon that day is EST. `leagueOffset` samples noon and
+    // would put this hour late, clipping 00:00-01:00 off the night.
+    expect(leagueDayStart("2026-11-01")).toBe("2026-11-01T04:00:00.000Z");
+  });
+
+  it("is midnight EST the day after the switch", () => {
+    expect(leagueDayStart("2026-11-02")).toBe("2026-11-02T05:00:00.000Z");
+  });
+
+  it("uses the offset at midnight on a spring-forward day", () => {
+    // 8 Mar 2026 switches EST->EDT at 2am, so midnight is still EST (05:00Z).
+    expect(leagueDayStart("2026-03-08")).toBe("2026-03-08T05:00:00.000Z");
   });
 });

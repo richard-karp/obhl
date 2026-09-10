@@ -7,8 +7,51 @@ import { devLoginEnabled } from "@/lib/auth/dev-login";
 import { passwordProblem } from "@/lib/auth/password";
 import { logAudit } from "@/lib/audit";
 import { resolveLeagueBySlug } from "@/lib/league/current";
+import { createAdminClient } from "@/utils/supabase/admin";
 
 export type AuthActionState = { ok: boolean; message: string } | null;
+
+/**
+ * Where a successful sign-in lands, decided by the account's role.
+ *
+ * ⛔ TAKES THE ID THE SIGN-IN ALREADY RETURNED. `signInWithPassword` resolves to
+ * `{ data: { user, session }, error }`, so the caller is holding the account id
+ * the moment it succeeds. An earlier version threw that away and looked the
+ * account back up by email through `findUserIdByEmail`, which PAGES THE AUTH
+ * ADMIN API — up to fifty `listUsers` round trips — on every single sign-in, to
+ * learn something it had already been told. It also had to lowercase the address
+ * by hand, because that helper compares against a lowercased stored value and
+ * treats a raw argument as a miss rather than an error; getting that wrong sent
+ * anyone who capitalised their email to the picker, silently.
+ *
+ * ⛔ DO NOT REACH FOR `getSessionUser()` HERE EITHER. It is `cache()`-memoized
+ * per request (`src/lib/auth/session.ts`), so the day anything reads the session
+ * earlier in one of these actions it returns the pre-sign-in `null`, this
+ * returns "/" forever, and nothing errors.
+ *
+ * ⚠️ A FAILED ROLE READ IS LOGGED, not swallowed. It still lands on the picker —
+ * there is nowhere better to send someone mid-sign-in — but a scorekeeper
+ * quietly arriving on the wrong page with no trace is the failure this whole
+ * docblock exists to avoid.
+ *
+ * Anything that is not a scorekeeper gets the picker: `/dashboard` is
+ * league-scoped and a sign-in cannot know which league was meant.
+ */
+async function landingForUser(userId: string): Promise<string> {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) {
+    console.error("sign-in landing: role lookup failed:", error.message);
+    return "/";
+  }
+  // The only surface a scorekeeper is meant to use. See the page's own docblock
+  // for why it is `tonight` and not `score`.
+  return data?.role === "scorekeeper" ? "/tonight" : "/";
+}
 
 /**
  * ⛔ WHY THESE TWO ACTIONS NEVER REPORT THE PROVIDER'S ERROR.
@@ -226,7 +269,10 @@ export async function signInWithPassword(
     return { ok: false, message: "Enter your email address and password." };
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data: signedIn, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
   if (error)
     return {
       ok: false,
@@ -241,9 +287,7 @@ export async function signInWithPassword(
     path: "/",
     maxAge: 60 * 60 * 24 * 7,
   });
-  // The picker, not a dashboard: /dashboard is league-scoped, and a sign-in
-  // cannot know which league was meant. Same landing as `devSignIn`.
-  redirect("/");
+  redirect(signedIn?.user ? await landingForUser(signedIn.user.id) : "/");
 }
 
 /**
@@ -289,7 +333,7 @@ export async function devSignIn(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
   if (!email) return;
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({
+  const { data: signedIn, error } = await supabase.auth.signInWithPassword({
     email,
     password: "hockey123",
   });
@@ -301,6 +345,5 @@ export async function devSignIn(formData: FormData) {
     path: "/",
     maxAge: 60 * 60 * 24 * 7,
   });
-  // The picker, not a dashboard: /dashboard is league-scoped now.
-  redirect("/");
+  redirect(signedIn?.user ? await landingForUser(signedIn.user.id) : "/");
 }

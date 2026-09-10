@@ -1,5 +1,5 @@
 import { createClient } from "@/utils/supabase/server";
-import { leagueDateKey } from "@/lib/format";
+import { leagueDateKey, leagueDayStart } from "@/lib/format";
 import { isUuid } from "@/lib/db/uuid";
 import { groupIntoNights, type SeasonNight } from "@/lib/schedule/nights";
 import {
@@ -83,6 +83,94 @@ export async function getSchedule(
   const { data, error } = await q;
   if (error) console.error("schedule query failed:", error.message);
   return (data ?? []) as unknown as GameWithTeams[];
+}
+
+/**
+ * A game plus the league it belongs to, for reads that span more than one.
+ *
+ * `GameWithTeams` carries no league or season at all, because every other
+ * reader here is already scoped to a single league and never needed one. A
+ * cross-league caller does: it cannot build a per-row link without knowing
+ * which league each row came from.
+ */
+export type GameWithLeague = GameWithTeams & { league_id: string };
+
+/**
+ * Tonight's games, and whether the read that produced them actually worked.
+ *
+ * ⛔ `readFailed` IS THE POINT. `getScheduleConstraints` states the rule this
+ * follows: "No constraints" and "I was not allowed to look" must not be the same
+ * value. An empty array alone would tell a scorekeeper standing at the rink that
+ * there are no games tonight when in fact the query errored — on the only page
+ * they have, mid-shift. `SchedulePublishState` carries the same flag for the same
+ * reason.
+ */
+export type GamesOnDate = { games: GameWithLeague[]; readFailed: boolean };
+
+// `GAME_SELECT` plus the season embed. ⛔ NOT added to the shared constant:
+// six other readers use it, and every one of their result shapes would change
+// for a field none of them reads.
+const GAME_SELECT_WITH_LEAGUE = `${GAME_SELECT}, season:seasons!inner(league_id)`;
+
+/**
+ * Every published game on one league-local DATE, across the given leagues.
+ *
+ * The scorekeeper's night. Keyed on the date rather than on a season, which is
+ * what lets it show a game belonging to an inactive imported season — the exact
+ * case that made the old per-league, season-pinned list awkward.
+ *
+ * ⛔ BOTH BOUNDS COME FROM `leagueDayStart`, NOT FROM `leagueOffset`. A league
+ * day runs midnight-to-midnight in `America/New_York`, and on a DST boundary its
+ * ends sit at different offsets — 1 Nov 2026 begins at -04:00 and the 2nd begins
+ * at -05:00, making it 25 hours long. `leagueOffset` samples NOON, so on that
+ * day it reports -05:00 for a midnight that is still -04:00 and starts the
+ * window an hour late. Measured, not reasoned: the first version of this
+ * function did exactly that and its own DST test caught it.
+ */
+export async function getGamesOnDate(
+  leagueIds: string[],
+  dateKey: string,
+  opts: { client?: DbClient } = {},
+): Promise<GamesOnDate> {
+  // ⛔ Not merely an optimisation. Without this an empty list would build a
+  // query with no league filter at all, which is an unfiltered read of every
+  // game in the instance for a viewer entitled to none. Not a failure: a viewer
+  // with no scorable league genuinely has no games.
+  if (leagueIds.length === 0) return { games: [], readFailed: false };
+
+  const supabase = opts.client ?? (await createClient());
+  const day = dateKey.slice(0, 10);
+  const next = new Date(`${day}T12:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  const nextDay = next.toISOString().slice(0, 10);
+
+  const { data, error } = await supabase
+    .from("games")
+    .select(GAME_SELECT_WITH_LEAGUE)
+    .in("season.league_id", leagueIds)
+    // Explicit, not left to RLS: a manager-gated caller may pass the admin
+    // client, which bypasses the policy entirely.
+    .eq("is_draft", false)
+    .gte("scheduled_at", leagueDayStart(day))
+    .lt("scheduled_at", leagueDayStart(nextDay))
+    .order("scheduled_at", { ascending: true });
+
+  if (error) {
+    console.error("games-on-date query failed:", error.message);
+    return { games: [], readFailed: true };
+  }
+  const games = (
+    (data ?? []) as unknown as Array<
+      GameWithTeams & { season: { league_id: string } | null }
+    >
+  )
+    // ⛔ A row whose league did not come back is DROPPED, not defaulted. The
+    // embed is `!inner`, so this cannot happen — but the alternative was a
+    // `?? ""` that builds `/undefined/games/<id>/score` and ships a dead link
+    // rather than showing one game fewer.
+    .filter((g) => !!g.season?.league_id)
+    .map(({ season, ...game }) => ({ ...game, league_id: season!.league_id }));
+  return { games, readFailed: false };
 }
 
 /**

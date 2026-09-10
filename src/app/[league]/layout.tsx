@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 import { SiteHeader } from "@/components/shared/site-header";
+import { ScorekeeperChrome } from "@/components/shared/scorekeeper-chrome";
 import { StaffLinks } from "@/components/shared/staff-links";
 import { getSessionUser } from "@/lib/auth/session";
 import { isLeagueMember, getMemberLeagues } from "@/lib/auth/membership";
@@ -106,17 +107,39 @@ export default async function LeagueLayout({ children, params }: Props) {
         ])
       : [null, []];
 
+  // ⛔ A SCOREKEEPER GETS THE MINIMAL CHROME, NOT THE SITE HEADER.
+  //
+  // Every other viewer — public, captain, manager — keeps the league nav and the
+  // account cluster. A scorekeeper is meant to be doing one thing tonight, and
+  // the full header offered them a league switcher, six nav links and a staff
+  // row, none of which they can act on. What they need is the way back to
+  // `/tonight`, which as one link among ten read as decoration.
+  //
+  // ⚠️ THIS APPLIES TO EVERY PAGE IN THE LEAGUE, not just the scoresheet. Those
+  // pages are public and stay reachable — this removes clutter, never access.
+  // Deliberate: a scorekeeper who wanders onto the standings should still have
+  // one obvious way back to their night.
+  const scorekeeperOnly = user?.role === "scorekeeper" && member;
+
   return (
     <>
-      <SiteHeader league={league} />
-      {user && member ? (
-        <StaffLinks
-          role={user.role}
-          currentSlug={league.slug}
-          officeTier={officeTier}
-          leagues={leagues}
-        />
-      ) : null}
+      {scorekeeperOnly ? (
+        <div className="mx-auto w-full max-w-6xl px-4 pt-4">
+          <ScorekeeperChrome role={user.role} showTonight />
+        </div>
+      ) : (
+        <>
+          <SiteHeader league={league} />
+          {user && member ? (
+            <StaffLinks
+              role={user.role}
+              currentSlug={league.slug}
+              officeTier={officeTier}
+              leagues={leagues}
+            />
+          ) : null}
+        </>
+      )}
       {children}
     </>
   );
