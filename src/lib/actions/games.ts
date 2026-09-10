@@ -297,35 +297,24 @@ export async function setGoalie(formData: FormData) {
   // and "I could not find out" must not become "delete nothing that looks like a
   // goalie" OR "delete everything" — so the undress is skipped entirely and the
   // roster is left as it was.
-  if (goalieTeamId && g?.season_id) {
-    // ⚠️ ONLY A ROW WITH NOTHING RECORDED ON IT. A previous goalie who actually
-    // played has goals/assists/pim or was dressed deliberately; deleting that
-    // would lose real data to fix a mis-tap. A blank row is the one this action
-    // created and the one it may take back.
-    const { data: keepers, error: keepersError } = await supabase
-      .from("team_players")
-      .select("player_id")
-      .eq("season_id", g.season_id)
-      .eq("team_id", goalieTeamId)
-      .eq("position", "G");
-    check(keepersError, "Set goalie");
-    const previous = (keepers ?? [])
-      .map((k) => k.player_id)
-      .filter((id) => id !== goalie_id);
-    if (previous.length) {
-      const { error: undressError } = await supabase
-        .from("game_rosters")
-        .delete()
-        .eq("game_id", game_id)
-        .eq("team_id", goalieTeamId)
-        .in("player_id", previous)
-        .eq("is_substitute", false)
-        .eq("goals", 0)
-        .eq("assists", 0)
-        .eq("pim", 0);
-      check(undressError, "Set goalie");
-    }
-  }
+  // ⛔ NOTHING IS AUTO-UNDRESSED HERE, AND THAT IS A DECISION, NOT AN OMISSION.
+  //
+  // A review round asked for it: with goalies out of the lineup checkboxes,
+  // tapping #1 by mistake and then #31 leaves #1 dressed forever, a phantom GP
+  // in `v_skater_stats`. The obvious fix — delete the previous goalie's row when
+  // it carries no stats — was written, and it is WRONG, because a goalie who
+  // actually played almost always has goals/assists/pim all zero. A pulled
+  // starter and a mis-tap are byte-identical rows.
+  //
+  // So that fix silently deleted the GP of a goalie who was pulled: #1 starts,
+  // #31 finishes, the scorekeeper sets the record to #31, and #1's row vanishes.
+  // Losing a real appearance to tidy a possible mis-tap is the worse trade, and
+  // no query can tell the two apart.
+  //
+  // ⚠️ THE MIS-TAP IS THEREFORE STILL LIVE and needs a UI answer rather than an
+  // inferred one — an explicit "not dressed" control in the goalie section, or
+  // returning goalies to the checkboxes. Recorded here so the next reader knows
+  // it was weighed, not missed.
 
   if (goalie_id && goalieTeamId) {
     // Idempotent: `ignoreDuplicates` leaves an existing row and its stats alone.
