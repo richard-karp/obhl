@@ -92,9 +92,13 @@ const PERIOD_WINDOW = 4;
 /**
  * Ceiling on the candidates one window's re-deal may examine, so a wide cadence
  * cannot spend the whole wall-clock budget here. Six teams a night has 15
- * matchings, so even before the union multiset prunes anything the window cannot
- * examine more than 15 + 15² + 15³ = 3615 of them, comfortably inside this; ten
- * teams a night is 945 per depth and is meant to stop early. The cap is on
+ * matchings, and `PERIOD_WINDOW` is 4, so before the union multiset prunes
+ * anything the window can reach 15 + 15² + 15³ + 15⁴ = 54,240 — ABOVE this cap.
+ * Pruning is what keeps it under in practice: measured max 1,335 examined at six
+ * teams a night. ⚠️ The first shape where the cap actually binds is EIGHT teams,
+ * not ten — measured 48 truncations on an 8-team/40-night season. A truncated
+ * window simply keeps its current deal, so the result is a missed improvement,
+ * never an invalid schedule. The cap is on
  * candidates *examined* rather than on deals found, because on a wide night the
  * sub-multiset test is the work and nearly all of it fails.
  */
@@ -385,13 +389,18 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
   // `periodicPass` reads the same index, so a one-weekday season builds it too
   // once that pass is on — which is the shape it exists for.
   const wantsPeriodic = breakPeriodicity && N >= PERIOD_WINDOW;
+  // One source for "does anything need the per-candidate key lists", so the two
+  // consumers cannot drift into a shape where `candKeys` is built and
+  // `withPair` is not — `tryJoint` would then hit `withPair[n2].get(k)!` on
+  // undefined. Unreachable today only because `compoundPass` returns at D < 2.
+  const wantsJoint = D > 1;
   const candKeys: number[][][] =
-    D > 1 || wantsPeriodic
+    wantsJoint || wantsPeriodic
       ? options.map((ms) =>
           ms.map((m) => m.map(([a, b]) => pairKey(a, b)).sort((x, y) => x - y)),
         )
       : [];
-  const withPair: Map<number, number[]>[] = (D > 1 ? candKeys : []).map(
+  const withPair: Map<number, number[]>[] = (wantsJoint ? candKeys : []).map(
     (ks) => {
       const byKey = new Map<number, number[]>();
       ks.forEach((keys, idx) => {
@@ -840,10 +849,16 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
         for (const [a, b] of options[n][idx]) removeMeeting(a, b, n);
       }
     };
-    rec(0, union);
-
-    for (let i = 0; i < k; i++) applyNight(win[i], bestPick[i]);
-    for (const n of win) winAt[n] = -1;
+    try {
+      rec(0, union);
+      for (let i = 0; i < k; i++) applyNight(win[i], bestPick[i]);
+    } finally {
+      // ⛔ `winAt` is scratch shared with every later window. A throw inside the
+      // recursion would leave it >= 0 and poison every subsequent
+      // `localPeriodic` for the rest of the run — silently, as a wrong number
+      // rather than an error. Nothing throws today; this keeps that true.
+      for (const n of win) winAt[n] = -1;
+    }
     return found;
   };
 
@@ -887,7 +902,14 @@ export function assignMatchups(opts: MatchupOptions): MatchupResult | null {
   const descend = () => {
     let improved = true;
     let pass = 0;
-    while (improved && pass++ < 60) {
+    // ⛔ SCALES WITH SEASON LENGTH. `periodicPass` spends one descend pass per
+    // accepted re-deal, so passes grow at roughly 0.66·N — measured 12 at 23
+    // nights, 25 at 40, 53 at 80. A flat 60 therefore starts binding around
+    // N ≈ 90 and `descend` would return with periodicity only partly broken,
+    // silently. The wall-clock `deadline` check below is the real bound; this
+    // only stops a pathological non-convergence.
+    const maxPasses = Math.max(60, 2 * N);
+    while (improved && pass++ < maxPasses) {
       improved = false;
       if (Date.now() > deadline) return;
       for (let n = 0; n < N; n++) {

@@ -534,7 +534,13 @@ describe("assignNights — ice-time clustering, constrained 6-team season", () =
 
   it("breaks the clustering, read off scheduledAt", () => {
     const derived = fromScheduledAt();
-    expect(derived.slotClusterWorstTeam).toBeLessThanOrEqual(8);
+    // ⛔ A BOUND WITH MARGIN, NOT THE READING. Measured 2026-09-10 across three
+    // environments, three runs each: 6 at the default vitest env, 6 at
+    // OBHL_SLOT_BUDGET_MS=1500, and 9 at OBHL_SLOT_RESTARTS=100. The previous
+    // bound of 8 sat on this machine's reading and went RED at reduced
+    // restarts, which is how slower CI hardware behaves. Without the pass this
+    // fixture reads 16, so 12 still proves the pass works by a clear 4.
+    expect(derived.slotClusterWorstTeam).toBeLessThanOrEqual(12);
     expect(derived.slotClusterWorstTeam).toBe(
       report.spacing.slotClusterWorstTeam,
     );
@@ -557,9 +563,13 @@ describe("assignNights — ice-time clustering, constrained 6-team season", () =
     for (const n of meetings.values()) expect(n).toBeGreaterThanOrEqual(4);
     for (const n of meetings.values()) expect(n).toBeLessThanOrEqual(5);
     for (const n of perNight.values()) expect(n).toBe(3);
-    expect(report.spacing.rematchAdjNight).toBe(0);
-    expect(report.spacing.rematchConsecWeek).toBe(0);
-    expect(report.spacing.rematchSameWeek).toBe(0);
+    // Off `scheduledAt` like every other claim in this block — the comment at
+    // the top of it invokes exactly that discipline, and reading these three
+    // from `report.spacing` was the one place that did not follow it.
+    const d = fromScheduledAt();
+    expect(d.rematchAdjNight).toBe(0);
+    expect(d.rematchConsecWeek).toBe(0);
+    expect(d.rematchSameWeek).toBe(0);
   });
 
   // ⛔ The request itself is the thing that must not be paid with. Breaking the
@@ -641,7 +651,7 @@ describe("assignNights — ice-time clustering, longer constrained 6-team season
   });
 
   // A bound with room in it, not the measured 11: this is a search result and
-  // pinning it would be pinning luck. 16 is still nine clear of the 25 the same
+  // pinning it would be pinning luck. 20 is still five clear of the 25 the same
   // season reads without the pass.
   it("keeps the worst team's clustering well off the no-pass number", () => {
     const derived = spacingReport(
@@ -649,7 +659,10 @@ describe("assignNights — ice-time clustering, longer constrained 6-team season
       dates.map((date) => ({ date, slots: SLOT_TIMES })),
       ts,
     );
-    expect(derived.slotClusterWorstTeam).toBeLessThanOrEqual(16);
+    // ⛔ Same discipline. Measured: 11-12 default, 12 at reduced restarts, and
+    // exactly 16 at OBHL_SLOT_BUDGET_MS=1500 — the previous bound of 16 had
+    // zero margin against a real configuration. Without the pass this reads 25.
+    expect(derived.slotClusterWorstTeam).toBeLessThanOrEqual(20);
   });
 
   // The mechanism itself, asserted directly rather than through its effect: the
@@ -679,9 +692,15 @@ describe("assignNights — ice-time clustering, longer constrained 6-team season
     expect(meetings.size).toBe(15);
     for (const n of meetings.values()) expect(n).toBe(8);
     for (const n of perNight.values()) expect(n).toBe(3);
-    expect(report.spacing.rematchAdjNight).toBe(0);
-    expect(report.spacing.rematchSameWeek).toBe(0);
-    expect(report.spacing.rematchConsecWeek).toBe(0);
+    // Off `scheduledAt`, for the same reason as the 23-night block.
+    const d = spacingReport(
+      rows,
+      dates.map((date) => ({ date, slots: SLOT_TIMES })),
+      ts,
+    );
+    expect(d.rematchAdjNight).toBe(0);
+    expect(d.rematchSameWeek).toBe(0);
+    expect(d.rematchConsecWeek).toBe(0);
   });
 });
 

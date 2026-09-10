@@ -27,7 +27,20 @@ an exact fit):
 | **G2.** Each pairing split evenly over the weekdays it plays (`pairingWeekdayExcess`) † | 42 (9 of 28 matchups off ideal) | **0** (all 28 at ideal) |
 | **G3.** Ice-time share per team *per weekday* (`slotWeekdaySpread`) † | 44 | **0** (best-of-k; 8 is the guaranteed bound — see §5) |
 | **G4.** Three-game runs in one ice time (`slotStreak3`) † | 4 | **0** |
-| **G5.** Worst team's clustered 5-game windows (`slotClusterWorstTeam`) | 14 unconstrained / 16 constrained | **4** unconstrained, **6** constrained (6-team/1-weeknight/3-slot reference) |
+| **G5.** Worst team's clustered 5-game windows (`slotClusterWorstTeam`) | 14 unconstrained / 16 constrained | **4** unconstrained, **6-9** constrained (6-team/1-weeknight/3-slot reference) ‡ |
+
+‡ **The constrained G5 figure is hardware- and budget-dependent, so it is a
+range, not a number.** Measured 2026-09-10, three runs per environment, all
+re-derived from `scheduledAt`: **6** under the default vitest env, **6** at
+`OBHL_SLOT_BUDGET_MS=1500`, and **9** at `OBHL_SLOT_RESTARTS=100`. An
+independent reviewer measured **8** at the default on different hardware. Phase S
+is wall-clock and restart bounded, so any single reading here is a property of
+the machine that took it. The test asserts `<= 12` for exactly this reason — a
+bound of 8, which the previous version used, goes red at reduced restarts.
+
+⚠️ Note also that `vitest.config.ts` pins `OBHL_SLOT_RESTARTS=2000` while
+production defaults to `20_000`, so every figure in this row is a test-config
+measurement rather than what a live generate produces.
 
 † **These five rows use a different "before".** Every row above them compares
 against the *old pre-participation pipeline*. The four-goal rows compare against
