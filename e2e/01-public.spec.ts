@@ -2,7 +2,15 @@
  * Paths 1–5: public site — no auth required. Every route is league-scoped:
  * these exercise `/obhl`, the seeded Oceanview league.
  * Assumes seeded data: 6 Oceanview teams (Sharks/Bears/Wolves/Ducks/Hawks/Bisons),
- * 3 finalized rounds, 2 upcoming rounds, 3 announcements.
+ * 3 finalized rounds, 2 later rounds still `scheduled`, one round TONIGHT, and
+ * 3 announcements.
+ *
+ * ⚠️ The tonight round is the only fixture that is ever today, and it exists for
+ * the scorekeeper's page (`33-scorekeeper-day`). Nothing in this file asserts an
+ * absolute game count — the CSV/ICS checks below are deliberately relational
+ * (`toBeGreaterThan(0)`, `toBeLessThan(allCsv.length)`) — so it costs this file
+ * nothing. Keep it that way: an exact count here would break every time the
+ * seed grows.
  */
 import { test, expect } from "@playwright/test";
 

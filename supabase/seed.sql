@@ -93,6 +93,16 @@ declare
   v_l1_anchor  date := date_trunc('week', current_date - 120)::date + 1;
   v_l2_anchor  date := date_trunc('week', current_date - 120)::date + 2;
   v_fall_anchor date := date_trunc('week', current_date + 14)::date + 1;
+  -- ⛔ TONIGHT, IN THE LEAGUE'S ZONE — NOT `current_date`.
+  --
+  -- The scorekeeper's page lists games whose LEAGUE-LOCAL date is today, and
+  -- `leagueDateKey` reads them in `America/New_York`. `current_date` is UTC and
+  -- rolls at 20:00 Eastern (19:00 on EST), which is INSIDE the 19:00-23:00 window
+  -- these games occupy — so a fixture dated `current_date` would be dated
+  -- TOMORROW by the app for the whole second half of every evening, and would be
+  -- invisible on the very page it exists to test. The UTC-rollover trap is the
+  -- same one the comment above records; this is the one place it bites.
+  v_tonight date := (current_timestamp at time zone 'America/New_York')::date;
 begin
   -- ============================================================ OCEANVIEW
   insert into leagues (name, slug, is_public)
@@ -103,7 +113,13 @@ begin
     -- ⚠️ THE YEAR IN THIS NAME IS NOT A CLAIM ABOUT THE DATES. The name is the
     -- handle 17 assertions use to find this season; the dates are relative to
     -- today. Do not "fix" the mismatch by pinning the dates back.
-    values (v_league, 'Spring 2026', v_l1_anchor, v_l1_anchor + 49, true,
+    -- ⚠️ `ends_on` REACHES PAST TONIGHT ON PURPOSE. The rounds below sit ~120
+    -- days back, so `v_l1_anchor + 49` would leave tonight's games (added at the
+    -- foot of this league) outside their own season. Nothing enforces that, but
+    -- `schedule-builder-panel.tsx` compares the schedule's last date against
+    -- `ends_on` and warns about "no room for playoffs" — a warning that would
+    -- then be permanently on for the seeded league.
+    values (v_league, 'Spring 2026', v_l1_anchor, v_tonight + 14, true,
             '{"win":2,"tie":1,"loss":0}'::jsonb)
     returning id into v_season;
 
@@ -187,6 +203,39 @@ begin
       insert into games (season_id, home_team_id, away_team_id, scheduled_at, status, week, round)
         values (v_season, v_team_ids[g.h], v_team_ids[g.a], g.sched, 'scheduled', g.rnd, g.rnd);
     end if;
+  end loop;
+
+  -- ── TONIGHT ────────────────────────────────────────────────────────────
+  --
+  -- Three games on the league-local calendar date, at the same 19:00/20:15/21:30
+  -- slots as every other night. THE ONLY FIXTURE THAT IS EVER "TODAY".
+  --
+  -- ⛔ WITHOUT THIS THE SCOREKEEPER'S PAGE CANNOT BE TESTED AT ALL. Every other
+  -- game here is anchored ~120 days back or ~14 days forward, so under the
+  -- day restriction a scorekeeper can open exactly zero of them — the suite
+  -- would go green having exercised nothing.
+  --
+  -- Round 6, after the five that make up the round robin. Left `scheduled` so
+  -- the scoresheet has something to open, dress and finalize.
+  --
+  -- ⛔ THESE THREE ARE A SHARED, CONSUMABLE FIXTURE. They are the ONLY games a
+  -- scorekeeper can open, so every spec that finalizes one takes it out of
+  -- circulation for the specs that run after — and `scoreLabel` renders a final
+  -- game as "Edit", so a locator matching the literal "Score" then finds
+  -- nothing. That is measured, not predicted: `30-schedule-edits` failed exactly
+  -- this way once `05-scoring` and `33-scorekeeper-day` had each finalized one.
+  -- **Locate a scoresheet by `a[href$="/score"]`, never by the button label**,
+  -- and if you need a game that is still unscored, count how many of these three
+  -- the specs before yours have already used.
+  for g in
+    select * from (values
+      (6, 6, 1, (v_tonight + time '19:00') at time zone 'America/New_York'),
+      (6, 5, 2, (v_tonight + time '20:15') at time zone 'America/New_York'),
+      (6, 4, 3, (v_tonight + time '21:30') at time zone 'America/New_York')
+    ) as t(rnd, h, a, sched)
+  loop
+    insert into games (season_id, home_team_id, away_team_id, scheduled_at, status, week, round)
+      values (v_season, v_team_ids[g.h], v_team_ids[g.a], g.sched, 'scheduled', g.rnd, g.rnd);
   end loop;
 
   -- A season that has not started: no games at all, so season_is_started() is
@@ -287,7 +336,20 @@ begin
       (2, 1, 3, (v_l2_anchor +  7 + time '19:00') at time zone 'America/New_York'),
       (2, 4, 2, (v_l2_anchor +  7 + time '20:15') at time zone 'America/New_York'),
       (3, 1, 2, (v_l2_anchor + 28 + time '19:00') at time zone 'America/New_York'),
-      (3, 3, 4, (v_l2_anchor + 28 + time '20:15') at time zone 'America/New_York')
+      (3, 3, 4, (v_l2_anchor + 28 + time '20:15') at time zone 'America/New_York'),
+      -- ⛔ TONIGHT, IN THE SECOND LEAGUE. This one game is what makes the
+      -- scorekeeper page's CROSS-LEAGUE claim testable at the page level rather
+      -- than only in the query's unit tests. `scorekeeper@` belongs to both
+      -- leagues and must see FOUR games under TWO headings;
+      -- `single-league-scorer@` belongs only to obhl and must still see the same
+      -- three under one. Without it every test renders a single group and the
+      -- grouping — the whole point of the page — goes unexercised.
+      --
+      -- 20:45 rather than one of Oceanview's own slots, so the two leagues are
+      -- distinguishable by time as well as by heading. The page groups by league
+      -- and orders within a group, so this does not interleave — it just makes a
+      -- mixed-up render obvious to read.
+      (4, 2, 4, (v_tonight + time '20:45') at time zone 'America/New_York')
     ) as t(rnd, h, a, sched)
   loop
     if g.rnd <= 2 then
