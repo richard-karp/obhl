@@ -4,16 +4,51 @@
  */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+
+function admin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SECRET_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+}
 
 /**
- * The EDITABLE roster table, scoped to its region. The team page renders the
- * public roster first and the editor below it, so a bare `table tbody tr` picks
- * up the public table — same players, no buttons.
+ * A Sharks game still to be played, on the given weekday in the league zone.
+ *
+ * ⛔ `scheduled`, NOT ANY GAME. A finalized game already has a goalie of
+ * record, and the board shows THAT instead of the suggestion — so a test that
+ * grabbed a played game would assert the seed's scoring, not the rule.
  */
-function rosterRows(page: Page) {
-  return page
-    .getByRole("region", { name: "Manage roster" })
-    .locator("table tbody tr");
+async function sharksGameOn(weekday: number): Promise<string> {
+  const db = admin();
+  const { data: team } = await db
+    .from("teams")
+    .select("id, seasons:league_id")
+    .eq("slug", "sharks")
+    .limit(1)
+    .single();
+  const { data: games } = await db
+    .from("games")
+    .select("id, scheduled_at, home_team_id, away_team_id, status, is_draft")
+    .or(`home_team_id.eq.${team!.id},away_team_id.eq.${team!.id}`)
+    .eq("status", "scheduled")
+    .eq("is_draft", false);
+  const match = (games ?? []).find(
+    (g) =>
+      g.scheduled_at &&
+      new Date(g.scheduled_at).toLocaleDateString("en-US", {
+        timeZone: "America/New_York",
+        weekday: "short",
+      }) === ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][weekday],
+  );
+  if (!match) {
+    throw new Error(
+      `Seed has no scheduled Sharks game on weekday ${weekday} — check supabase/seed.sql, which pins rounds 4 (Tue) and 5 (Thu).`,
+    );
+  }
+  return match.id;
 }
 
 async function signedInAs(
@@ -99,6 +134,60 @@ test.describe("Path 19 — Scorekeeper goalie buttons", () => {
 // of its two nights, and a one-goalie team pre-selecting theirs on every
 // night. Both need a fixture with two nights and a team with two goalies,
 // which the seed gains in the next commit; the tests land with it.
+
+test.describe("Path 20 — the night's goalie", () => {
+  /**
+   * ⛔ THE ONE THING THE UNIT TEST CANNOT SEE. `suggestGoalie` is exercised
+   * directly in `src/lib/goalie/suggest.test.ts`; what it cannot prove is that
+   * the scoresheet READS the same column the roster WRITES, on a real game,
+   * through the real query. That is the shape of the two failures `AGENTS.md`
+   * records — a feature that passed its whole suite while doing nothing.
+   *
+   * ⚠️ ASSERTED THROUGH `#8`, WHICH ONLY SHARKS HAVE. Every other seeded team's
+   * goalie wears #1, so #1 appears twice on any scoresheet and cannot identify
+   * a side; #8 is Sharks' second goalie and is pinned to Thursday. Whether it
+   * carries the suggested styling therefore answers "did the night decide
+   * this?" on its own.
+   */
+  const suggested = (page: Page, label: string) =>
+    page.getByRole("button", { name: label, exact: true });
+
+  test("a two-goalie team suggests a different goalie on each of its nights", async ({
+    page,
+  }) => {
+    await signedInAs(page, "Manager");
+
+    // Thursday: #8's night, so #8 is the suggestion.
+    await page.goto(`/obhl/games/${await sharksGameOn(4)}/score`);
+    await expect(suggested(page, "#8")).toBeVisible();
+    await expect(suggested(page, "#8")).toHaveClass(/bg-secondary/);
+
+    // Tuesday: #1's night. #8 is still on the page — same roster — but must no
+    // longer be the one offered, which is the whole point of the column.
+    await page.goto(`/obhl/games/${await sharksGameOn(2)}/score`);
+    await expect(suggested(page, "#8")).toBeVisible();
+    await expect(suggested(page, "#8")).not.toHaveClass(/bg-secondary/);
+  });
+
+  test("a one-goalie team suggests its goalie whatever the night", async ({
+    page,
+  }) => {
+    // ⚠️ THE RULE THAT REPLACED `is_default_goalie`. Every such flag in
+    // production sat on a team with exactly one goalie, and this reproduces
+    // them: the seed gives those teams a goalie with NO night at all, so
+    // nothing but the one-goalie rule can be selecting them.
+    await signedInAs(page, "Manager");
+    await page.goto(`/obhl/games/${await sharksGameOn(4)}/score`);
+
+    // Exactly two buttons carry the suggestion — one per team. Sharks' is #8
+    // by its night; the opponent's is theirs by being their only goalie.
+    await expect(
+      page
+        .getByRole("button", { name: /^#\d+$/ })
+        .and(page.locator(".bg-secondary")),
+    ).toHaveCount(2);
+  });
+});
 
 // ── Path 21: Captain sets goalie ────────────────────────────────────────────
 

@@ -113,7 +113,7 @@ begin
     values ('Oceanview Beer Hockey League', 'obhl', true)
     returning id into v_league;
 
-  insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system)
+  insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system, game_nights)
     -- ⚠️ THE YEAR IN THIS NAME IS NOT A CLAIM ABOUT THE DATES. The name is the
     -- handle 17 assertions use to find this season; the dates are relative to
     -- today. Do not "fix" the mismatch by pinning the dates back.
@@ -127,8 +127,28 @@ begin
     -- `ends_on` regardless, so the rule was not even applied consistently.
     -- Nothing in the app reads `ends_on` except display and that draft-only
     -- check. Reverted.
+    --
+    -- ⛔ TWO NIGHTS, DECLARED AND PLAYED, AND BOTH HALVES ARE LOAD-BEARING.
+    -- `game_nights` is what every night control keys off: the roster's Night
+    -- column, the player dialog's select, the goalie a scoresheet pre-selects.
+    -- At one night `hasMultipleNights` is false and NONE of it renders, so a
+    -- single-night fixture cannot exercise the feature at all — the suite would
+    -- go green having never seen it.
+    --
+    -- ⚠️ DECLARED RATHER THAN DERIVED, because deriving is not deterministic
+    -- here: the TONIGHT fixture below is always today, so a suite run on a
+    -- Friday would put Friday into this league's nights and one run on a
+    -- Tuesday would not. Rounds 4 and 5 are moved to Thursday so the
+    -- declaration is also true of the games.
+    --
+    -- ⛔ ROUND 5 ONLY, NOT ROUNDS 4 AND 5. Rounds 1-3 are finalized and 4-5 are
+    -- left `scheduled`, and a finalized game already HAS a goalie of record,
+    -- which overrides the suggestion. Moving both would have left no scheduled
+    -- Tuesday game anywhere — so the one assertion this fixture exists for,
+    -- that the two nights pre-select DIFFERENT goalies, could not be made.
+    -- Sharks play round 4 (Tue) and round 5 (Thu), both still to be played.
     values (v_league, 'Spring 2026', v_l1_anchor, v_l1_anchor + 49, true,
-            '{"win":2,"tie":1,"loss":0}'::jsonb)
+            '{"win":2,"tie":1,"loss":0}'::jsonb, '{2,4}'::smallint[])
     returning id into v_season;
 
   insert into league_rules (league_id, content) values (v_league,
@@ -172,13 +192,27 @@ begin
         returning id into v_player;
       v_ocean_players := array_append(v_ocean_players, v_player);
 
-      if j = 1 then pos := 'G';
+      -- ⛔ SHARKS (i = 1) CARRIES A SECOND GOALIE, BY CONVERTING #8 RATHER THAN
+      -- ADDING A 15TH PLAYER. The two-goalie case is the one the night feature
+      -- exists for — it is what "which of them starts on Thursday?" means — and
+      -- with one goalie per team nothing could exercise it. Converting keeps
+      -- every roster at 14, so the counts other specs assert do not move.
+      -- #1 and #8 also put a real gap between the jerseys, which is what
+      -- `suggestGoalie`'s lowest-jersey tiebreak is measured against.
+      if j = 1 or (i = 1 and j = 8) then pos := 'G';
       elsif j <= 5 then pos := 'D';
       else pos := 'F';
       end if;
 
-      insert into team_players (season_id, team_id, player_id, jersey_number, position, is_captain)
-        values (v_season, v_team, v_player, j, pos, (j = 6));
+      -- The night this player turns out. Only Sharks' two goalies are pinned:
+      -- everyone else is null, which is "no fixed night" and is what most of a
+      -- real roster looks like. #1 takes Tuesday, #8 Thursday, so the two
+      -- nights pre-select DIFFERENT goalies — the assertion the e2e makes.
+      insert into team_players (season_id, team_id, player_id, jersey_number, position, is_captain, night_of_week)
+        values (v_season, v_team, v_player, j, pos, (j = 6),
+                case when i = 1 and j = 1 then 2
+                     when i = 1 and j = 8 then 4
+                end);
     end loop;
   end loop;
 
@@ -197,9 +231,9 @@ begin
       (4, 1, 5, (v_l1_anchor + 28 + time '19:00') at time zone 'America/New_York'),
       (4, 2, 3, (v_l1_anchor + 28 + time '20:15') at time zone 'America/New_York'),
       (4, 4, 6, (v_l1_anchor + 28 + time '21:30') at time zone 'America/New_York'),
-      (5, 1, 6, (v_l1_anchor + 35 + time '19:00') at time zone 'America/New_York'),
-      (5, 2, 5, (v_l1_anchor + 35 + time '20:15') at time zone 'America/New_York'),
-      (5, 3, 4, (v_l1_anchor + 35 + time '21:30') at time zone 'America/New_York')
+      (5, 1, 6, (v_l1_anchor + 37 + time '19:00') at time zone 'America/New_York'),
+      (5, 2, 5, (v_l1_anchor + 37 + time '20:15') at time zone 'America/New_York'),
+      (5, 3, 4, (v_l1_anchor + 37 + time '21:30') at time zone 'America/New_York')
     ) as t(rnd, h, a, sched)
   loop
     if g.rnd <= 3 then
