@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 import { getActiveContext, getManageContext } from "@/lib/queries/season";
-import { getSchedule, type GameWithTeams } from "@/lib/queries/schedule";
+import {
+  getSchedule,
+  getSeasonNights,
+  type GameWithTeams,
+} from "@/lib/queries/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { canManageLeague, canScoreLeague } from "@/lib/auth/guards";
 import Link from "next/link";
@@ -24,6 +28,7 @@ import {
   ScheduleEditPanel,
   type EditableGame,
 } from "@/components/manage/schedule-edit-panel";
+import { RescheduleNightForm } from "@/components/manage/reschedule-night-form";
 
 export const metadata: Metadata = { title: "Schedule" };
 
@@ -173,6 +178,13 @@ export default async function SchedulePage({
   // Resolved once for the whole render: three `GroupedGames` ask, and the answer
   // cannot change mid-render.
   const today = leagueToday();
+  // ⛔ THE AWAIT IS GATED, NOT JUST THE JSX. This page is public and most of its
+  // traffic is anonymous; an unconditional read here would bill every visitor
+  // for a query only a manager can act on. `(public)/teams/[slug]/page.tsx`
+  // makes the same point about the roster editor's four reads.
+  const openNights = canManage
+    ? (await getSeasonNights(ctx.season.id)).filter((n) => !n.locked)
+    : [];
   const editable: EditableGame[] = canManage
     ? games
         // ⛔ `=== "scheduled"`, not `!== "final"`. Cancelled games keep their date,
@@ -252,6 +264,34 @@ export default async function SchedulePage({
                 games={editable}
                 teams={teams.map((t) => ({ id: t.id, name: t.name }))}
               />
+              {/*
+                ⛔ THE ONE CONTROL A STARTED SEASON HAD ONLY IN THE BUILDER.
+                Once `season_is_started` trips, generate / replace / remove are
+                gone for good and this page is the whole surface — but moving a
+                night lived on the builder alone until 2026-09-11, so the tool
+                a locked season most needs was the one furthest from the games.
+
+                ⚠️ GATED ON THE SEASON HAVING GAMES, NOT ON HAVING MOVABLE ONES.
+                `RescheduleNightForm` says so itself when every night is behind
+                us; hiding the card instead would take the explanation away at
+                the moment it is the answer. Same call the builder makes with
+                `liveCount > 0`.
+              */}
+              <div className="space-y-2 rounded-lg border p-3">
+                <h3 className="text-sm font-semibold">Move a game night</h3>
+                <RescheduleNightForm
+                  seasonId={ctx.season.id}
+                  nights={openNights.map((n) => ({
+                    date: n.date,
+                    games: n.games.length,
+                  }))}
+                  // Computed on the SERVER in the league's zone — see the
+                  // prop's own note for why the browser's clock will not do.
+                  minDate={today}
+                  maxDate={ctx.season.ends_on ?? null}
+                />
+              </div>
+
               {/*
                 The other two in-season tools, reachable from where a manager
                 actually looks at games. ⚠️ They are NOT removed from the

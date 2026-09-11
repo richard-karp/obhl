@@ -387,6 +387,50 @@ async function seedSeason(page: Page) {
   }
 }
 
+/**
+ * Path 28 addendum — the Schedule tab carries every in-season tool.
+ *
+ * ⛔ WHAT THIS TESTS IS PLACEMENT AND GATING, NOT THE FORM. `RescheduleNightForm`
+ * itself is exercised on the builder side; what was missing until 2026-09-11 is
+ * that a manager looking at `/schedule` — the only surface a STARTED season has
+ * — could not move a night from there at all. It was the one control the locked
+ * builder had and this page did not.
+ */
+test.describe("Path 28 — moving a night from the Schedule tab", () => {
+  test("a manager gets the control on /schedule; a scorekeeper does not", async ({
+    page,
+  }) => {
+    await signedInAs(page, "Manager");
+    await page.goto("/obhl/schedule");
+    await expect(
+      page.getByRole("heading", { name: "Move a game night" }),
+    ).toBeVisible();
+
+    // ⚠️ EITHER SHAPE, AND DELIBERATELY SO. Whether this season has a movable
+    // night depends on which season is active when the test runs, and earlier
+    // tests in this file seed future seasons and set them active — so pinning
+    // one shape here makes the test order-dependent. Both are correct: a picker
+    // when nights remain, the form's own explanation when they are all behind
+    // us. What must hold either way is that the CARD is here, which is why it
+    // is gated on the season having published games rather than movable ones —
+    // gating on the latter would hide the explanation at the moment it is the
+    // answer, and would diverge from the builder's `liveCount > 0`.
+    const picker = page.locator('select[name="from_date"]');
+    const nothingToMove = page.getByText(/none left to move/i);
+    await expect(picker.or(nothingToMove).first()).toBeVisible();
+
+    // ⛔ `canManageLeague`, NOT `canScore`. A scorekeeper can open this page —
+    // the games list is public and they score from it — but `rescheduleNight`
+    // refuses them, and a control whose only outcome is a refusal reads as a
+    // broken page rather than as a boundary. Same call the edit panel makes.
+    await signedInAs(page, "Scorekeeper");
+    await page.goto("/obhl/schedule");
+    await expect(
+      page.getByRole("heading", { name: "Move a game night" }),
+    ).toHaveCount(0);
+  });
+});
+
 test.describe("Path 28 — manual schedule edits", () => {
   test.describe.configure({ timeout: 240_000 });
 
