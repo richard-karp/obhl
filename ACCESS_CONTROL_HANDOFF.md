@@ -300,14 +300,45 @@ Each of these cost a review round or a wrong fix in the session that built it.
   carry no day check; only the page does. A submit at 00:01 therefore SUCCEEDS
   and the re-render then refuses the scorekeeper the game they just changed.
 
-  ⚠️ WHAT CLOSES THAT TODAY IS ONLY THE SIGN-OUT at the day rollover. A nightly
-  job to complete games left `in_progress` was built and then HELD BACK — it is
-  on `feat/close-the-night`, out of this branch because it was wrong in three
-  separate ways across two review rounds and it rewrites finalized scores. Until
-  it lands, a game left open stays open. ⚠️ A six-hour grace tail was built and
+  Two things close that rather than the guard: the scorekeeper is signed out
+  when their day rolls over, and a nightly job completes any game left
+  `in_progress` (see _Closing the night_). ⚠️ A six-hour grace tail was built and
   then **reverted** on 2026-09-10 — it let a game already in play stay open past
   midnight, which directly contradicts both. Do not reintroduce it without
   deciding what the auto-complete and the sign-out should then do.
+
+- **⛔ CLOSING THE NIGHT — the sweep, and the client it MUST use.** A Vercel cron
+  (`vercel.json`, 06:00 UTC = 1am EST / 2am EDT, past league midnight in both DST
+  states) calls `/api/cron/close-night`, which finalizes every game left
+  `in_progress` after its day. `in_progress` ONLY: `bumpStat` sets it the moment
+  anything is recorded, so it means "somebody scored this and did not finish",
+  where a `scheduled` game is one nobody touched and auto-finalizing it would
+  invent a 0-0 result.
+
+  ⛔ **IT PASSES THE ADMIN CLIENT TO `finalizeGameById`, AND OMITTING THAT IS
+  SILENT IN THREE WAYS AT ONCE.** A cron request carries no auth cookie, so the
+  default `createClient()` runs as `anon`: the games UPDATE matches zero rows and
+  returns NO error (the *Traps* entry above), `logAudit` writes on the admin
+  client regardless and files a `finalize_game` entry for a game that was never
+  finalized, and — worst — the `game_rosters` read is gated by `public read final
+  game_rosters` (`0008`) which exposes rows only for FINAL games, so the score
+  would be recomputed from an empty roster and written 0-0. Fixing only the
+  UPDATE turns a harmless no-op into data loss. Found by review on 2026-09-10 and
+  verified with a live PATCH returning `Content-Range: */0` and no error body.
+
+  ⚠️ The actor is `null` — `audit_log.user_id` is nullable and both readers handle
+  it. A sweep is not a person, and naming the last scorekeeper would be a lie in
+  the one table that exists to say who did what.
+
+  ⚠️ `CRON_SECRET` gates the route and it fails CLOSED. Unset means a silent daily
+  401 and games that never close.
+
+  ⚠️ **THERE IS NOWHERE IN THE REPO TO LEARN THAT FROM EXCEPT HERE.** `.gitignore`
+  matches `.env*`, so `.env.example` is untracked — a note added there is
+  invisible to anyone who clones. The value must be set in the Vercel project's
+  environment, and locally passed on the command line
+  (`CRON_SECRET=… npm run dev`) for `npm run verify:close-night` to reach the
+  route.
 
 - **⚠️ `/tonight` IS NOT A REVERT OF `fbb0802`, AND IT IS NOT CALLED
   `score` FOR A REASON.** The old `/manage/score` was deleted and absorbed into

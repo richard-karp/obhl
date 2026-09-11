@@ -68,9 +68,11 @@ front which section matters for which kind of change.
   `src/lib/auth`. ⛔ It now also carries the one rule in this codebase that has
   **no RLS half on purpose** — the scorekeeper day restriction behind
   `/tonight`. Read that entry before "fixing" what looks like a missing
-  policy. ⚠️ Before adding any page under `/manage/`, check its second segment
-  against `next.config.ts`'s redirects: a legacy one silently eats some of those
-  paths.
+  policy. ⚠️ It also carries _Closing the night_: the cron that finalizes games
+  left open, and the one client it must use — the default one silently does
+  nothing and files false audit entries. ⚠️ Before adding any page under
+  `/manage/`, check its second segment against `next.config.ts`'s redirects: a
+  legacy one silently eats some of those paths.
 
 ⚠️ **The esportsdesk importer has NO automated end-to-end coverage.**
 `src/lib/actions/import.test.ts` (19 tests) and `seasons.test.ts` (7) stub the
