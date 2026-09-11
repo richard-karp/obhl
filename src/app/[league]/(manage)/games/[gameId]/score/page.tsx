@@ -104,23 +104,20 @@ export default async function ScoreGamePage({
   // `team_goalie_days` was queried for this game's weekday to find the night's
   // starter; the night now rides on the roster row above, so the answer comes
   // out of data already in hand.
-  const [{ data: roster }, { data: dressed }] =
-    await Promise.all([
-      supabase
-        .from("team_players")
-        .select(
-          "player_id, team_id, jersey_number, position, night_of_week",
-        )
-        .eq("season_id", game.season_id)
-        .in("team_id", [homeT.id, awayT.id])
-        // Only players still on these teams can be dressed for this game.
-        .is("left_on", null)
-        .order("jersey_number", { ascending: true }),
-      supabase
-        .from("game_rosters")
-        .select("id, player_id, team_id, goals, assists, pim, is_substitute")
-        .eq("game_id", gameId),
-    ]);
+  const [{ data: roster }, { data: dressed }] = await Promise.all([
+    supabase
+      .from("team_players")
+      .select("player_id, team_id, jersey_number, position, night_of_week")
+      .eq("season_id", game.season_id)
+      .in("team_id", [homeT.id, awayT.id])
+      // Only players still on these teams can be dressed for this game.
+      .is("left_on", null)
+      .order("jersey_number", { ascending: true }),
+    supabase
+      .from("game_rosters")
+      .select("id, player_id, team_id, goals, assists, pim, is_substitute")
+      .eq("game_id", gameId),
+  ]);
 
   const numberOf = new Map<string, number | null>();
   for (const r of roster ?? []) numberOf.set(r.player_id, r.jersey_number);

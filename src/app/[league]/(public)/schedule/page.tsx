@@ -51,14 +51,34 @@ function groupByDate(games: GameWithTeams[]) {
 }
 
 /**
- * A game whose night has not arrived yet, in the league's zone.
+ * Whether this game's button should be withheld because it has not happened.
+ *
+ * ⛔ ONLY GAMES WHOSE BUTTON WOULD SAY "SCORE". `scoreLabel()` gives a
+ * cancelled or postponed game "Manage" — the route to `restoreGame` — and a
+ * final game "Edit". Those are not offers to record a result, and gating them
+ * on the date is wrong in the one direction that matters: a game is normally
+ * cancelled IN ADVANCE, so a blanket future check takes the restore button off
+ * exactly the games that have it.
+ *
+ * ⚠️ THAT IS NOT HYPOTHETICAL. `7fda0e3` ("put cancelled games back on the list
+ * that absorbed them") fixed this once already, from the other direction — the
+ * page stopped listing cancelled games and `restoreGame` became unreachable
+ * while the ability remained. The comment above the `cancelled` group below
+ * still records it. A future-dated `final` cannot occur, so this reduces to
+ * scheduled and in_progress.
  *
  * ⚠️ Date keys, not timestamps — see `isPast` in the page below, which is the
- * same comparison the other way round. Shared by the grouping and the Score
- * button so the two cannot disagree about what "today" means.
+ * same comparison the other way round. Shared with the grouping so the two
+ * cannot disagree about what "today" means.
  */
-function isFutureGame(scheduledAt: string | null, today: string): boolean {
-  return !!scheduledAt && leagueDateKey(scheduledAt) > today;
+function isUnplayedFutureFixture(
+  game: Pick<GameWithTeams, "status" | "scheduled_at">,
+  today: string,
+): boolean {
+  if (game.status !== "scheduled" && game.status !== "in_progress") {
+    return false;
+  }
+  return !!game.scheduled_at && leagueDateKey(game.scheduled_at) > today;
 }
 
 function GroupedGames({
@@ -108,9 +128,11 @@ function GroupedGames({
                 // fixtures months away — offering to record the result of a
                 // game nobody has played. Managers get today AND the past,
                 // which is edit-a-result as well as enter-one; scorekeepers
-                // still get today alone.
+                // still get today alone. ⚠️ Cancelled and postponed games are
+                // exempt: their button is "Manage", not "Score" — see
+                // `isUnplayedFutureFixture`.
                 scoreHref={
-                  canScore && !isFutureGame(g.scheduled_at, today)
+                  canScore && !isUnplayedFutureFixture(g, today)
                     ? canManage || isOnLeagueDate(g.scheduled_at, today)
                       ? `/${league}/games/${g.id}/score`
                       : undefined

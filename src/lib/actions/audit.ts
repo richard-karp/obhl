@@ -205,6 +205,14 @@ export async function revertAuditEntries(
                   : null,
               is_suspended: Boolean(od.is_suspended),
               left_on: leftOn,
+              // ⚠️ RESTORED HERE TOO, NOT ONLY ON THE UPDATE BRANCH ABOVE. The
+              // snapshot carries the whole row, and this branch was rebuilding
+              // every other column from it while dropping the night — so
+              // reverting the removal of a goalie who had never dressed put
+              // them back without the night that made them a starter. Entries
+              // predating 0049 have no such key and correctly yield null.
+              night_of_week:
+                typeof od.night_of_week === "number" ? od.night_of_week : null,
             });
             if (error)
               throw new Error(`Restore player failed: ${error.message}`);

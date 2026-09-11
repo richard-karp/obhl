@@ -395,7 +395,20 @@ export async function generateSchedule(
     Math.min(50, Math.floor(Number(formData.get("variation") ?? 1)) || 1),
   );
   // Recurring weeknights the league plays (0=Sun..6=Sat) — one or more.
-  const weekdays = new Set(formData.getAll("weekdays").map((d) => Number(d)));
+  // ⛔ RANGE-CHECKED, BECAUSE THESE ARE PERSISTED NOW. They drive the generator,
+  // which only ever indexes by them — but since 2026-09-11 they are also stored
+  // verbatim in `seasons.game_nights`, and `NIGHT_LABEL[n]` renders `undefined`
+  // for anything outside 0-6. `Number("")` is 0, so a blank value would quietly
+  // become Sunday; `Number("x")` is NaN, which `smallint[]` accepts as a NULL
+  // element. Manager-only, so this is a correctness floor rather than a
+  // boundary — but a stored value outliving the request that made it deserves
+  // one.
+  const weekdays = new Set(
+    formData
+      .getAll("weekdays")
+      .map((d) => Number(String(d).trim()))
+      .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6),
+  );
   // Dates to skip (weeks off / holidays).
   const excluded = new Set(
     String(formData.get("excluded_dates") ?? "")

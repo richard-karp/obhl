@@ -138,8 +138,8 @@ begin
     -- ⚠️ DECLARED RATHER THAN DERIVED, because deriving is not deterministic
     -- here: the TONIGHT fixture below is always today, so a suite run on a
     -- Friday would put Friday into this league's nights and one run on a
-    -- Tuesday would not. Rounds 4 and 5 are moved to Thursday so the
-    -- declaration is also true of the games.
+    -- Tuesday would not. Round 5 is moved to Thursday so the declaration is
+    -- also true of the games.
     --
     -- ⛔ ROUND 5 ONLY, NOT ROUNDS 4 AND 5. Rounds 1-3 are finalized and 4-5 are
     -- left `scheduled`, and a finalized game already HAS a goalie of record,
@@ -247,6 +247,32 @@ begin
     end if;
   end loop;
 
+  -- ── A CANCELLED GAME, STILL IN THE FUTURE ──────────────────────────────
+  --
+  -- ⛔ THE "Cancelled" SECTION OF `/<league>/schedule` HAD NO FIXTURE AT ALL
+  -- UNTIL 2026-09-11, and a regression shipped through the gap: a date gate
+  -- meant to keep the Score button off unplayed games also took the "Manage"
+  -- button — the only route to `restoreGame` — off cancelled ones. Nothing
+  -- caught it because nothing seeded a cancelled game.
+  --
+  -- ⚠️ FUTURE-DATED ON PURPOSE. A game is normally called off in ADVANCE, so
+  -- that is the case the section mostly holds and the one the gate broke. A
+  -- past-dated cancellation would have exercised nothing.
+  --
+  -- ⛔ DATED FROM TODAY, NOT FROM `v_l1_anchor`. The anchor is ~120 days back
+  -- and the whole season window with it, so every anchor-relative date is in
+  -- the PAST — an "anchor + 44" cancellation looked future-dated and was not,
+  -- which would have exercised precisely nothing. It sits outside `ends_on`,
+  -- which nothing enforces (see the note on that column above).
+  --
+  -- ⚠️ Round 7, outside the round-robin above, so it changes no team's
+  -- games-played, standings or balance — a cancelled game is excluded from
+  -- every stats view.
+  insert into games (season_id, home_team_id, away_team_id, scheduled_at, status, week, round)
+    values (v_season, v_team_ids[1], v_team_ids[2],
+            (current_date + 14 + time '19:00') at time zone 'America/New_York',
+            'cancelled', 7, 7);
+
   -- ── TONIGHT ────────────────────────────────────────────────────────────
   --
   -- Three games on the league-local calendar date, at the same 19:00/20:15/21:30
@@ -332,12 +358,22 @@ begin
     values ('Harbor Rec Hockey League', 'harbor', true)
     returning id into v_league;
 
-  insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system)
+  insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system, game_nights)
     -- ⚠️ THE YEAR IN THIS NAME IS NOT A CLAIM ABOUT THE DATES. The name is the
     -- handle 17 assertions use to find this season; the dates are relative to
     -- today. Do not "fix" the mismatch by pinning the dates back.
+    --
+    -- ⛔ HARBOR IS THE ONE-NIGHT LEAGUE, AND IT HAS TO SAY SO. `{3}` is
+    -- Wednesday (`v_l2_anchor` is Monday+2) and every league game is on one.
+    -- Declaring it is not decoration: with `game_nights` empty,
+    -- `seasonNightsFor` falls back to the weekdays the games DERIVE, and the
+    -- cross-league "tonight" fixture below is always TODAY — so Harbor derived
+    -- two nights on any day that is not a Wednesday, grew a Night column, and
+    -- the test asserting a single-night league has none failed six days in
+    -- seven. This is the same clock-dependence `0049` documents; OBHL declares
+    -- its nights for the same reason.
     values (v_league, 'Spring 2026', v_l2_anchor, v_l2_anchor + 47, true,
-            '{"win":2,"tie":1,"loss":0}'::jsonb)
+            '{"win":2,"tie":1,"loss":0}'::jsonb, '{3}'::smallint[])
     returning id into v_season;
 
   insert into league_rules (league_id, content) values (v_league,

@@ -151,10 +151,20 @@ export async function getManageContext(
  * mistake would be invisible: a plausible shorter list, on a page nobody
  * cross-checks. Ask here, where the query is scoped to the season.
  *
- * ⚠️ THE QUERY ALMOST NEVER RUNS. `0049` backfilled every season that existed,
- * and `generateSchedule` writes the value from then on; only a season whose
- * games arrived by import has nothing declared. The early return is what keeps
- * this cheap enough to call from a page that renders for every visitor.
+ * ⚠️ HOW OFTEN THE QUERY RUNS, STATED HONESTLY. `0049` backfilled every season
+ * that existed, and `generateSchedule` writes the value from then on — but the
+ * early return fires only when `game_nights` is NON-EMPTY, and a season is
+ * created empty. So it runs on every public team-page render for: a season
+ * created and not yet scheduled, and any season whose games arrived by import.
+ * For those it is a full games read per anonymous request, returning `[]` for a
+ * season with no games, with no caching beyond the request.
+ *
+ * That is a small indexed read and the set of such seasons is small, so it is
+ * accepted rather than solved — but an earlier version of this note claimed the
+ * query "almost never runs", which is not true of a league between creating a
+ * season and building its schedule. If it ever matters, the fix is to write
+ * `game_nights` at season creation from the league's usual nights, not to widen
+ * the early return.
  *
  * Memoized like the other lookups here, so the team page and the roster editor
  * beneath it ask once between them.
@@ -181,6 +191,8 @@ export const seasonNightsFor = cache(async function seasonNightsFor(
   }
   return resolveSeasonNights(
     [],
-    (data ?? []).map((g) => leagueWeekday(g.scheduled_at)).filter((d) => d >= 0),
+    (data ?? [])
+      .map((g) => leagueWeekday(g.scheduled_at))
+      .filter((d) => d >= 0),
   );
 });

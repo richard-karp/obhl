@@ -91,9 +91,11 @@ test.describe("Path 9b — Forwards, Defence and Goalies", () => {
     ).toBeVisible();
 
     await page.goto("/harbor/teams/anchors");
-    await expect(
-      page.getByRole("columnheader", { name: "Night" }),
-    ).toHaveCount(0);
+    // ⛔ ESTABLISH THE PAGE RENDERED BEFORE ASSERTING AN ABSENCE.
+    await expect(page.getByRole("heading", { name: "Forwards" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Night" })).toHaveCount(
+      0,
+    );
   });
 });
 

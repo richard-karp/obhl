@@ -106,24 +106,24 @@ export function PlayerEditDialog({
    * dialog. In a table cell that was fine, because there was nothing to keep
    * open. Here it risks tearing the dialog down mid-edit, which is the same
    * reason `EditPlayerForm` already dispatched its two forms this way.
+   *
+   * ⚠️ BOUND DIRECTLY, NOT THROUGH A WRAPPER THAT DISCARDS THE RESULT. The
+   * first version wrapped each in `async () => { await action(body); return
+   * null; }`, so the state was permanently null and the error paragraph below
+   * was unreachable — dead UI over two writes that also swallowed their own
+   * `.error`. Both actions return a state now.
    */
   const [statusState, statusAction, statusPending] = useActionState<
     RosterActionState,
     FormData
-  >(async (_prev: RosterActionState, body: FormData) => {
-    await updatePlayerStatus(body);
-    return null;
-  }, null);
+  >(updatePlayerStatus, null);
 
   // Captaincy is its own action and its own row-level fact, dispatched the same
   // way and for the same reason as the toggles above.
-  const [, captainAction, captainPending] = useActionState<
+  const [captainState, captainAction, captainPending] = useActionState<
     RosterActionState,
     FormData
-  >(async (_prev: RosterActionState, body: FormData) => {
-    await toggleCaptain(body);
-    return null;
-  }, null);
+  >(toggleCaptain, null);
 
   /**
    * ⛔ A SUCCESSFUL SAVE DOES NOT CLOSE THIS, AND THAT IS DELIBERATE TWICE OVER.
@@ -327,11 +327,16 @@ export function PlayerEditDialog({
               Set
             </Button>
           </form>
-          {statusState && !statusState.ok ? (
-            <p role="status" className="text-destructive text-xs">
-              {statusState.message}
-            </p>
-          ) : null}
+          {/* Failures only. A successful toggle is visible in the button's own
+              pressed state and in the row's badge behind the dialog; a refusal
+              has nowhere else to appear. */}
+          {[statusState, captainState].map((st, i) =>
+            st && !st.ok ? (
+              <p key={i} role="status" className="text-destructive text-xs">
+                {st.message}
+              </p>
+            ) : null,
+          )}
         </div>
 
         {/* ── Transfer ───────────────────────────────────────────────────── */}

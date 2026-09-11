@@ -411,7 +411,9 @@ test.describe("Path 28b — past and future on the schedule", () => {
     const db = admin();
     const { data: past } = await db
       .from("games")
-      .select("id, scheduled_at, status, seasons!inner(is_active, leagues!inner(slug))")
+      .select(
+        "id, scheduled_at, status, seasons!inner(is_active, leagues!inner(slug))",
+      )
       .eq("status", "scheduled")
       .eq("is_draft", false)
       .eq("seasons.leagues.slug", "obhl")
@@ -436,6 +438,32 @@ test.describe("Path 28b — past and future on the schedule", () => {
     expect(headings.indexOf("Awaiting a score")).toBeLessThan(
       headings.indexOf("Upcoming"),
     );
+  });
+
+  test("a cancelled game keeps its Manage button even though it is future-dated", async ({
+    page,
+  }) => {
+    // ⛔ THE REGRESSION THIS EXISTS FOR. The future-game gate above was first
+    // written as a blanket date check, which also stripped the button off
+    // CANCELLED games — whose button is "Manage", the only route to
+    // `restoreGame`, not an offer to record a result. A game is normally called
+    // off in advance, so that took the restore control off exactly the games
+    // that have it.
+    //
+    // ⚠️ `7fda0e3` ("put cancelled games back on the list that absorbed them")
+    // fixed the same loss from the other direction once already, and nothing
+    // caught this one because the seed had no cancelled game at all. It has one
+    // now, dated a fortnight out, and this is what watches it.
+    await signedInAs(page, "Manager");
+    await page.goto("/obhl/schedule");
+
+    const section = page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: "Cancelled" }) });
+    await expect(section).toBeVisible();
+    await expect(
+      section.getByRole("link", { name: "Manage" }).first(),
+    ).toBeVisible();
   });
 
   test("nobody is offered a Score button on a game not yet played", async ({

@@ -598,7 +598,9 @@ test.describe("Path 22 — Roster editing", () => {
     await openRoster(page, "obhl", await teamName(teamId));
     const row = rowFor(page, await playerName(subject.player_id));
     const dialog = await openDialogFor(page, row);
-    await dialog.getByLabel("Number", { exact: true }).fill(String(wearer.jersey_number));
+    await dialog
+      .getByLabel("Number", { exact: true })
+      .fill(String(wearer.jersey_number));
     await dialog.getByRole("button", { name: "Save" }).click();
 
     await expect(dialog.getByRole("status")).toContainText(

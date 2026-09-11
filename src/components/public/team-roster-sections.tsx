@@ -82,11 +82,9 @@ function NameCell({ name, isCaptain }: { name: string; isCaptain: boolean }) {
 
 function Section({
   title,
-  showNight,
   children,
 }: {
   title: string;
-  showNight: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -99,7 +97,6 @@ function Section({
       <div className="overflow-x-auto rounded-lg border">
         <Table>{children}</Table>
       </div>
-      {showNight ? null : null}
     </section>
   );
 }
@@ -118,7 +115,7 @@ export function TeamRosterSections({
 }) {
   const skaterSection = (title: string, rows: SectionSkater[]) =>
     rows.length === 0 ? null : (
-      <Section key={title} title={title} showNight={showNight}>
+      <Section key={title} title={title}>
         <TableHeader>
           <TableRow className="bg-muted/40">
             <TableHead className="w-12 text-center">#</TableHead>
@@ -166,7 +163,7 @@ export function TeamRosterSections({
       {skaterSection("Defence", defence)}
 
       {goalies.length === 0 ? null : (
-        <Section title="Goalies" showNight={showNight}>
+        <Section title="Goalies">
           <TableHeader>
             <TableRow className="bg-muted/40">
               <TableHead className="w-12 text-center">#</TableHead>

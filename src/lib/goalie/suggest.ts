@@ -48,7 +48,17 @@ export function suggestGoalie(
     //    the same roster would look like the page losing the scorekeeper's
     //    pick. Lowest jersey wins; a goalie with no number sorts last rather
     //    than winning as 0.
-    .sort((a, b) => (a.number ?? Infinity) - (b.number ?? Infinity));
+    // ⛔ NOT `(a.number ?? Infinity) - (b.number ?? Infinity)`. Two goalies who
+    // both lack a number make that `Infinity - Infinity`, which is `NaN`, and a
+    // comparator returning NaN leaves the order engine-defined — the one thing
+    // this sort exists to prevent. Unnumbered players are not hypothetical: the
+    // esportsdesk roster parser produced a whole league of them.
+    .sort((a, b) => {
+      const an = a.number ?? Number.MAX_SAFE_INTEGER;
+      const bn = b.number ?? Number.MAX_SAFE_INTEGER;
+      // Ties broken by id so two unnumbered goalies still order stably.
+      return an - bn || a.playerId.localeCompare(b.playerId);
+    });
 
   // 3. Two or more goalies and none owns this night: nobody. Guessing here is
   //    how a scorekeeper ends up crediting a shutout to someone who did not

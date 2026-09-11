@@ -236,6 +236,12 @@ export async function addRosterPlayer(
           jersey_number: jersey,
           position,
           is_captain,
+          // ⛔ WRITTEN, NOT INHERITED. This revives a row that departed at some
+          // point in the past, possibly before the clear above existed — and an
+          // unwritten column keeps whatever it held then. The add form does not
+          // ask for a night, so a returning player starts without one, which is
+          // what "nobody has said which night they play" means.
+          night_of_week: null,
         })
         .eq("id", prior.id)
         .select("id")
@@ -328,9 +334,17 @@ export async function removeRosterPlayer(formData: FormData) {
       .from("team_players")
       .update({
         left_on: new Date().toISOString().slice(0, 10),
-        // Both are statements about the present that a departure ends. 0038
-        // makes RLS agree about the captaincy independently.
+        // Both are statements about the PRESENT that a departure ends, and both
+        // have to go. 0038 makes RLS agree about the captaincy independently;
+        // the night is what makes a goalie this team's starter on it.
+        //
+        // ⛔ `night_of_week` WAS MISSED WHEN `is_default_goalie` WAS REMOVED
+        // HERE (0049), leaving one field under a comment that said "both". A
+        // departed row kept its night, and the re-join paths below write only
+        // the fields they set — so removing a goalie and adding them back
+        // silently restored them as that night's starter with nobody saying so.
         is_captain: false,
+        night_of_week: null,
       })
       .eq("id", id);
   } else {
@@ -537,6 +551,10 @@ async function movePlayerToTeam(opts: {
             jersey_number: wanted,
             position,
             is_captain,
+            // Same reason as `is_captain` directly above: a row departed by a
+            // path that predates the clear in step 1 can still hold a night,
+            // and returning to a former team would silently restore it.
+            night_of_week: null,
           })
           .eq("id", former.id)
       ).error
@@ -696,14 +714,33 @@ export async function transferPlayer(
   });
 }
 
-export async function toggleCaptain(formData: FormData) {
+/**
+ * ⚠️ RETURNS A STATE RATHER THAN `void` SINCE 2026-09-11, and the reason is not
+ * tidiness. It ignored `.error` on its own UPDATE, so an RLS refusal or a
+ * constraint violation looked exactly like success — the page revalidated, the
+ * badge did not change, and nothing said why. Its one caller is the player
+ * dialog, which now has somewhere to put the message.
+ */
+export async function toggleCaptain(
+  _prev: RosterActionState,
+  formData: FormData,
+): Promise<RosterActionState> {
   const admin = createAdminClient();
   const id = String(formData.get("id"));
   const manager = await requireLeagueManager(() =>
     leagueOfTeamPlayer(id, admin),
   );
   const make = formData.get("make") === "1";
-  await admin.from("team_players").update({ is_captain: make }).eq("id", id);
+  const { error } = await admin
+    .from("team_players")
+    .update({ is_captain: make })
+    .eq("id", id);
+  if (error) {
+    return {
+      ok: false,
+      message: `Couldn't change the captain. ${error.message}`,
+    };
+  }
   void logAudit({
     user_id: manager.id,
     action: "toggle_captain",
@@ -712,6 +749,7 @@ export async function toggleCaptain(formData: FormData) {
     new_data: { is_captain: make },
   });
   revalidatePath("/[league]/teams/[slug]", "page");
+  return { ok: true, message: make ? "Made captain." : "No longer captain." };
 }
 
 /*
@@ -727,7 +765,15 @@ export async function toggleCaptain(formData: FormData) {
  * an ordinary property of a roster row rather than machinery of its own.
  */
 
-export async function updatePlayerStatus(formData: FormData) {
+/**
+ * ⚠️ RETURNS A STATE RATHER THAN `void` SINCE 2026-09-11 — see `toggleCaptain`.
+ * All three of its UPDATEs discarded `.error`, so a refused write was
+ * indistinguishable from a successful one.
+ */
+export async function updatePlayerStatus(
+  _prev: RosterActionState,
+  formData: FormData,
+): Promise<RosterActionState> {
   const admin = createAdminClient();
   const id = String(formData.get("id"));
   const manager = await requireLeagueManager(() =>
@@ -742,20 +788,37 @@ export async function updatePlayerStatus(formData: FormData) {
     .eq("id", id)
     .maybeSingle();
 
+  let writeError: string | null = null;
   if (field === "injury_notes") {
     const raw = String(formData.get("value") ?? "").trim();
-    await admin
-      .from("team_players")
-      .update({ injury_notes: raw || null })
-      .eq("id", id);
+    writeError =
+      (
+        await admin
+          .from("team_players")
+          .update({ injury_notes: raw || null })
+          .eq("id", id)
+      ).error?.message ?? null;
   } else if (field === "is_rookie") {
     const val = formData.get("value") === "1";
-    await admin.from("team_players").update({ is_rookie: val }).eq("id", id);
+    writeError =
+      (await admin.from("team_players").update({ is_rookie: val }).eq("id", id))
+        .error?.message ?? null;
   } else if (field === "is_suspended") {
     const val = formData.get("value") === "1";
-    await admin.from("team_players").update({ is_suspended: val }).eq("id", id);
+    writeError =
+      (
+        await admin
+          .from("team_players")
+          .update({ is_suspended: val })
+          .eq("id", id)
+      ).error?.message ?? null;
   } else {
-    return;
+    // ⚠️ Named now rather than returning silently. An unrecognised field is a
+    // caller bug, and it used to produce no write, no audit entry and no word.
+    return { ok: false, message: `Not a status field: ${field}.` };
+  }
+  if (writeError) {
+    return { ok: false, message: `Couldn't save that. ${writeError}` };
   }
 
   let oldVal: unknown;
@@ -774,6 +837,7 @@ export async function updatePlayerStatus(formData: FormData) {
     new_data: { field, value: formData.get("value") },
   });
   revalidatePath("/[league]/teams/[slug]", "page");
+  return { ok: true, message: "Updated." };
 }
 
 /**
