@@ -609,7 +609,7 @@ export function ScheduleGenerateForm({
    * ITERATIVE: a manager regenerates five or six times, changing one field
    * each pass, and every pass was throwing away the other five. Measured
    * 2026-09-06 on Fall 2026 — after a generate, `games_per_team` went back to
-   * 10, `slot_times` to "19:00, 20:15, 21:30" and every weekday checkbox to
+   * 10, `slot_times` to "19:00, 20:20, 21:40" and every weekday checkbox to
    * unchecked, while the skip chips and the length mode (React state, not
    * inputs) survived untouched. That split is what identifies the cause: a
    * remount would have taken the state with it.
@@ -747,7 +747,7 @@ export function ScheduleGenerateForm({
           <Input
             id="slot_times"
             name="slot_times"
-            defaultValue="19:00, 20:15, 21:30"
+            defaultValue="19:00, 20:20, 21:40"
           />
         </div>
 

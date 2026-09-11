@@ -407,7 +407,7 @@ export async function generateSchedule(
   // as "09:00 is not an ice time on <date>": a time the manager never typed,
   // about a slot that is plainly there. Normalising both sides is the fix; only
   // this side was doing it.
-  const slotTimes = String(formData.get("slot_times") ?? "19:00,20:15,21:30")
+  const slotTimes = String(formData.get("slot_times") ?? "19:00,20:20,21:40")
     .split(",")
     .map((s) => s.trim())
     // Unparseable entries pass through untouched rather than being dropped:
