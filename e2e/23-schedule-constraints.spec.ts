@@ -300,6 +300,42 @@ test.describe("Path 24 — schedule constraints", () => {
     ).toHaveCount(0);
   });
 
+  test("adding a request clears its own fields and leaves the generate form alone", async ({
+    page,
+  }) => {
+    // ⚠️ THE TWO HALVES ARE ONE TEST ON PURPOSE. This card shares a `<form>`
+    // with the generate fields, so the obvious way to clear it — `form.reset()`
+    // — also empties the first game night, the ice times and every weekday box.
+    // Asserting only that the card cleared would pass for that bug. See the ⛔
+    // in `ConstraintsCard`'s header, and `28-schedule-form-state`.
+    const iceTimes = page.getByLabel(/Ice-time slots/);
+    await iceTimes.fill("19:00, 20:20");
+
+    const name = await firstTeamName(page);
+    await page.getByLabel("Request", { exact: true }).selectOption("bye_on");
+    await page.getByLabel("Date", { exact: true }).fill(await fallStart());
+    await page.getByRole("button", { name: "Add request" }).click();
+
+    // The list growing is the signal the add landed — not the toast, which
+    // sonner stacks and lingers (see `clearRequests`).
+    await expect(
+      requestList(page).filter({
+        hasText: `${name} byes on ${await fallStart()}`,
+      }),
+    ).toBeVisible();
+
+    // Its own fields are empty again, ready for the next request...
+    await expect(page.getByLabel("Team", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("Date", { exact: true })).toHaveValue("");
+    // ...but the KIND is deliberately kept: three byes in a row is the common
+    // case, and re-picking it every time is the annoyance, not the help.
+    await expect(page.getByLabel("Request", { exact: true })).toHaveValue(
+      "bye_on",
+    );
+    // ...and nothing the manager typed into the generate form has moved.
+    await expect(iceTimes).toHaveValue("19:00, 20:20");
+  });
+
   test("a request with nothing filled in is refused, not silently dropped", async ({
     page,
   }) => {
@@ -371,9 +407,14 @@ test.describe("Path 24 — schedule constraints", () => {
     const requestDate = await secondTuesday();
     await page.getByLabel("Request", { exact: true }).selectOption("slot_on");
     await page.getByLabel("Date", { exact: true }).fill(requestDate);
-    await page.getByLabel("Ice time").fill("21:30");
+    // ⚠️ THE LATEST DEFAULT SLOT, and it must stay in step with the form's
+    // `slot_times` default — this test does not fill that field, so it inherits
+    // it. Pinned to 21:30 until 2026-09-11, when the default became
+    // 19:00 / 20:20 / 21:40; a request naming a time the season does not run is
+    // unsatisfiable, so the row came back ✗ and the tick assertion below failed.
+    await page.getByLabel("Ice time").fill("21:40");
     await page.getByRole("button", { name: "Add request" }).click();
-    const description = `${name} plays at 21:30 on ${requestDate}`;
+    const description = `${name} plays at 21:40 on ${requestDate}`;
     await expect(
       requestList(page).filter({ hasText: description }),
     ).toBeVisible();
