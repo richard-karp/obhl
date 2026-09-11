@@ -7,8 +7,6 @@ import {
   removeRosterPlayer,
   toggleCaptain,
   updatePlayerStatus,
-  setDefaultGoalie,
-  setGoalieDay,
 } from "@/lib/actions/rosters";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -73,25 +71,21 @@ export async function RosterEditor({
   leagueId: string;
 }) {
   const admin = createAdminClient();
-  const [{ data: roster }, { data: goalieDays }] = await Promise.all([
-    admin
-      .from("team_players")
-      .select(
-        "id, player_id, jersey_number, position, is_captain, is_rookie, injury_notes, is_suspended, is_default_goalie, players!team_players_player_id_fkey(first_name, last_name)",
-      )
-      .eq("season_id", season.id)
-      .eq("team_id", team.id)
-      // The active roster. A departed row is kept as history (0036) so the
-      // stats views can still credit what was earned here; it is not somebody
-      // to set a lineup with.
-      .is("left_on", null)
-      .order("jersey_number", { ascending: true }),
-    admin
-      .from("team_goalie_days")
-      .select("day_of_week, player_id")
-      .eq("season_id", season.id)
-      .eq("team_id", team.id),
-  ]);
+  // ⛔ ONE READ NOW, NOT TWO. The second was `team_goalie_days`, for the Goalie
+  // Schedule card below it; 0049 dropped that table and the night rides on the
+  // roster row itself.
+  const { data: roster } = await admin
+    .from("team_players")
+    .select(
+      "id, player_id, jersey_number, position, is_captain, is_rookie, injury_notes, is_suspended, night_of_week, players!team_players_player_id_fkey(first_name, last_name)",
+    )
+    .eq("season_id", season.id)
+    .eq("team_id", team.id)
+    // The active roster. A departed row is kept as history (0036) so the
+    // stats views can still credit what was earned here; it is not somebody
+    // to set a lineup with.
+    .is("left_on", null)
+    .order("jersey_number", { ascending: true });
 
   // The season's other teams, for the per-row transfer control. Read from
   // `season_teams` rather than `teams`: a team that exists in the league but is
@@ -329,31 +323,6 @@ export async function RosterEditor({
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-2">
-                      {r.position === "G" ? (
-                        <form action={setDefaultGoalie}>
-                          <input type="hidden" name="id" value={r.id} />
-                          <input type="hidden" name="team_id" value={team.id} />
-                          <input
-                            type="hidden"
-                            name="season_id"
-                            value={season.id}
-                          />
-                          <input
-                            type="hidden"
-                            name="make"
-                            value={r.is_default_goalie ? "0" : "1"}
-                          />
-                          <Button
-                            type="submit"
-                            variant={
-                              r.is_default_goalie ? "secondary" : "ghost"
-                            }
-                            size="sm"
-                          >
-                            {r.is_default_goalie ? "Default ✓" : "Set Default"}
-                          </Button>
-                        </form>
-                      ) : null}
                       <form action={toggleCaptain}>
                         <input type="hidden" name="id" value={r.id} />
                         <input type="hidden" name="team_id" value={team.id} />
@@ -399,68 +368,14 @@ export async function RosterEditor({
         </div>
       )}
 
-      {/* Goalie Schedule — only shown when the team has at least one rostered goalie */}
-      {(() => {
-        const goalies = (roster ?? []).filter((r: any) => r.position === "G");
-        if (goalies.length === 0) return null;
-        const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        const dayMap = new Map<number, string>(
-          ((goalieDays ?? []) as any[]).map((d) => [
-            d.day_of_week,
-            d.player_id,
-          ]),
-        );
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Goalie Schedule</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground mb-4 text-xs">
-                Set which goalie plays on each day of the week. Overrides the
-                team default for that day. Leave blank to use the team default.
-              </p>
-              <div className="space-y-2">
-                {dayNames.map((name, dow) => (
-                  <form
-                    key={dow}
-                    action={setGoalieDay}
-                    className="flex items-center gap-3"
-                  >
-                    <span className="w-8 shrink-0 text-sm font-medium">
-                      {name}
-                    </span>
-                    <input type="hidden" name="team_id" value={team.id} />
-                    <input type="hidden" name="season_id" value={season.id} />
-                    <input type="hidden" name="day_of_week" value={dow} />
-                    <select
-                      name="player_id"
-                      defaultValue={dayMap.get(dow) ?? ""}
-                      className="border-input bg-background h-8 rounded-md border px-2 text-sm"
-                    >
-                      <option value="">— use default</option>
-                      {goalies.map((g: any) => (
-                        <option key={g.player_id} value={g.player_id}>
-                          #{g.jersey_number ?? "—"} {g.players?.first_name}{" "}
-                          {g.players?.last_name}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      type="submit"
-                      size="sm"
-                      variant="secondary"
-                      className="h-8"
-                    >
-                      Set
-                    </Button>
-                  </form>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })()}
+      {/*
+        ⛔ THE "GOALIE SCHEDULE" CARD STOOD HERE AND IS GONE (2026-09-11). It set
+        a goalie per weekday for the team, in a table only goalies could use.
+        A night is now a property of any roster row — set where every other
+        roster field is set — and for a goalie it is what makes them that
+        night's starter. `src/lib/goalie/suggest.ts` is the whole of the rule.
+        Do not rebuild a goalie-only scheduling surface here.
+      */}
     </div>
   );
 }

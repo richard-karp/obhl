@@ -331,7 +331,6 @@ export async function removeRosterPlayer(formData: FormData) {
         // Both are statements about the present that a departure ends. 0038
         // makes RLS agree about the captaincy independently.
         is_captain: false,
-        is_default_goalie: false,
       })
       .eq("id", id);
   } else {
@@ -457,14 +456,16 @@ async function movePlayerToTeam(opts: {
   //    unique index on (season_id, player_id) where left_on is null, so the
   //    insert below is rejected while this row is still active.
   //
-  //    is_captain and is_default_goalie go with it: both are claims about the
-  //    present that the move ends, and a captain who kept the flag kept write
-  //    access to their former team's scoresheet for the rest of the season.
-  //    0038 makes RLS agree independently.
+  //    is_captain and night_of_week go with it: both are claims about the
+  //    present that the move ends. A captain who kept the flag kept write
+  //    access to their former team's scoresheet for the rest of the season
+  //    (0038 makes RLS agree independently), and a night is a standing
+  //    instruction about when this player turns out for THIS team — which for a
+  //    goalie is what makes them its starter. Neither survives the departure.
   const left_on = new Date().toISOString().slice(0, 10);
   const { error: dErr } = await admin
     .from("team_players")
-    .update({ left_on, is_captain: false, is_default_goalie: false })
+    .update({ left_on, is_captain: false, night_of_week: null })
     .eq("id", id);
   if (dErr)
     return {
@@ -472,15 +473,11 @@ async function movePlayerToTeam(opts: {
       message: `Could not release the player: ${dErr.message}`,
     };
 
-  // 2. The old team's default-goalie days for this player. Unlike the roster
-  //    row these say nothing about the past — they are a standing instruction
-  //    about who starts on Tuesdays.
-  await admin
-    .from("team_goalie_days")
-    .delete()
-    .eq("season_id", season_id)
-    .eq("team_id", from_team_id)
-    .eq("player_id", player_id);
+  // 2. ⛔ THE `team_goalie_days` DELETE THAT USED TO BE HERE IS GONE WITH THE
+  //    TABLE (0049), not dropped by accident. It said "who starts on Tuesdays
+  //    for the team they are leaving", and that instruction now lives in
+  //    `night_of_week` on the row itself — which step 1 above just cleared, in
+  //    the same UPDATE, for the same reason.
 
   // 3. Lineups already set for games the old team has NOT played.
   //
@@ -717,83 +714,18 @@ export async function toggleCaptain(formData: FormData) {
   revalidatePath("/[league]/teams/[slug]", "page");
 }
 
-export async function setDefaultGoalie(formData: FormData) {
-  const admin = createAdminClient();
-  const id = String(formData.get("id")); // team_players.id
-  const team_id = String(formData.get("team_id"));
-  const season_id = String(formData.get("season_id"));
-  const make = formData.get("make") === "1";
-  // All three, unconditionally. The `id` update only runs when setting, so
-  // guarding it only then looks precise — but `logAudit` below uses the id
-  // whatever `make` is, and it writes on the admin client, past RLS. Guarding
-  // the table writes alone therefore left an unset able to file an entry
-  // against another league's roster row, into that league's audit log.
-  const manager = await requireLeagueManagerOf(
-    () => leagueOfSeason(season_id, admin),
-    () => leagueOfTeam(team_id, admin),
-    () => leagueOfTeamPlayer(id, admin),
-  );
-
-  // Clear any existing default on this team/season first, then set the new one.
-  await admin
-    .from("team_players")
-    .update({ is_default_goalie: false })
-    .eq("team_id", team_id)
-    .eq("season_id", season_id);
-  if (make) {
-    await admin
-      .from("team_players")
-      .update({ is_default_goalie: true })
-      .eq("id", id);
-  }
-  void logAudit({
-    user_id: manager.id,
-    action: "set_default_goalie",
-    entity_type: "team_player",
-    entity_id: id,
-    new_data: { is_default_goalie: make },
-  });
-  revalidatePath("/[league]/teams/[slug]", "page");
-}
-
-export async function setGoalieDay(formData: FormData) {
-  const admin = createAdminClient();
-  const team_id = String(formData.get("team_id"));
-  const season_id = String(formData.get("season_id"));
-  // Both ids are written, so both are checked — and against the SAME league.
-  // Two independent membership checks would pass for a person who manages both
-  // leagues while still writing one league's team into the other's season.
-  const manager = await requireLeagueManagerOf(
-    () => leagueOfSeason(season_id, admin),
-    () => leagueOfTeam(team_id, admin),
-  );
-  const day_of_week = Number(formData.get("day_of_week"));
-  const player_id = String(formData.get("player_id") ?? "").trim();
-
-  if (player_id) {
-    await admin
-      .from("team_goalie_days")
-      .upsert(
-        { team_id, season_id, day_of_week, player_id },
-        { onConflict: "team_id,season_id,day_of_week" },
-      );
-  } else {
-    await admin
-      .from("team_goalie_days")
-      .delete()
-      .eq("team_id", team_id)
-      .eq("season_id", season_id)
-      .eq("day_of_week", day_of_week);
-  }
-  void logAudit({
-    user_id: manager.id,
-    action: "set_goalie_day",
-    entity_type: "team",
-    entity_id: team_id,
-    new_data: { day_of_week, player_id: player_id || null },
-  });
-  revalidatePath("/[league]/teams/[slug]", "page");
-}
+/*
+ * ⛔ `setDefaultGoalie` AND `setGoalieDay` LIVED HERE AND ARE GONE (2026-09-11).
+ * They wrote `team_players.is_default_goalie` and the `team_goalie_days` table,
+ * both dropped by `0049`. A team no longer names a fallback goalie at all:
+ * `src/lib/goalie/suggest.ts` takes the team's only goalie when it has one, and
+ * otherwise the goalie whose `night_of_week` matches the game — which is set
+ * through `updateRosterPlayer` like any other roster field.
+ *
+ * ⚠️ Do not reintroduce a goalie-specific write path. That is what `0036`'s
+ * damage came from, and the whole point of the replacement is that a night is
+ * an ordinary property of a roster row rather than machinery of its own.
+ */
 
 export async function updatePlayerStatus(formData: FormData) {
   const admin = createAdminClient();
@@ -916,31 +848,17 @@ export async function updateRosterPlayer(
     }
   }
 
-  // Moving OFF goal takes the goalie machinery with it. `is_default_goalie` and
-  // the `team_goalie_days` rows are both standing instructions about who starts,
-  // and the Goalie Schedule control only lists rostered goalies — so a row left
-  // behind here points at somebody who is no longer in its own dropdown, and
-  // renders as "— use default" while still overriding the default.
-  const leavingGoal = existing.position === "G" && position !== "G";
-
+  // ⛔ MOVING OFF GOAL NO LONGER CLEARS ANYTHING, AND THAT IS A DECISION.
+  // This used to drop `is_default_goalie` and the player's `team_goalie_days`
+  // rows, because both were goalie machinery that made no sense on a skater.
+  // `night_of_week` is not that: it is a claim about WHEN this player turns
+  // out, not about what they play, and it stays true when a goalie moves to
+  // defence. Only leaving the team clears it — see `movePlayerToTeam`.
   const { error } = await admin
     .from("team_players")
-    .update({
-      jersey_number: jersey,
-      position,
-      ...(leavingGoal ? { is_default_goalie: false } : {}),
-    })
+    .update({ jersey_number: jersey, position })
     .eq("id", id);
   if (error) return { ok: false, message: error.message };
-
-  if (leavingGoal) {
-    await admin
-      .from("team_goalie_days")
-      .delete()
-      .eq("season_id", existing.season_id)
-      .eq("team_id", existing.team_id)
-      .eq("player_id", existing.player_id);
-  }
 
   const { data: person } = await admin
     .from("players")
@@ -957,7 +875,7 @@ export async function updateRosterPlayer(
     old_data: {
       jersey_number: existing.jersey_number,
       position: existing.position,
-      is_default_goalie: existing.is_default_goalie,
+      night_of_week: existing.night_of_week,
     },
     new_data: { jersey_number: jersey, position, name },
   });

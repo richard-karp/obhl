@@ -113,7 +113,10 @@ export async function revertAuditEntries(
               .update({
                 left_on: new Date().toISOString().slice(0, 10),
                 is_captain: false,
-                is_default_goalie: false,
+                // Both are claims about the present that a departure ends —
+                // the same pair `movePlayerToTeam` clears. `night_of_week`
+                // replaced `is_default_goalie` here in 0049.
+                night_of_week: null,
               })
               .eq("id", entry.entity_id);
             if (error)
@@ -170,7 +173,17 @@ export async function revertAuditEntries(
               .update({
                 left_on: leftOn,
                 is_captain: Boolean(od.is_captain),
-                is_default_goalie: Boolean(od.is_default_goalie),
+                // ⚠️ RESTORED FROM THE SNAPSHOT, AND OLDER SNAPSHOTS SIMPLY DO
+                // NOT HAVE IT. Entries written before 0049 carry
+                // `is_default_goalie` instead; that key is ignored rather than
+                // translated, because a flag meaning "this team's fallback
+                // goalie" has no honest equivalent in a column meaning "the
+                // night this player turns out". Reverting such an entry leaves
+                // the night null, which is what an unassigned player has.
+                night_of_week:
+                  typeof od.night_of_week === "number"
+                    ? od.night_of_week
+                    : null,
               })
               .eq("id", entry.entity_id);
             if (error)

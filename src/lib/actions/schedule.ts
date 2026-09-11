@@ -732,6 +732,27 @@ export async function generateSchedule(
       };
     }
   }
+
+  // ⛔ THE NIGHTS THE SEASON PLAYS, RECORDED HERE BECAUSE HERE IS WHERE THEY ARE
+  // CHOSEN. `seasons.game_nights` is what every night control keys off — the
+  // roster's Night column, the player dialog's select — and this is the only
+  // place a manager states it: the weekday checkboxes above. Deriving it from
+  // the games instead was considered and rejected, because rescheduling one
+  // game onto a Saturday would make the league appear to play Saturdays.
+  //
+  // ⚠️ WRITTEN ON GENERATE, NOT ON PUBLISH. A manager assigning players to
+  // nights while still iterating on a draft needs the value already there, and
+  // a draft that is later discarded leaves behind a true statement about the
+  // ice the league books. Not fatal if it fails: the draft is written and the
+  // fallback in `resolveSeasonNights` still answers from the published games.
+  const { error: nightsError } = await admin
+    .from("seasons")
+    .update({ game_nights: [...weekdays].sort((a, b) => a - b) })
+    .eq("id", seasonId);
+  if (nightsError) {
+    console.error("season game_nights update failed:", nightsError.message);
+  }
+
   revalidatePath("/[league]/seasons/[seasonId]", "page");
 
   // A run that places nothing isn't an error — it deleted the old drafts and

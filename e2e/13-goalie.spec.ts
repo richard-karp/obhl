@@ -82,89 +82,23 @@ test.describe("Path 19 — Scorekeeper goalie buttons", () => {
   });
 });
 
-// ── Path 20: Default goalie on roster page ──────────────────────────────────
-
-test.describe("Path 20 — Default goalie on roster page", () => {
-  test("manager can set a default goalie and the button updates", async ({
-    page,
-  }) => {
-    await signedInAs(page, "Manager");
-    await page.goto("/obhl/teams");
-    await page.getByText("Sharks").click();
-    await expect(page).toHaveURL(/\/teams\//);
-    // The editing forms are simply on the page for a manager now — no tab to
-    // open and no `?tab=` to wait for.
-
-    // Goalie row has a "Set Default" button
-    const goalieRow = rosterRows(page).filter({ hasText: "Goalie" }).first();
-    await expect(
-      goalieRow.getByRole("button", { name: /Set Default|Default ✓/ }),
-    ).toBeVisible();
-
-    // If already set, unset first so we're in a known state
-    const alreadyDefault = goalieRow.getByRole("button", { name: "Default ✓" });
-    if (await alreadyDefault.isVisible()) {
-      await alreadyDefault.click();
-      await page.waitForLoadState("networkidle");
-    }
-
-    // Set as default
-    await goalieRow.getByRole("button", { name: "Set Default" }).click();
-    await page.waitForLoadState("networkidle");
-    await expect(
-      goalieRow.getByRole("button", { name: "Default ✓" }),
-    ).toBeVisible();
-  });
-
-  test("Goalie Schedule card is visible when team has a rostered goalie", async ({
-    page,
-  }) => {
-    await signedInAs(page, "Manager");
-    await page.goto("/obhl/teams");
-    await page.getByText("Sharks").click();
-    await expect(page).toHaveURL(/\/teams\//);
-    // The editing forms are simply on the page for a manager now — no tab to
-    // open and no `?tab=` to wait for.
-
-    await expect(page.getByText("Goalie Schedule")).toBeVisible();
-    // Mon and Thu rows should be present
-    await expect(page.getByText("Mon")).toBeVisible();
-    await expect(page.getByText("Thu")).toBeVisible();
-  });
-
-  test("manager can assign a goalie to a day and save it", async ({ page }) => {
-    await signedInAs(page, "Manager");
-    await page.goto("/obhl/teams");
-    await page.getByText("Sharks").click();
-    await expect(page).toHaveURL(/\/teams\//);
-    // The editing forms are simply on the page for a manager now — no tab to
-    // open and no `?tab=` to wait for.
-
-    // Find the Mon row select and pick the first non-default option
-    const monForm = page
-      .locator("form")
-      .filter({ has: page.locator('input[name="day_of_week"][value="1"]') });
-    const monSelect = monForm.locator('select[name="player_id"]');
-    const options = monSelect.locator("option");
-    const count = await options.count();
-    // There should be at least a blank option + one goalie option
-    expect(count).toBeGreaterThan(1);
-
-    // Pick the first real goalie option (index 1, skipping "— use default")
-    await monSelect.selectOption({ index: 1 });
-    await monForm.getByRole("button", { name: "Set" }).click();
-    await page.waitForLoadState("networkidle");
-
-    // Page should still be on the team, the Goalie Schedule card intact, and
-    // the Mon row still present — confirms the server action didn't crash.
-    await expect(page).toHaveURL(/\/teams\//);
-    await expect(page.getByText("Goalie Schedule")).toBeVisible();
-    const freshForm = page
-      .locator("form")
-      .filter({ has: page.locator('input[name="day_of_week"][value="1"]') });
-    await expect(freshForm.getByRole("button", { name: "Set" })).toBeVisible();
-  });
-});
+// ── Path 20: the night's goalie ─────────────────────────────────────────────
+//
+// ⛔ THREE TESTS STOOD HERE AND ARE GONE (2026-09-11). They drove "Set Default"
+// on a roster row and the "Goalie Schedule" card's per-weekday selects — both
+// removed with `team_players.is_default_goalie` and the `team_goalie_days`
+// table in `0049`. They could not be repointed, because there is no longer a
+// goalie-specific control anywhere: a night is an ordinary roster field now,
+// set beside jersey and position, and for a goalie it names that night's
+// starter.
+//
+// ⚠️ REPLACED, NOT DROPPED. The rule itself is unit-tested in
+// `src/lib/goalie/suggest.ts` — including the case no fixture reaches, two
+// goalies sharing a night. What belongs HERE is the end-to-end pair the unit
+// test cannot see: a two-goalie team pre-selecting a DIFFERENT goalie on each
+// of its two nights, and a one-goalie team pre-selecting theirs on every
+// night. Both need a fixture with two nights and a team with two goalies,
+// which the seed gains in the next commit; the tests land with it.
 
 // ── Path 21: Captain sets goalie ────────────────────────────────────────────
 

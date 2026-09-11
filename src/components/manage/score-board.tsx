@@ -38,9 +38,21 @@ export type TeamBoard = {
   logoTextColor: string | null;
   dressed: DressedLine[];
   roster: RosterCheck[];
-  /** Rostered goalies (position='G') — the only choices for goalie of record. */
-  goalies: { playerId: string; number: number | null; isDefault: boolean }[];
-  /** Suggested goalie from day-of-week schedule or team default; null if none configured. */
+  /**
+   * Rostered goalies (position='G') — the only choices for goalie of record.
+   *
+   * ⚠️ `night` is carried but not rendered. This board offers every goalie and
+   * lets the scorekeeper pick; the night is what `suggestGoalie` already used
+   * to choose `suggestedGoalieId` below, and showing it beside a number the
+   * scorekeeper is matching against a jersey would be noise. It replaced
+   * `isDefault`, which was equally unread — 0049 dropped the flag behind it.
+   */
+  goalies: { playerId: string; number: number | null; night: number | null }[];
+  /**
+   * Who to pre-select: the team's only goalie, else the one whose night this
+   * is, else nobody. See `src/lib/goalie/suggest.ts` — the rule is there and
+   * tested, not here.
+   */
   suggestedGoalieId: string | null;
   /** Goalie of record (explicit pick); null falls back to the dressed goalie. */
   goalieId: string | null;

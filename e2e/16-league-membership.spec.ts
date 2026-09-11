@@ -1155,90 +1155,26 @@ test.describe("Path 17 — Per-league membership", () => {
     }
   });
 
-  test("setting a default goalie cannot name another league's roster row", async ({
-    page,
-  }) => {
-    const db = admin();
-    // Selected through the TEAM's league, not through whichever season happens
-    // to be active — earlier specs in the suite move that around, and all this
-    // row has to be is another league's.
-    const { data: victim } = await db
-      .from("team_players")
-      .select(
-        "id, is_default_goalie, teams!team_players_team_id_fkey!inner(league_id)",
-      )
-      .eq("teams.league_id", await leagueId(LEAD_OUT))
-      .eq("is_default_goalie", false)
-      .limit(1)
-      .single();
-    expect(victim, "no foreign roster row to aim at").not.toBeNull();
-
-    try {
-      await signInAs(page, "Manager");
-      await openRosterEditor(page, LEAD_IN);
-
-      // The one form carrying id + team_id + season_id + make is setDefaultGoalie.
-      const form = page
-        .locator("form")
-        .filter({ has: page.locator('input[name="season_id"]') })
-        .filter({ has: page.locator('input[name="make"]') })
-        .first();
-      await tamper(page, form.locator('input[name="id"]'), victim!.id);
-      await tamper(page, form.locator('input[name="make"]'), "1");
-      await submitAndSettle(page, form.getByRole("button").first().click());
-      await expect(page).toHaveURL("/");
-
-      // The clear that runs first is bounded by team+season and was never the
-      // risk; this is the write keyed on the id alone.
-      const { data: after } = await db
-        .from("team_players")
-        .select("is_default_goalie")
-        .eq("id", victim!.id)
-        .single();
-      expect(after!.is_default_goalie).toBe(false);
-    } finally {
-      await db
-        .from("team_players")
-        .update({ is_default_goalie: false })
-        .eq("id", victim!.id);
-    }
-  });
-
-  test("clearing a default goalie cannot name another league's roster row", async ({
-    page,
-  }) => {
-    // The same form with `make` flipped to 0. That path writes nothing keyed on
-    // the id — but `logAudit` uses it regardless, on the admin client, so
-    // guarding only the table writes let an unset file an entry against another
-    // league's roster row, in that league's audit log.
-    const db = admin();
-    const { data: victim } = await db
-      .from("team_players")
-      .select("id, teams!team_players_team_id_fkey!inner(league_id)")
-      .eq("teams.league_id", await leagueId(LEAD_OUT))
-      .limit(1)
-      .single();
-
-    await signInAs(page, "Manager");
-    await openRosterEditor(page, LEAD_IN);
-
-    const form = page
-      .locator("form")
-      .filter({ has: page.locator('input[name="season_id"]') })
-      .filter({ has: page.locator('input[name="make"]') })
-      .first();
-    await tamper(page, form.locator('input[name="id"]'), victim!.id);
-    await tamper(page, form.locator('input[name="make"]'), "0");
-    await submitAndSettle(page, form.getByRole("button").first().click());
-    await expect(page).toHaveURL("/");
-
-    const { data: planted } = await db
-      .from("audit_log")
-      .select("id")
-      .eq("entity_id", victim!.id)
-      .eq("action", "set_default_goalie");
-    expect(planted ?? []).toHaveLength(0);
-  });
+  /**
+   * ⛔ TWO TESTS STOOD HERE AND ARE GONE (2026-09-11), WITH NO LOSS OF COVER.
+   * They tampered with `setDefaultGoalie`'s hidden `id` to set and clear
+   * another league's default goalie. `0049` dropped
+   * `team_players.is_default_goalie` and that action with it, so both tests
+   * aimed at something that no longer exists — keeping them would have meant
+   * two green tests exercising nothing.
+   *
+   * ⚠️ THE EQUIVALENT GUARD FOR WHAT REPLACED IT IS NOT ASSERTED HERE YET, and
+   * that is stated rather than left to be discovered. A night is now written by
+   * `updateRosterPlayer`, which resolves the league from the ROW rather than
+   * from anything the form carries — a stronger position than the one these
+   * tested, since there is no `team_id`/`season_id` left on the form to lie
+   * about. A tampering test against it was attempted here and abandoned: the
+   * POST lands, the foreign row is correctly unchanged, but the refusal
+   * surfaces as neither a redirect nor a status message through
+   * `useActionState`, so the assertion could not be shown to mean anything.
+   * It belongs with the player dialog, which gives it a status region to
+   * assert on.
+   */
 
   // ── A second manager can be taken back out of a league ────────────────────
 
