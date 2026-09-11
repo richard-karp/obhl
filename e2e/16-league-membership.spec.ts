@@ -154,11 +154,22 @@ test.describe("Path 17 — Per-league membership", () => {
     // NOT "/teams": the roster editor merged into the public team page, so a
     // manager of another league SEES it, like `/rules`. What they must not get
     // is the Manage tab — asserted on its own below.
-    "/schedule-builder",
-    "/schedule-builder/one-off",
-    // NOT "/schedule": `/score` merged into it, so it is public. A scorekeeper
-    // or manager of ANOTHER league sees the page like any visitor; what they
-    // must not get is a Score button, asserted below.
+    // The builder's in-season tools, now under `/schedule` (2026-09-11).
+    // `/schedule/repair` was missing from this list and is added with the move.
+    "/schedule/one-off",
+    "/schedule/repair",
+    // ⚠️ NOT the bare "/schedule", even though its own CHILDREN are listed just
+    // above — and that is not an oversight. `/score` merged into it, so the
+    // games list is public: a scorekeeper or a manager of ANOTHER league sees it
+    // like any visitor, and what they must not get is a Score button or the
+    // edit panel, asserted below. The children are manager-only pages that
+    // happen to live under a public parent, which the two route groups make
+    // possible — see `(manage)/schedule/`.
+    //
+    // ⛔ NOT "/schedule-builder" any more either. It is a redirect page now, so
+    // a manager of another league is bounced by ITS guard before the redirect
+    // runs — a refusal, but to /login-or-home rather than from the page under
+    // test, which would make this assertion prove something else.
     "/announcements",
     // NOT "/rules": it merged into the public page, so a manager of another
     // league now SEES it like any visitor. What they must not get is the
@@ -1144,90 +1155,31 @@ test.describe("Path 17 — Per-league membership", () => {
     }
   });
 
-  test("setting a default goalie cannot name another league's roster row", async ({
-    page,
-  }) => {
-    const db = admin();
-    // Selected through the TEAM's league, not through whichever season happens
-    // to be active — earlier specs in the suite move that around, and all this
-    // row has to be is another league's.
-    const { data: victim } = await db
-      .from("team_players")
-      .select(
-        "id, is_default_goalie, teams!team_players_team_id_fkey!inner(league_id)",
-      )
-      .eq("teams.league_id", await leagueId(LEAD_OUT))
-      .eq("is_default_goalie", false)
-      .limit(1)
-      .single();
-    expect(victim, "no foreign roster row to aim at").not.toBeNull();
-
-    try {
-      await signInAs(page, "Manager");
-      await openRosterEditor(page, LEAD_IN);
-
-      // The one form carrying id + team_id + season_id + make is setDefaultGoalie.
-      const form = page
-        .locator("form")
-        .filter({ has: page.locator('input[name="season_id"]') })
-        .filter({ has: page.locator('input[name="make"]') })
-        .first();
-      await tamper(page, form.locator('input[name="id"]'), victim!.id);
-      await tamper(page, form.locator('input[name="make"]'), "1");
-      await submitAndSettle(page, form.getByRole("button").first().click());
-      await expect(page).toHaveURL("/");
-
-      // The clear that runs first is bounded by team+season and was never the
-      // risk; this is the write keyed on the id alone.
-      const { data: after } = await db
-        .from("team_players")
-        .select("is_default_goalie")
-        .eq("id", victim!.id)
-        .single();
-      expect(after!.is_default_goalie).toBe(false);
-    } finally {
-      await db
-        .from("team_players")
-        .update({ is_default_goalie: false })
-        .eq("id", victim!.id);
-    }
-  });
-
-  test("clearing a default goalie cannot name another league's roster row", async ({
-    page,
-  }) => {
-    // The same form with `make` flipped to 0. That path writes nothing keyed on
-    // the id — but `logAudit` uses it regardless, on the admin client, so
-    // guarding only the table writes let an unset file an entry against another
-    // league's roster row, in that league's audit log.
-    const db = admin();
-    const { data: victim } = await db
-      .from("team_players")
-      .select("id, teams!team_players_team_id_fkey!inner(league_id)")
-      .eq("teams.league_id", await leagueId(LEAD_OUT))
-      .limit(1)
-      .single();
-
-    await signInAs(page, "Manager");
-    await openRosterEditor(page, LEAD_IN);
-
-    const form = page
-      .locator("form")
-      .filter({ has: page.locator('input[name="season_id"]') })
-      .filter({ has: page.locator('input[name="make"]') })
-      .first();
-    await tamper(page, form.locator('input[name="id"]'), victim!.id);
-    await tamper(page, form.locator('input[name="make"]'), "0");
-    await submitAndSettle(page, form.getByRole("button").first().click());
-    await expect(page).toHaveURL("/");
-
-    const { data: planted } = await db
-      .from("audit_log")
-      .select("id")
-      .eq("entity_id", victim!.id)
-      .eq("action", "set_default_goalie");
-    expect(planted ?? []).toHaveLength(0);
-  });
+  /**
+   * ⛔ TWO TESTS STOOD HERE AND ARE GONE (2026-09-11), WITH NO LOSS OF COVER.
+   * They tampered with `setDefaultGoalie`'s hidden `id` to set and clear
+   * another league's default goalie. `0049` dropped
+   * `team_players.is_default_goalie` and that action with it, so both tests
+   * aimed at something that no longer exists — keeping them would have meant
+   * two green tests exercising nothing.
+   *
+   * ⚠️ THE EQUIVALENT GUARD FOR WHAT REPLACED IT IS NOT ASSERTED HERE YET, and
+   * that is stated rather than left to be discovered. A night is now written by
+   * `updateRosterPlayer`, which resolves the league from the ROW rather than
+   * from anything the form carries — a stronger position than the one these
+   * tested, since there is no `team_id`/`season_id` left on the form to lie
+   * about.
+   *
+   * ⛔ AN EARLIER VERSION OF THIS NOTE GAVE A REASON THAT WAS NOT TRUE. It said
+   * the refusal "surfaces as neither a redirect nor a status message through
+   * `useActionState`". It does redirect — `requireLeagueManagerOf` calls
+   * `redirect("/")` (`src/lib/auth/guards.ts`), and the `addRosterPlayer`
+   * tampering test above asserts exactly that on an action dispatched the same
+   * way. The real reason the test is absent is that the first attempt at it did
+   * not submit the form it thought it was submitting, and it was dropped rather
+   * than shipped green-and-meaningless. The gap is real and the fix is a test,
+   * not a rewording of this paragraph.
+   */
 
   // ── A second manager can be taken back out of a league ────────────────────
 

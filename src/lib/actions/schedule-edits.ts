@@ -174,7 +174,6 @@ function writeFor(before: SeasonRow, after: SeasonRow): GameWrite {
 
 function revalidateSchedule() {
   revalidatePath("/[league]/schedule", "page");
-  revalidatePath("/[league]/schedule-builder", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
 }
 

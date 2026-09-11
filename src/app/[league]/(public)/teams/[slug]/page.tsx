@@ -2,13 +2,15 @@ import { notFound } from "next/navigation";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 import { getActiveContext, getManageContext } from "@/lib/queries/season";
 import { getTeamBySlug } from "@/lib/queries/teams";
+import { seasonNightsFor } from "@/lib/queries/season";
+import { hasMultipleNights } from "@/lib/season/nights";
 import { canManageLeague } from "@/lib/auth/guards";
 import { RosterEditor } from "@/components/manage/roster-editor";
 import {
-  TeamPlayerTable,
-  type TeamPlayerRow,
-} from "@/components/public/team-player-table";
-import { GoalieStatsTable } from "@/components/public/goalie-stats-table";
+  TeamRosterSections,
+  type SectionGoalie,
+  type SectionSkater,
+} from "@/components/public/team-roster-sections";
 import { GameRow } from "@/components/public/game-row";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { SeasonSwitcher } from "@/components/manage/season-switcher";
@@ -91,43 +93,98 @@ export default async function TeamPage({
     else t++;
   }
 
-  // Combined roster + skater stats (one team, so position replaces team).
+  // ── The roster, in three sections ─────────────────────────────────────────
+  //
+  // ⛔ BUILT FROM THE ROSTER AND LEFT-JOINED TO THE STATS, NOT THE OTHER WAY
+  // ROUND. Both stats views are built only from FINAL games, so a player who
+  // has not been scored yet is absent from them entirely — and on the day this
+  // shipped that was every goalie in both live leagues, 19 of 19, because no
+  // game had been played. A section driven by the view would have been empty
+  // on every team page in the app.
   const statByPlayer = new Map(detail.skaters.map((s) => [s.player_id, s]));
+  const goalieByPlayer = new Map(detail.goalies.map((g) => [g.player_id, g]));
   const inRoster = new Set(detail.roster.map((r) => r.player_id));
-  const players: TeamPlayerRow[] = detail.roster.map((r) => {
-    const s = statByPlayer.get(r.player_id);
+
+  const nights = await seasonNightsFor(ctx.season);
+  const showNight = hasMultipleNights(nights);
+
+  const skaterRow = (r: {
+    player_id: string;
+    jersey_number: number | null;
+    first_name: string;
+    last_name: string;
+    is_captain: boolean;
+    night_of_week: number | null;
+  }): SectionSkater => {
+    const st = statByPlayer.get(r.player_id);
     return {
       player_id: r.player_id,
       number: r.jersey_number,
-      name: `${r.first_name} ${r.last_name}`,
-      position: r.position,
+      name: `${r.first_name} ${r.last_name}`.trim(),
       is_captain: r.is_captain,
-      gp: s?.gp ?? 0,
-      g: s?.g ?? 0,
-      a: s?.a ?? 0,
-      pts: s?.pts ?? 0,
-      pim: s?.pim ?? 0,
+      night: r.night_of_week,
+      gp: st?.gp ?? 0,
+      g: st?.g ?? 0,
+      a: st?.a ?? 0,
+      pts: st?.pts ?? 0,
+      pim: st?.pim ?? 0,
     };
-  });
-  // Include anyone with stats who isn't on the current roster (rare).
-  for (const s of detail.skaters) {
-    if (!s.player_id || inRoster.has(s.player_id)) continue;
-    players.push({
-      player_id: s.player_id,
-      number: s.jersey_number,
-      name: `${s.first_name ?? ""} ${s.last_name ?? ""}`.trim(),
-      position: s.position ?? "F",
-      is_captain: false,
-      gp: s.gp ?? 0,
-      g: s.g ?? 0,
-      a: s.a ?? 0,
-      pts: s.pts ?? 0,
-      pim: s.pim ?? 0,
-    });
+  };
+
+  const forwards: SectionSkater[] = [];
+  const defence: SectionSkater[] = [];
+  const goalies: SectionGoalie[] = [];
+  for (const r of detail.roster) {
+    const base = skaterRow(r);
+    if (r.position === "G") {
+      const g = goalieByPlayer.get(r.player_id);
+      goalies.push({
+        ...base,
+        wins: g?.wins ?? 0,
+        losses: g?.losses ?? 0,
+        ties: g?.ties ?? 0,
+        ga: g?.ga ?? 0,
+        so: g?.so ?? 0,
+        gaa: g?.gaa ?? null,
+      });
+    } else if (r.position === "D") {
+      defence.push(base);
+    } else {
+      forwards.push(base);
+    }
   }
-  players.sort(
-    (a, b) => b.pts - a.pts || (a.number ?? 999) - (b.number ?? 999),
-  );
+
+  // Anyone with stats who is no longer on the roster — a transfer, or someone
+  // removed mid-season. Their points were earned here and stay visible; they
+  // have no roster row, so no night and no captaincy.
+  for (const st of detail.skaters) {
+    if (!st.player_id || inRoster.has(st.player_id)) continue;
+    const row: SectionSkater = {
+      player_id: st.player_id,
+      number: st.jersey_number,
+      name: `${st.first_name ?? ""} ${st.last_name ?? ""}`.trim(),
+      is_captain: false,
+      night: null,
+      gp: st.gp ?? 0,
+      g: st.g ?? 0,
+      a: st.a ?? 0,
+      pts: st.pts ?? 0,
+      pim: st.pim ?? 0,
+    };
+    if (st.position === "D") defence.push(row);
+    else if (st.position === "G") {
+      const g = goalieByPlayer.get(st.player_id);
+      goalies.push({
+        ...row,
+        wins: g?.wins ?? 0,
+        losses: g?.losses ?? 0,
+        ties: g?.ties ?? 0,
+        ga: g?.ga ?? 0,
+        so: g?.so ?? 0,
+        gaa: g?.gaa ?? null,
+      });
+    } else forwards.push(row);
+  }
 
   return (
     <div className="space-y-6">
@@ -164,19 +221,24 @@ export default async function TeamPage({
         </TabsList>
 
         <TabsContent value="roster" className="space-y-6">
-          {players.length === 0 ? (
+          {forwards.length + defence.length + goalies.length === 0 ? (
             <EmptyState title="No players on the roster yet" />
           ) : (
-            <TeamPlayerTable rows={players} />
+            <TeamRosterSections
+              forwards={forwards}
+              defence={defence}
+              goalies={goalies}
+              showNight={showNight}
+            />
           )}
-          {detail.goalies.length > 0 ? (
-            <div className="space-y-2">
-              <h2 className="text-muted-foreground text-sm font-semibold">
-                Goaltending
-              </h2>
-              <GoalieStatsTable rows={detail.goalies} league={league} />
-            </div>
-          ) : null}
+          {/*
+            ⛔ THE STANDALONE "Goaltending" BLOCK STOOD HERE AND IS GONE. It
+            listed each goalie a second time, below a skater table that had
+            already listed them with 0 points. The Goalies section above
+            carries both sets of columns, so nothing was lost by merging them
+            — and `GoalieStatsTable` itself is untouched, because `/stats`
+            still uses it for the league-wide sortable table.
+          */}
 
           {/*
             The same tab, below the same tables a visitor sees — a manager reads

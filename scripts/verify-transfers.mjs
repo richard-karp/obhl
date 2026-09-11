@@ -340,9 +340,9 @@ try {
 
   // --- 4. grants ----------------------------------------------------------
   // Supabase's default privileges appear to cover new objects — team_goalie_days
-  // (0023) has anon SELECT with no grant in its migration — but
-  // 0034_league_office.sql asserts the opposite for tables, so settle it here
-  // rather than trusting either.
+  // (0023) had anon SELECT with no grant in its migration, before 0049 dropped
+  // the table — but 0034_league_office.sql asserts the opposite for tables, so
+  // settle it here rather than trusting either.
   // Probed rather than read out of information_schema: what matters is whether
   // an anonymous request gets rows or 42501, and that is the same question the
   // browser asks.

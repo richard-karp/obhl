@@ -196,10 +196,37 @@ function ConstraintsCard({
       }
     });
   };
+  /**
+   * The card's own fields, so a manager adding three byes in a row types three
+   * dates rather than three dates and three teams.
+   *
+   * ⛔ THE NAMED FIELDS, NEVER `form.reset()`. This card has no `<form>` of its
+   * own — it sits INSIDE the generate form (see the ⚠️ above `ConstraintsCard`),
+   * so a reset here empties the first game night, the games per team, the ice
+   * times and every weekday checkbox the manager has just filled in. That is
+   * the same React 19 form-reset damage the ⛔ in this component's header
+   * describes, arrived at by hand instead of by `formAction`.
+   *
+   * ⚠️ `constraint_kind` and `constraint_prefer` are deliberately NOT cleared.
+   * The kind is the controlled `kind` state and re-picking it for every request
+   * of the same sort is the annoyance, not the help; `constraint_prefer` only
+   * renders under `slot_bias` and has a meaningful default.
+   */
+  const cardRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!addState) return;
-    if (addState.ok) toast.success(addState.message);
-    else toast.error(addState.message);
+    if (addState.ok) {
+      toast.success(addState.message);
+      const fields = cardRef.current?.querySelectorAll<
+        HTMLInputElement | HTMLSelectElement
+      >("[name^='constraint_']");
+      for (const el of fields ?? []) {
+        if (el.name === "constraint_kind" || el.name === "constraint_prefer") {
+          continue;
+        }
+        el.value = "";
+      }
+    } else toast.error(addState.message);
   }, [addState]);
 
   const nameOf = (id: string) =>
@@ -210,6 +237,7 @@ function ConstraintsCard({
 
   return (
     <div
+      ref={cardRef}
       className="space-y-2 rounded-lg border p-3"
       /*
         ⚠️ ENTER INSIDE THIS CARD MEANS "ADD REQUEST", NOT "GENERATE".
@@ -609,7 +637,7 @@ export function ScheduleGenerateForm({
    * ITERATIVE: a manager regenerates five or six times, changing one field
    * each pass, and every pass was throwing away the other five. Measured
    * 2026-09-06 on Fall 2026 — after a generate, `games_per_team` went back to
-   * 10, `slot_times` to "19:00, 20:15, 21:30" and every weekday checkbox to
+   * 10, `slot_times` to "19:00, 20:20, 21:40" and every weekday checkbox to
    * unchecked, while the skip chips and the length mode (React state, not
    * inputs) survived untouched. That split is what identifies the cause: a
    * remount would have taken the state with it.
@@ -747,7 +775,7 @@ export function ScheduleGenerateForm({
           <Input
             id="slot_times"
             name="slot_times"
-            defaultValue="19:00, 20:15, 21:30"
+            defaultValue="19:00, 20:20, 21:40"
           />
         </div>
 

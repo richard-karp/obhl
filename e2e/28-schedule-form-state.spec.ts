@@ -408,7 +408,7 @@ test.describe("Path 26 — the generate form's state", () => {
     // seeded three, the weekdays unchecked.
     await expect(page.getByText(await skipChip())).toHaveCount(0);
     await expect(page.getByLabel(/Ice-time slots/)).toHaveValue(
-      "19:00, 20:15, 21:30",
+      "19:00, 20:20, 21:40",
     );
     await expect(
       page.locator('label:has-text("Tue") input[name="weekdays"]'),

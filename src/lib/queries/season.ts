@@ -5,6 +5,8 @@ import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 import type { Tables } from "@/lib/db/helpers";
+import { resolveSeasonNights } from "@/lib/season/nights";
+import { leagueWeekday } from "@/lib/format";
 
 export type League = Tables<"leagues">;
 export type Season = Tables<"seasons">;
@@ -137,3 +139,60 @@ export async function getManageContext(
 
   return { league, season, seasons };
 }
+
+/**
+ * The weekdays a season plays, 0=Sun..6=Sat.
+ *
+ * ⛔ THE ONLY PLACE THE FALLBACK IS APPLIED, and the reason it is a function
+ * rather than a field read. `resolveSeasonNights` needs the weekdays of the
+ * season's PUBLISHED games when nothing was declared — and the obvious source
+ * on a team page, `detail.games`, is only THAT TEAM'S games. A team that does
+ * not play every night would report the league's nights wrongly, and the
+ * mistake would be invisible: a plausible shorter list, on a page nobody
+ * cross-checks. Ask here, where the query is scoped to the season.
+ *
+ * ⚠️ HOW OFTEN THE QUERY RUNS, STATED HONESTLY. `0049` backfilled every season
+ * that existed, and `generateSchedule` writes the value from then on — but the
+ * early return fires only when `game_nights` is NON-EMPTY, and a season is
+ * created empty. So it runs on every public team-page render for: a season
+ * created and not yet scheduled, and any season whose games arrived by import.
+ * For those it is a full games read per anonymous request, returning `[]` for a
+ * season with no games, with no caching beyond the request.
+ *
+ * That is a small indexed read and the set of such seasons is small, so it is
+ * accepted rather than solved — but an earlier version of this note claimed the
+ * query "almost never runs", which is not true of a league between creating a
+ * season and building its schedule. If it ever matters, the fix is to write
+ * `game_nights` at season creation from the league's usual nights, not to widen
+ * the early return.
+ *
+ * Memoized like the other lookups here, so the team page and the roster editor
+ * beneath it ask once between them.
+ */
+export const seasonNightsFor = cache(async function seasonNightsFor(
+  season: Pick<Season, "id" | "game_nights">,
+): Promise<number[]> {
+  const declared = resolveSeasonNights(season.game_nights, []);
+  if (declared.length > 0) return declared;
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("games")
+    .select("scheduled_at")
+    .eq("season_id", season.id)
+    .eq("is_draft", false)
+    .not("scheduled_at", "is", null);
+  if (error) {
+    // An empty list hides every night control, which is the safe way to be
+    // wrong: a manager sees no picker rather than a picker offering nights the
+    // season does not play.
+    console.error("season nights query failed:", error.message);
+    return [];
+  }
+  return resolveSeasonNights(
+    [],
+    (data ?? [])
+      .map((g) => leagueWeekday(g.scheduled_at))
+      .filter((d) => d >= 0),
+  );
+});

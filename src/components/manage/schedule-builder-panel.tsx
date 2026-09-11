@@ -55,8 +55,14 @@ const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Schedule builder scoped to a specific season — the forms carry a hidden
- * season_id so they target this season, not whatever is currently active. Used
- * by the season setup hub and by the standalone /schedule-builder (active season).
+ * season_id so they target this season, not whatever is currently active.
+ *
+ * ⚠️ ONE CALL SITE NOW: the season setup hub, `/<league>/seasons/<id>`. It was
+ * also drawn by a standalone `/<league>/schedule-builder`, which stopped being
+ * a place on 2026-09-11 — building a schedule is a step of creating a season —
+ * and that URL is now a redirect to the setup page. The hidden `season_id` is
+ * therefore no longer the thing distinguishing two callers; keep it anyway,
+ * because it is what stops these forms targeting whatever season is active.
  */
 /**
  * The draft columns `editableDrafts` reads. PostgREST types the embedded
@@ -431,7 +437,7 @@ export async function ScheduleBuilderPanel({
                 <p>
                   To slot in a tournament final or semifinals,{" "}
                   <Link
-                    href={`/${league}/schedule-builder/one-off`}
+                    href={`/${league}/schedule/one-off`}
                     className="text-foreground font-medium underline"
                   >
                     schedule a one-off game
@@ -450,7 +456,7 @@ export async function ScheduleBuilderPanel({
                   To put a team on a particular night or ice time, or to even
                   out the nights still to come,{" "}
                   <Link
-                    href={`/${league}/schedule-builder/repair`}
+                    href={`/${league}/schedule/repair`}
                     className="text-foreground font-medium underline"
                   >
                     repair the schedule
@@ -506,7 +512,7 @@ export async function ScheduleBuilderPanel({
             job — it takes over a game on a night that&apos;s already scheduled
             and repairs the rest of the season around it.{" "}
             <Link
-              href={`/${league}/schedule-builder/one-off`}
+              href={`/${league}/schedule/one-off`}
               className="text-foreground font-medium underline"
             >
               Schedule a one-off game
@@ -604,7 +610,7 @@ export async function ScheduleBuilderPanel({
                 To put a team on a particular night or ice time, or to even out
                 the nights still to come,{" "}
                 <Link
-                  href={`/${league}/schedule-builder/repair`}
+                  href={`/${league}/schedule/repair`}
                   className="text-foreground font-medium underline"
                 >
                   repair the schedule
