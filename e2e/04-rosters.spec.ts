@@ -69,20 +69,34 @@ test.describe("Path 9b — Forwards, Defence and Goalies", () => {
     // of 19, because no game had been scored yet. A Goalies section built from
     // that view alone would have been empty on every team page in the app.
     // Sharks' #8 has never played: the seed converts them from a forward and
-    // they appear in no finalized game.
-    const goalies = page
-      .getByRole("region", { name: "Goalies" })
-      .locator("tbody tr");
+    // dresses only the starting goalie, so they appear in no finalized game.
+    const section = page.getByRole("region", { name: "Goalies" });
+    const goalies = section.locator("tbody tr");
     await page.goto("/obhl/teams/sharks");
     await expect(goalies).toHaveCount(2);
+
     // ⚠️ THE JERSEY CELL, NOT THE ROW. `hasText: "8"` matched anywhere in the
     // row — a GA, GAA or GP containing an 8 would have satisfied it just as
     // well. The number is the first cell.
-    await expect(
-      goalies.filter({
-        has: page.locator("td:first-child", { hasText: /^8$/ }),
-      }),
-    ).toHaveCount(1);
+    const backup = goalies.filter({
+      has: page.locator("td:first-child", { hasText: /^8$/ }),
+    });
+    await expect(backup).toHaveCount(1);
+
+    // ⛔ AND THE PREMISE ITSELF, WHICH THIS TEST DID NOT CHECK. Its name has
+    // always been "even with no games played", but the two assertions above
+    // hold whether or not #8 has played — and they were green for a while when
+    // #8 WAS dressed in all three finals. A test that cannot notice its own
+    // premise breaking is the shape this file exists to guard against.
+    //
+    // ⚠️ THE GP COLUMN IS FOUND BY ITS HEADER, NOT BY INDEX. A hard-coded `td`
+    // position is wrong on the other league — Night is present on OBHL and
+    // absent on Harbor — and a wrong index lands on a neighbouring zero and
+    // passes anyway.
+    const headers = await section.locator("thead th").allInnerTexts();
+    const gp = headers.findIndex((h) => h.trim() === "GP");
+    expect(gp, "no GP column in the Goalies section").toBeGreaterThan(-1);
+    await expect(backup.locator("td").nth(gp)).toHaveText("0");
   });
 
   test("a two-night league shows the night; a one-night league does not", async ({

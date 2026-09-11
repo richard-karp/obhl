@@ -135,12 +135,15 @@ export function PlayerEditDialog({
    * `publish-controls.tsx` records the same lesson from the other direction.
    * The status line under each form is what confirms the write; Done closes.
    *
-   * ⚠️ ONE EXCEPTION, AND IT IS THE EDITOR'S DOING RATHER THAN THIS DIALOG'S.
-   * The roster renders three sibling tables keyed by position, so changing a
-   * player F→G moves their row to a different list — this component unmounts
-   * with it, taking the dialog and its confirmation. That is the right
-   * behaviour (the row has left the table the dialog was opened from) but it
-   * means a position change is the one save that does close it.
+   * ⚠️ TWO EXCEPTIONS, AND BOTH ARE THE EDITOR'S DOING RATHER THAN THIS
+   * DIALOG'S. The roster renders three sibling tables keyed by position and
+   * scoped to `left_on is null` on one team, so:
+   *   - changing a player F→G moves their row to a different list, and
+   *   - transferring them removes it from this table entirely.
+   * Either way this component unmounts with the row, taking the dialog and its
+   * confirmation. That is right — the row has left the table the dialog was
+   * opened from — but it means those two saves DO close it, including the
+   * transfer this same paragraph lists among the things done in one sitting.
    */
   const statusForm = (
     field: string,

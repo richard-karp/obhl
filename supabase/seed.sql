@@ -31,18 +31,45 @@ begin
   -- played. Measured 2026-09-11: both Sharks goalies dressed in all three
   -- finals, and only the lower UUID reached the view.
   --
-  -- The starter is chosen the way `src/lib/goalie/suggest.ts` chooses one — the
-  -- goalie whose night this is, else the lowest jersey — so the fixture agrees
-  -- with the rule the app applies rather than with whatever Postgres sorted.
+  -- The starter is the goalie whose night this is, else the lowest jersey, else
+  -- the lowest id — deterministic, and stable across a `db reset`.
+  --
+  -- ⚠️ THAT IS NOT `suggestGoalie`, AND AN EARLIER VERSION OF THIS COMMENT SAID
+  -- IT WAS. That function has a THIRD rule this deliberately does not copy: two
+  -- or more goalies and none owns the night means it suggests NOBODY. The two
+  -- are answering different questions. `suggestGoalie` decides what to
+  -- pre-select before a game is played, where declining to guess is the safe
+  -- answer; this decides who actually played in a game the fixture is asserting
+  -- was finished, and a finished game had a goalie. Copying rule 3 here would
+  -- leave finalized games with a null goalie of record — which contradicts what
+  -- `setGoalie` maintains, and would put `v_goalie_stats` back on the
+  -- lowest-UUID fallback branch this function exists to close.
+  --
+  -- The two agree on today's data by construction rather than by accident: the
+  -- only two-goalie team's finalized games are all on the night one of them
+  -- owns. If you finalize a game on a night neither owns, they diverge — the
+  -- fixture will name someone the app would not have suggested. That is
+  -- correct, but know that it is happening.
   v_dow := extract(dow from (p_sched at time zone 'America/New_York'))::smallint;
 
+  -- ⚠️ `left_on is null` AND A FINAL `player_id`, both for the same reason as
+  -- the rest of this: no arbitrary answers. Every app path filters departed
+  -- rows (see `suggest.ts`'s `@param goalies` — "active rows only"), and
+  -- without the id tiebreak two goalies with equal sort keys — both matching
+  -- the night, or both with a null jersey, which the unique index permits —
+  -- leave `limit 1` to pick whichever Postgres reaches first. Neither is
+  -- reachable in today's seed; both are one line.
   select player_id into h_g from team_players
    where season_id = p_season and team_id = p_home and position = 'G'
-   order by (night_of_week is distinct from v_dow), jersey_number nulls last
+     and left_on is null
+   order by (night_of_week is distinct from v_dow), jersey_number nulls last,
+            player_id
    limit 1;
   select player_id into a_g from team_players
    where season_id = p_season and team_id = p_away and position = 'G'
-   order by (night_of_week is distinct from v_dow), jersey_number nulls last
+     and left_on is null
+   order by (night_of_week is distinct from v_dow), jersey_number nulls last,
+            player_id
    limit 1;
 
   insert into games (season_id, home_team_id, away_team_id, scheduled_at, status,

@@ -16,6 +16,15 @@
  */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+
+function admin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SECRET_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+}
 
 type Role = "Manager" | "Scorekeeper" | "Captain" | "One-league scorer";
 
@@ -39,35 +48,56 @@ async function signedInAs(page: Page, role: Role) {
  * is the restriction working rather than a broken link.
  */
 async function anOldGameId(page: Page): Promise<string> {
+  // ⚠️ THE SIGN-IN IS LOAD-BEARING FOR THE CALLER. "a manager may still open
+  // that same game" does not sign in itself; it relies on this.
   await signedInAs(page, "Manager");
-  await page.goto("/obhl/schedule");
-  // ⛔ SCOPED TO A SECTION THAT CANNOT CONTAIN TODAY, NOT TAKEN FROM DOM ORDER.
-  // This used to take the first scoresheet link on the page and trust that it
-  // was old, which was true only because of how the sections happened to be
-  // ordered and what happened to be in them. "Awaiting a score" arrived above
-  // Upcoming on 2026-09-11, and any spec that finalizes or moves the games in
-  // whichever section came first would hand this one TODAY's game — at which
-  // point the refusal test asserts a refusal that correctly does not happen.
-  // Recent Results is final games only — and the LAST link in it, because that
-  // section is reverse-chronological and `05-scoring` finalizes TONIGHT's
-  // games, which then sit at its top. The oldest final game is ~120 days back
-  // in the seed and nothing moves it.
-  const results = page
-    .locator("section")
-    .filter({ has: page.getByRole("heading", { name: "Recent Results" }) });
-  await expect(results.getByRole("link").first()).toBeVisible();
-  const hrefs = await results
-    .locator('a[href*="/games/"][href$="/score"]')
-    .evaluateAll((links) => links.map((l) => l.getAttribute("href") ?? ""));
-  const ids = hrefs
-    .map((h) => h.match(/\/games\/([^/]+)\/score$/)?.[1])
-    .filter((v): v is string => !!v);
-  const id = ids[ids.length - 1];
+
+  // ⛔ READ FROM THE DATABASE, NOT SCRAPED OFF THE SCHEDULE PAGE. Two earlier
+  // attempts narrowed the DOM scope — first to "the first link", then to the
+  // last link under "Recent Results" — and both were wrong in the same way:
+  // the page renders whichever season is ACTIVE, and specs 14 and 29 set their
+  // own seasons active while they run. In the full suite this helper was handed
+  // a page with no Recent Results section at all, so it failed on CI with
+  // "element(s) not found" while passing in isolation.
+  //
+  // What the tests need is a game that is not TODAY, in a league the
+  // scorekeeper works. That is a fact about the data, so ask the data. The
+  // oldest non-draft obhl game is ~120 days back in the seed and nothing in the
+  // suite moves it.
+  const db = admin();
+  const { data: league } = await db
+    .from("leagues")
+    .select("id")
+    .eq("slug", "obhl")
+    .single();
+  const { data: game } = await db
+    .from("games")
+    .select("id, scheduled_at, seasons!inner(league_id)")
+    .eq("seasons.league_id", league!.id)
+    .eq("is_draft", false)
+    .not("scheduled_at", "is", null)
+    .order("scheduled_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
   expect(
-    id,
-    "no scoresheet links under Recent Results — the fixture changed",
-  ).toBeTruthy();
-  return id!;
+    game,
+    "no non-draft obhl game with a date — the fixture changed",
+  ).not.toBeNull();
+
+  // The premise, asserted rather than assumed: a game dated today would make
+  // the refusal test assert a refusal that correctly does not happen.
+  const day = new Date(game!.scheduled_at as string).toLocaleDateString(
+    "en-CA",
+    { timeZone: "America/New_York" },
+  );
+  const today = new Date().toLocaleDateString("en-CA", {
+    timeZone: "America/New_York",
+  });
+  expect(day, "the oldest obhl game is TODAY — the fixture changed").not.toBe(
+    today,
+  );
+
+  return game!.id;
 }
 
 test.describe("The scorekeeper's night", () => {
