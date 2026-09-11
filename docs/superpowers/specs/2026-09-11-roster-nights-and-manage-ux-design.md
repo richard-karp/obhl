@@ -736,5 +736,13 @@ tree; re-check the branch before every git write. Per
 10. `npm run typecheck`, `npx vitest run`, `npx eslint src e2e` clean; the
     affected e2e specs green via `scripts/e2e-locked.sh` — and per
     `[[one-green-run-proves-nothing]]`, the schedule specs run more than once.
-11. No diff in `applyGameWrites`, `publishSchedule`, the `0045`/`0046` RPCs, or
-    `e2e/27-one-chrome.spec.ts`.
+11. No diff in `applyGameWrites`, `publishSchedule`, or the `0045`/`0046` RPCs.
+
+⚠️ **`e2e/27-one-chrome.spec.ts` was on that list and has been removed from it
+(2026-09-11).** The requirement came from the predecessor spec, where approach C
+moved routes and changed no chrome, so a diff in that file really would have
+signalled a mistake. §6 here changes the chrome deliberately — and that file's
+own thesis is "two navigations that named the same URLs differently; now there
+is one header", which removing the duplication completes rather than violates.
+Measured before amending: the file asserts only `Seasons` in the staff row, so
+dropping Schedule / Teams / Rules / Build Schedule does not break it.

@@ -23,17 +23,20 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
     { path: "/dashboard", label: "Dashboard" },
     { path: "/people", label: "People & Roles" },
     { path: "/seasons", label: "Seasons" },
-    { path: "/teams", label: "Teams" },
-    // ⛔ ORDER AND LABELS CHANGED 2026-09-07, on the user's observation that
-    // in-season editing "shouldn't be hidden in the Schedule Builder tab".
-    // `/schedule` is where a live schedule is now changed, so it comes first
-    // and is named for the thing rather than for a list; the builder keeps only
-    // generate / review / publish, which is what "Build" says and what its own
-    // lock permanently disables once the season starts.
-    { path: "/schedule", label: "Schedule" },
-    { path: "/schedule-builder", label: "Build Schedule" },
+    // ⛔ NO "/teams", "/schedule" OR "/rules" HERE, AND THAT IS THE POINT —
+    // 2026-09-11, on the user's observation that "the manager row does not need
+    // duplicates of the tabs from the main row". Each named a URL `NavLinks`
+    // already names, so a manager saw the same three destinations twice. See
+    // the ⚠️ on `StaffLinks` below for what that cost and why the labels
+    // differing did not make them different links.
+    //
+    // ⛔ AND NO "/schedule-builder". Building a schedule is part of creating a
+    // season, so it is reached from that season's setup page; the bare URL now
+    // redirects there. This supersedes the 2026-09-07 note that used to sit
+    // here about ordering `/schedule` before the builder — both entries are
+    // gone, and its reasoning ("in-season editing shouldn't be hidden in the
+    // Schedule Builder tab") is carried further by that move, not dropped.
     { path: "/announcements", label: "Announcements" },
-    { path: "/rules", label: "Rules" },
     // ⛔ NO "/import" HERE ANY MORE. It never belonged to a league — it creates
     // one — so it moved to `/manage/leagues/new` and is added as an absolute
     // link in `staffLinks()` below, beside the League Office.
@@ -113,20 +116,26 @@ function Links({ links, base }: { links: NavLink[]; base: string }) {
  * `navigation` landmarks on every page now rather than on three, and two unnamed
  * ones are indistinguishable to a screen reader.
  *
- * ⚠️ THE DUPLICATION IS KNOWN AND ACCEPTED, and it is stated here rather than
- * discovered. A manager sees this row's "Games", "Teams" and "Rules" beside the
- * public nav's "Schedule", "Teams" and "Rules" — three of these links name URLs
- * the header already names, two of them under a different word. `99f44d1`
- * recorded that cost when the row served three shared pages; it now applies to
- * every page, because the row does. On `/<league>/schedule` it also means TWO
- * links carry `aria-current="page"` — the public nav's "Schedule" and this row's
- * "Games" — which is valid but is the same duplication heard rather than seen.
+ * ✅ THE DUPLICATION IS GONE — REMOVED 2026-09-11, NOT MERELY TOLERATED. This
+ * block used to say it was "known and accepted": a manager saw this row's
+ * Teams, Rules and Schedule beside the public nav's Teams, Rules and Schedule —
+ * three links naming URLs the header already named. `99f44d1` recorded that
+ * cost when the row served three shared pages, and it grew to every page when
+ * the row did. On `/<league>/schedule` it also put `aria-current="page"` on TWO
+ * links at once, which is valid and reads as a fault.
  *
- * The alternative offered and not chosen was per-page inline staff controls
- * instead of a row (see the design doc's *Out of scope*). Do not "fix" the
- * duplication by pruning `LINKS`: the labels differ because the staff view of a
- * URL is not the public view of it, and the row is what makes every tool
- * reachable without a mode.
+ * ⛔ THE OLD DEFENCE WAS THAT THE LABELS DIFFERED, AND IT DID NOT HOLD. It
+ * argued the staff view of a URL is not the public view of it — but the pages
+ * had already merged (a staff page is a public page with more on it), so both
+ * links led somewhere identical. `e2e/27-one-chrome.spec.ts` now compares the
+ * two rows BY HREF for exactly that reason; a label-based check would have gone
+ * on passing.
+ *
+ * ⚠️ What is left here is what the public nav does NOT name: Dashboard, People
+ * & Roles, Seasons, Announcements, Audit Log. Adding a path that `NavLinks`
+ * already carries turns that spec red. The alternative offered and not chosen
+ * was per-page inline staff controls instead of a row (see the design doc's
+ * *Out of scope*).
  *
  * ⚠️ THIS ROW DOES NOT STICK, AND THAT IS A KNOWN LOSS RATHER THAN AN OVERSIGHT.
  * `ManageNav`'s deleted shell was `sticky top-0 z-40`, so a manager's links

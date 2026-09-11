@@ -15,7 +15,7 @@
  * purpose: the chrome moving must not be mistaken for the guard moving.
  */
 import { test, expect } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 const staffRow = (page: Page) =>
   page.getByRole("navigation", { name: "Staff tools" });
@@ -52,6 +52,35 @@ test.describe("One chrome everywhere", () => {
       // groups and never appear in a path; moving the chrome moves no page.
       await expect(page).toHaveURL(url);
     }
+  });
+
+  test("the staff row names no URL the league nav already names", async ({
+    page,
+  }) => {
+    // The other half of "one site, not two". The header stopped being two
+    // headers; this is the row beneath it stopping being a second copy of the
+    // nav above it. Until 2026-09-11 a manager saw Schedule, Teams and Rules in
+    // BOTH rows — the same three URLs, twice — which also put
+    // `aria-current="page"` on two links at once on `/<league>/schedule`.
+    //
+    // ⛔ COMPARED BY href, NOT BY LABEL. The duplication survived a previous
+    // review precisely because the labels differed ("Games" vs "Schedule")
+    // while the destinations did not.
+    await signInAs(page, "Manager");
+    await page.goto("/obhl/dashboard");
+
+    const hrefs = (nav: Locator) =>
+      nav
+        .locator("a")
+        .evaluateAll((as) =>
+          as.map((a) => (a as HTMLAnchorElement).getAttribute("href") ?? ""),
+        );
+    const staffHrefs = await hrefs(staffRow(page));
+    const leagueHrefs = await hrefs(leagueNav(page));
+
+    expect(staffHrefs.length).toBeGreaterThan(0);
+    expect(leagueHrefs.length).toBeGreaterThan(0);
+    expect(staffHrefs.filter((h) => leagueHrefs.includes(h))).toEqual([]);
   });
 
   test("no Manage link and no View site link exist anywhere", async ({
