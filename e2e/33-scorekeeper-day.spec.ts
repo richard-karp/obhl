@@ -41,19 +41,31 @@ async function signedInAs(page: Page, role: Role) {
 async function anOldGameId(page: Page): Promise<string> {
   await signedInAs(page, "Manager");
   await page.goto("/obhl/schedule");
-  const hrefs = await page
+  // ⛔ SCOPED TO A SECTION THAT CANNOT CONTAIN TODAY, NOT TAKEN FROM DOM ORDER.
+  // This used to take the first scoresheet link on the page and trust that it
+  // was old, which was true only because of how the sections happened to be
+  // ordered and what happened to be in them. "Awaiting a score" arrived above
+  // Upcoming on 2026-09-11, and any spec that finalizes or moves the games in
+  // whichever section came first would hand this one TODAY's game — at which
+  // point the refusal test asserts a refusal that correctly does not happen.
+  // Recent Results is final games only — and the LAST link in it, because that
+  // section is reverse-chronological and `05-scoring` finalizes TONIGHT's
+  // games, which then sit at its top. The oldest final game is ~120 days back
+  // in the seed and nothing moves it.
+  const results = page
+    .locator("section")
+    .filter({ has: page.getByRole("heading", { name: "Recent Results" }) });
+  await expect(results.getByRole("link").first()).toBeVisible();
+  const hrefs = await results
     .locator('a[href*="/games/"][href$="/score"]')
     .evaluateAll((links) => links.map((l) => l.getAttribute("href") ?? ""));
-  // ⚠️ DOM ORDER, which on this page is the *Upcoming* section — the seeded
-  // rounds 4-5, which are `scheduled` yet ~85 days in the PAST. Not the results
-  // section, as an earlier version of this comment claimed. Either would do:
-  // what matters is only that the game is not today.
-  const id = hrefs
+  const ids = hrefs
     .map((h) => h.match(/\/games\/([^/]+)\/score$/)?.[1])
-    .find((v): v is string => !!v);
+    .filter((v): v is string => !!v);
+  const id = ids[ids.length - 1];
   expect(
     id,
-    "no scoresheet links on the manager's schedule — the fixture changed",
+    "no scoresheet links under Recent Results — the fixture changed",
   ).toBeTruthy();
   return id!;
 }

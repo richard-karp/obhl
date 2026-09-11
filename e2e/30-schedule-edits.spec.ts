@@ -396,6 +396,125 @@ async function seedSeason(page: Page) {
  * — could not move a night from there at all. It was the one control the locked
  * builder had and this page did not.
  */
+/**
+ * Path 28b — the schedule page tells the truth about time.
+ *
+ * Two faults reported together on 2026-09-11: a game whose night had passed
+ * without being scored stayed under "Upcoming" for the rest of the season, and
+ * a manager was offered a Score button on fixtures months away — an invitation
+ * to record the result of a game nobody has played.
+ */
+test.describe("Path 28b — past and future on the schedule", () => {
+  test("a played game with no score leaves Upcoming for its own section", async ({
+    page,
+  }) => {
+    const db = admin();
+    const { data: past } = await db
+      .from("games")
+      .select("id, scheduled_at, status, seasons!inner(is_active, leagues!inner(slug))")
+      .eq("status", "scheduled")
+      .eq("is_draft", false)
+      .eq("seasons.leagues.slug", "obhl")
+      .eq("seasons.is_active", true)
+      .lt("scheduled_at", new Date().toISOString())
+      .limit(1);
+    expect(
+      past?.length,
+      "seed has no past unscored game — the fixture leaves rounds 4 and 5 scheduled",
+    ).toBeGreaterThan(0);
+
+    await page.goto("/obhl/schedule");
+    const awaiting = page.getByRole("heading", { name: "Awaiting a score" });
+    await expect(awaiting).toBeVisible();
+
+    // ⛔ THE POSITION IS THE POINT, NOT JUST THE HEADING. It is the only part
+    // of this page anyone has to act on, so it sits above Upcoming; a section
+    // below the fold is how these games got forgotten in the first place.
+    const headings = await page
+      .getByRole("heading", { level: 2 })
+      .allInnerTexts();
+    expect(headings.indexOf("Awaiting a score")).toBeLessThan(
+      headings.indexOf("Upcoming"),
+    );
+  });
+
+  test("nobody is offered a Score button on a game not yet played", async ({
+    page,
+  }) => {
+    const db = admin();
+    const { data: season } = await db
+      .from("seasons")
+      .select("id, leagues!inner(slug)")
+      .eq("leagues.slug", "obhl")
+      .eq("is_active", true)
+      .single();
+    const { data: teams } = await db
+      .from("season_teams")
+      .select("team_id")
+      .eq("season_id", season!.id)
+      .limit(2);
+
+    // ⚠️ CREATED, NOT FOUND. The seed anchors everything ~120 days back and its
+    // only "today" fixture is tonight's three games, so the active season has
+    // no FUTURE game to assert against — the case being fixed is unreachable
+    // without making one.
+    const future = new Date();
+    future.setDate(future.getDate() + 21);
+    // ⛔ COUNTED BEFORE AND AFTER, NOT SCOPED TO THE ROW. The first attempt
+    // located the row by its label and asserted no Score link inside it — and
+    // that passed with the gate REMOVED, because the locator resolved to the
+    // innermost element carrying the label (the badge), which never contains a
+    // link. Mutation testing caught it. The number of Score buttons on the
+    // page is not something a bad locator can satisfy by accident: adding a
+    // future game must not add one.
+    // ⚠️ THE LABELS AS `scoreLabel()` WRITES THEM. It is "Edit" on a final
+    // game and "Manage" on a cancelled or postponed one — not "Edit score".
+    // The first version of this matched none of them and read 0 buttons for a
+    // manager who plainly has them; the control below is what said so.
+    const scoreLinks = page.getByRole("link", {
+      name: /^(Score|Edit|Manage)$/,
+    });
+
+    await signedInAs(page, "Manager");
+    await page.goto("/obhl/schedule");
+    // ⚠️ WAIT BEFORE COUNTING. `count()` does not auto-wait like an assertion
+    // does, so reading it straight after `goto` returns 0 whether or not the
+    // buttons are coming — which is how the control below first "failed".
+    await expect(scoreLinks.first()).toBeVisible();
+    const before = await scoreLinks.count();
+    // The control: a manager DOES get buttons here, on games already played.
+    // Without this the assertion below would also pass if the button had been
+    // removed for everybody, which is a different bug.
+    expect(before).toBeGreaterThan(0);
+
+    const LABEL = "E2E future fixture";
+    const { data: made, error } = await db
+      .from("games")
+      .insert({
+        season_id: season!.id,
+        home_team_id: teams![0].team_id,
+        away_team_id: teams![1].team_id,
+        scheduled_at: future.toISOString(),
+        status: "scheduled",
+        is_draft: false,
+        label: LABEL,
+      })
+      .select("id")
+      .single();
+    expect(error, `could not seed a future game: ${error?.message}`).toBeNull();
+
+    try {
+      await page.reload();
+      // It is on the page, under Upcoming...
+      await expect(page.getByText(LABEL)).toBeVisible();
+      // ...and brought no Score button with it.
+      await expect(scoreLinks).toHaveCount(before);
+    } finally {
+      await db.from("games").delete().eq("id", made!.id);
+    }
+  });
+});
+
 test.describe("Path 28 — moving a night from the Schedule tab", () => {
   test("a manager gets the control on /schedule; a scorekeeper does not", async ({
     page,

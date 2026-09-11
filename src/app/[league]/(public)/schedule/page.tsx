@@ -50,6 +50,17 @@ function groupByDate(games: GameWithTeams[]) {
   return groups;
 }
 
+/**
+ * A game whose night has not arrived yet, in the league's zone.
+ *
+ * ⚠️ Date keys, not timestamps — see `isPast` in the page below, which is the
+ * same comparison the other way round. Shared by the grouping and the Score
+ * button so the two cannot disagree about what "today" means.
+ */
+function isFutureGame(scheduledAt: string | null, today: string): boolean {
+  return !!scheduledAt && leagueDateKey(scheduledAt) > today;
+}
+
 function GroupedGames({
   groups,
   league,
@@ -62,9 +73,11 @@ function GroupedGames({
   /** Draw a Score button per game. See `canScoreLeague` — it is not a guard. */
   canScore: boolean;
   /**
-   * Whether the viewer is a MANAGER, which decides whether the button appears on
-   * games that are not today. Managers keep every button; a scorekeeper only
-   * gets tonight's, because the scoresheet now refuses them any other date.
+   * Whether the viewer is a MANAGER, which decides whether the button appears
+   * on games that are not today. A manager gets today AND the past — entering
+   * a result, or correcting one; a scorekeeper gets tonight alone, because the
+   * scoresheet refuses them any other date. ⛔ NEITHER gets a game that has
+   * not been played: see the note on `scoreHref` below.
    */
   canManage: boolean;
   /** Tonight, in the league zone, resolved once per render. */
@@ -88,11 +101,19 @@ function GroupedGames({
                 // 120 days old would offer a control whose only outcome is a
                 // bounce back to `/tonight`. A button that cannot work is
                 // worse than no button: it reads as a broken page rather than as
-                // a boundary. Managers are unaffected — they have no day limit.
+                // a boundary.
+                //
+                // ⛔ AND NOT ON A GAME THAT HAS NOT BEEN PLAYED. A manager has
+                // no day limit in the guard, so this used to draw "Score" on
+                // fixtures months away — offering to record the result of a
+                // game nobody has played. Managers get today AND the past,
+                // which is edit-a-result as well as enter-one; scorekeepers
+                // still get today alone.
                 scoreHref={
-                  canScore &&
-                  (canManage || isOnLeagueDate(g.scheduled_at, today))
-                    ? `/${league}/games/${g.id}/score`
+                  canScore && !isFutureGame(g.scheduled_at, today)
+                    ? canManage || isOnLeagueDate(g.scheduled_at, today)
+                      ? `/${league}/games/${g.id}/score`
+                      : undefined
                     : undefined
                 }
               />
@@ -146,12 +167,48 @@ export default async function SchedulePage({
     ? `?team=${encodeURIComponent(selected.slug)}`
     : "";
 
-  // Anchor on "now": upcoming games first (next up), then recent results
-  // (most recently played first) — instead of opening at the season's start.
+  // Resolved once for the whole render — the groups below and three
+  // `GroupedGames` all ask, and the answer cannot change mid-render.
+  const today = leagueToday();
+
+  /**
+   * A game whose night has passed, in the league's zone.
+   *
+   * ⚠️ THE LEAGUE'S CALENDAR DATE, NOT `Date.parse(...) < Date.now()`. A game
+   * at 21:40 is not "past" at 22:00 the same evening — it is tonight's, and
+   * the scoresheet is being filled in. Comparing date keys is what makes
+   * "yesterday" mean yesterday.
+   */
+  const isPast = (g: GameWithTeams) =>
+    !!g.scheduled_at && leagueDateKey(g.scheduled_at) < today;
+
+  // Anchor on "now": what still needs a score, then what is coming, then what
+  // has been played — instead of opening at the season's start.
+  //
+  // ⛔ UPCOMING IS FUTURE-OR-TODAY, NOT MERELY "NOT FINAL". It used to be
+  // everything that was neither final nor cancelled, so a game nobody had
+  // scored sat under "Upcoming" for the rest of the season, getting further
+  // into the past. OBHL had three of them the day this changed.
   const upcoming = games.filter(
-    (g) => g.status !== "final" && g.status !== "cancelled",
+    (g) => g.status !== "final" && g.status !== "cancelled" && !isPast(g),
+  );
+  /**
+   * Played, or at least due, and still without a result.
+   *
+   * ⛔ SHOWN TO EVERYONE, AND FIRST. It is the only part of this page anybody
+   * has to act on, and it is honest to a visitor about a game having happened
+   * — which "it quietly left Upcoming" is not. Scorekeepers and managers get
+   * the button on each row that clears it; for everyone else it reads as "no
+   * result yet", which is the truth.
+   *
+   * ⚠️ Cancelled is excluded: a cancelled game is not awaiting anything, and
+   * it has its own section below for the people who can restore it.
+   */
+  const awaitingScore = games.filter(
+    (g) => g.status !== "final" && g.status !== "cancelled" && isPast(g),
   );
   const results = games.filter((g) => g.status === "final").reverse();
+  const awaitingGroups = groupByDate(awaitingScore).reverse();
   const upcomingGroups = groupByDate(upcoming);
   const resultGroups = groupByDate(results);
 
@@ -175,9 +232,6 @@ export default async function SchedulePage({
   // edit panel is the same trap: drawing it on `canScore` would offer two of
   // three entitled roles a control their own guard refuses.
   const canManage = await canManageLeague(resolved.id);
-  // Resolved once for the whole render: three `GroupedGames` ask, and the answer
-  // cannot change mid-render.
-  const today = leagueToday();
   // ⛔ THE AWAIT IS GATED, NOT JUST THE JSX. This page is public and most of its
   // traffic is anonymous; an unconditional read here would bill every visitor
   // for a query only a manager can act on. `(public)/teams/[slug]/page.tsx`
@@ -318,6 +372,29 @@ export default async function SchedulePage({
                 for a final or semifinal.
               </p>
             </div>
+          ) : null}
+
+          {awaitingGroups.length > 0 ? (
+            <section className="space-y-4">
+              <h2 className="text-lg font-bold tracking-tight">
+                Awaiting a score
+              </h2>
+              <p className="text-muted-foreground text-sm">
+                {awaitingScore.length} game
+                {awaitingScore.length === 1 ? "" : "s"} played with no result
+                recorded yet.
+              </p>
+              {/* Most recent first: the night just gone is the one being
+                  chased, and an older one is a bigger problem the further
+                  down it sits. */}
+              <GroupedGames
+                groups={awaitingGroups}
+                league={slug}
+                canScore={canScore}
+                canManage={canManage}
+                today={today}
+              />
+            </section>
           ) : null}
 
           <section className="space-y-4">
