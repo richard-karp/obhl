@@ -99,10 +99,12 @@ test.describe("Path 11 — Game management", () => {
     // a URL you had to already have. This test used to restore from the page it
     // was already on and would not have noticed.
     await page.goto("/obhl/schedule");
-    await expect(
-      page.getByRole("heading", { name: "Cancelled" }),
-    ).toBeVisible();
-    const listed = page.locator(`a[href="${new URL(scoresheet).pathname}"]`);
+    const cancelledSection = page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: "Cancelled" }) });
+    await expect(cancelledSection).toBeVisible();
+    const href = new URL(scoresheet).pathname;
+    const listed = cancelledSection.locator(`a[href="${href}"]`);
     await expect(listed).toHaveCount(1);
     await listed.click();
 
@@ -111,16 +113,28 @@ test.describe("Path 11 — Game management", () => {
     await expect(page.getByText("Scheduled").first()).toBeVisible();
 
     // ...and it leaves again once restored.
+    //
+    // ⛔ THIS GAME LEAVES THE SECTION; THE SECTION DOES NOT LEAVE THE PAGE.
+    // This asserted the "Cancelled" heading was absent, which was only ever a
+    // proxy — true because the seed had no cancelled game of its own, so the
+    // section had exactly one occupant and vanished with it. The seed now
+    // carries a standing cancelled fixture (there was previously no coverage
+    // of that section at all), so the heading correctly stays.
+    //
+    // ⚠️ AND NOT A PAGE-WIDE CHECK EITHER: restored means `scheduled`, so this
+    // game's Score link reappears under Upcoming. Scoped to the section.
     await page.goto("/obhl/schedule");
-    await expect(page.getByRole("heading", { name: "Cancelled" })).toHaveCount(
-      0,
-    );
+    await expect(cancelledSection.locator(`a[href="${href}"]`)).toHaveCount(0);
   });
 
   test("a visitor is not shown cancelled games", async ({ page, browser }) => {
     // ⚠️ CONTROLLED. A first version asserted the heading was absent on a fresh
-    // context — and the seed has no cancelled game, so it passed whether or not
-    // the gate worked. There has to BE one for the absence to mean anything.
+    // context — and at the time the seed had no cancelled game, so it passed
+    // whether or not the gate worked. There has to BE one for the absence to
+    // mean anything. The seed now carries a standing cancelled fixture too, so
+    // this test's own cancellation is belt-and-braces rather than the only
+    // thing making the assertion meaningful — but it stays, because the test
+    // should not depend on a fixture it does not create.
     await signedInAs(page, "Manager");
     await page.goto("/obhl/schedule");
     await page.getByRole("link", { name: "Score", exact: true }).last().click();
