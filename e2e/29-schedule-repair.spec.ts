@@ -236,9 +236,14 @@ async function seedFutureSeason(page: Page) {
   if ((await setActive.count()) > 0) await setActive.click();
   await expect(setActive).toHaveCount(0);
 
+  // ⚠️ REDIRECTS TO THE ACTIVE SEASON'S SETUP PAGE. Building a schedule became
+  // a step of creating a season (2026-09-11), so the standalone builder — and
+  // the "<season> · N teams enrolled" description this used to assert — is
+  // gone. The season was just set active above, so the redirect resolves to it;
+  // the setup page's own heading is what names it now.
   await page.goto("/obhl/schedule-builder");
   await expect(
-    page.getByText(new RegExp(`${SEASON} · \\d+ teams enrolled`)),
+    page.getByRole("heading", { name: `Season setup — ${SEASON}` }),
   ).toBeVisible();
   // ⛔ THE GUARD IS "IS IT PUBLISHED", NOT "IS THERE NO DRAFT". A published
   // season also has no draft, so the draft-shaped guard sent the second test
@@ -457,13 +462,15 @@ test.describe("Path 27 — changing a live schedule", () => {
     await signedInAsManager(page);
     await seedFutureSeason(page);
 
-    // ⛔ The entry point is on the builder, and it has to be there in the mode
-    // this feature exists for. This fixture's season has not started, so it is
-    // reachable here in `published` mode; the locked card carries the same link,
-    // asserted below on the seeded season, which HAS started.
+    // ⛔ THE ENTRY POINT IS A LINK ON THE PANEL, NOT A TYPED URL, and it has to
+    // be reached in the mode this feature exists for. This fixture's season has
+    // not started, so the panel offers it in `published` mode; the locked card
+    // carries the same link, asserted below on the seeded season, which HAS
+    // started. The panel lives on the season's setup page since 2026-09-11, and
+    // `/schedule-builder` redirects there.
     await page.goto("/obhl/schedule-builder");
     await page.getByRole("link", { name: "repair the schedule" }).click();
-    await expect(page).toHaveURL(/\/schedule-builder\/repair/);
+    await expect(page).toHaveURL(/\/obhl\/schedule\/repair/);
 
     const before = await publishedGameIds();
     await page

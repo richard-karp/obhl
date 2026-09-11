@@ -669,6 +669,9 @@ test.describe("Path 16 — Per-league routing", () => {
     const moved = [
       ["/obhl/manage/dashboard", "/obhl/dashboard"],
       ["/obhl/manage/people/duplicates", "/obhl/people/duplicates"],
+      // Two hops now: the prefix rule strips `/manage/`, and the row below
+      // moves it under `/schedule`. This asserts the FIRST hop, which is what
+      // the prefix rule owns; the second is asserted on its own further down.
       [
         "/obhl/manage/schedule-builder/one-off",
         "/obhl/schedule-builder/one-off",
@@ -681,6 +684,13 @@ test.describe("Path 16 — Per-league routing", () => {
       ["/harbor/manage/seasons/abc-123", "/harbor/seasons/abc-123"],
       // Zero trailing segments: the bare prefix lands on the league home.
       ["/obhl/manage", "/obhl"],
+      // The builder's two in-season tools moved under `/schedule` (2026-09-11).
+      // ⛔ Two explicit config rules, never one `:rest*` wildcard — zero-or-more
+      // would also match the bare `/schedule-builder` and send it to the games
+      // list instead of the season setup page. That distinction is only visible
+      // here, so these three rows are what stop it regressing.
+      ["/obhl/schedule-builder/repair", "/obhl/schedule/repair"],
+      ["/obhl/schedule-builder/one-off", "/obhl/schedule/one-off"],
       // The score pages, which merged away in their own step. Both are pure path
       // rewrites — a game keeps the same id at either URL.
       ["/obhl/score", "/obhl/schedule"],
@@ -703,6 +713,26 @@ test.describe("Path 16 — Per-league routing", () => {
     });
     expect(locationOf(withQuery).pathname).toBe("/obhl/people");
     expect(locationOf(withQuery).search).toBe("?q=smith");
+  });
+
+  test("the bare schedule-builder URL lands on that season's setup page", async ({
+    page,
+  }) => {
+    // ⛔ NOT IN THE `moved` ARRAY ABOVE, AND IT CANNOT BE. Those are
+    // `next.config.ts` rewrites and assert a 308 with a `location` header. This
+    // one is a redirect PAGE — a config rule cannot look up WHICH season to land
+    // on, and `/seasons?season=<id>` means nothing to the seasons index — so it
+    // is a guarded render that resolves the manage context and then redirects.
+    // Anonymous it would bounce to /login, so it has to be driven signed in.
+    await page.goto("/login");
+    await page.getByRole("button", { name: "Manager" }).click();
+    await page.waitForURL("/");
+
+    await page.goto("/obhl/schedule-builder");
+    await expect(page).toHaveURL(/\/obhl\/seasons\/[0-9a-f-]{36}$/);
+    await expect(
+      page.getByRole("heading", { name: /Season setup/ }),
+    ).toBeVisible();
   });
 
   test("the League Office keeps its prefix, which is not a league", async ({

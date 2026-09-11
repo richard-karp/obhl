@@ -244,9 +244,10 @@ all. If you are reading an older copy of that sentence somewhere, it is stale.
 
 ## Phase 6 — Schedules
 
-This is the step with the deadline. Build and publish each season's schedule from
-`/<league>/schedule-builder` (or a season's setup page) **before its first
-game night**. See `SCHEDULE_HANDOFF.md` for what the generator balances and why.
+This is the step with the deadline. Build and publish each season's schedule from that season's setup page,
+`/<league>/seasons/<id>` — reached from **Seasons** in the staff row — **before
+its first game night**. (`/<league>/schedule-builder` was a second way in until
+2026-09-11; it now redirects to the same page.) See `SCHEDULE_HANDOFF.md` for what the generator balances and why.
 
 Once the first published game's date passes, that season's schedule is locked for
 good.

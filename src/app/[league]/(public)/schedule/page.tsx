@@ -263,14 +263,14 @@ export default async function SchedulePage({
               <p className="text-muted-foreground text-sm">
                 Bigger changes:{" "}
                 <Link
-                  href={`/${slug}/schedule-builder/repair`}
+                  href={`/${slug}/schedule/repair`}
                   className="text-foreground font-medium underline"
                 >
                   repair the schedule
                 </Link>{" "}
                 to even out the nights still to come, or{" "}
                 <Link
-                  href={`/${slug}/schedule-builder/one-off`}
+                  href={`/${slug}/schedule/one-off`}
                   className="text-foreground font-medium underline"
                 >
                   schedule a one-off game

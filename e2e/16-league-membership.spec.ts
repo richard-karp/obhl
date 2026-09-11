@@ -154,11 +154,22 @@ test.describe("Path 17 — Per-league membership", () => {
     // NOT "/teams": the roster editor merged into the public team page, so a
     // manager of another league SEES it, like `/rules`. What they must not get
     // is the Manage tab — asserted on its own below.
-    "/schedule-builder",
-    "/schedule-builder/one-off",
-    // NOT "/schedule": `/score` merged into it, so it is public. A scorekeeper
-    // or manager of ANOTHER league sees the page like any visitor; what they
-    // must not get is a Score button, asserted below.
+    // The builder's in-season tools, now under `/schedule` (2026-09-11).
+    // `/schedule/repair` was missing from this list and is added with the move.
+    "/schedule/one-off",
+    "/schedule/repair",
+    // ⚠️ NOT the bare "/schedule", even though its own CHILDREN are listed just
+    // above — and that is not an oversight. `/score` merged into it, so the
+    // games list is public: a scorekeeper or a manager of ANOTHER league sees it
+    // like any visitor, and what they must not get is a Score button or the
+    // edit panel, asserted below. The children are manager-only pages that
+    // happen to live under a public parent, which the two route groups make
+    // possible — see `(manage)/schedule/`.
+    //
+    // ⛔ NOT "/schedule-builder" any more either. It is a redirect page now, so
+    // a manager of another league is bounced by ITS guard before the redirect
+    // runs — a refusal, but to /login-or-home rather than from the page under
+    // test, which would make this assertion prove something else.
     "/announcements",
     // NOT "/rules": it merged into the public page, so a manager of another
     // league now SEES it like any visitor. What they must not get is the

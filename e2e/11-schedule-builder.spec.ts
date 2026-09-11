@@ -143,26 +143,31 @@ async function expectGenerateFormUsable(page: Page) {
   }
 }
 
-test("page loads with heading, its season, and the switcher", async ({
+test("the old builder URL lands on its season's setup page, panel and all", async ({
   page,
 }) => {
   await signedInAs(page, "Manager");
   await page.goto("/obhl/schedule-builder");
-  // The heading specifically: the manage nav's link is called "Schedule
-  // Builder" too, since `/schedule` is now the games list it used to share a
-  // label with.
+
+  // ⛔ THIS TEST USED TO ASSERT A PAGE THAT NO LONGER EXISTS. Until 2026-09-11
+  // there was a standalone builder here with its own "Schedule Builder"
+  // heading, a "<season> · N teams enrolled" description and a season switcher.
+  // Building a schedule became a step of creating a season, so the panel now
+  // renders only on that season's setup page and this URL redirects there —
+  // which is why there is no switcher to assert: the setup page IS one season.
+  //
+  // What has to stay true is what the old test was really for: the URL a
+  // manager has bookmarked still reaches the builder, still scoped to a season
+  // it names. With no cookie and no `?season=`, that is the active one.
+  await expect(page).toHaveURL(/\/obhl\/seasons\/[0-9a-f-]{36}$/);
   await expect(
-    page.getByRole("heading", { name: "Schedule Builder" }),
+    page.getByRole("heading", { name: "Season setup — Spring 2026" }),
   ).toBeVisible();
-  // The description used to read "<season> (active)" and this asserted on the
-  // word "active". The builder is no longer pinned to the active season — the
-  // switcher beside the heading picks one, and marks in its own options which
-  // season the public site is showing — so the page names its season plainly.
-  // With no cookie and no `?season=`, that season is still the active one.
-  await expect(
-    page.getByText(/Spring 2026 · \d+ teams enrolled/),
-  ).toBeVisible();
-  await expect(page.getByLabel("Select season")).toBeVisible();
+  // The panel itself, not just the page around it. Spring 2026 has started, so
+  // it is the locked card rather than a generate form — `a started season locks
+  // the builder` below owns that assertion; this one only proves the panel is
+  // on the page the redirect chose.
+  await expect(page.getByText("The season is under way")).toBeVisible();
 });
 
 test("scorekeeper cannot reach /schedule-builder", async ({ page }) => {
