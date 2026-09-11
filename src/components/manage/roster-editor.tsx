@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/utils/supabase/admin";
+import { POSITION_LABEL } from "@/lib/players/positions";
 import { AddPlayerForm } from "@/components/manage/add-player-form";
 import { TransferPlayerForm } from "@/components/manage/transfer-player-form";
 import { EditPlayerForm } from "@/components/manage/edit-player-form";
@@ -25,7 +26,7 @@ import { LogoUpload } from "@/components/manage/logo-upload";
 import type { TeamRow } from "@/lib/queries/teams";
 import type { Season } from "@/lib/queries/season";
 
-const POS: Record<string, string> = { F: "Forward", D: "Defense", G: "Goalie" };
+const POS = POSITION_LABEL;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

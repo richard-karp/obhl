@@ -18,6 +18,11 @@ export type RosterEntry = {
   jersey_number: number | null;
   position: "F" | "D" | "G";
   is_captain: boolean;
+  /**
+   * The night this player turns out, 0=Sun..6=Sat, or null for no fixed one.
+   * Rendered only when the season plays more than one — see `seasonNightsFor`.
+   */
+  night_of_week: number | null;
 };
 
 /**
@@ -105,13 +110,22 @@ export type TeamDetail = {
   games: Awaited<ReturnType<typeof getSchedule>>;
 };
 
-/** Full team page payload: roster, stats, and the team's schedule. */
+/**
+ * Full team page payload: roster, stats, and the team's schedule.
+ *
+ * ⚠️ `opts.client` EXISTS FOR THE SAME REASON IT DOES ON EVERY OTHER HELPER IN
+ * THIS FILE, and this was the only one without it. A function that builds its
+ * own client cannot be unit-tested at all: `@/utils/supabase/server` imports
+ * `next/headers`, which has no request context under vitest. Defaulted, so no
+ * caller changes.
+ */
 export async function getTeamBySlug(
   leagueId: string,
   seasonId: string,
   slug: string,
+  opts: { client?: DbClient } = {},
 ): Promise<TeamDetail | null> {
-  const supabase = await createClient();
+  const supabase = opts.client ?? (await createClient());
   const { data: team } = await supabase
     .from("teams")
     .select("*")
@@ -125,7 +139,7 @@ export async function getTeamBySlug(
       supabase
         .from("team_players")
         .select(
-          "player_id, jersey_number, position, is_captain, players!team_players_player_id_fkey(first_name, last_name)",
+          "player_id, jersey_number, position, is_captain, night_of_week, players!team_players_player_id_fkey(first_name, last_name)",
         )
         .eq("season_id", seasonId)
         .eq("team_id", team.id)
@@ -156,6 +170,7 @@ export async function getTeamBySlug(
     jersey_number: r.jersey_number,
     position: r.position,
     is_captain: r.is_captain,
+    night_of_week: r.night_of_week ?? null,
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 

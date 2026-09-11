@@ -32,6 +32,56 @@ async function signedInAs(
   await page.goto("/obhl/dashboard");
 }
 
+/**
+ * Path 9b — the public roster, in the three sections a hockey roster has.
+ *
+ * ⚠️ THE PUBLIC TABLE, NOT THE EDITOR. The team page renders both; these
+ * assertions are deliberately unscoped by region because the headings belong
+ * to the public half, above "Manage roster".
+ */
+test.describe("Path 9b — Forwards, Defence and Goalies", () => {
+  test("the roster is split into three sections", async ({ page }) => {
+    await page.goto("/obhl/teams/sharks");
+    for (const name of ["Forwards", "Defence", "Goalies"]) {
+      await expect(page.getByRole("heading", { name })).toBeVisible();
+    }
+  });
+
+  test("goalies are listed even with no games played", async ({ page }) => {
+    // ⛔ THE CASE PRODUCTION IS IN. `v_goalie_stats` is built only from FINAL
+    // games, so a rostered goalie who has not played is absent from it — and
+    // on the day this shipped that was EVERY goalie in both live leagues, 19
+    // of 19, because no game had been scored yet. A Goalies section built from
+    // that view alone would have been empty on every team page in the app.
+    // Sharks' #8 has never played: the seed converts them from a forward and
+    // they appear in no finalized game.
+    const goalies = page
+      .getByRole("region", { name: "Goalies" })
+      .locator("tbody tr");
+    await page.goto("/obhl/teams/sharks");
+    await expect(goalies).toHaveCount(2);
+    await expect(goalies.filter({ hasText: "8" })).toHaveCount(1);
+  });
+
+  test("a two-night league shows the night; a one-night league does not", async ({
+    page,
+  }) => {
+    // OBHL declares Tue+Thu, so the column is meaningful and appears. Harbor
+    // declares nothing and plays one weekday, so `hasMultipleNights` is false
+    // and the column must not appear at all — a select with one option is a
+    // control that can only restate what the season already says.
+    await page.goto("/obhl/teams/sharks");
+    await expect(
+      page.getByRole("columnheader", { name: "Night" }).first(),
+    ).toBeVisible();
+
+    await page.goto("/harbor/teams/anchors");
+    await expect(
+      page.getByRole("columnheader", { name: "Night" }),
+    ).toHaveCount(0);
+  });
+});
+
 test.describe("Path 9 — Roster editor", () => {
   test.beforeEach(async ({ page }) => {
     await signedInAs(page, "Manager");
@@ -130,7 +180,7 @@ test.describe("Path 9 — Roster editor", () => {
     // goalie at all, which is what broke e2e/13 the first time this ran.
     const POS_CODE: Record<string, string> = {
       Forward: "F",
-      Defense: "D",
+      Defence: "D",
       Goalie: "G",
     };
     const position =
