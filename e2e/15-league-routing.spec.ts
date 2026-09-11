@@ -562,7 +562,17 @@ test.describe("Path 16 — Per-league routing", () => {
       .getByRole("region", { name: "Manage roster" })
       .locator("table tbody tr")
       .nth(2);
-    await row.getByRole("button", { name: "Suspend" }).click();
+    // ⛔ THE CONTROL IS IN THE ROW'S DIALOG; THE BADGE IT SETS IS ON THE ROW.
+    // So the dialog has to be shut before the row is read — Radix marks
+    // everything behind a modal `aria-hidden`, and a badge assertion made over
+    // an open one matches nothing regardless of what the roster says.
+    await row.getByRole("button", { name: "Edit" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Suspend" }).click();
+    await page.waitForLoadState("networkidle");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
     await expect(
       row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" }),
     ).toBeVisible();
