@@ -2,7 +2,7 @@
  * Path 9: Rosters — add player, set captain, suspend, remove, logo upload.
  */
 import { test, expect } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 /**
  * The editor's own region, and its roster table.
@@ -18,6 +18,21 @@ function manageRoster(page: Page) {
 
 function rosterRows(page: Page) {
   return manageRoster(page).locator("table tbody tr");
+}
+
+/**
+ * Open a row's editor and return the dialog.
+ *
+ * ⛔ THE DIALOG IS A PORTAL — IT IS NOT INSIDE THE `<tr>`. Every control that
+ * used to be scoped to the row (Make C, Suspend, the injury note, Transfer,
+ * the name fields, `role="status"`) now renders at the end of the document,
+ * so `row.getByRole(...)` finds nothing. Scope to this instead.
+ */
+async function openDialogFor(page: Page, row: Locator) {
+  await row.getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  return dialog;
 }
 
 async function signedInAs(
@@ -94,8 +109,16 @@ test.describe("Path 9 — Roster editor", () => {
   });
 
   test("roster page shows 14 players with jersey numbers", async ({ page }) => {
+    // Still 14 across the three section tables — the seed converts a forward
+    // to a second goalie rather than adding a player, precisely so this does
+    // not move.
     await expect(rosterRows(page)).toHaveCount(14);
-    await expect(rosterRows(page).first().getByText("Goalie")).toBeVisible();
+    // ⚠️ POSITION IS A SECTION HEADING NOW, NOT A CELL. The first row is a
+    // FORWARD, because Forwards come first; asserting "Goalie" on it tested
+    // the old flat, jersey-ordered table.
+    await expect(
+      manageRoster(page).getByRole("heading", { name: "Goalies" }),
+    ).toBeVisible();
   });
 
   test("add a new player and they appear in the roster", async ({ page }) => {
@@ -167,24 +190,68 @@ test.describe("Path 9 — Roster editor", () => {
   test("a removed player can be added back to the same team", async ({
     page,
   }) => {
-    const row = rosterRows(page).first();
-    // The second cell: the table is #, Player, Position, Status, Manage.
-    const name = (await row.locator("td").nth(1).innerText())
-      .split("\n")[0]
-      .trim();
+    // ⛔ THE SECTION SAYS THE POSITION NOW, SO THE TEST ASKS THE SECTION.
+    // This used to read `td` by hard-coded INDEX — cell 1 for the name, cell 2
+    // for the position — against a flat table of #, Player, Position, Status,
+    // Manage. Both indices moved when the row lost its Status and Manage
+    // columns and gained a Night one, and the position left the row entirely.
+    // ⛔ DEFENCE, AND NOT THE FIRST FORWARD. This test REMOVES its subject and
+    // re-adds them through the add form, which carries no jersey number and no
+    // captaincy — so whoever it picks comes back as an unnumbered non-captain.
+    // With Forwards first, that was Sharks #6: the seeded CAPTAIN, and the
+    // account `13-goalie`'s Path 21 signs in as. It passed here and broke that
+    // spec three files later. Defence carries no captain in the seed.
+    const defence = manageRoster(page)
+      .getByRole("region", { name: "Manage Defence" })
+      .locator("tbody tr");
 
-    // Their position, so it can be put back. The add form is the same form
-    // whether the person is new or returning, so it decides both position and
-    // number — and its position default is F. Re-adding the Sharks' goalie
-    // without setting it turns them into a forward and leaves the team with no
-    // goalie at all, which is what broke e2e/13 the first time this ran.
-    const POS_CODE: Record<string, string> = {
-      Forward: "F",
-      Defence: "D",
-      Goalie: "G",
+    // ⛔ BADGES STRIPPED EXPLICITLY, NOT BY TAKING THE FIRST LINE. Captain,
+    // rookie, suspended and injury render as inline badges inside the name
+    // cell with no newline before them, so `.split("\n")[0]` — what this used
+    // to do — returned "Taylor GauthierC" for any row carrying one. It only
+    // ever worked because the row it happened to read, the jersey-1 goalie at
+    // the top of a flat numeric table, had no badges.
+    const rowName = async (r: Locator) => {
+      const cell = r.locator("td").nth(1);
+      const badges = await cell.locator('[data-slot="badge"]').allInnerTexts();
+      let n = (await cell.innerText()).trim();
+      for (const b of badges) n = n.replace(b, "").trim();
+      return n;
     };
-    const position =
-      POS_CODE[(await row.locator("td").nth(2).innerText()).trim()] ?? "F";
+
+    // ⛔ AND THE SUBJECT'S NAME MUST BE UNIQUE, WHICH IS NOT FREE. The seed
+    // builds names by modular arithmetic over two short arrays, so it produces
+    // genuine duplicates — two different people called "Parker Bouchard". The
+    // picker offers both with nothing to tell them apart, so re-adding could
+    // put the OTHER one on the team and still satisfy every assertion below.
+    //
+    // Probed BEFORE the removal, which is what makes it decidable: somebody
+    // already on this team is not offered by the picker, so any option
+    // matching their name is a different person. Zero options means the name
+    // is theirs alone.
+    const picker = page.getByLabel("Existing person (optional)");
+    let row: Locator | null = null;
+    let name = "";
+    for (let i = 0; i < (await defence.count()); i++) {
+      const candidate = defence.nth(i);
+      const candidateName = await rowName(candidate);
+      await picker.fill(candidateName);
+      const clashes = await page
+        .getByRole("option", { name: candidateName })
+        .count();
+      if (clashes === 0) {
+        row = candidate;
+        name = candidateName;
+        break;
+      }
+    }
+    await picker.fill("");
+    if (!row) {
+      throw new Error(
+        "Every seeded defender shares a name with somebody else — check supabase/seed.sql's name arrays.",
+      );
+    }
+    const position = "D";
 
     await row.getByRole("button", { name: "Remove" }).click();
     await page.waitForLoadState("networkidle");
@@ -209,28 +276,43 @@ test.describe("Path 9 — Roster editor", () => {
   });
 
   test("toggle captain sets and removes C badge", async ({ page }) => {
+    // ⚠️ THE BADGE IS STILL ON THE ROW; THE BUTTON MOVED INTO THE DIALOG. The
+    // row is what a manager reads, so the assertion stays there — only the
+    // control that changes it is a click deeper.
     const row = rosterRows(page).nth(1);
-    await row.getByRole("button", { name: "Make C" }).click();
+    let dialog = await openDialogFor(page, row);
+    await dialog.getByRole("button", { name: "Make captain" }).click();
     await page.waitForLoadState("networkidle");
-    await expect(row.getByText("C").first()).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(
+      row.locator('[data-slot="badge"]').filter({ hasText: "C" }).first(),
+    ).toBeVisible();
 
-    await row.getByRole("button", { name: "Unset C" }).click();
+    dialog = await openDialogFor(page, row);
+    await dialog.getByRole("button", { name: "Captain ✓" }).click();
     await page.waitForLoadState("networkidle");
-    await expect(row.getByText("Make C")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(
+      row.locator('[data-slot="badge"]').filter({ hasText: /^C$/ }),
+    ).toHaveCount(0);
   });
 
   test("suspend a player shows SUSP badge, lift removes it", async ({
     page,
   }) => {
     const row = rosterRows(page).nth(2);
-    await row.getByRole("button", { name: "Suspend" }).click();
+    let dialog = await openDialogFor(page, row);
+    await dialog.getByRole("button", { name: "Suspend" }).click();
     await page.waitForLoadState("networkidle");
+    await page.keyboard.press("Escape");
     await expect(
       row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" }),
     ).toBeVisible();
 
-    await row.getByRole("button", { name: "Lift Susp." }).click();
+    dialog = await openDialogFor(page, row);
+    await dialog.getByRole("button", { name: "Suspended ✓" }).click();
     await page.waitForLoadState("networkidle");
+    await page.keyboard.press("Escape");
     await expect(
       row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" }),
     ).not.toBeVisible();

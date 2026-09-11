@@ -1,14 +1,10 @@
 import { createAdminClient } from "@/utils/supabase/admin";
-import { POSITION_LABEL } from "@/lib/players/positions";
 import { AddPlayerForm } from "@/components/manage/add-player-form";
-import { TransferPlayerForm } from "@/components/manage/transfer-player-form";
-import { EditPlayerForm } from "@/components/manage/edit-player-form";
 import { archivedPlayerIdsIn } from "@/lib/players/archive";
-import {
-  removeRosterPlayer,
-  toggleCaptain,
-  updatePlayerStatus,
-} from "@/lib/actions/rosters";
+import { removeRosterPlayer } from "@/lib/actions/rosters";
+import { PlayerEditDialog } from "@/components/manage/player-edit-dialog";
+import { seasonNightsFor } from "@/lib/queries/season";
+import { hasMultipleNights, NIGHT_LABEL } from "@/lib/season/nights";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -25,8 +21,6 @@ import { TeamLogo } from "@/components/shared/team-logo";
 import { LogoUpload } from "@/components/manage/logo-upload";
 import type { TeamRow } from "@/lib/queries/teams";
 import type { Season } from "@/lib/queries/season";
-
-const POS = POSITION_LABEL;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -147,6 +141,11 @@ export async function RosterEditor({
         .is("left_on", null)
         .eq("seasons.league_id", leagueId),
     ]);
+  // The season's nights, for the Night column and the dialog's select. Shared
+  // with the page above through `cache()`, so this costs nothing extra.
+  const nights = await seasonNightsFor(season);
+  const showNight = hasMultipleNights(nights);
+
   const onRoster = new Set((roster ?? []).map((r) => r.player_id));
   const rosteredInLeague = new Set(
     (leagueRostered ?? []).map((r) => r.player_id),
@@ -197,175 +196,141 @@ export async function RosterEditor({
       {(roster ?? []).length === 0 ? (
         <EmptyState title="No players yet" description="Add players above." />
       ) : (
-        <div className="overflow-hidden rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/40">
-                <TableHead className="w-12 text-center">#</TableHead>
-                <TableHead>Player</TableHead>
-                <TableHead>Position</TableHead>
-                <TableHead className="text-center">Status</TableHead>
-                <TableHead className="text-right">Manage</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(roster ?? []).map((r: any) => (
-                <TableRow key={r.id}>
-                  <TableCell className="text-muted-foreground text-center">
-                    {r.jersey_number ?? "—"}
-                  </TableCell>
-                  <TableCell className="font-medium">
-                    {r.players?.first_name} {r.players?.last_name}
-                    {r.is_captain ? (
-                      <Badge
-                        variant="secondary"
-                        className="ml-2 px-1.5 py-0 text-[0.65rem]"
-                      >
-                        C
-                      </Badge>
-                    ) : null}
-                    {r.is_rookie ? (
-                      <Badge
-                        variant="outline"
-                        className="ml-1 px-1.5 py-0 text-[0.65rem]"
-                      >
-                        R
-                      </Badge>
-                    ) : null}
-                    {r.is_suspended ? (
-                      <Badge
-                        variant="destructive"
-                        className="ml-1 px-1.5 py-0 text-[0.65rem]"
-                      >
-                        SUSP
-                      </Badge>
-                    ) : null}
-                    {r.injury_notes ? (
-                      <Badge
-                        variant="destructive"
-                        className="ml-1 px-1.5 py-0 text-[0.65rem]"
-                      >
-                        INJ
-                      </Badge>
-                    ) : null}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {POS[r.position] ?? r.position}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap items-center justify-center gap-1">
-                      <form action={updatePlayerStatus}>
-                        <input type="hidden" name="id" value={r.id} />
-                        <input type="hidden" name="team_id" value={team.id} />
-                        <input type="hidden" name="field" value="is_rookie" />
-                        <input
-                          type="hidden"
-                          name="value"
-                          value={r.is_rookie ? "0" : "1"}
-                        />
-                        <Button
-                          type="submit"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                        >
-                          {r.is_rookie ? "Unset Rookie" : "Rookie"}
-                        </Button>
-                      </form>
-                      <form action={updatePlayerStatus}>
-                        <input type="hidden" name="id" value={r.id} />
-                        <input type="hidden" name="team_id" value={team.id} />
-                        <input
-                          type="hidden"
-                          name="field"
-                          value="is_suspended"
-                        />
-                        <input
-                          type="hidden"
-                          name="value"
-                          value={r.is_suspended ? "0" : "1"}
-                        />
-                        <Button
-                          type="submit"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                        >
-                          {r.is_suspended ? "Lift Susp." : "Suspend"}
-                        </Button>
-                      </form>
-                      <form
-                        action={updatePlayerStatus}
-                        className="flex items-center gap-1"
-                      >
-                        <input type="hidden" name="id" value={r.id} />
-                        <input type="hidden" name="team_id" value={team.id} />
-                        <input
-                          type="hidden"
-                          name="field"
-                          value="injury_notes"
-                        />
-                        <input
-                          name="value"
-                          defaultValue={r.injury_notes ?? ""}
-                          placeholder="Injury notes…"
-                          className="h-7 w-28 rounded border px-2 text-xs"
-                        />
-                        <Button
-                          type="submit"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                        >
-                          Set
-                        </Button>
-                      </form>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-end gap-2">
-                      <form action={toggleCaptain}>
-                        <input type="hidden" name="id" value={r.id} />
-                        <input type="hidden" name="team_id" value={team.id} />
-                        <input
-                          type="hidden"
-                          name="make"
-                          value={r.is_captain ? "0" : "1"}
-                        />
-                        <Button type="submit" variant="ghost" size="sm">
-                          {r.is_captain ? "Unset C" : "Make C"}
-                        </Button>
-                      </form>
-                      <EditPlayerForm
-                        rosterId={r.id}
-                        firstName={r.players?.first_name ?? ""}
-                        lastName={r.players?.last_name ?? ""}
-                        jerseyNumber={r.jersey_number ?? null}
-                        position={r.position}
-                      />
-                      <TransferPlayerForm
-                        rosterId={r.id}
-                        jerseyNumber={r.jersey_number ?? null}
-                        teams={transferTargets}
-                      />
-                      <form action={removeRosterPlayer}>
-                        <input type="hidden" name="id" value={r.id} />
-                        <input type="hidden" name="team_id" value={team.id} />
-                        <Button
-                          type="submit"
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive"
-                        >
-                          Remove
-                        </Button>
-                      </form>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        /*
+          ⛔ THE SAME THREE SECTIONS AS THE PUBLIC TABLE ABOVE, IN THE SAME
+          ORDER. A manager reading their roster and a visitor reading it are
+          reading the same list; splitting one and not the other would make the
+          editor a different document from the page it sits on.
+
+          ⚠️ THE ROW IS FIVE COLUMNS NOW, NOT EIGHT CONTROLS. Everything a
+          player can have done to them is behind Edit. That is what fixes the
+          horizontal fit the maintainer reported: the panel was opening inside
+          the last CELL of a row that already carried Rookie, Suspend, Injury,
+          Set, Set Default, Make C, Edit, Transfer and Remove.
+        */
+        <div className="space-y-6">
+          {(
+            [
+              ["Forwards", "F"],
+              ["Defence", "D"],
+              ["Goalies", "G"],
+            ] as const
+          ).map(([title, code]) => {
+            const rows = (roster ?? []).filter((r: any) => r.position === code);
+            if (rows.length === 0) return null;
+            return (
+              <section key={code} aria-label={`Manage ${title}`}>
+                <h3 className="text-muted-foreground mb-2 text-sm font-semibold">
+                  {title}
+                </h3>
+                <div className="overflow-x-auto rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/40">
+                        <TableHead className="w-12 text-center">#</TableHead>
+                        <TableHead>Player</TableHead>
+                        {showNight ? (
+                          <TableHead className="text-center">Night</TableHead>
+                        ) : null}
+                        <TableHead className="text-right">Manage</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rows.map((r: any) => (
+                        <TableRow key={r.id}>
+                          <TableCell className="text-muted-foreground text-center tabular-nums">
+                            {r.jersey_number ?? "—"}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {r.players?.first_name} {r.players?.last_name}
+                            {r.is_captain ? (
+                              <Badge
+                                variant="secondary"
+                                className="ml-2 px-1.5 py-0 text-[0.65rem]"
+                              >
+                                C
+                              </Badge>
+                            ) : null}
+                            {r.is_rookie ? (
+                              <Badge
+                                variant="outline"
+                                className="ml-1 px-1.5 py-0 text-[0.65rem]"
+                              >
+                                R
+                              </Badge>
+                            ) : null}
+                            {r.is_suspended ? (
+                              <Badge
+                                variant="destructive"
+                                className="ml-1 px-1.5 py-0 text-[0.65rem]"
+                              >
+                                SUSP
+                              </Badge>
+                            ) : null}
+                            {r.injury_notes ? (
+                              <Badge
+                                variant="destructive"
+                                className="ml-1 px-1.5 py-0 text-[0.65rem]"
+                              >
+                                INJ
+                              </Badge>
+                            ) : null}
+                          </TableCell>
+                          {showNight ? (
+                            <TableCell className="text-muted-foreground text-center">
+                              {r.night_of_week === null
+                                ? "—"
+                                : (NIGHT_LABEL[r.night_of_week] ?? "—")}
+                            </TableCell>
+                          ) : null}
+                          <TableCell>
+                            <div className="flex items-center justify-end gap-1">
+                              <PlayerEditDialog
+                                rosterId={r.id}
+                                firstName={r.players?.first_name ?? ""}
+                                lastName={r.players?.last_name ?? ""}
+                                jerseyNumber={r.jersey_number ?? null}
+                                position={r.position}
+                                nightOfWeek={r.night_of_week ?? null}
+                                nights={nights}
+                                isCaptain={!!r.is_captain}
+                                isRookie={!!r.is_rookie}
+                                isSuspended={!!r.is_suspended}
+                                injuryNotes={r.injury_notes ?? null}
+                                teamId={team.id}
+                                transferTargets={transferTargets}
+                              />
+                              {/* ⚠️ REMOVE STAYS ON THE ROW, OUTSIDE THE
+                                  DIALOG. It is the one destructive control
+                                  here, and burying it under an Edit button
+                                  makes it something you find by accident while
+                                  doing something else. */}
+                              <form action={removeRosterPlayer}>
+                                <input type="hidden" name="id" value={r.id} />
+                                <input
+                                  type="hidden"
+                                  name="team_id"
+                                  value={team.id}
+                                />
+                                <Button
+                                  type="submit"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive"
+                                >
+                                  Remove
+                                </Button>
+                              </form>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </section>
+            );
+          })}
         </div>
       )}
 

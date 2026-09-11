@@ -823,6 +823,30 @@ export async function updateRosterPlayer(
   }
   const position = positionRaw;
 
+  /**
+   * The night this player turns out — one more field on the UPDATE that is
+   * already happening, not an action of its own.
+   *
+   * ⚠️ ABSENT AND EMPTY MEAN DIFFERENT THINGS. A form that does not carry the
+   * field at all (a one-night league, where the control is not rendered) must
+   * leave the stored value alone; an empty string is the manager choosing "no
+   * fixed night" and must clear it. Collapsing the two would silently wipe
+   * every assignment the moment a season dropped to one night.
+   */
+  const rawNight = formData.get("night_of_week");
+  let night: number | null | undefined = undefined;
+  if (rawNight !== null) {
+    const trimmed = String(rawNight).trim();
+    if (trimmed === "") night = null;
+    else {
+      const n = Number(trimmed);
+      if (!Number.isInteger(n) || n < 0 || n > 6) {
+        return { ok: false, message: "Pick a night of the week, or none." };
+      }
+      night = n;
+    }
+  }
+
   // Named rather than left to a bare 23505 from `team_players_active_jersey`
   // (0036), for the reason `movePlayerToTeam` gives: a number is how a
   // scorekeeper identifies a player, and "duplicate key value violates unique
@@ -856,7 +880,11 @@ export async function updateRosterPlayer(
   // defence. Only leaving the team clears it — see `movePlayerToTeam`.
   const { error } = await admin
     .from("team_players")
-    .update({ jersey_number: jersey, position })
+    .update({
+      jersey_number: jersey,
+      position,
+      ...(night === undefined ? {} : { night_of_week: night }),
+    })
     .eq("id", id);
   if (error) return { ok: false, message: error.message };
 
@@ -877,7 +905,12 @@ export async function updateRosterPlayer(
       position: existing.position,
       night_of_week: existing.night_of_week,
     },
-    new_data: { jersey_number: jersey, position, name },
+    new_data: {
+      jersey_number: jersey,
+      position,
+      name,
+      ...(night === undefined ? {} : { night_of_week: night }),
+    },
   });
 
   // The number and position show on the public team page and in the stats
