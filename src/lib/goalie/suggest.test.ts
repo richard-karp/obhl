@@ -35,6 +35,20 @@ describe("suggestGoalie", () => {
     expect(suggestGoalie([g("a", 1, 4), g("b", 30, 4)], 4)).toBe("a");
   });
 
+  it("orders two unnumbered goalies stably, in either argument order", () => {
+    // ⛔ THE CASE THE COMPARATOR EXISTS FOR, AND IT WAS MISSING. The sort was
+    // `(a.number ?? Infinity) - (b.number ?? Infinity)`, which is `NaN` only
+    // when BOTH are unnumbered — one unnumbered goalie (below) never tripped
+    // it, so reverting the fix still passed the suite. Unnumbered players are
+    // real: the esportsdesk parser produced a whole league of them.
+    const both = [g("b", null, 4), g("a", null, 4)];
+    const picked = suggestGoalie(both, 4);
+    expect(picked).not.toBeNull();
+    // Same answer whichever order they arrive in — that is what "stable" has
+    // to mean here, since the caller's row order is a database detail.
+    expect(suggestGoalie([...both].reverse(), 4)).toBe(picked);
+  });
+
   it("sorts an absent number last rather than first", () => {
     // A goalie with no jersey must not win the tiebreak by sorting as 0.
     expect(suggestGoalie([g("a", null, 4), g("b", 30, 4)], 4)).toBe("b");

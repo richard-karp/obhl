@@ -45,9 +45,13 @@ const sortedUnique = (ns: number[]): number[] =>
  * ⚠️ THE FALLBACK IS FOR SEASONS NOBODY BUILT HERE. The esportsdesk importer
  * writes games without ever running the generator, so those seasons would
  * otherwise have no nights for good. Every season that existed when the column
- * landed was backfilled by `0049` from exactly this computation, so in practice
- * the fallback runs almost never — which is why its caller
- * (`seasonNightsFor`) only pays for the query when `stored` is empty.
+ * landed was backfilled by `0049` from exactly this computation.
+ *
+ * ⛔ THAT DOES NOT MAKE THE FALLBACK RARE, and an earlier version of this note
+ * claimed it "runs almost never". A season is CREATED with `game_nights` empty
+ * and stays that way until its schedule is generated, so the fallback also
+ * covers every league between creating a season and building it — see
+ * `seasonNightsFor`, which pays for the query in exactly those cases.
  */
 export function resolveSeasonNights(
   stored: number[] | null | undefined,

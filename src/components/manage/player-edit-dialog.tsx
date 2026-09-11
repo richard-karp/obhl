@@ -59,7 +59,6 @@ export function PlayerEditDialog({
   isRookie,
   isSuspended,
   injuryNotes,
-  teamId,
   transferTargets,
 }: {
   rosterId: string;
@@ -80,7 +79,6 @@ export function PlayerEditDialog({
   isRookie: boolean;
   isSuspended: boolean;
   injuryNotes: string | null;
-  teamId: string;
   transferTargets: DialogTeam[];
 }) {
   const [open, setOpen] = useState(false);
@@ -136,6 +134,13 @@ export function PlayerEditDialog({
    * It also avoids the cascading render `setState` inside an effect causes;
    * `publish-controls.tsx` records the same lesson from the other direction.
    * The status line under each form is what confirms the write; Done closes.
+   *
+   * ⚠️ ONE EXCEPTION, AND IT IS THE EDITOR'S DOING RATHER THAN THIS DIALOG'S.
+   * The roster renders three sibling tables keyed by position, so changing a
+   * player F→G moves their row to a different list — this component unmounts
+   * with it, taking the dialog and its confirmation. That is the right
+   * behaviour (the row has left the table the dialog was opened from) but it
+   * means a position change is the one save that does close it.
    */
   const statusForm = (
     field: string,
@@ -145,7 +150,6 @@ export function PlayerEditDialog({
   ) => (
     <form action={statusAction} key={field + value}>
       <input type="hidden" name="id" value={rosterId} />
-      <input type="hidden" name="team_id" value={teamId} />
       <input type="hidden" name="field" value={field} />
       <input type="hidden" name="value" value={value} />
       <Button
@@ -273,7 +277,6 @@ export function PlayerEditDialog({
           <div className="flex flex-wrap items-center gap-2">
             <form action={captainAction}>
               <input type="hidden" name="id" value={rosterId} />
-              <input type="hidden" name="team_id" value={teamId} />
               <input type="hidden" name="make" value={isCaptain ? "0" : "1"} />
               <Button
                 type="submit"
@@ -300,7 +303,6 @@ export function PlayerEditDialog({
           </div>
           <form action={statusAction} className="flex items-end gap-2">
             <input type="hidden" name="id" value={rosterId} />
-            <input type="hidden" name="team_id" value={teamId} />
             <input type="hidden" name="field" value="injury_notes" />
             <div className="space-y-1">
               <label

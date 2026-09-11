@@ -25,16 +25,29 @@ async function sharksGameOn(weekday: number): Promise<string> {
   const db = admin();
   const { data: team } = await db
     .from("teams")
-    .select("id, seasons:league_id")
+    .select("id")
     .eq("slug", "sharks")
     .limit(1)
+    .single();
+  // ⛔ SCOPED TO THE ACTIVE SEASON AND ORDERED. Without the season filter this
+  // matched Sharks games in ANY season, including ones other specs create, and
+  // without an order it took whichever row PostgREST returned first. It worked
+  // only because `workers: 1` happens to run this file before those specs — a
+  // dependency on suite order that nothing states.
+  const { data: season } = await db
+    .from("seasons")
+    .select("id, leagues!inner(slug)")
+    .eq("leagues.slug", "obhl")
+    .eq("is_active", true)
     .single();
   const { data: games } = await db
     .from("games")
     .select("id, scheduled_at, home_team_id, away_team_id, status, is_draft")
+    .eq("season_id", season!.id)
     .or(`home_team_id.eq.${team!.id},away_team_id.eq.${team!.id}`)
     .eq("status", "scheduled")
-    .eq("is_draft", false);
+    .eq("is_draft", false)
+    .order("scheduled_at", { ascending: true });
   const match = (games ?? []).find(
     (g) =>
       g.scheduled_at &&

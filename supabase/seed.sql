@@ -18,19 +18,50 @@ create function pg_temp.finalize_seed_game(
 ) returns void language plpgsql as $fn$
 declare
   v_game uuid; h_sk uuid[]; a_sk uuid[]; n_h int; n_a int; k int;
+  h_g uuid; a_g uuid; v_dow smallint;
 begin
+  -- ⛔ ONE GOALIE DRESSES, AND THE GAME NAMES THEM. This used to insert EVERY
+  -- roster row into `game_rosters` and set no goalie of record, which was fine
+  -- while every team had exactly one goalie and stopped being fine the moment
+  -- one had two: `v_goalie_stats`' fallback is
+  -- `distinct on (game_id, team_id) ... order by gr.player_id`, so it picked
+  -- the goalie with the lower random UUID. Which of a team's two goalies owned
+  -- three finalized games therefore changed from one `db reset` to the next,
+  -- and the other one silently accrued a skater line for games they never
+  -- played. Measured 2026-09-11: both Sharks goalies dressed in all three
+  -- finals, and only the lower UUID reached the view.
+  --
+  -- The starter is chosen the way `src/lib/goalie/suggest.ts` chooses one — the
+  -- goalie whose night this is, else the lowest jersey — so the fixture agrees
+  -- with the rule the app applies rather than with whatever Postgres sorted.
+  v_dow := extract(dow from (p_sched at time zone 'America/New_York'))::smallint;
+
+  select player_id into h_g from team_players
+   where season_id = p_season and team_id = p_home and position = 'G'
+   order by (night_of_week is distinct from v_dow), jersey_number nulls last
+   limit 1;
+  select player_id into a_g from team_players
+   where season_id = p_season and team_id = p_away and position = 'G'
+   order by (night_of_week is distinct from v_dow), jersey_number nulls last
+   limit 1;
+
   insert into games (season_id, home_team_id, away_team_id, scheduled_at, status,
-                     week, round, home_goals, away_goals, result_type, finalized_at)
+                     week, round, home_goals, away_goals, result_type, finalized_at,
+                     home_goalie_id, away_goalie_id)
     values (p_season, p_home, p_away, p_sched, 'final',
-            p_rnd, p_rnd, p_hg, p_ag, 'regulation', p_sched + interval '2 hours')
+            p_rnd, p_rnd, p_hg, p_ag, 'regulation', p_sched + interval '2 hours',
+            h_g, a_g)
     returning id into v_game;
 
+  -- Skaters, plus the one goalie who played. A backup does not dress.
   insert into game_rosters (game_id, team_id, player_id)
     select v_game, p_home, player_id from team_players
-    where season_id = p_season and team_id = p_home;
+    where season_id = p_season and team_id = p_home
+      and (position <> 'G' or player_id = h_g);
   insert into game_rosters (game_id, team_id, player_id)
     select v_game, p_away, player_id from team_players
-    where season_id = p_season and team_id = p_away;
+    where season_id = p_season and team_id = p_away
+      and (position <> 'G' or player_id = a_g);
 
   select array_agg(player_id order by jersey_number) into h_sk
     from team_players where season_id = p_season and team_id = p_home and position <> 'G';
@@ -364,11 +395,14 @@ begin
     -- today. Do not "fix" the mismatch by pinning the dates back.
     --
     -- ⛔ HARBOR IS THE ONE-NIGHT LEAGUE, AND IT HAS TO SAY SO. `{3}` is
-    -- Wednesday (`v_l2_anchor` is Monday+2) and every league game is on one.
-    -- Declaring it is not decoration: with `game_nights` empty,
-    -- `seasonNightsFor` falls back to the weekdays the games DERIVE, and the
-    -- cross-league "tonight" fixture below is always TODAY — so Harbor derived
-    -- two nights on any day that is not a Wednesday, grew a Night column, and
+    -- Wednesday (`v_l2_anchor` is Monday+2), which is the night its ROUND-ROBIN
+    -- runs on. ⚠️ Not every game: the cross-league "tonight" fixture below is
+    -- always TODAY, whatever weekday that is, which is precisely why declaring
+    -- this matters —
+    -- with `game_nights` empty,
+    -- `seasonNightsFor` falls back to the weekdays the games DERIVE, so Harbor
+    -- derived two nights on any day that is not a Wednesday, grew a Night
+    -- column, and
     -- the test asserting a single-night league has none failed six days in
     -- seven. This is the same clock-dependence `0049` documents; OBHL declares
     -- its nights for the same reason.

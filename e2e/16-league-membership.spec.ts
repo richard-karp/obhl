@@ -1168,12 +1168,17 @@ test.describe("Path 17 — Per-league membership", () => {
    * `updateRosterPlayer`, which resolves the league from the ROW rather than
    * from anything the form carries — a stronger position than the one these
    * tested, since there is no `team_id`/`season_id` left on the form to lie
-   * about. A tampering test against it was attempted here and abandoned: the
-   * POST lands, the foreign row is correctly unchanged, but the refusal
-   * surfaces as neither a redirect nor a status message through
-   * `useActionState`, so the assertion could not be shown to mean anything.
-   * It belongs with the player dialog, which gives it a status region to
-   * assert on.
+   * about.
+   *
+   * ⛔ AN EARLIER VERSION OF THIS NOTE GAVE A REASON THAT WAS NOT TRUE. It said
+   * the refusal "surfaces as neither a redirect nor a status message through
+   * `useActionState`". It does redirect — `requireLeagueManagerOf` calls
+   * `redirect("/")` (`src/lib/auth/guards.ts`), and the `addRosterPlayer`
+   * tampering test above asserts exactly that on an action dispatched the same
+   * way. The real reason the test is absent is that the first attempt at it did
+   * not submit the form it thought it was submitting, and it was dropped rather
+   * than shipped green-and-meaningless. The gap is real and the fix is a test,
+   * not a rewording of this paragraph.
    */
 
   // ── A second manager can be taken back out of a league ────────────────────

@@ -297,7 +297,6 @@ export async function RosterEditor({
                                 isRookie={!!r.is_rookie}
                                 isSuspended={!!r.is_suspended}
                                 injuryNotes={r.injury_notes ?? null}
-                                teamId={team.id}
                                 transferTargets={transferTargets}
                               />
                               {/* ⚠️ REMOVE STAYS ON THE ROW, OUTSIDE THE

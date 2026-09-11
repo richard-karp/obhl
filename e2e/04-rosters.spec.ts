@@ -75,7 +75,14 @@ test.describe("Path 9b — Forwards, Defence and Goalies", () => {
       .locator("tbody tr");
     await page.goto("/obhl/teams/sharks");
     await expect(goalies).toHaveCount(2);
-    await expect(goalies.filter({ hasText: "8" })).toHaveCount(1);
+    // ⚠️ THE JERSEY CELL, NOT THE ROW. `hasText: "8"` matched anywhere in the
+    // row — a GA, GAA or GP containing an 8 would have satisfied it just as
+    // well. The number is the first cell.
+    await expect(
+      goalies.filter({
+        has: page.locator("td:first-child", { hasText: /^8$/ }),
+      }),
+    ).toHaveCount(1);
   });
 
   test("a two-night league shows the night; a one-night league does not", async ({
