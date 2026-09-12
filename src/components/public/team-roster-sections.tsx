@@ -7,7 +7,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { NIGHT_LABEL } from "@/lib/season/nights";
+import { NightBadge } from "@/components/shared/night-badge";
 
 export type SectionSkater = {
   player_id: string;
@@ -54,23 +54,20 @@ function sortRows<T extends { pts: number; number: number | null }>(
   );
 }
 
-function NightCell({ night }: { night: number | null }) {
-  // ⚠️ A NIGHT OUTSIDE THE SEASON'S IS RENDERED, NOT HIDDEN — but the caller
-  // decides whether this column exists at all. A season regenerated onto
-  // fewer nights leaves assignments pointing at a night it no longer plays;
-  // `—` says "nothing set" honestly and the stored value is left alone rather
-  // than silently discarding a manager's work.
-  return (
-    <TableCell className="text-muted-foreground text-center">
-      {night === null ? "—" : (NIGHT_LABEL[night] ?? "—")}
-    </TableCell>
-  );
-}
-
-function NameCell({ name, isCaptain }: { name: string; isCaptain: boolean }) {
+function NameCell({
+  name,
+  isCaptain,
+  night,
+}: {
+  name: string;
+  isCaptain: boolean;
+  /** `null` unless the caller's season plays more than one night — see `showNight`. */
+  night: number | null;
+}) {
   return (
     <TableCell className="font-medium">
       {name}
+      <NightBadge night={night} />
       {isCaptain ? (
         <Badge variant="secondary" className="ml-2 px-1.5 py-0 text-[0.65rem]">
           C
@@ -120,9 +117,6 @@ export function TeamRosterSections({
           <TableRow className="bg-muted/40">
             <TableHead className="w-12 text-center">#</TableHead>
             <TableHead>Player</TableHead>
-            {showNight ? (
-              <TableHead className="text-center">Night</TableHead>
-            ) : null}
             <TableHead className="text-center">GP</TableHead>
             <TableHead className="text-center">G</TableHead>
             <TableHead className="text-center">A</TableHead>
@@ -137,8 +131,11 @@ export function TeamRosterSections({
               <TableCell className="text-muted-foreground text-center tabular-nums">
                 {r.number ?? "—"}
               </TableCell>
-              <NameCell name={r.name} isCaptain={r.is_captain} />
-              {showNight ? <NightCell night={r.night} /> : null}
+              <NameCell
+                name={r.name}
+                isCaptain={r.is_captain}
+                night={showNight ? r.night : null}
+              />
               <TableCell className="text-center tabular-nums">{r.gp}</TableCell>
               <TableCell className="text-center tabular-nums">{r.g}</TableCell>
               <TableCell className="text-center tabular-nums">{r.a}</TableCell>
@@ -168,13 +165,13 @@ export function TeamRosterSections({
             <TableRow className="bg-muted/40">
               <TableHead className="w-12 text-center">#</TableHead>
               <TableHead>Goalie</TableHead>
-              {showNight ? (
-                <TableHead className="text-center">Night</TableHead>
-              ) : null}
               <TableHead className="text-center">GP</TableHead>
-              {/* ⚠️ SIX COLUMNS DROP BELOW `sm`. Thirteen will not fit 390px,
+              {/* ⚠️ SIX COLUMNS DROP BELOW `sm`. Twelve will not fit 390px,
                   and the ones kept are the ones a reader scans for: games,
-                  goals against, average, and the scoring line. */}
+                  goals against, average, and the scoring line. Twelve and not
+                  thirteen since the night became a pill in the name cell — it
+                  no longer costs a column, and it no longer drops below `sm`
+                  the way a hidden column would have. */}
               <TableHead className="hidden text-center sm:table-cell">
                 W
               </TableHead>
@@ -204,8 +201,11 @@ export function TeamRosterSections({
                 <TableCell className="text-muted-foreground text-center tabular-nums">
                   {r.number ?? "—"}
                 </TableCell>
-                <NameCell name={r.name} isCaptain={r.is_captain} />
-                {showNight ? <NightCell night={r.night} /> : null}
+                <NameCell
+                  name={r.name}
+                  isCaptain={r.is_captain}
+                  night={showNight ? r.night : null}
+                />
                 <TableCell className="text-center tabular-nums">
                   {r.gp}
                 </TableCell>

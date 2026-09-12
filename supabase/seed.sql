@@ -475,8 +475,28 @@ begin
       else pos := 'F';
       end if;
 
-      insert into team_players (season_id, team_id, player_id, jersey_number, position, is_captain)
-        values (v_season, v_team, v_player, j, pos, (j = 5));
+      -- ⛔ ANCHORS #6 CARRIES A NIGHT IN A LEAGUE THAT MUST NOT SHOW ONE, AND
+      -- THAT IS THE ENTIRE POINT OF THE ROW. `hasMultipleNights` is false here
+      -- (`game_nights` is `{3}` above), so nothing about this player's night
+      -- may reach the page — and WITHOUT this row that rule is untestable,
+      -- because a roster where nobody has a night renders no night marker
+      -- whether the gate works or not.
+      --
+      -- ⚠️ IT BECAME UNTESTABLE THE DAY THE NIGHT COLUMN BECAME A PILL. The
+      -- column rendered on the gate ALONE, so its absence on Harbor proved the
+      -- gate; the pill needs the gate AND a player with a night, so the same
+      -- assertion went vacuous and stayed green with the gate deleted. This is
+      -- what restores it — including the clock-dependence this season's
+      -- `game_nights` comment describes, which that assertion is the only
+      -- guard against.
+      --
+      -- ⚠️ A SKATER, NOT THE GOALIE. `suggestGoalie` reads `night_of_week` off
+      -- a team's goalies; Harbor teams have exactly one, so rule 1 would cover
+      -- them regardless — but a fixture that exists to test a display gate has
+      -- no business sitting in the scoresheet's input.
+      insert into team_players (season_id, team_id, player_id, jersey_number, position, is_captain, night_of_week)
+        values (v_season, v_team, v_player, j, pos, (j = 5),
+                case when i = 1 and j = 6 then 3 end);
     end loop;
   end loop;
 

@@ -3,6 +3,16 @@
  */
 import { test, expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+
+/** The same service-role client the other specs build — see `13-goalie`. */
+function admin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SECRET_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+}
 
 /**
  * The editor's own region, and its roster table.
@@ -89,34 +99,89 @@ test.describe("Path 9b — Forwards, Defence and Goalies", () => {
     // #8 WAS dressed in all three finals. A test that cannot notice its own
     // premise breaking is the shape this file exists to guard against.
     //
-    // ⚠️ THE GP COLUMN IS FOUND BY ITS HEADER, NOT BY INDEX. A hard-coded `td`
-    // position is wrong on the other league — Night is present on OBHL and
-    // absent on Harbor — and a wrong index lands on a neighbouring zero and
-    // passes anyway.
+    // ⚠️ THE GP COLUMN IS FOUND BY ITS HEADER, NOT BY INDEX. A wrong index
+    // lands on a neighbouring zero and passes anyway. The original reason was
+    // that Night was a column on OBHL and absent on Harbor, so the index
+    // differed BY LEAGUE; the night is a pill in the name cell now and the two
+    // leagues agree, but a hard-coded position is still one refactor away from
+    // passing for the wrong reason.
     const headers = await section.locator("thead th").allInnerTexts();
     const gp = headers.findIndex((h) => h.trim() === "GP");
     expect(gp, "no GP column in the Goalies section").toBeGreaterThan(-1);
     await expect(backup.locator("td").nth(gp)).toHaveText("0");
   });
 
-  test("a two-night league shows the night; a one-night league does not", async ({
+  test("a two-night league pills the night; a one-night league does not", async ({
     page,
   }) => {
-    // OBHL declares Tue+Thu, so the column is meaningful and appears. Harbor
+    // OBHL declares Tue+Thu, so the night is meaningful and renders. Harbor
     // declares nothing and plays one weekday, so `hasMultipleNights` is false
-    // and the column must not appear at all — a select with one option is a
-    // control that can only restate what the season already says.
+    // and no pill may appear at all — a mark with one possible value is a mark
+    // that can only restate what the season already says.
+    //
+    // ⛔ TWO ROWS IN THE WHOLE DATABASE CARRY A NIGHT, AND BOTH ARE GOALIES.
+    // `supabase/seed.sql` pins Sharks #1 to Tuesday and #8 to Thursday and
+    // leaves every other roster row null — "no fixed night", which is what
+    // most of a real roster looks like. So this asserts inside the Goalies
+    // section: the same assertion against Forwards would be red, and against
+    // the page as a whole would pass on either goalie alone.
     await page.goto("/obhl/teams/sharks");
+    const goalies = page.getByRole("region", { name: "Goalies" });
+    const pill = (night: string) =>
+      goalies.locator(`[data-slot="badge"][title="${night}"]`);
+
+    // ⛔ THE LETTER AND THE DAY ARE SEPARATE ASSERTIONS, BECAUSE THE LETTER
+    // CANNOT TELL THEM APART. The maintainer chose the bare first letter
+    // knowing OBHL plays Tuesday AND Thursday, so both pills read "T" and the
+    // `title` is the only thing that distinguishes them. Asserting the text
+    // alone would pass if both goalies were assigned the same night.
+    await expect(pill("Tuesday")).toHaveText("T");
+    await expect(pill("Thursday")).toHaveText("T");
+
+    // ...and on the right rows. #1 takes Tuesday, #8 Thursday.
+    //
+    // ⚠️ THE JERSEY CELL AND AN ANCHORED REGEX, the same anchoring the
+    // backup-goalie test above uses and for the same reason: `hasText: "1"` is
+    // a SUBSTRING match, so it would take #11 or #14 just as happily as #1.
+    const row = (jersey: RegExp) =>
+      goalies
+        .locator("tbody tr")
+        .filter({ has: page.locator("td:first-child", { hasText: jersey }) });
     await expect(
-      page.getByRole("columnheader", { name: "Night" }).first(),
-    ).toBeVisible();
+      row(/^1$/).locator('[data-slot="badge"][title="Tuesday"]'),
+    ).toHaveCount(1);
+    await expect(
+      row(/^8$/).locator('[data-slot="badge"][title="Thursday"]'),
+    ).toHaveCount(1);
+
+    // ⛔ AND THE PREMISE, WHICH THE ABSENCE BELOW IS WORTHLESS WITHOUT. Harbor
+    // plays one night, so no pill may render — but a roster where NOBODY has a
+    // night renders no pill whether the gate works or not, and this assertion
+    // was exactly that vacuous when it was first written: deleting
+    // `showNight` from `TeamRosterSections` left it green. `seed.sql` pins
+    // Anchors #6 to Wednesday for this test and nothing else, so check the
+    // fixture still says so before reading anything into the page.
+    const db = admin();
+    const { data: pinned } = await db
+      .from("team_players")
+      .select("jersey_number, night_of_week, teams!inner(slug)")
+      .eq("teams.slug", "anchors")
+      .not("night_of_week", "is", null);
+    expect(
+      pinned?.map((r) => [r.jersey_number, r.night_of_week]),
+      "seed.sql no longer pins a night on an Anchors player — the absence " +
+        "assertion below is vacuous without it",
+    ).toEqual([[6, 3]]);
 
     await page.goto("/harbor/teams/anchors");
     // ⛔ ESTABLISH THE PAGE RENDERED BEFORE ASSERTING AN ABSENCE.
     await expect(page.getByRole("heading", { name: "Forwards" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Night" })).toHaveCount(
-      0,
-    );
+    // ⚠️ `[title]` IS WHAT MAKES THIS A NIGHT ASSERTION RATHER THAN A BADGE
+    // ONE. Harbor's roster carries captain badges legitimately — `is_rookie`
+    // is never seeded, so there are no R badges, but the C alone is enough
+    // that an unqualified `[data-slot="badge"]` count of 0 would be red for
+    // reasons that have nothing to do with nights.
+    await expect(page.locator('[data-slot="badge"][title]')).toHaveCount(0);
   });
 });
 
@@ -218,6 +283,9 @@ test.describe("Path 9 — Roster editor", () => {
     // for the position — against a flat table of #, Player, Position, Status,
     // Manage. Both indices moved when the row lost its Status and Manage
     // columns and gained a Night one, and the position left the row entirely.
+    // The Night column has since become a pill inside the name cell, moving
+    // them a third time — cell 1 still holds the name, which is the only
+    // reason the `td` index below survived that.
     // ⛔ DEFENCE, AND NOT THE FIRST FORWARD. This test REMOVES its subject and
     // re-adds them through the add form, which carries no jersey number and no
     // captaincy — so whoever it picks comes back as an unnumbered non-captain.
