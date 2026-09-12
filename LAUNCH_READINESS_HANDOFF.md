@@ -22,6 +22,11 @@
      both ends now — refused at GENERATE (item 9, PR #35) and warned at PUBLISH
      with a one-click move forward (PR #46, merged 2026-09-09). ⚠️ That warning CONFIRMS
      rather than refuses: "Publish anyway" is still one click from the lock.
+     ⛔ **It is no longer hypothetical — Old Boys locked on schedule** at its
+     first game night, 2026-09-10 23:00 UTC; `season_is_started` read `true` at
+     23:25 that night. **Executive locks 2026-09-15 23:00 UTC.** The mechanics
+     of publish / replace / remove are in `EXPORTS_HANDOFF.md`, _Publishing
+     replaces_ — not here.
    - ✅ **`gh pr create` WORKS from an agent** — measured 2026-09-06, PR #40, no
      prompt. The line here calling mutating `gh` classifier-denied was wrong and
      cost a handoff; only `vercel env` is untested. On a red CI run,
@@ -34,14 +39,13 @@
    say why, or it drifts two lines at a time and the file stops being cheap.
 4. Every number here was **watched appear**. Where a claim is a reading of the
    code rather than a measurement, it says so in those words.
-   ⚠️ Production was read again on **2026-09-05**, after #31 merged:
-   `migration list --linked` shows `0001`-`0043` on Local, Remote **and**
+   ⚠️ Production was read again on **2026-09-10**, after `0048` was pushed:
+   `migration list --linked` shows `0001`-`0048` on Local, Remote **and**
    Applied — no drift. `0005` and `0017` are absent from every column and always
-   have been: those numbers were never used, 41 files span `0001`-`0043`, and
+   have been: those numbers were never used, 46 files span `0001`-`0048`, and
    the sides agree. Not a gap; do not try to repair it.
-   `vercel env ls` (2026-09-04) shows `ENABLE_DEV_LOGIN` absent from every
-   environment. The auth user list is still **unread from here**; item 2 was
-   closed by a human and is taken on report, not measured.
+   ⚠️ The auth user list is still **unread from here**; item 2 was closed by a
+   human and is taken on report, not measured.
    ⛔ **`migration list --linked` needs the link, and worktrees do not have
    it.** `supabase/.temp/` is gitignored, so only the checkout that ran
    `supabase link` carries `project-ref` and `linked-project.json`. ⚠️ Do NOT
@@ -64,65 +68,57 @@
    still defaults to 3000, so two worktrees that both forget still collide.
    `lsof -ti:$PORT` before believing a red run.
 
-**Status: both doors are shut and every migration is pushed.** As of
-2026-09-06 `ENABLE_DEV_LOGIN` is gone from every Vercel environment, the seeded
-accounts are deleted, and production carries `0001`-`0044`. What the member-read
-migrations changed, and why, is under _Member reads_ below.
+**Status: both leagues are live and every migration is pushed.** As of
+2026-09-10 `ENABLE_DEV_LOGIN` is gone from every Vercel environment, the seeded
+accounts are deleted, and production carries `0001`-`0049`.
+⛔ **`0049` BROKE THE ORDERING RULE AND IT WAS NOT A NEAR MISS THIS TIME.** PR
+#75 merged at 22:50 UTC on 2026-09-11 and Vercel deployed it 4 seconds later;
+the migration went up after 00:30 — **at least 1h40m** during which live code
+selected `team_players.night_of_week` from a schema that had no such column, so
+every team page and scoresheet in both leagues was erroring. `0048`'s version of
+this survived only because it reserved a slug rather than adding a column
+something reads. Push the migration BEFORE merging — _The rule item 6 leaves
+behind_. What the member-read migrations changed is under _Member reads_.
 
-✅ **THIS FILE IS ON `main`.** Open PRs as of 2026-09-09: **#56**
-(`docs/post-merge-status`) and **#51** (`test/clock-shifted-ci`). Earlier:
-2026-09-06 #38 and #39 merged, before them #36 and #33-#35; #23 and issue #30
-closed; #57 (the team-scoped export) merged 2026-09-09. ⚠️ **Check anyway** —
-this line goes stale the moment someone branches, and a stale copy in a worktree
-misled a reader once. It also said "there are NO open PRs" while this same file
-recorded #51 as still open, four hundred lines down. Everything waiting on a person rather than on work is listed
-under _Open — waiting on a person_ below, and nothing outstanding is elsewhere.
+⛔ **NO OPEN-PR ROLL CALL HERE ANY MORE.** One stood here and was wrong twice —
+once claiming "there are NO open PRs" while this same file recorded #51 as open
+four hundred lines down. `gh pr list` is one command and is always right.
+Everything waiting on a person is under _Open — waiting on a person_ below.
 
-**Only one lane is left; the code lane is finished.**
+**Two things are left** — ⚠️ and one date: Executive's schedule locks
+**2026-09-15 23:00 UTC** if anyone means to rebuild it. Measured 2026-09-12:
+69 games published, first on the 15th at 19:00 ET, **0 played**. Old Boys is
+already past its own lock (3 played).
 
-- ✅ **CODE — the 4 harness items are FIXED** (2026-09-06, PR #40, CI green).
-  §5 _The final pre-launch pass_ carries each one and how it was verified. ✅ The
-  fifth, §5 _The fixture dates_, merged 2026-09-09 as PR #44 — so all five are on
-  `main`. It shipped with eight review fixes, including the seed naming
-  `America/Toronto` where the app uses `America/New_York`.
-- **A PERSON — the user, and no agent can do any of them: 5 items**, under
-  _Open — waiting on a person_. ⛔ Exactly one is dated: **rebuild the schedule
-  before 2026-09-10 23:00 UTC**, the published season's first game night, after
-  which its schedule locks for good. Two others — custom SMTP (item 7) and
-  `NEXT_PUBLIC_SITE_URL` on Preview — are blocked behind buying
-  `lccalumnihockey.ca` first, so that purchase is the unblocking move.
+- **A PERSON — 1 item**, under _Open — waiting on a person_: item 7's
+  password-RESET email leg. Supabase dashboard; not doable from a checkout.
+- **A REVIEWER — 1 PR.** **#51** cannot be merged by an agent at all — see the
+  workflow-scope gate at the top of `AGENTS.md`, measured on #51 itself.
+- ✅ **Closed since this file was written:** `NEXT_PUBLIC_SITE_URL` on Preview
+  (`vercel env ls`, 2026-09-12), and PRs **#73** and **#75**.
+- ✅ **CODE, THE LAUNCH CHECKLIST AND THE DOMAIN ARE ALL DONE.** The five
+  harness items merged (PRs #40 and #44); `LAUNCH.md` Phases 2-6 were verified
+  by the user on 2026-09-10, against two live leagues rather than the one that
+  made four of its steps unpassable; `lccalumnihockey.ca` has carried the site
+  since 2026-09-07.
 
 ## Next action
 
-⛔ **THE MANAGER IS REBUILDING THE SCHEDULE, AND THE WINDOW SHUTS
-THURSDAY 2026-09-10 23:00 UTC.** Stated intent (2026-09-05): discard the current
-draft and generate a new one. 144 games are published, first one that Thursday,
-all still in the future — so nothing is locked yet.
+**One, and it is outside a checkout.**
 
-**The safe sequence, and it is not the obvious one.** Publishing IS the replace:
-`publishSchedule` calls `replace_published_schedule`, which deletes the live
-games and promotes the draft in ONE transaction. So generate and review while the
-old schedule stays up, then publish.
-
-1. `/lcc-old-boys-hockey-league/schedule-builder` → **Discard** (drafts only —
-   `discardSchedule` filters `is_draft = true`, has no lock gate, and cannot
-   touch a published game). Repeatable, costs nothing.
-2. **Generate**, review, regenerate as often as wanted.
-3. **Publish** — the one-way door. ⛔ Check the date field first; see the lock
-   hazard in the protocol above.
-
-⛔ **Do not press Remove first.** `0027`'s own comment says why the delete and
-the promotion are one transaction: run as two, "a failure between them leaves the
-season with ZERO games" — schedule page, both feeds and the CSV all empty. Remove
-is for abandoning a season's schedule, not for rebuilding one.
-
-⚠️ The lock also trips on `status <> 'scheduled'` or any goals, so a scorekeeper
-touching a game closes the window early. And every regenerated game gets a new
-id, so all 144 calendar UIDs change and subscribers see their events replaced.
-
-**Then the rest of `LAUNCH.md` Phases 2-6** — steps 4, 5 and 6 of its
-_Verification_ list, which need a session. Nothing else outstanding can be done
+1. **Send one real password reset** and follow it through to `/set-password`.
+   This is the last unproven leg of item 7. ⛔ **Its failure is SILENT** — an
+   unlisted redirect does not error, the mail still arrives, and the person
+   lands signed-in on `/` with the token spent. A working magic link is NOT
+   evidence for this path; it carries `?next=/set-password` and no magic link
+   ever has. Until it is watched, `setStaffPassword` in the League Office stays
+   the only way to give someone a first password. Runbook: _The other half of
+   auth_.
+Then **#51 needs a human to merge it**. Nothing else outstanding can be done
 from a checkout.
+
+✅ `NEXT_PUBLIC_SITE_URL` on Preview was the second item here and is **done** —
+`vercel env ls` on 2026-09-12 shows it on Preview and Production both.
 
 ✅ **Sign-in, the app guard and RLS were all verified on production 2026-09-05**
 — see _Verified on production_ under item 4. ⛔ **Test `/<slug>/dashboard`, never
@@ -137,6 +133,23 @@ when it was verified; #31 removed the `/manage/` prefix the day after, and
 the deploy is the outage.** Vercel builds `main` on merge, so the window between
 "merged" and "migration applied" is served to real users. `0039`-`0041` went to
 Remote first on 2026-09-05 and #24 merged after, which is the order to keep.
+
+⛔ **AND ON 2026-09-11 IT WENT THE OTHER WAY, FOR REAL.** PR #75 merged at 22:50
+UTC; Vercel deployed 4 seconds later; `0049` was pushed after 00:30. For **at
+least 1h40m** the live build selected `team_players.night_of_week` from a schema
+that had no such column, and `is_default_goalie` had not yet been dropped — so
+every team page and every scoresheet in both leagues was erroring. Nobody
+reported it, which is the point: a Friday evening is not evidence of safety.
+⚠️ This is the LOUD failure mode, not the quiet one below — the page 500s rather
+than lying. `0048`'s version of the same mistake survived only because it
+reserved a slug rather than adding a column something reads; do not read that
+escape as a pattern.
+
+⚠️ **The sequence that would have avoided it, in full:** push the migration to
+Remote, confirm `supabase migration list --linked` shows it, THEN merge. The
+migration is additive-then-destructive in one file, so the window in the safe
+order is zero: the new columns exist before any code wants them, and the drops
+land in the same transaction as the conversion.
 
 ⚠️ **The reason to care is that the failures are not uniform, and the quiet ones
 are worse than the loud one.** Had it gone the other way, #24 would have shown:
@@ -172,10 +185,10 @@ design, so assume the gap and check the list rather than the flag.
 | 1   | `ENABLE_DEV_LOGIN` set on production                                           | Vercel env                        | ✅ **closed 2026-09-04** — absent from every environment (`vercel env ls`)                                                                                                                                                                                                                                                                                          |
 | 2   | Seeded test accounts live, password in git                                     | Supabase dashboard                | ✅ **closed 2026-09-04** — done by a human; not verifiable from a checkout                                                                                                                                                                                                                                                                                          |
 | 3   | `0033` not pushed — the RLS half of the escalation                             | `supabase db push`                | ✅ **closed** — and `0034`-`0038` with it                                                                                                                                                                                                                                                                                                                           |
-| 4   | **`LAUNCH.md` Phases 2-6 never verified**                                      | production                        | ⛔ **OPEN, AND ON A CLOCK** — Phase 6's first game night is 2026-09-10; sign-in, access control and the anonymous half of _Verification_ are done; steps 4-6 of that list need a session                                                                                                                                                                            |
+| 4   | **`LAUNCH.md` Phases 2-6 never verified**                                      | production                        | ✅ **closed 2026-09-10** — verified by the user, and taken on report rather than measured from here, like item 2. ⚠️ Steps 1, 2, 5 and 6 were unpassable while one league existed; a second, `lcc-executive-hockey-league`, went live 2026-09-10 with 69 published games, so the list was run as written. Sign-in, access control and the anonymous half of _Verification_ were already done on 2026-09-05 |
 | 5   | Smaller deferred items                                                         | below                             | open                                                                                                                                                                                                                                                                                                                                                                |
 | 6   | `0039`-`0043` not pushed                                                       | `supabase db push`                | ✅ **closed 2026-09-05** — `0039`-`0041` before #24 merged, `0042`/`0043` after #31; `migration list --linked` shows all five on both sides                                                                                                                                                                                                                         |
-| 7   | Staff can set a password, but only a commissioner can give them one            | a domain, then Supabase dashboard | **OPEN — only phase 1 is left, and it needs a DOMAIN BOUGHT FIRST** — ✅ phases 2-3 merged 2026-09-06 (#36, `32262b5`): reset trigger, `/set-password`, password field on `/login`. ⛔ No production email has ever been sent, so the reset half is unproven and nobody should be told it works. Runbook in _The other half of auth_. ⚠️ No app env key is involved |
+| 7   | Staff can set a password, but only a commissioner can give them one            | Supabase dashboard                | **OPEN — only the RESET EMAIL LEG is unproven** — ✅ phases 2-3 merged 2026-09-06 (#36, `32262b5`): reset trigger, `/set-password`, password field on `/login`. ✅ Phase 1 closed 2026-09-07: custom SMTP through Resend on `lccalumnihockey.ca`, and a real magic link watched arriving and signing in a manager. ⛔ The reset path is NOT that path — it carries `?next=/set-password`, and nothing has ever exercised that allow-list entry. Runbook in _The other half of auth_ |
 | 8   | **Unified URL space** — drop the `/manage/` prefix, merge the duplicated pages | code                              | ✅ **closed 2026-09-05** — steps 1-6 shipped as #31 (which collapsed #25-#29); step 7, the prose, is this commit. Spec: `docs/superpowers/specs/2026-09-05-unified-url-space-design.md`                                                                                                                                                                             |
 | 9   | **A past first-game-night locks the season on publish**                        | code                              | ✅ **closed 2026-09-05 — PR #35, on `main` as `72b4148`** — reproduced, then guarded at generate. ✅ The publish half followed 2026-09-08 (PR #46) — warned, not refused, with a one-click move forward; see _Item 9 — the guard, built_                                                                                                                                                                                           |
 
@@ -195,22 +208,30 @@ that needs an account created outside this repo.
 ## Open — waiting on a person, not on work
 
 ⚠️ **This is the completeness list.** Everything left outstanding as of
-2026-09-05 appears here or in the items table above; if something is in neither,
+2026-09-10 appears here or in the items table above; if something is in neither,
 it was finished, and the commit that finished it says so.
 
 ⚠️ **No CI verdict is recorded here on purpose.** It goes stale on the next push
 and a stale green is worse than none — `gh run list --branch <branch> --limit 1`
 is one command and is always right.
 
-| What                                                                 | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Who                                                                                                                                                        |
-| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ⛔ **Rebuild the schedule** — discard the draft, regenerate, publish | Stated intent 2026-09-05; 144 games published, none played                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | **the only dated row: the window shuts Thursday 2026-09-10 23:00 UTC.** Full sequence and both traps in _Next action_                                      |
-| **`LAUNCH.md` Verification steps 4, 5, 6**                           | The manager badge, the league switcher, an announcement in one league only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | needs a signed-in session; steps 1-3 and 7 are done and 1-2 cannot pass as written                                                                         |
-| ⛔ **Buy `lccalumnihockey.ca` and move the site onto it**            | **Decided 2026-09-06: `lccalumnihockey.ca`, for the site AND the mail sender** — not only the mail — which widens §7, whose runbook assumes the site stays on `obhl.vercel.app`. No code change: `grep vercel.app src/ e2e/` is empty and the host reaches the app through `NEXT_PUBLIC_SITE_URL` alone, in three places. The work is purchase → DNS → env var on Production AND Preview → Supabase Site URL → the whole redirect allow-list → Resend. ⚠️ Finish by REDIRECTING `obhl.vercel.app` to the new host — sessions are origin-scoped, so two live origins mean a sign-in on one and the emailed link on the other | the user; `vercel env` and the Supabase dashboard are not an agent's to run. See _Custom domain_                                                           |
-| **Item 7** — custom SMTP                                             | ✅ **UNBLOCKED 2026-09-07** — `lccalumnihockey.ca` is registered, the site is on it, and all four Resend records are published and verified from a public resolver: DKIM `resend._domainkey` intact to `IDAQAB`, SPF as two CNAMEs (`rsend`/`send` → `*.forge.rmta.net`, both resolving to real `v=spf1` policies), and `_dmarc` at `v=DMARC1; p=none;` (no `rua=`, so it reports nowhere — harmless). All three values to READ AND RECORD are now recorded: the allow-list entries, the password length (was `6`, set to `8`), and `secure_password_change` (OFF). ✅ **CLOSED 2026-09-07: a real magic link was watched to arrive through Resend and sign in a manager.** Supabase's emails-per-hour reads `30`. ⛔ **The RESET leg is still unproven** — that path carries `?next=/set-password`, and its allow-list entry has never been exercised; see item 7                                                                                                                                                                                                           | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key goes in Supabase, not Vercel |
-| **`NEXT_PUBLIC_SITE_URL` is missing on Preview**                     | `vercel env ls` 2026-09-05: Production only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run     |
-| ✅ **`supabase db push` for migration `0044`**                       | **DONE 2026-09-06, watched.** `--dry-run` first showed exactly one pending file; the push applied it and `supabase migration list --linked` now shows `0044` in the remote history. ⚠️ The columns themselves were NOT read back — this checkout's `.env.local` points at the LOCAL stack, so there is no production key here to query with. A `create or replace view` has no partial state, and a failure would have aborted before the history row, so the reading is that all four views are widened                                                                                                                    | done; #39 is now free to merge in either order                                                                                                             |
-| ✅ **The schedule write path has no transaction**                     | **DONE — `0045_apply_game_writes.sql` is on `main` (`d28595a`).** The batch is one statement in one transaction under `pg_advisory_xact_lock` on the season, so the compensation machinery and its `stuck`/`indeterminate` outcomes are gone. Was: compensation only, a runtime dying mid-batch leaving writes applied and uncompensated                                                                                                                                                                                                                                                                                     | done; this row said SHIP NOW / build it after launch, and it was built. §5's section below is retained as history, not as work                              |
+| What                                                     | State                                                                                                                                                                                                                                                                                                                                                   | Who                                                                                                              |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Item 7 — the password-RESET email leg**                 | ⛔ **UNPROVEN, and its failure is silent by design.** Custom SMTP is live and a real MAGIC LINK was watched arriving and signing in a manager (2026-09-07) — but that path returns to `/auth/confirm` with no query string. `sendPasswordReset` returns to `/auth/confirm?next=/set-password`, the case the allow-list entry `https://lccalumnihockey.ca/auth/confirm?**` was added for, and nothing has exercised it. An unlisted redirect does not error: the mail still arrives, `redirect_to` is rewritten to the Site URL, and the person lands signed-in on `/` with the token spent. **Send one real reset and follow it to `/set-password` before telling anyone this works.** Until then `setStaffPassword` is the way to give a first password | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key lives in Supabase, not Vercel |
+| ✅ **`NEXT_PUBLIC_SITE_URL` on Preview** — **DONE**        | `vercel env ls` **2026-09-12**: present on Preview AND Production, both created four days earlier — so the 2026-09-05 "Production only" reading, and the "unchanged since" that followed it, were both already false when written. ⚠️ Neither was re-measured before being repeated; that is the whole cost of restating a reading instead of retaking it                                                                                    | done |
+| **PR #73** — close the night                              | In review. Finalizes games left open past their day. ⚠️ The nightly sweep was held back once already (`ab45938`) for its own review, so read the branch rather than assuming the first version is what is now proposed                                                                                                                                    | a reviewer. An agent CAN merge this one — it touches no workflow file                                            |
+| ⛔ **PR #51** — the clock-shifted CI run                   | Open since 2026-09-09 and **not mergeable by an agent**: GitHub refuses a `.github/workflows/` change from an OAuth app without `workflow` scope. Not CI, not a conflict, and re-running fixes nothing                                                                                                                                                   | a human in the web UI, or `gh auth refresh -s workflow`. The gate is at the top of `AGENTS.md`                    |
+
+✅ **What left this table, and where its reasoning went.** Do not re-file these —
+each is recorded where the next reader will actually look. **Rebuild the
+schedule**: done, and the window is shut — all 144 Old Boys games were
+regenerated in one batch at 2026-09-06 02:18 UTC and the season locked at its
+first game night; the publish/replace mechanics are in `EXPORTS_HANDOFF.md`,
+_Publishing replaces_. **`LAUNCH.md` Verification**: item 4 above. **Buy
+`lccalumnihockey.ca`**: bought and live 2026-09-07 — _Custom domain_ below is
+now a record, not a plan. **Custom SMTP**: folded into item 7's row above.
+**`db push` for `0044`** and **the schedule-write RPC**: §5 below, and `0048`
+has since gone up the same way.
 
 ⚠️ **One class is missing from that table on purpose, because nothing in it
 waits on a person:** test-harness defects. None affects the app; each costs a
@@ -218,7 +239,7 @@ session's time when it fires. The four found on 2026-09-06 while merging #38 and
 #39 are ✅ **fixed** (PR #40) — §5, _The final pre-launch pass_. ✅ **The fifth,
 which WAS dated (`11-` and `23-` would have broken from 2026-09-16), merged
 2026-09-09 as PR #44** — §5, _The fixture dates_. No code item in this file is
-outstanding.
+outstanding; **#73 is in review, which is a reviewer's queue, not this file's.**
 
 ---
 
@@ -469,7 +490,7 @@ the URL on the day; #31 dropped the `/manage/` prefix and `next.config.ts`
 redirects it, so the check to repeat is `/lcc-old-boys-hockey-league/dashboard`.
 
 **The app guard.** Every manage route answers `307 -> /login` with no session
-cookie — `dashboard`, `people`, `rosters`, `schedule-builder`, `audit`, and
+cookie — `dashboard`, `people`, `rosters`, `audit`, and
 `/manage/office` — while `/lcc-old-boys-hockey-league/standings` serves `200`.
 Measured with curl, which carries no cookies, so that is the true anonymous
 case.
@@ -579,13 +600,14 @@ returning profile_id, tier;
 
 END COPY
 
-## Custom domain — `lccalumnihockey.ca`, DECIDED 2026-09-06
+## Custom domain — `lccalumnihockey.ca`, ✅ DONE 2026-09-07
 
-⛔ **THE DOMAIN IS CHOSEN: `lccalumnihockey.ca`.** Not yet purchased as of
-2026-09-06. This is the site's address AND the mail sender's
-(`noreply@lccalumnihockey.ca`), so it is the one value item 7 and everything below
-share. ⚠️ `.ca` has CIRA's Canadian Presence Requirements — a registrar will ask;
-it is a formality for a Canadian registrant and a hard stop for anyone else.
+✅ **BOUGHT, AND THE SITE IS ON IT.** This section is a RECORD, not a plan — the
+whole sequence below (purchase → DNS → env var → Supabase Site URL → the
+redirect allow-list → Resend) was executed on 2026-09-07. It is the site's
+address AND the mail sender's (`noreply@lccalumnihockey.ca`), which is why item 7
+and everything below share the one value. ⚠️ Read it only to check what a step
+was set to; the one entry nobody exercised is the reset redirect, in item 7.
 
 ✅ **`obhl.vercel.app` REDIRECTS to the new host.** Decided 2026-09-06, revising
 the same day's earlier "leave it as is" — only two or three people know that host,
@@ -639,10 +661,9 @@ environment, and the Supabase settings that must agree with it.
 
 **The order matters, and the last two steps are the ones that bite:**
 
-1. **Buy the domain.** ⛔ Still the only thing with a lead time; nothing else here
-   can start. `vercel domains ls` was **0 Domains**, re-measured 2026-09-06 with a
-   control (`vercel teams ls` shows exactly one scope, so it is not hiding under
-   another team).
+1. ✅ **Buy the domain.** Done 2026-09-07. It was the only step here with a lead
+   time, and nothing else could start until it landed — recorded because that
+   shape recurs, not because anything in this list is pending.
 2. `vercel domains add` and point the DNS. The `vercel.app` host keeps working as
    an alias afterwards — see the trap below.
 3. **`vercel env` — set `NEXT_PUBLIC_SITE_URL` on Production AND Preview.** Preview
@@ -700,6 +721,27 @@ works. **Send one real password reset and follow it to `/set-password` before
 telling anyone that flow works.** Until then, `setStaffPassword` in the League
 Office remains the way to give someone a first password.
 
+**How to run it, and how to tell — resolved 2026-09-12 so nobody has to go and
+find these.** All four are READINGS of `auth.ts:sendPasswordReset` and
+`app/set-password/page.tsx`, not measurements; taking the measurement is the
+whole of what is left.
+
+1. **Where to start:** open `https://lccalumnihockey.ca/set-password` SIGNED
+   OUT. With no session that page renders `RequestResetForm` — one URL is both
+   halves of the flow, ask for the link and finish with it.
+2. **The exact link Supabase is asked for:**
+   `https://lccalumnihockey.ca/auth/confirm?next=/set-password` —
+   `NEXT_PUBLIC_SITE_URL` plus that path. The allow-list entry it needs is
+   `https://lccalumnihockey.ca/auth/confirm?**`; the `?**` exists for the query
+   string, which no magic link has ever carried.
+3. ✅ **PASS looks like:** the emailed link lands on `/set-password` with a
+   session and a "set your password" form.
+4. ⛔ **SILENT FAIL looks like:** the link lands on `/` — the league picker —
+   signed in, with no form. That is Supabase having rewritten `redirect_to` to
+   the Site URL because the entry did not match. Nothing errors and the mail
+   arrives either way. ⚠️ **The token is spent either way**, so a second attempt
+   needs a fresh link, not a re-click of the old one.
+
 ⚠️ **The build narrative, the measured absences, the oracle measurements and
 every decision behind the code are archived** in
 `docs/worklists/2026-09-06-22b5bab5-item-7-password-auth.md` (262 lines).
@@ -711,42 +753,21 @@ Do **not** read it to do the work below — nothing outstanding depends on it.
 | A user **sets their own** password             | ✅ `/set-password` → `auth.ts:updateOwnPassword`, reached by `sendPasswordReset`. ⛔ The email leg is unproven    |
 | A user **signs in** with it                    | ✅ `auth.ts:signInWithPassword`, second form on `/login`. Only useful to an account that already has a password   |
 
-**What closes this — one phase, and it is not code:**
+**What closes this — ONE MEASUREMENT, and it is not code:**
 
-1. **Custom SMTP (Resend).** ⛔ Dashboard work — cannot be done from a checkout.
-   ⚠️ **The app needs no new env key.** Nothing in `src/` reads a Resend
-   variable and nothing should: Supabase Auth sends these emails, so the API key
-   belongs in the SUPABASE dashboard, not Vercel's.
-   `vercel integration add resend/resend-email` is optional — it buys unified
-   billing and puts `RESEND_API_KEY` somewhere the app will never read it.
+1. ✅ **Custom SMTP (Resend) — CLOSED 2026-09-07.** The domain exists, all four
+   DNS records verify from a public resolver, the SMTP settings are saved, and
+   a real magic link was watched arriving and signing in a manager. ⛔ **The
+   "there is no domain" blocker that stood here is GONE** — `lccalumnihockey.ca`
+   was bought and now serves the app as well as the mail; _Custom domain_ above
+   is the record. ⚠️ **The app still needs no new env key**: nothing in `src/`
+   reads a Resend variable and nothing should, because Supabase Auth sends
+   these emails and the API key belongs in the SUPABASE dashboard.
 
-   ⛔ **THERE IS NO DOMAIN TO VERIFY. THIS IS THE REAL BLOCKER, AND IT HAS A
-   LEAD TIME NOTHING ELSE HERE HAS.** `vercel domains ls` returned **0 Domains**
-   — measured 2026-09-05 and **re-measured 2026-09-06**, still 0. That second
-   reading carries a control the first did not: `vercel teams ls` shows exactly
-   ONE scope (`richard-karp-s-projects`), so there is no other team a domain
-   could be hiding under, and every entry in `vercel alias ls` is a
-   `*.vercel.app` host. Production is `https://obhl.vercel.app`. `vercel.app`
-   **cannot** be verified in Resend — it is not ours, and verification needs DNS
-   records at the domain's authoritative nameservers. Someone has to **acquire a
-   domain** before step (a) below is reachable at all.
-
-   ⚠️ **SUPERSEDED IN PART, 2026-09-06 — read _Custom domain_ above first.** The
-   paragraph below is still TRUE of what item 7 alone requires, and it stays
-   because it is the fallback if the move is ever deferred: mail can be sent from
-   a domain that does not serve the app. But the user has since decided the site
-   moves onto the custom URL too, so in practice the same domain does both jobs
-   and the extra steps (env var, Supabase Site URL, the whole redirect
-   allow-list) are in that section, not here.
-
-   ✅ Two things make that smaller than it sounds. **The domain does not have to
-   serve the app** — Resend needs records at the registrar, nothing _in item 7_
-   requires moving off `obhl.vercel.app`, and mail can come from
-   `noreply@<domain>` while every link still points at the vercel.app host; item
-   7 on its own is not a domain migration. And Resend's shared `onboarding@resend.dev` sender needs no DNS at
-   all: it delivers **ONLY** to the address that owns the Resend account, which
-   is enough to prove the (b) and (c) wiring and ⛔ **not** enough to unblock
-   staff sign-in. Do not mark phase 1 done on it.
+   ⛔ **WHAT IS LEFT IS INSIDE STEP (d) BELOW: the allow-list entry for the
+   RESET link has never been exercised.** Steps a-f are retained as the
+   executed runbook, because their measurements are the evidence and two of
+   them corrected a documented expectation — read (d) before sending anything.
 
    a. **Verify a sending domain** in Resend, then create an API key. Unverified
    domains fail at send time, not at setup time.
@@ -814,8 +835,10 @@ Do **not** read it to do the work below — nothing outstanding depends on it.
    rather than built: if it ever needs fixing, the fix is a per-email attempt
    count in a table, not a dashboard setting.
 
-   ⚠️ **`NEXT_PUBLIC_SITE_URL` is set on Production ONLY** (`vercel env ls`,
-   2026-09-05). `sendMagicLink` falls back to `http://localhost:3000` when it is
+   ✅ **`NEXT_PUBLIC_SITE_URL` is now set on Preview TOO** (`vercel env ls`,
+   2026-09-12), so what follows is history — it read Production-only on
+   2026-09-05. ⚠️ The env key alone was never the whole fix; the allow-list
+   half below still stands. `sendMagicLink` falls back to `http://localhost:3000` when it is
    absent, so a magic link requested from a PREVIEW deployment mails a localhost
    link. Production is unaffected. `vercel env add NEXT_PUBLIC_SITE_URL preview`
    is the whole fix, and an agent may not run it. ⛔ **That key alone is NOT

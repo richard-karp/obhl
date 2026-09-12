@@ -6,6 +6,36 @@
 
 ---
 
+## ⚠️ This is the plan as WRITTEN, not as built
+
+Kept as the record of intent. Three review rounds and CI changed four things
+after it was approved; a reader taking this as a description of the code will be
+wrong about each. Read the commits for what shipped.
+
+- **`updatePlayerStatus` and `toggleCaptain` return `RosterActionState` now**,
+  not `void`. Task 11 says to wrap them; wrapping discarded the result and left
+  the dialog's error paragraph unreachable over two writes that were also
+  swallowing their own `.error`. Both were re-signatured; the dialog binds them
+  directly.
+- **The seed does more than this plan asks.** Beyond the two-night season and
+  the second Sharks goalie, `finalize_seed_game` now dresses ONE goalie and
+  names the goalie of record — without that, `v_goalie_stats` picked between
+  Sharks' two goalies by lowest UUID and flipped between resets. It also gained
+  a cancelled future game, because the Cancelled section had no fixture at all.
+- **Task 6's "the fixture agrees with the rule the app applies" is false** and
+  was corrected in the seed itself: `suggestGoalie` has a third rule (2+ goalies,
+  none owns the night ⇒ nobody) the seed deliberately does not copy.
+- **The verification section understates the e2e cost.** The dialog moved ~30
+  locators across seven specs, not the three named here, and two specs began
+  eating the seeded captain once sections reordered the rows.
+
+⛔ **And one thing this plan got right that the execution got wrong:** it said
+the migration must be revertible alone. It is — but it was pushed to production
+AFTER the code merged, not before, causing a real outage window. See
+`LAUNCH_READINESS_HANDOFF.md`, _The rule item 6 leaves behind_.
+
+---
+
 ## Context
 
 Five fixes the maintainer asked for, in one pass over the manage surface:
