@@ -70,31 +70,32 @@
 
 **Status: both leagues are live and every migration is pushed.** As of
 2026-09-10 `ENABLE_DEV_LOGIN` is gone from every Vercel environment, the seeded
-accounts are deleted, and production carries `0001`-`0048`. ⚠️ `0048` went up
-**after** PR #72 merged the code that assumes it — the ordering _The rule item 6
-leaves behind_ forbids, survived only because it reserves a slug rather than
-adding a column something reads. What the member-read migrations changed, and
-why, is under _Member reads_ below.
+accounts are deleted, and production carries `0001`-`0049`.
+⛔ **`0049` BROKE THE ORDERING RULE AND IT WAS NOT A NEAR MISS THIS TIME.** PR
+#75 merged at 22:50 UTC on 2026-09-11 and Vercel deployed it 4 seconds later;
+the migration went up after 00:30 — **at least 1h40m** during which live code
+selected `team_players.night_of_week` from a schema that had no such column, so
+every team page and scoresheet in both leagues was erroring. `0048`'s version of
+this survived only because it reserved a slug rather than adding a column
+something reads. Push the migration BEFORE merging — _The rule item 6 leaves
+behind_. What the member-read migrations changed is under _Member reads_.
 
-✅ **THIS FILE IS ON `main`.** Open PRs as of 2026-09-10: **#73**
-(`feat/close-the-night`) and **#51** (`test/clock-shifted-ci`). Merged since the
-last edit: **#72** (the scorekeeper's `/tonight`), #56, #57. ⚠️ **Check anyway**
-— `gh pr list` is one command and is always right; this line goes stale the
-moment someone branches, a stale copy in a worktree misled a reader once, and it
-has already once claimed "there are NO open PRs" while this same file recorded
-#51 as open four hundred lines down. Everything waiting on a person rather than
-on work is under _Open — waiting on a person_ below, and nothing outstanding is
-elsewhere.
+⛔ **NO OPEN-PR ROLL CALL HERE ANY MORE.** One stood here and was wrong twice —
+once claiming "there are NO open PRs" while this same file recorded #51 as open
+four hundred lines down. `gh pr list` is one command and is always right.
+Everything waiting on a person is under _Open — waiting on a person_ below.
 
-**Four things are left, and none of them is dated** — ⚠️ though Executive's
-schedule locks 2026-09-15 23:00 UTC if anyone means to rebuild it.
+**Two things are left** — ⚠️ and one date: Executive's schedule locks
+**2026-09-15 23:00 UTC** if anyone means to rebuild it. Measured 2026-09-12:
+69 games published, first on the 15th at 19:00 ET, **0 played**. Old Boys is
+already past its own lock (3 played).
 
-- **A PERSON — 2 items, and no agent can do either**, under _Open — waiting on
-  a person_: item 7's password-RESET email leg, and `NEXT_PUBLIC_SITE_URL` on
-  Preview. Dashboard and CLI work; neither is blocked on anything else.
-- **A REVIEWER — 2 PRs.** **#73** (close the night) is in review. **#51** cannot
-  be merged by an agent at all — see the workflow-scope gate at the top of
-  `AGENTS.md`, measured on #51 itself.
+- **A PERSON — 1 item**, under _Open — waiting on a person_: item 7's
+  password-RESET email leg. Supabase dashboard; not doable from a checkout.
+- **A REVIEWER — 1 PR.** **#51** cannot be merged by an agent at all — see the
+  workflow-scope gate at the top of `AGENTS.md`, measured on #51 itself.
+- ✅ **Closed since this file was written:** `NEXT_PUBLIC_SITE_URL` on Preview
+  (`vercel env ls`, 2026-09-12), and PRs **#73** and **#75**.
 - ✅ **CODE, THE LAUNCH CHECKLIST AND THE DOMAIN ARE ALL DONE.** The five
   harness items merged (PRs #40 and #44); `LAUNCH.md` Phases 2-6 were verified
   by the user on 2026-09-10, against two live leagues rather than the one that
@@ -103,7 +104,7 @@ schedule locks 2026-09-15 23:00 UTC if anyone means to rebuild it.
 
 ## Next action
 
-**Two, in either order, and both are outside a checkout.**
+**One, and it is outside a checkout.**
 
 1. **Send one real password reset** and follow it through to `/set-password`.
    This is the last unproven leg of item 7. ⛔ **Its failure is SILENT** — an
@@ -113,12 +114,11 @@ schedule locks 2026-09-15 23:00 UTC if anyone means to rebuild it.
    ever has. Until it is watched, `setStaffPassword` in the League Office stays
    the only way to give someone a first password. Runbook: _The other half of
    auth_.
-2. **`vercel env add NEXT_PUBLIC_SITE_URL` on Preview.** Production has it and
-   Preview does not, so a magic link requested from a preview deploy mails a
-   `localhost:3000` link. Production is unaffected.
+Then **#51 needs a human to merge it**. Nothing else outstanding can be done
+from a checkout.
 
-Then **#73 needs a review** and **#51 needs a human to merge it**. Nothing else
-outstanding can be done from a checkout.
+✅ `NEXT_PUBLIC_SITE_URL` on Preview was the second item here and is **done** —
+`vercel env ls` on 2026-09-12 shows it on Preview and Production both.
 
 ✅ **Sign-in, the app guard and RLS were all verified on production 2026-09-05**
 — see _Verified on production_ under item 4. ⛔ **Test `/<slug>/dashboard`, never
@@ -133,6 +133,23 @@ when it was verified; #31 removed the `/manage/` prefix the day after, and
 the deploy is the outage.** Vercel builds `main` on merge, so the window between
 "merged" and "migration applied" is served to real users. `0039`-`0041` went to
 Remote first on 2026-09-05 and #24 merged after, which is the order to keep.
+
+⛔ **AND ON 2026-09-11 IT WENT THE OTHER WAY, FOR REAL.** PR #75 merged at 22:50
+UTC; Vercel deployed 4 seconds later; `0049` was pushed after 00:30. For **at
+least 1h40m** the live build selected `team_players.night_of_week` from a schema
+that had no such column, and `is_default_goalie` had not yet been dropped — so
+every team page and every scoresheet in both leagues was erroring. Nobody
+reported it, which is the point: a Friday evening is not evidence of safety.
+⚠️ This is the LOUD failure mode, not the quiet one below — the page 500s rather
+than lying. `0048`'s version of the same mistake survived only because it
+reserved a slug rather than adding a column something reads; do not read that
+escape as a pattern.
+
+⚠️ **The sequence that would have avoided it, in full:** push the migration to
+Remote, confirm `supabase migration list --linked` shows it, THEN merge. The
+migration is additive-then-destructive in one file, so the window in the safe
+order is zero: the new columns exist before any code wants them, and the drops
+land in the same transaction as the conversion.
 
 ⚠️ **The reason to care is that the failures are not uniform, and the quiet ones
 are worse than the loud one.** Had it gone the other way, #24 would have shown:
@@ -201,7 +218,7 @@ is one command and is always right.
 | What                                                     | State                                                                                                                                                                                                                                                                                                                                                   | Who                                                                                                              |
 | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | **Item 7 — the password-RESET email leg**                 | ⛔ **UNPROVEN, and its failure is silent by design.** Custom SMTP is live and a real MAGIC LINK was watched arriving and signing in a manager (2026-09-07) — but that path returns to `/auth/confirm` with no query string. `sendPasswordReset` returns to `/auth/confirm?next=/set-password`, the case the allow-list entry `https://lccalumnihockey.ca/auth/confirm?**` was added for, and nothing has exercised it. An unlisted redirect does not error: the mail still arrives, `redirect_to` is rewritten to the Site URL, and the person lands signed-in on `/` with the token spent. **Send one real reset and follow it to `/set-password` before telling anyone this works.** Until then `setStaffPassword` is the way to give a first password | Supabase dashboard; ⛔ not doable from a checkout. ⚠️ It needs NO app env key — the API key lives in Supabase, not Vercel |
-| **`NEXT_PUBLIC_SITE_URL` is missing on Preview**          | `vercel env ls` 2026-09-05: Production only. Unchanged since                                                                                                                                                                                                                                                                                            | a magic link requested from a PREVIEW deploy mails a `localhost:3000` link. Production is unaffected. One `vercel env add`, which an agent may not run |
+| ✅ **`NEXT_PUBLIC_SITE_URL` on Preview** — **DONE**        | `vercel env ls` **2026-09-12**: present on Preview AND Production, both created four days earlier — so the 2026-09-05 "Production only" reading, and the "unchanged since" that followed it, were both already false when written. ⚠️ Neither was re-measured before being repeated; that is the whole cost of restating a reading instead of retaking it                                                                                    | done |
 | **PR #73** — close the night                              | In review. Finalizes games left open past their day. ⚠️ The nightly sweep was held back once already (`ab45938`) for its own review, so read the branch rather than assuming the first version is what is now proposed                                                                                                                                    | a reviewer. An agent CAN merge this one — it touches no workflow file                                            |
 | ⛔ **PR #51** — the clock-shifted CI run                   | Open since 2026-09-09 and **not mergeable by an agent**: GitHub refuses a `.github/workflows/` change from an OAuth app without `workflow` scope. Not CI, not a conflict, and re-running fixes nothing                                                                                                                                                   | a human in the web UI, or `gh auth refresh -s workflow`. The gate is at the top of `AGENTS.md`                    |
 
@@ -473,7 +490,7 @@ the URL on the day; #31 dropped the `/manage/` prefix and `next.config.ts`
 redirects it, so the check to repeat is `/lcc-old-boys-hockey-league/dashboard`.
 
 **The app guard.** Every manage route answers `307 -> /login` with no session
-cookie — `dashboard`, `people`, `rosters`, `schedule-builder`, `audit`, and
+cookie — `dashboard`, `people`, `rosters`, `audit`, and
 `/manage/office` — while `/lcc-old-boys-hockey-league/standings` serves `200`.
 Measured with curl, which carries no cookies, so that is the true anonymous
 case.
@@ -797,8 +814,10 @@ Do **not** read it to do the work below — nothing outstanding depends on it.
    rather than built: if it ever needs fixing, the fix is a per-email attempt
    count in a table, not a dashboard setting.
 
-   ⚠️ **`NEXT_PUBLIC_SITE_URL` is set on Production ONLY** (`vercel env ls`,
-   2026-09-05). `sendMagicLink` falls back to `http://localhost:3000` when it is
+   ✅ **`NEXT_PUBLIC_SITE_URL` is now set on Preview TOO** (`vercel env ls`,
+   2026-09-12), so what follows is history — it read Production-only on
+   2026-09-05. ⚠️ The env key alone was never the whole fix; the allow-list
+   half below still stands. `sendMagicLink` falls back to `http://localhost:3000` when it is
    absent, so a magic link requested from a PREVIEW deployment mails a localhost
    link. Production is unaffected. `vercel env add NEXT_PUBLIC_SITE_URL preview`
    is the whole fix, and an agent may not run it. ⛔ **That key alone is NOT
