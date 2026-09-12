@@ -426,18 +426,37 @@ test.describe("Path 28b — past and future on the schedule", () => {
     ).toBeGreaterThan(0);
 
     await page.goto("/obhl/schedule");
-    const awaiting = page.getByRole("heading", { name: "Awaiting a score" });
-    await expect(awaiting).toBeVisible();
 
-    // ⛔ THE POSITION IS THE POINT, NOT JUST THE HEADING. It is the only part
-    // of this page anyone has to act on, so it sits above Upcoming; a section
-    // below the fold is how these games got forgotten in the first place.
-    const headings = await page
-      .getByRole("heading", { level: 2 })
-      .allInnerTexts();
-    expect(headings.indexOf("Awaiting a score")).toBeLessThan(
-      headings.indexOf("Upcoming"),
-    );
+    // ⛔ THE POSITION IS STILL THE POINT, AND IT MOVED. These games used to
+    // have a section above Upcoming on one long page; they now have a view of
+    // their own, so "first" is about the view row rather than the headings —
+    // only one view renders at a time.
+    //
+    // ⚠️ AND THIS IS A WEAKER GUARANTEE THAN THE ONE IT REPLACES. A view is
+    // further away than a section below the fold, which is how these games got
+    // forgotten in the first place. The default stays Upcoming because a
+    // scorekeeper's games are always tonight's and To score holds only
+    // previous nights — every row of which their day guard bounces — so the
+    // COUNT on the label is what carries the urgency now. Assert it: a link
+    // that lost its count would be indistinguishable from a section nobody
+    // looks at.
+    const views = page.getByRole("navigation", { name: "Schedule views" });
+    // ⚠️ WAIT FIRST. `allInnerTexts()` does not auto-wait — it returns whatever
+    // matches at the instant it runs — and this page streams, so reading it
+    // straight after `goto` returns `[]` and the assertion below fails on
+    // `undefined` rather than on the thing it is about.
+    await expect(views.getByRole("link", { name: "Upcoming" })).toBeVisible();
+    const labels = await views.getByRole("link").allInnerTexts();
+    expect(labels[0]).toMatch(/^To score \(\d+\)$/);
+    expect(labels.indexOf("Upcoming")).toBe(1);
+
+    await views.getByRole("link", { name: /^To score/ }).click();
+    await expect(page).toHaveURL(/view=to-score/);
+    await expect(page.getByRole("heading", { name: "To score" })).toBeVisible();
+    // The past unscored game asserted above is what fills it.
+    await expect(
+      page.getByText(/played with no result recorded yet/),
+    ).toBeVisible();
   });
 
   test("a cancelled game keeps its Manage button even though it is future-dated", async ({

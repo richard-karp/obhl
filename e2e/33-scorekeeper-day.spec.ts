@@ -214,7 +214,16 @@ test.describe("The scorekeeper's night", () => {
     await page.getByRole("button", { name: "Add goals" }).first().click();
     await page.waitForLoadState("networkidle");
 
+    // ⚠️ TWO PRESSES NOW, AND THE FIRST ONE IS REFUSED. This sheet picks no
+    // goalie, so `finalizeGame` bounces it with `?incomplete=1` rather than
+    // writing a game whose goalies would get no GP, GAA or W/L all season.
+    // The gate itself is asserted in `05-scoring` and `13-goalie`; what
+    // matters here is only that a scorekeeper can still get through it.
     await page.getByRole("button", { name: "Complete game" }).click();
+    await page.waitForLoadState("networkidle");
+    await expect(page).toHaveURL(/incomplete=1/);
+
+    await page.getByRole("button", { name: "Complete anyway" }).click();
     await page.waitForLoadState("networkidle");
     await expect(page.getByText("Final").first()).toBeVisible();
   });
