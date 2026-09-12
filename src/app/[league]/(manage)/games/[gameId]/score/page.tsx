@@ -26,6 +26,7 @@ import {
   leagueWeekday,
 } from "@/lib/format";
 import { suggestGoalie } from "@/lib/goalie/suggest";
+import { scoresheetProblems } from "@/lib/games/incomplete";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const byNumber = (a: { number: number | null }, b: { number: number | null }) =>
@@ -33,10 +34,14 @@ const byNumber = (a: { number: number | null }, b: { number: number | null }) =>
 
 export default async function ScoreGamePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ league: string; gameId: string }>;
+  /** `?incomplete=1` — `finalizeGame` bounced a sheet that is missing something. */
+  searchParams: Promise<{ incomplete?: string }>;
 }) {
   const { league: leagueSlug, gameId } = await params;
+  const { incomplete } = await searchParams;
   const league = await resolveLeagueBySlug(leagueSlug);
   if (!league) notFound();
   const user = await requireLeagueRole(
@@ -226,8 +231,44 @@ export default async function ScoreGamePage({
       ? allBoards.filter((b) => b.id === captainTeamId)
       : allBoards;
 
+  /**
+   * What `finalizeGame` refused over, recomputed for display.
+   *
+   * ⛔ THE ACTION IS THE GATE; THIS ONLY EXPLAINS IT. Both sides call
+   * `scoresheetProblems` so they cannot disagree about what is missing — a page
+   * that computed a shorter list would offer "Complete anyway" for a refusal
+   * that never happened, and a longer one would name a problem the action was
+   * happy with.
+   *
+   * ⚠️ `allBoards`, not `boards`. A captain sees only their own side, and the
+   * warning is about the game.
+   *
+   * ⚠️ AND ONLY WHILE THE GAME IS NOT FINAL. Completing anyway does not fix the
+   * problems, and the URL keeps `?incomplete=1` across the successful submit —
+   * testing the problem list instead of the status would leave the banner up
+   * for good on exactly the games it fired for.
+   */
+  const problems =
+    incomplete === "1" && game.status !== "final"
+      ? scoresheetProblems(
+          allBoards.map((b) => ({
+            teamName: b.name,
+            dressedCount: b.dressed.length,
+            goalieId: b.goalieId,
+            goalieIsSub: b.goalieIsSub,
+            dressedGoalieIds: b.dressed
+              .map((l) => l.playerId)
+              .filter(
+                (id): id is string =>
+                  !!id && b.goalies.some((g) => g.playerId === id),
+              ),
+          })),
+        )
+      : [];
+
   const data: ScoreBoardData = {
     gameId,
+    problems,
     status: game.status,
     finalized: !!game.finalized_at,
     awayName: awayT.name,

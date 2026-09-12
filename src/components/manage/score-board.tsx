@@ -63,6 +63,11 @@ export type TeamBoard = {
 };
 export type ScoreBoardData = {
   gameId: string;
+  /**
+   * What `finalizeGame` refused this sheet over, one line per problem, empty
+   * when it has not refused. See `lib/games/incomplete.ts`.
+   */
+  problems: string[];
   status: string;
   finalized: boolean;
   awayName: string;
@@ -416,7 +421,18 @@ export function ScoreBoard({ data }: { data: ScoreBoardData }) {
           {data.canScore && !data.finalized ? (
             <form action={finalizeGame}>
               <input type="hidden" name="game_id" value={data.gameId} />
-              <Button type="submit">Complete game</Button>
+              {/*
+                ⛔ `confirm` IS ONLY SENT ONCE THE ACTION HAS ALREADY REFUSED.
+                Pre-filling it on the first press would turn the gate into a
+                no-op — the action would never see an unconfirmed submit and
+                the warning below would never be reached.
+              */}
+              {data.problems.length > 0 ? (
+                <input type="hidden" name="confirm" value="1" />
+              ) : null}
+              <Button type="submit">
+                {data.problems.length > 0 ? "Complete anyway" : "Complete game"}
+              </Button>
             </form>
           ) : null}
           {data.canScore && data.finalized ? (
@@ -429,6 +445,35 @@ export function ScoreBoard({ data }: { data: ScoreBoardData }) {
           ) : null}
         </div>
       </div>
+
+      {/*
+        ⛔ IT NAMES WHAT IS MISSING, BY TEAM. "Something is wrong" would be read
+        past exactly the way the muted goalie button was — production shipped
+        three games with four goalies and one whole lineup unrecorded, and the
+        scorekeeper had no way to see it from this page. The list is the fix;
+        the second press is the acknowledgement.
+      */}
+      {data.problems.length > 0 ? (
+        <div
+          role="alert"
+          className="border-destructive/40 bg-destructive/5 space-y-2 rounded-lg border p-4"
+        >
+          <p className="text-sm font-semibold">
+            This game is not finished being entered.
+          </p>
+          <ul className="text-muted-foreground list-disc space-y-0.5 pl-5 text-sm">
+            {data.problems.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+          <p className="text-muted-foreground text-xs">
+            A missing goalie means no GP, no GAA and no W/L for them all
+            season. Fix it below, or press{" "}
+            <strong className="text-foreground">Complete anyway</strong> if
+            that is really how the game went.
+          </p>
+        </div>
+      ) : null}
 
       {data.canScore ? (
         <p className="text-muted-foreground text-sm">
