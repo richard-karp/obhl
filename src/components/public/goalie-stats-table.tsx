@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { TeamLogo } from "@/components/shared/team-logo";
+import { TeamCrestLink } from "@/components/shared/team-crest-link";
 import type { GoalieRow } from "@/lib/queries/stats";
 
 type SortCol = "gp" | "wins" | "losses" | "ties" | "ga" | "so" | "gaa";
@@ -90,7 +90,6 @@ export function GoalieStatsTable({
         <TableHeader>
           <TableRow className="bg-muted/40">
             <TableHead>Goalie</TableHead>
-            <TableHead className="hidden sm:table-cell">Team</TableHead>
             <SortHead
               label="GP"
               col="gp"
@@ -153,28 +152,22 @@ export function GoalieStatsTable({
           {sorted.map((r) => (
             <TableRow key={`${r.player_id}-${r.team_id}`}>
               <TableCell className="font-medium">
-                <Link
-                  href={`/${league}/players/${r.player_id}`}
-                  className="hover:underline"
-                >
-                  {r.first_name} {r.last_name}
-                </Link>
-              </TableCell>
-              <TableCell className="hidden sm:table-cell">
-                <Link
-                  href={`/${league}/teams/${r.team_slug}`}
-                  className="flex items-center gap-2 hover:underline"
-                >
-                  <TeamLogo
-                    name={r.team_name ?? ""}
+                <span className="flex items-center gap-2">
+                  <TeamCrestLink
+                    slug={r.team_slug}
+                    name={r.team_name}
                     color={r.team_color}
                     logoPath={r.team_logo_path}
                     textColor={r.team_logo_text_color}
+                    league={league}
                   />
-                  <span className="text-muted-foreground text-sm">
-                    {r.team_name}
-                  </span>
-                </Link>
+                  <Link
+                    href={`/${league}/players/${r.player_id}`}
+                    className="hover:underline"
+                  >
+                    {r.first_name} {r.last_name}
+                  </Link>
+                </span>
               </TableCell>
               <TableCell className="text-center">{r.gp ?? 0}</TableCell>
               <TableCell className="text-center">{r.wins ?? 0}</TableCell>
