@@ -7,6 +7,43 @@
 
 ---
 
+## ⚠️ This is the plan as WRITTEN, plus what execution changed
+
+Kept as the record of intent. Everything below shipped, in eight commits on
+`feat/stats-schedule-and-goalie-box`, but five things differ from what this
+plan says. A reader taking it as a description of the code will be wrong about
+each.
+
+- **⛔ `game-row.tsx` DOES NOT wrap every row in a game link — only a FINAL
+  one** (`:145`). The blast-radius table asserted the opposite and drew two
+  conclusions from it, both since corrected in place: `05-scoring:74-75` was
+  _weak_ rather than vacuous, and `15-league-routing:533` **broke** instead of
+  being "likely fine", because Harbor's four finals are all in the past and its
+  default view has nothing to click.
+- **The finalize check lives in a new `src/lib/games/incomplete.ts`**, not in
+  `shared.ts` as Task 7 Step 2 says. Same reason — `actions/games.ts` is
+  `"use server"` — but a sibling module keeps the pure function out of a file
+  that imports `next/cache`, so its test needs nothing from Next.
+- **Task 3 extracted `src/components/shared/team-crest-link.tsx`** instead of
+  inlining the JSX in both tables. Three things have to be right at once
+  (`aria-label`, where `hover:underline` goes, the null slug) and two copies
+  would drift.
+- **One break the table did not predict at all:** `01-public`'s "clicking a
+  skater from stats" took the first link in the row, which is the crest now, so
+  it read the team's `aria-label` as the player's name and navigated to the
+  team page. Task 3 had no e2e row in the table; it should have.
+- **The e2e pass ran after Tasks 6 and 7, not between 5 and 6.** `01-public` and
+  `05-scoring` are touched by both halves, and the ordering in this plan would
+  have run each of them twice for no new information.
+
+Two smaller ones: `05-scoring`'s new "still not final" assertion had to be the
+ABSENCE of Final, because recording a goal bumps the game to `in_progress`; and
+`npm run build` was added to the verification, because CI runs typecheck, lint,
+test and e2e but **not** a production build — `ScheduleFilter`'s new
+`useSearchParams` would have been the wrong place to find that out.
+
+---
+
 ## Context
 
 Six fixes the maintainer asked for on 2026-09-12, in one pass. Five are visual
