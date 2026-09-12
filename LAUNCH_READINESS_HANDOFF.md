@@ -721,6 +721,27 @@ works. **Send one real password reset and follow it to `/set-password` before
 telling anyone that flow works.** Until then, `setStaffPassword` in the League
 Office remains the way to give someone a first password.
 
+**How to run it, and how to tell — resolved 2026-09-12 so nobody has to go and
+find these.** All four are READINGS of `auth.ts:sendPasswordReset` and
+`app/set-password/page.tsx`, not measurements; taking the measurement is the
+whole of what is left.
+
+1. **Where to start:** open `https://lccalumnihockey.ca/set-password` SIGNED
+   OUT. With no session that page renders `RequestResetForm` — one URL is both
+   halves of the flow, ask for the link and finish with it.
+2. **The exact link Supabase is asked for:**
+   `https://lccalumnihockey.ca/auth/confirm?next=/set-password` —
+   `NEXT_PUBLIC_SITE_URL` plus that path. The allow-list entry it needs is
+   `https://lccalumnihockey.ca/auth/confirm?**`; the `?**` exists for the query
+   string, which no magic link has ever carried.
+3. ✅ **PASS looks like:** the emailed link lands on `/set-password` with a
+   session and a "set your password" form.
+4. ⛔ **SILENT FAIL looks like:** the link lands on `/` — the league picker —
+   signed in, with no form. That is Supabase having rewritten `redirect_to` to
+   the Site URL because the entry did not match. Nothing errors and the mail
+   arrives either way. ⚠️ **The token is spent either way**, so a second attempt
+   needs a fresh link, not a re-click of the old one.
+
 ⚠️ **The build narrative, the measured absences, the oracle measurements and
 every decision behind the code are archived** in
 `docs/worklists/2026-09-06-22b5bab5-item-7-password-auth.md` (262 lines).
