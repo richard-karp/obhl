@@ -2,13 +2,32 @@
  * Path 12: Audit log — view logged actions and session-based revert.
  */
 import { test, expect } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 /**
  * The EDITABLE roster table, scoped to its region. The team page renders the
  * public roster first and the editor below it, so a bare `table tbody tr` picks
  * up the public table — same players, no buttons.
  */
+/**
+ * Suspend whoever is in `row`, through their editor.
+ *
+ * ⛔ THE CONTROL MOVED INTO A DIALOG, WHICH IS A PORTAL. It is no longer inside
+ * the `<tr>`, and while it is open Radix marks the rest of the document
+ * `aria-hidden` — so it is opened, used, and shut before anything else on the
+ * page is touched. What these tests are about is the AUDIT ENTRY the action
+ * writes, which is unchanged.
+ */
+async function suspendVia(page: Page, row: Locator) {
+  await row.getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: /^Suspend$|^Suspended ✓$/ }).click();
+  await page.waitForLoadState("networkidle");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+}
+
 function rosterRows(page: Page) {
   return page
     .getByRole("region", { name: "Manage roster" })
@@ -37,11 +56,7 @@ test.describe("Path 12 — Audit log", () => {
     // The editing forms are simply on the page for a manager now — no tab to
     // open and no `?tab=` to wait for.
 
-    await rosterRows(page)
-      .nth(2)
-      .getByRole("button", { name: "Suspend" })
-      .click();
-    await page.waitForLoadState("networkidle");
+    await suspendVia(page, rosterRows(page).nth(2));
 
     await page.goto("/obhl/audit");
     // Accept any visible mention of the action — the UI shows either a formatted
@@ -61,17 +76,20 @@ test.describe("Path 12 — Audit log", () => {
     // The editing forms are simply on the page for a manager now — no tab to
     // open and no `?tab=` to wait for.
 
-    // Toggle captain status on the first skater row (nth(1) skips goalie)
+    // ⚠️ `nth(1)` NO LONGER "SKIPS THE GOALIE" — the table is three sections
+    // now and Forwards come first, so this is simply the second forward. What
+    // the test needs is any row whose captaincy can be toggled, which that is.
     const row = rosterRows(page).nth(1);
-    const makeC = row.getByRole("button", { name: "Make C" });
-    const unsetC = row.getByRole("button", { name: "Unset C" });
-    const hasMakeC = await makeC.isVisible().catch(() => false);
-    if (hasMakeC) {
-      await makeC.click();
-    } else {
-      await unsetC.click();
-    }
+    await row.getByRole("button", { name: "Edit" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    // Either direction writes the entry this test is looking for.
+    await dialog
+      .getByRole("button", { name: /^Make captain$|^Captain ✓$/ })
+      .click();
     await page.waitForLoadState("networkidle");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
 
     await page.goto("/obhl/audit");
     await expect(
@@ -90,11 +108,7 @@ test.describe("Path 12 — Audit log", () => {
     await expect(page).toHaveURL(/\/teams\//);
     // The editing forms are simply on the page for a manager now — no tab to
     // open and no `?tab=` to wait for.
-    await rosterRows(page)
-      .nth(2)
-      .getByRole("button", { name: "Suspend" })
-      .click();
-    await page.waitForLoadState("networkidle");
+    await suspendVia(page, rosterRows(page).nth(2));
 
     await page.goto("/obhl/audit");
     const revertBtn = page

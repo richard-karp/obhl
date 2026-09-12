@@ -313,7 +313,16 @@ test.describe("Path 6b — Auth-aware chrome", () => {
     // no nav term sees it — which is exactly why the document term is still here
     // after the nav terms were tightened.
     await page.setViewportSize({ width: 390, height: 800 });
-    for (const url of ["/obhl/standings", "/obhl/seasons"]) {
+    // ⚠️ A TEAM PAGE IS IN THIS LOOP SINCE 2026-09-11. The roster's Goalies
+    // section is the widest table in the app — thirteen columns before six of
+    // them drop below `sm` — and it landed on a page this guard had never
+    // measured. The other two URLs are about the staff row; this one is about
+    // the table under it.
+    for (const url of [
+      "/obhl/standings",
+      "/obhl/seasons",
+      "/obhl/teams/sharks",
+    ]) {
       await page.goto(url);
       await expect(
         page.getByRole("navigation", { name: "Staff tools" }),

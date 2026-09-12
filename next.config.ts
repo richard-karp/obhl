@@ -93,6 +93,32 @@ const nextConfig: NextConfig = {
         destination: "/manage/leagues/new",
         permanent: true,
       },
+      // The builder's two IN-SEASON tools moved under `/schedule`, which is
+      // where a manager looks at games. The builder itself did not move — it
+      // stopped being a place at all (2026-09-11): it is one step of creating a
+      // season, so it renders on that season's setup page, and the bare
+      // `/schedule-builder` URL is a redirect PAGE rather than an entry here,
+      // because only a page can look up which season to land on.
+      //
+      // ⛔ TWO EXPLICIT RULES, NOT ONE `/:league/schedule-builder/:rest*`.
+      // `:rest*` is zero-or-more, so the wildcard would also match the bare
+      // `/schedule-builder` and send it to `/schedule` — the games list, not
+      // the season setup page the redirect page picks. That is the same
+      // zero-or-more behaviour the `/manage/` rule at the top of this file
+      // documents as deliberate; here it would be wrong.
+      //
+      // No ordering hazard against the rules above: every one of their sources
+      // is anchored at both ends and none begins `/:league/schedule-builder`.
+      {
+        source: "/:league/schedule-builder/repair",
+        destination: "/:league/schedule/repair",
+        permanent: true,
+      },
+      {
+        source: "/:league/schedule-builder/one-off",
+        destination: "/:league/schedule/one-off",
+        permanent: true,
+      },
       // The scorekeeper's page moved out of /manage/ (0048 reserves `tonight`).
       // Every other move in this file left a redirect behind; this one is
       // unreleased, so nothing has the old address bookmarked — but the

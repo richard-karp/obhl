@@ -403,14 +403,15 @@ export async function mergePlayers(
   }
 
   // Everything else that names a player by id. Each is a plain repoint: none of
-  // these has a unique constraint the merge can collide with — `team_goalie_days`
-  // is unique on (team, season, day) and the goalie-of-record columns are plain
-  // references.
+  // these has a unique constraint the merge can collide with — the
+  // goalie-of-record columns are plain references.
+  //
+  // ⛔ `team_goalie_days` USED TO BE FIRST IN THIS LIST AND IS GONE WITH THE
+  // TABLE (0049). It was the one entry that needed the caveat above, being
+  // unique on (team, season, day). Its replacement, `team_players.night_of_week`,
+  // needs no repoint at all: the merge already moves `team_players` rows, and
+  // the night rides along on the row rather than in a table keyed by player.
   const repointed = await Promise.all([
-    admin
-      .from("team_goalie_days")
-      .update({ player_id: keepId })
-      .in("player_id", absorbIds),
     admin
       .from("games")
       .update({ home_goalie_id: keepId })
@@ -437,9 +438,9 @@ export async function mergePlayers(
   // `game_rosters.player_id` is `on delete cascade` (0004_games.sql:38), so
   // deleting an absorbed `players` row before its game rows have been repointed
   // destroys that player's entire stat history — every game they dressed for,
-  // gone, with no error and no partial failure to notice. `team_goalie_days`
-  // cascades the same way; the goalie-of-record columns are `set null`, which is
-  // quieter still.
+  // gone, with no error and no partial failure to notice. `team_players`
+  // cascades the same way, taking the night with it; the goalie-of-record
+  // columns are `set null`, which is quieter still.
   const { error: pErr } = await admin
     .from("players")
     .delete()

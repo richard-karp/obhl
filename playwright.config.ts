@@ -93,6 +93,15 @@ export default defineConfig({
   webServer: {
     command: `npm run dev -- -p ${PORT}`,
     url: `http://localhost:${PORT}`,
+    // ⛔ THE CRON SECRET LIVES HERE, NOT IN CI's `.env.local`. `34-close-night`
+    // drives the nightly sweep over HTTP, and the route fails CLOSED without a
+    // secret — so without this the spec would get a 401 and nothing would test
+    // the sweep. Setting it in the workflow instead would put the only copy in
+    // `.github/workflows/`, which an agent cannot merge (see AGENTS.md); this
+    // file is ordinary config and travels with the test that needs it.
+    // ⚠️ `reuseExistingServer` means a server started BEFORE this line existed
+    // does not have it. The spec says so by name when it sees a 401.
+    env: { CRON_SECRET: process.env.CRON_SECRET ?? "e2e-cron-secret" },
     reuseExistingServer: true,
     // Generous because CI starts cold. Locally this is ~9s with no `.next`
     // cache, and every local run either reuses a server or has a warm one; a

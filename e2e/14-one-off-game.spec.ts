@@ -104,11 +104,14 @@ async function seedFutureSeason(page: Page) {
   // the switch having landed rather than about surviving it.
   await expect(setActive).toHaveCount(0);
 
+  // ⚠️ REDIRECTS TO THE ACTIVE SEASON'S SETUP PAGE. Building a schedule became
+  // a step of creating a season (2026-09-11), so the standalone builder — and
+  // the "<season> · N teams enrolled" description this used to assert — is
+  // gone. The season was just set active above, so the redirect resolves to it;
+  // the setup page's own heading is what names it now.
   await page.goto("/obhl/schedule-builder");
-  // No "(active)" suffix any more — see `11-schedule-builder`. The builder
-  // names whichever season it is scoped to.
   await expect(
-    page.getByText(new RegExp(`${SEASON} · \\d+ teams enrolled`)),
+    page.getByRole("heading", { name: `Season setup — ${SEASON}` }),
   ).toBeVisible();
   // ⛔ Before the gate, not inside it. The read-failed card makes the
   // condition below FALSE, so a read failure would skip the seed entirely

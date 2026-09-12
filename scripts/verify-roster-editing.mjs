@@ -295,7 +295,10 @@ try {
       .update({
         left_on: new Date().toISOString().slice(0, 10),
         is_captain: false,
-        is_default_goalie: false,
+        // `night_of_week` replaced `is_default_goalie` here in 0049. Both are
+        // claims about the present that a departure ends, and this script has
+        // to mirror `movePlayerToTeam` exactly or it stops verifying it.
+        night_of_week: null,
       })
       .eq("id", scratch.rowA);
   }

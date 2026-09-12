@@ -13,7 +13,7 @@
  * plays elsewhere" — are unanswerable inside a single league.
  */
 import { test, expect } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 
 function admin() {
@@ -86,6 +86,21 @@ function manageRoster(page: Page) {
 }
 
 /** The row for one player on the open roster editor. */
+/**
+ * Open a row's editor and return the dialog.
+ *
+ * ⛔ THE DIALOG IS A PORTAL AND IS NOT INSIDE THE `<tr>`. Everything the row
+ * used to carry — the name fields, Number, Save, Transfer, `role="status"` —
+ * renders at the end of the document now, so `row.getByLabel(...)` and
+ * `row.getByRole("status")` find nothing. Scope to the dialog instead.
+ */
+async function openDialogFor(page: Page, row: Locator) {
+  await row.getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
 function rowFor(page: Page, name: string) {
   return manageRoster(page).locator("table tbody tr").filter({ hasText: name });
 }
@@ -198,12 +213,24 @@ test.describe("Path 22 — Roster editing", () => {
     await signInAs(page, "Manager");
     await openRoster(page, "obhl", fromTeam);
     const row = rowFor(page, who);
-    await row.getByRole("button", { name: /^transfer$/i }).click();
-    await row.getByLabel(/to team/i).selectOption({ label: toTeam });
+    const dialog = await openDialogFor(page, row);
+    await dialog.getByLabel(/to team/i).selectOption({ label: toTeam });
     // Cleared: any number might be taken on the destination by the time this
     // runs, and the number is not what this test is about.
-    await row.getByLabel(/jersey number/i).fill("");
-    await row.getByRole("button", { name: /confirm transfer/i }).click();
+    await dialog.getByLabel(/jersey number/i).fill("");
+    await dialog.getByRole("button", { name: /confirm transfer/i }).click();
+    await page.waitForLoadState("networkidle");
+
+    // ⛔ THE DIALOG MUST BE SHUT BEFORE ANYTHING BEHIND IT IS ASSERTED. Radix
+    // marks the rest of the document `aria-hidden` while a modal is open, so
+    // `getByRole("cell", …)` behind it matches NOTHING regardless of what the
+    // roster says — this assertion passed while the transfer had not happened
+    // at all, which is exactly the false green a role-based check is supposed
+    // to prevent. Surface any refusal first, so a failed transfer reads as its
+    // own message rather than as a mystery further down.
+    await expect(dialog.getByRole("status")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
     await expect(
       manageRoster(page).getByRole("cell", { name: who }),
     ).toHaveCount(0);
@@ -443,11 +470,13 @@ test.describe("Path 22 — Roster editing", () => {
     await openRoster(page, "harbor", team);
 
     const sharedRow = rowFor(page, sharedName);
-    await sharedRow.getByRole("button", { name: "Edit" }).click();
-    await sharedRow.getByLabel("First name").fill("Renamed");
-    await sharedRow.getByRole("button", { name: /rename everywhere/i }).click();
+    const sharedDialog = await openDialogFor(page, sharedRow);
+    await sharedDialog.getByLabel("First name").fill("Renamed");
+    await sharedDialog
+      .getByRole("button", { name: /rename everywhere/i })
+      .click();
 
-    const refusal = sharedRow.getByRole("status");
+    const refusal = sharedDialog.getByRole("status");
     await expect(refusal).toContainText(/League Office/i);
     // Not a generic "no": it names the league that put them out of reach and
     // says why one row means one name.
@@ -457,14 +486,22 @@ test.describe("Path 22 — Roster editing", () => {
     // Nothing was written.
     expect(await playerName(shared.player_id)).toBe(sharedName);
 
+    // ⛔ SHUT THE FIRST DIALOG BEFORE REACHING FOR THE SECOND ROW. Radix marks
+    // the document behind a modal `aria-hidden`, so the roster is unreachable
+    // while it is open and the next `Edit` click simply times out.
+    await page.keyboard.press("Escape");
+    await expect(sharedDialog).toBeHidden();
+
     // And the same manager CAN rename somebody who only plays their league —
     // so the refusal above is containment doing its job, not the button being
-    // broken for everyone.
+    // broken for everyone. This is the POSITIVE control for the refusal.
     const localRow = rowFor(page, localName);
-    await localRow.getByRole("button", { name: "Edit" }).click();
-    await localRow.getByLabel("First name").fill("Renamed");
-    await localRow.getByRole("button", { name: /rename everywhere/i }).click();
-    await expect(localRow.getByRole("status")).toContainText(/Renamed/);
+    const localDialog = await openDialogFor(page, localRow);
+    await localDialog.getByLabel("First name").fill("Renamed");
+    await localDialog
+      .getByRole("button", { name: /rename everywhere/i })
+      .click();
+    await expect(localDialog.getByRole("status")).toContainText(/Renamed/);
     expect(await playerName(local.player_id)).toMatch(/^Renamed /);
   });
 
@@ -512,10 +549,10 @@ test.describe("Path 22 — Roster editing", () => {
     await signInAs(page, "Manager");
     await openRoster(page, "obhl", team);
     const row = rowFor(page, who);
-    await row.getByRole("button", { name: "Edit" }).click();
-    await row.getByLabel("Number").fill(String(free));
-    await row.getByRole("button", { name: "Save" }).click();
-    await expect(row.getByRole("status")).toContainText(/Updated/);
+    const dialog = await openDialogFor(page, row);
+    await dialog.getByLabel("Number", { exact: true }).fill(String(free));
+    await dialog.getByRole("button", { name: "Save" }).click();
+    await expect(dialog.getByRole("status")).toContainText(/Updated/);
 
     const dressedAfter = await db
       .from("game_rosters")
@@ -560,11 +597,13 @@ test.describe("Path 22 — Roster editing", () => {
     await signInAs(page, "Manager");
     await openRoster(page, "obhl", await teamName(teamId));
     const row = rowFor(page, await playerName(subject.player_id));
-    await row.getByRole("button", { name: "Edit" }).click();
-    await row.getByLabel("Number").fill(String(wearer.jersey_number));
-    await row.getByRole("button", { name: "Save" }).click();
+    const dialog = await openDialogFor(page, row);
+    await dialog
+      .getByLabel("Number", { exact: true })
+      .fill(String(wearer.jersey_number));
+    await dialog.getByRole("button", { name: "Save" }).click();
 
-    await expect(row.getByRole("status")).toContainText(
+    await expect(dialog.getByRole("status")).toContainText(
       new RegExp(`already worn by ${await playerName(wearer.player_id)}`, "i"),
     );
   });

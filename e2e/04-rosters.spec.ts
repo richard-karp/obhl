@@ -2,7 +2,7 @@
  * Path 9: Rosters — add player, set captain, suspend, remove, logo upload.
  */
 import { test, expect } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 /**
  * The editor's own region, and its roster table.
@@ -20,6 +20,21 @@ function rosterRows(page: Page) {
   return manageRoster(page).locator("table tbody tr");
 }
 
+/**
+ * Open a row's editor and return the dialog.
+ *
+ * ⛔ THE DIALOG IS A PORTAL — IT IS NOT INSIDE THE `<tr>`. Every control that
+ * used to be scoped to the row (Make C, Suspend, the injury note, Transfer,
+ * the name fields, `role="status"`) now renders at the end of the document,
+ * so `row.getByRole(...)` finds nothing. Scope to this instead.
+ */
+async function openDialogFor(page: Page, row: Locator) {
+  await row.getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
 async function signedInAs(
   page: Page,
   role: "Manager" | "Scorekeeper" | "Captain",
@@ -31,6 +46,79 @@ async function signedInAs(
   await page.waitForURL("/");
   await page.goto("/obhl/dashboard");
 }
+
+/**
+ * Path 9b — the public roster, in the three sections a hockey roster has.
+ *
+ * ⚠️ THE PUBLIC TABLE, NOT THE EDITOR. The team page renders both; these
+ * assertions are deliberately unscoped by region because the headings belong
+ * to the public half, above "Manage roster".
+ */
+test.describe("Path 9b — Forwards, Defence and Goalies", () => {
+  test("the roster is split into three sections", async ({ page }) => {
+    await page.goto("/obhl/teams/sharks");
+    for (const name of ["Forwards", "Defence", "Goalies"]) {
+      await expect(page.getByRole("heading", { name })).toBeVisible();
+    }
+  });
+
+  test("goalies are listed even with no games played", async ({ page }) => {
+    // ⛔ THE CASE PRODUCTION IS IN. `v_goalie_stats` is built only from FINAL
+    // games, so a rostered goalie who has not played is absent from it — and
+    // on the day this shipped that was EVERY goalie in both live leagues, 19
+    // of 19, because no game had been scored yet. A Goalies section built from
+    // that view alone would have been empty on every team page in the app.
+    // Sharks' #8 has never played: the seed converts them from a forward and
+    // dresses only the starting goalie, so they appear in no finalized game.
+    const section = page.getByRole("region", { name: "Goalies" });
+    const goalies = section.locator("tbody tr");
+    await page.goto("/obhl/teams/sharks");
+    await expect(goalies).toHaveCount(2);
+
+    // ⚠️ THE JERSEY CELL, NOT THE ROW. `hasText: "8"` matched anywhere in the
+    // row — a GA, GAA or GP containing an 8 would have satisfied it just as
+    // well. The number is the first cell.
+    const backup = goalies.filter({
+      has: page.locator("td:first-child", { hasText: /^8$/ }),
+    });
+    await expect(backup).toHaveCount(1);
+
+    // ⛔ AND THE PREMISE ITSELF, WHICH THIS TEST DID NOT CHECK. Its name has
+    // always been "even with no games played", but the two assertions above
+    // hold whether or not #8 has played — and they were green for a while when
+    // #8 WAS dressed in all three finals. A test that cannot notice its own
+    // premise breaking is the shape this file exists to guard against.
+    //
+    // ⚠️ THE GP COLUMN IS FOUND BY ITS HEADER, NOT BY INDEX. A hard-coded `td`
+    // position is wrong on the other league — Night is present on OBHL and
+    // absent on Harbor — and a wrong index lands on a neighbouring zero and
+    // passes anyway.
+    const headers = await section.locator("thead th").allInnerTexts();
+    const gp = headers.findIndex((h) => h.trim() === "GP");
+    expect(gp, "no GP column in the Goalies section").toBeGreaterThan(-1);
+    await expect(backup.locator("td").nth(gp)).toHaveText("0");
+  });
+
+  test("a two-night league shows the night; a one-night league does not", async ({
+    page,
+  }) => {
+    // OBHL declares Tue+Thu, so the column is meaningful and appears. Harbor
+    // declares nothing and plays one weekday, so `hasMultipleNights` is false
+    // and the column must not appear at all — a select with one option is a
+    // control that can only restate what the season already says.
+    await page.goto("/obhl/teams/sharks");
+    await expect(
+      page.getByRole("columnheader", { name: "Night" }).first(),
+    ).toBeVisible();
+
+    await page.goto("/harbor/teams/anchors");
+    // ⛔ ESTABLISH THE PAGE RENDERED BEFORE ASSERTING AN ABSENCE.
+    await expect(page.getByRole("heading", { name: "Forwards" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Night" })).toHaveCount(
+      0,
+    );
+  });
+});
 
 test.describe("Path 9 — Roster editor", () => {
   test.beforeEach(async ({ page }) => {
@@ -44,8 +132,16 @@ test.describe("Path 9 — Roster editor", () => {
   });
 
   test("roster page shows 14 players with jersey numbers", async ({ page }) => {
+    // Still 14 across the three section tables — the seed converts a forward
+    // to a second goalie rather than adding a player, precisely so this does
+    // not move.
     await expect(rosterRows(page)).toHaveCount(14);
-    await expect(rosterRows(page).first().getByText("Goalie")).toBeVisible();
+    // ⚠️ POSITION IS A SECTION HEADING NOW, NOT A CELL. The first row is a
+    // FORWARD, because Forwards come first; asserting "Goalie" on it tested
+    // the old flat, jersey-ordered table.
+    await expect(
+      manageRoster(page).getByRole("heading", { name: "Goalies" }),
+    ).toBeVisible();
   });
 
   test("add a new player and they appear in the roster", async ({ page }) => {
@@ -117,24 +213,68 @@ test.describe("Path 9 — Roster editor", () => {
   test("a removed player can be added back to the same team", async ({
     page,
   }) => {
-    const row = rosterRows(page).first();
-    // The second cell: the table is #, Player, Position, Status, Manage.
-    const name = (await row.locator("td").nth(1).innerText())
-      .split("\n")[0]
-      .trim();
+    // ⛔ THE SECTION SAYS THE POSITION NOW, SO THE TEST ASKS THE SECTION.
+    // This used to read `td` by hard-coded INDEX — cell 1 for the name, cell 2
+    // for the position — against a flat table of #, Player, Position, Status,
+    // Manage. Both indices moved when the row lost its Status and Manage
+    // columns and gained a Night one, and the position left the row entirely.
+    // ⛔ DEFENCE, AND NOT THE FIRST FORWARD. This test REMOVES its subject and
+    // re-adds them through the add form, which carries no jersey number and no
+    // captaincy — so whoever it picks comes back as an unnumbered non-captain.
+    // With Forwards first, that was Sharks #6: the seeded CAPTAIN, and the
+    // account `13-goalie`'s Path 21 signs in as. It passed here and broke that
+    // spec three files later. Defence carries no captain in the seed.
+    const defence = manageRoster(page)
+      .getByRole("region", { name: "Manage Defence" })
+      .locator("tbody tr");
 
-    // Their position, so it can be put back. The add form is the same form
-    // whether the person is new or returning, so it decides both position and
-    // number — and its position default is F. Re-adding the Sharks' goalie
-    // without setting it turns them into a forward and leaves the team with no
-    // goalie at all, which is what broke e2e/13 the first time this ran.
-    const POS_CODE: Record<string, string> = {
-      Forward: "F",
-      Defense: "D",
-      Goalie: "G",
+    // ⛔ BADGES STRIPPED EXPLICITLY, NOT BY TAKING THE FIRST LINE. Captain,
+    // rookie, suspended and injury render as inline badges inside the name
+    // cell with no newline before them, so `.split("\n")[0]` — what this used
+    // to do — returned "Taylor GauthierC" for any row carrying one. It only
+    // ever worked because the row it happened to read, the jersey-1 goalie at
+    // the top of a flat numeric table, had no badges.
+    const rowName = async (r: Locator) => {
+      const cell = r.locator("td").nth(1);
+      const badges = await cell.locator('[data-slot="badge"]').allInnerTexts();
+      let n = (await cell.innerText()).trim();
+      for (const b of badges) n = n.replace(b, "").trim();
+      return n;
     };
-    const position =
-      POS_CODE[(await row.locator("td").nth(2).innerText()).trim()] ?? "F";
+
+    // ⛔ AND THE SUBJECT'S NAME MUST BE UNIQUE, WHICH IS NOT FREE. The seed
+    // builds names by modular arithmetic over two short arrays, so it produces
+    // genuine duplicates — two different people called "Parker Bouchard". The
+    // picker offers both with nothing to tell them apart, so re-adding could
+    // put the OTHER one on the team and still satisfy every assertion below.
+    //
+    // Probed BEFORE the removal, which is what makes it decidable: somebody
+    // already on this team is not offered by the picker, so any option
+    // matching their name is a different person. Zero options means the name
+    // is theirs alone.
+    const picker = page.getByLabel("Existing person (optional)");
+    let row: Locator | null = null;
+    let name = "";
+    for (let i = 0; i < (await defence.count()); i++) {
+      const candidate = defence.nth(i);
+      const candidateName = await rowName(candidate);
+      await picker.fill(candidateName);
+      const clashes = await page
+        .getByRole("option", { name: candidateName })
+        .count();
+      if (clashes === 0) {
+        row = candidate;
+        name = candidateName;
+        break;
+      }
+    }
+    await picker.fill("");
+    if (!row) {
+      throw new Error(
+        "Every seeded defender shares a name with somebody else — check supabase/seed.sql's name arrays.",
+      );
+    }
+    const position = "D";
 
     await row.getByRole("button", { name: "Remove" }).click();
     await page.waitForLoadState("networkidle");
@@ -159,28 +299,43 @@ test.describe("Path 9 — Roster editor", () => {
   });
 
   test("toggle captain sets and removes C badge", async ({ page }) => {
+    // ⚠️ THE BADGE IS STILL ON THE ROW; THE BUTTON MOVED INTO THE DIALOG. The
+    // row is what a manager reads, so the assertion stays there — only the
+    // control that changes it is a click deeper.
     const row = rosterRows(page).nth(1);
-    await row.getByRole("button", { name: "Make C" }).click();
+    let dialog = await openDialogFor(page, row);
+    await dialog.getByRole("button", { name: "Make captain" }).click();
     await page.waitForLoadState("networkidle");
-    await expect(row.getByText("C").first()).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(
+      row.locator('[data-slot="badge"]').filter({ hasText: "C" }).first(),
+    ).toBeVisible();
 
-    await row.getByRole("button", { name: "Unset C" }).click();
+    dialog = await openDialogFor(page, row);
+    await dialog.getByRole("button", { name: "Captain ✓" }).click();
     await page.waitForLoadState("networkidle");
-    await expect(row.getByText("Make C")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(
+      row.locator('[data-slot="badge"]').filter({ hasText: /^C$/ }),
+    ).toHaveCount(0);
   });
 
   test("suspend a player shows SUSP badge, lift removes it", async ({
     page,
   }) => {
     const row = rosterRows(page).nth(2);
-    await row.getByRole("button", { name: "Suspend" }).click();
+    let dialog = await openDialogFor(page, row);
+    await dialog.getByRole("button", { name: "Suspend" }).click();
     await page.waitForLoadState("networkidle");
+    await page.keyboard.press("Escape");
     await expect(
       row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" }),
     ).toBeVisible();
 
-    await row.getByRole("button", { name: "Lift Susp." }).click();
+    dialog = await openDialogFor(page, row);
+    await dialog.getByRole("button", { name: "Suspended ✓" }).click();
     await page.waitForLoadState("networkidle");
+    await page.keyboard.press("Escape");
     await expect(
       row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" }),
     ).not.toBeVisible();

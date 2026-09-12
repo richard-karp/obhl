@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { POSITION_LABEL } from "@/lib/players/positions";
 import { useFormStatus } from "react-dom";
 import {
   dismissDuplicatePair,
@@ -44,12 +45,6 @@ export type DismissedPair = {
   id: string;
   nameA: string;
   nameB: string;
-};
-
-const POSITION_LABEL: Record<string, string> = {
-  F: "Forward",
-  D: "Defence",
-  G: "Goalie",
 };
 
 function AppearanceLine({ a }: { a: Appearance }) {

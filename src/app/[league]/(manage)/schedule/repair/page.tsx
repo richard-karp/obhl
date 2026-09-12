@@ -6,19 +6,25 @@ import { resolveLeagueBySlug } from "@/lib/league/current";
 import { getManageContext } from "@/lib/queries/season";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { getSeasonNights } from "@/lib/queries/schedule";
-import { OneOffGameForm } from "@/components/manage/one-off-game-form";
+import { ScheduleRepairForm } from "@/components/manage/schedule-repair-form";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { SeasonSwitcher } from "@/components/manage/season-switcher";
+import { leagueTimeKey } from "@/lib/format";
 
 /**
- * Mid-season one-off games — a tournament final or semifinals dropped into a
- * night that's already scheduled, with the rest of the season repaired around
- * it. Deliberately not part of the schedule builder: that page is pre-season
- * (draft → review → publish), while this only makes sense once games are live.
+ * Repair a published schedule — with a team pinned to a night (item 3) or with
+ * no pin at all (item 4).
+ *
+ * ⛔ Deliberately not part of the schedule builder's generate flow. Generate,
+ * replace and remove all refuse permanently once `season_is_started` trips, and
+ * this page is the one that has to keep working afterwards: it plans over the
+ * unlocked nights and applies the plan as an in-place UPDATE of the rows that
+ * change — never an upsert, which would re-create a deleted game as a live
+ * fixture. See `applyGameWrites`.
  */
-export default async function OneOffGamePage({
+export default async function ScheduleRepairPage({
   params,
   searchParams,
 }: {
@@ -29,19 +35,17 @@ export default async function OneOffGamePage({
   const { season: seasonParam } = await searchParams;
   // League, then GUARD, then context — `getManageContext` reads every season on
   // the ADMIN client, so it must not run for a request about to be refused.
-  // `resolveLeagueBySlug` is cache()-wrapped, so the context reuses it free.
   const league = await resolveLeagueBySlug(leagueParam);
   if (!league) notFound();
   await requireLeagueManager(league.id);
   const ctx = await getManageContext(leagueParam, seasonParam);
-  // The resolved slug, not the URL's — links stay canonical from /OBHL.
   const leagueSlug = ctx.league.slug;
   if (!ctx.season) {
     return (
       <div className="space-y-4">
         <EmptyState
           title="No seasons yet"
-          description="Create a season and publish its schedule before scheduling a one-off game."
+          description="Create a season and publish its schedule before repairing it."
         />
         <div className="text-center">
           <Button asChild size="sm">
@@ -52,9 +56,9 @@ export default async function OneOffGamePage({
     );
   }
 
-  // Read past RLS, matching the actions this page submits to. Otherwise a
-  // season the public-read policies don't cover renders the "no published
-  // schedule" empty state here while `previewOneOffGame` sees the schedule fine.
+  // Read past RLS, matching the actions this page submits to — otherwise a
+  // season the public-read policies don't cover renders "no published schedule"
+  // here while `previewScheduleRepair` sees the schedule fine.
   const admin = createAdminClient();
   const [teams, nights] = await Promise.all([
     getEnrolledTeams(ctx.season.id, { client: admin }),
@@ -66,33 +70,38 @@ export default async function OneOffGamePage({
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Schedule a one-off game"
-        description={`${ctx.season.name} · tournament final or semifinals, mid-season`}
+        title="Repair the schedule"
+        description={`${ctx.season.name} · rearrange the nights still to come`}
       >
         <SeasonSwitcher ctx={ctx} />
         <Button asChild size="sm" variant="outline">
-          <Link href={`/${leagueSlug}/schedule-builder`}>Schedule Builder</Link>
+          <Link href={`/${leagueSlug}/schedule`}>Schedule</Link>
         </Button>
       </PageHeader>
 
       {nights.length === 0 ? (
         <EmptyState
           title="No published schedule"
-          description="Generate and publish a schedule first — a one-off game takes over a game on a night that's already scheduled."
+          description="Generate and publish a schedule first — a repair rearranges games that already exist."
         />
       ) : openNights.length === 0 ? (
         <EmptyState
-          title="No nights left to use"
+          title="No nights left to repair"
           description="Every remaining game night has already been played or is in the past."
         />
       ) : (
-        <OneOffGameForm
+        <ScheduleRepairForm
           seasonId={ctx.season.id}
           teams={teams.map((t) => ({ id: t.id, name: t.name }))}
           nights={openNights.map((n) => ({
             date: n.date,
-            teamIds: n.games.flatMap((g) => [g.homeTeamId, g.awayTeamId]),
-            games: n.games.length,
+            // The ice times this night ACTUALLY runs, read off the published
+            // games — the list the pin resolves against server-side. A
+            // postponed game has no time of its own and shows the same
+            // placeholder the planner uses, so the slot indexes line up.
+            times: n.games.map((g) =>
+              g.scheduledAt ? leagueTimeKey(g.scheduledAt) : "--:--",
+            ),
           }))}
         />
       )}

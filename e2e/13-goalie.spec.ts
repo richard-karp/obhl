@@ -4,16 +4,64 @@
  */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+
+function admin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SECRET_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+}
 
 /**
- * The EDITABLE roster table, scoped to its region. The team page renders the
- * public roster first and the editor below it, so a bare `table tbody tr` picks
- * up the public table — same players, no buttons.
+ * A Sharks game still to be played, on the given weekday in the league zone.
+ *
+ * ⛔ `scheduled`, NOT ANY GAME. A finalized game already has a goalie of
+ * record, and the board shows THAT instead of the suggestion — so a test that
+ * grabbed a played game would assert the seed's scoring, not the rule.
  */
-function rosterRows(page: Page) {
-  return page
-    .getByRole("region", { name: "Manage roster" })
-    .locator("table tbody tr");
+async function sharksGameOn(weekday: number): Promise<string> {
+  const db = admin();
+  const { data: team } = await db
+    .from("teams")
+    .select("id")
+    .eq("slug", "sharks")
+    .limit(1)
+    .single();
+  // ⛔ SCOPED TO THE ACTIVE SEASON AND ORDERED. Without the season filter this
+  // matched Sharks games in ANY season, including ones other specs create, and
+  // without an order it took whichever row PostgREST returned first. It worked
+  // only because `workers: 1` happens to run this file before those specs — a
+  // dependency on suite order that nothing states.
+  const { data: season } = await db
+    .from("seasons")
+    .select("id, leagues!inner(slug)")
+    .eq("leagues.slug", "obhl")
+    .eq("is_active", true)
+    .single();
+  const { data: games } = await db
+    .from("games")
+    .select("id, scheduled_at, home_team_id, away_team_id, status, is_draft")
+    .eq("season_id", season!.id)
+    .or(`home_team_id.eq.${team!.id},away_team_id.eq.${team!.id}`)
+    .eq("status", "scheduled")
+    .eq("is_draft", false)
+    .order("scheduled_at", { ascending: true });
+  const match = (games ?? []).find(
+    (g) =>
+      g.scheduled_at &&
+      new Date(g.scheduled_at).toLocaleDateString("en-US", {
+        timeZone: "America/New_York",
+        weekday: "short",
+      }) === ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][weekday],
+  );
+  if (!match) {
+    throw new Error(
+      `Seed has no scheduled Sharks game on weekday ${weekday} — check supabase/seed.sql, which pins rounds 4 (Tue) and 5 (Thu).`,
+    );
+  }
+  return match.id;
 }
 
 async function signedInAs(
@@ -82,87 +130,75 @@ test.describe("Path 19 — Scorekeeper goalie buttons", () => {
   });
 });
 
-// ── Path 20: Default goalie on roster page ──────────────────────────────────
+// ── Path 20: the night's goalie ─────────────────────────────────────────────
+//
+// ⛔ THREE TESTS STOOD HERE AND ARE GONE (2026-09-11). They drove "Set Default"
+// on a roster row and the "Goalie Schedule" card's per-weekday selects — both
+// removed with `team_players.is_default_goalie` and the `team_goalie_days`
+// table in `0049`. They could not be repointed, because there is no longer a
+// goalie-specific control anywhere: a night is an ordinary roster field now,
+// set beside jersey and position, and for a goalie it names that night's
+// starter.
+//
+// ⚠️ REPLACED, NOT DROPPED. The rule itself is unit-tested in
+// `src/lib/goalie/suggest.ts` — including the case no fixture reaches, two
+// goalies sharing a night. What belongs HERE is the end-to-end pair the unit
+// test cannot see: a two-goalie team pre-selecting a DIFFERENT goalie on each
+// of its two nights, and a one-goalie team pre-selecting theirs on every
+// night. Both need a fixture with two nights and a team with two goalies,
+// which the seed gains in the next commit; the tests land with it.
 
-test.describe("Path 20 — Default goalie on roster page", () => {
-  test("manager can set a default goalie and the button updates", async ({
+test.describe("Path 20 — the night's goalie", () => {
+  /**
+   * ⛔ THE ONE THING THE UNIT TEST CANNOT SEE. `suggestGoalie` is exercised
+   * directly in `src/lib/goalie/suggest.test.ts`; what it cannot prove is that
+   * the scoresheet READS the same column the roster WRITES, on a real game,
+   * through the real query. That is the shape of the two failures `AGENTS.md`
+   * records — a feature that passed its whole suite while doing nothing.
+   *
+   * ⚠️ ASSERTED THROUGH `#8`, WHICH ONLY SHARKS HAVE. Every other seeded team's
+   * goalie wears #1, so #1 appears twice on any scoresheet and cannot identify
+   * a side; #8 is Sharks' second goalie and is pinned to Thursday. Whether it
+   * carries the suggested styling therefore answers "did the night decide
+   * this?" on its own.
+   */
+  const suggested = (page: Page, label: string) =>
+    page.getByRole("button", { name: label, exact: true });
+
+  test("a two-goalie team suggests a different goalie on each of its nights", async ({
     page,
   }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/teams");
-    await page.getByText("Sharks").click();
-    await expect(page).toHaveURL(/\/teams\//);
-    // The editing forms are simply on the page for a manager now — no tab to
-    // open and no `?tab=` to wait for.
 
-    // Goalie row has a "Set Default" button
-    const goalieRow = rosterRows(page).filter({ hasText: "Goalie" }).first();
-    await expect(
-      goalieRow.getByRole("button", { name: /Set Default|Default ✓/ }),
-    ).toBeVisible();
+    // Thursday: #8's night, so #8 is the suggestion.
+    await page.goto(`/obhl/games/${await sharksGameOn(4)}/score`);
+    await expect(suggested(page, "#8")).toBeVisible();
+    await expect(suggested(page, "#8")).toHaveClass(/bg-secondary/);
 
-    // If already set, unset first so we're in a known state
-    const alreadyDefault = goalieRow.getByRole("button", { name: "Default ✓" });
-    if (await alreadyDefault.isVisible()) {
-      await alreadyDefault.click();
-      await page.waitForLoadState("networkidle");
-    }
-
-    // Set as default
-    await goalieRow.getByRole("button", { name: "Set Default" }).click();
-    await page.waitForLoadState("networkidle");
-    await expect(
-      goalieRow.getByRole("button", { name: "Default ✓" }),
-    ).toBeVisible();
+    // Tuesday: #1's night. #8 is still on the page — same roster — but must no
+    // longer be the one offered, which is the whole point of the column.
+    await page.goto(`/obhl/games/${await sharksGameOn(2)}/score`);
+    await expect(suggested(page, "#8")).toBeVisible();
+    await expect(suggested(page, "#8")).not.toHaveClass(/bg-secondary/);
   });
 
-  test("Goalie Schedule card is visible when team has a rostered goalie", async ({
+  test("a one-goalie team suggests its goalie whatever the night", async ({
     page,
   }) => {
+    // ⚠️ THE RULE THAT REPLACED `is_default_goalie`. Every such flag in
+    // production sat on a team with exactly one goalie, and this reproduces
+    // them: the seed gives those teams a goalie with NO night at all, so
+    // nothing but the one-goalie rule can be selecting them.
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/teams");
-    await page.getByText("Sharks").click();
-    await expect(page).toHaveURL(/\/teams\//);
-    // The editing forms are simply on the page for a manager now — no tab to
-    // open and no `?tab=` to wait for.
+    await page.goto(`/obhl/games/${await sharksGameOn(4)}/score`);
 
-    await expect(page.getByText("Goalie Schedule")).toBeVisible();
-    // Mon and Thu rows should be present
-    await expect(page.getByText("Mon")).toBeVisible();
-    await expect(page.getByText("Thu")).toBeVisible();
-  });
-
-  test("manager can assign a goalie to a day and save it", async ({ page }) => {
-    await signedInAs(page, "Manager");
-    await page.goto("/obhl/teams");
-    await page.getByText("Sharks").click();
-    await expect(page).toHaveURL(/\/teams\//);
-    // The editing forms are simply on the page for a manager now — no tab to
-    // open and no `?tab=` to wait for.
-
-    // Find the Mon row select and pick the first non-default option
-    const monForm = page
-      .locator("form")
-      .filter({ has: page.locator('input[name="day_of_week"][value="1"]') });
-    const monSelect = monForm.locator('select[name="player_id"]');
-    const options = monSelect.locator("option");
-    const count = await options.count();
-    // There should be at least a blank option + one goalie option
-    expect(count).toBeGreaterThan(1);
-
-    // Pick the first real goalie option (index 1, skipping "— use default")
-    await monSelect.selectOption({ index: 1 });
-    await monForm.getByRole("button", { name: "Set" }).click();
-    await page.waitForLoadState("networkidle");
-
-    // Page should still be on the team, the Goalie Schedule card intact, and
-    // the Mon row still present — confirms the server action didn't crash.
-    await expect(page).toHaveURL(/\/teams\//);
-    await expect(page.getByText("Goalie Schedule")).toBeVisible();
-    const freshForm = page
-      .locator("form")
-      .filter({ has: page.locator('input[name="day_of_week"][value="1"]') });
-    await expect(freshForm.getByRole("button", { name: "Set" })).toBeVisible();
+    // Exactly two buttons carry the suggestion — one per team. Sharks' is #8
+    // by its night; the opponent's is theirs by being their only goalie.
+    await expect(
+      page
+        .getByRole("button", { name: /^#\d+$/ })
+        .and(page.locator(".bg-secondary")),
+    ).toHaveCount(2);
   });
 });
 

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { POSITION_LABEL } from "@/lib/players/positions";
 import Link from "next/link";
 import { getActiveContext } from "@/lib/queries/season";
 import {
@@ -27,7 +28,7 @@ import { NoSeason } from "@/components/public/no-season";
 import { PlayerGameChart } from "@/components/public/player-game-chart";
 import { formatGameDate } from "@/lib/format";
 
-const POS: Record<string, string> = { F: "Forward", D: "Defense", G: "Goalie" };
+const POS = POSITION_LABEL;
 
 export default async function PlayerProfilePage({
   params,

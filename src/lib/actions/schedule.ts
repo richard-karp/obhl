@@ -59,8 +59,14 @@ type Admin = ReturnType<typeof createAdminClient>;
 
 /**
  * The season to operate on: an explicit `season_id` from the form (validated to
- * the current league — used by the per-season setup hub), else the active season
- * (used by the standalone /schedule-builder).
+ * the current league — used by the per-season setup hub), else the active
+ * season.
+ *
+ * ⚠️ The fallback no longer has a caller that relies on it. It existed for a
+ * standalone `/<league>/schedule-builder` that posted no `season_id`; that page
+ * became a redirect on 2026-09-11 and the setup hub always sends one. Kept
+ * because an action must still decide what to do with a request that omits it,
+ * and "the active season" is a safer answer than "whichever row comes back".
  *
  * A season that doesn't resolve returns null rather than falling back to
  * whichever season happened to be active. Every action here replaces or repairs
@@ -240,7 +246,6 @@ export async function saveScheduleConstraint(
       },
     });
   }
-  revalidatePath("/[league]/schedule-builder", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
   return {
     ok: true,
@@ -294,7 +299,6 @@ export async function deleteScheduleConstraint(
       params: row.params,
     },
   });
-  revalidatePath("/[league]/schedule-builder", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
   return { ok: true, message: "Removed that request." };
 }
@@ -391,7 +395,20 @@ export async function generateSchedule(
     Math.min(50, Math.floor(Number(formData.get("variation") ?? 1)) || 1),
   );
   // Recurring weeknights the league plays (0=Sun..6=Sat) — one or more.
-  const weekdays = new Set(formData.getAll("weekdays").map((d) => Number(d)));
+  // ⛔ RANGE-CHECKED, BECAUSE THESE ARE PERSISTED NOW. They drive the generator,
+  // which only ever indexes by them — but since 2026-09-11 they are also stored
+  // verbatim in `seasons.game_nights`, and `NIGHT_LABEL[n]` renders `undefined`
+  // for anything outside 0-6. `Number("")` is 0, so a blank value would quietly
+  // become Sunday; `Number("x")` is NaN, which `smallint[]` accepts as a NULL
+  // element. Manager-only, so this is a correctness floor rather than a
+  // boundary — but a stored value outliving the request that made it deserves
+  // one.
+  const weekdays = new Set(
+    formData
+      .getAll("weekdays")
+      .map((d) => Number(String(d).trim()))
+      .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6),
+  );
   // Dates to skip (weeks off / holidays).
   const excluded = new Set(
     String(formData.get("excluded_dates") ?? "")
@@ -407,7 +424,7 @@ export async function generateSchedule(
   // as "09:00 is not an ice time on <date>": a time the manager never typed,
   // about a slot that is plainly there. Normalising both sides is the fix; only
   // this side was doing it.
-  const slotTimes = String(formData.get("slot_times") ?? "19:00,20:15,21:30")
+  const slotTimes = String(formData.get("slot_times") ?? "19:00,20:20,21:40")
     .split(",")
     .map((s) => s.trim())
     // Unparseable entries pass through untouched rather than being dropped:
@@ -721,7 +738,6 @@ export async function generateSchedule(
       // The delete has already committed, so the old draft is gone and nothing
       // replaced it. Revalidate before returning: the page is showing a draft
       // that no longer exists, and a message alone would leave it there.
-      revalidatePath("/[league]/schedule-builder", "page");
       revalidatePath("/[league]/seasons/[seasonId]", "page");
       return {
         ok: false,
@@ -729,7 +745,27 @@ export async function generateSchedule(
       };
     }
   }
-  revalidatePath("/[league]/schedule-builder", "page");
+
+  // ⛔ THE NIGHTS THE SEASON PLAYS, RECORDED HERE BECAUSE HERE IS WHERE THEY ARE
+  // CHOSEN. `seasons.game_nights` is what every night control keys off — the
+  // roster's Night column, the player dialog's select — and this is the only
+  // place a manager states it: the weekday checkboxes above. Deriving it from
+  // the games instead was considered and rejected, because rescheduling one
+  // game onto a Saturday would make the league appear to play Saturdays.
+  //
+  // ⚠️ WRITTEN ON GENERATE, NOT ON PUBLISH. A manager assigning players to
+  // nights while still iterating on a draft needs the value already there, and
+  // a draft that is later discarded leaves behind a true statement about the
+  // ice the league books. Not fatal if it fails: the draft is written and the
+  // fallback in `resolveSeasonNights` still answers from the published games.
+  const { error: nightsError } = await admin
+    .from("seasons")
+    .update({ game_nights: [...weekdays].sort((a, b) => a - b) })
+    .eq("id", seasonId);
+  if (nightsError) {
+    console.error("season game_nights update failed:", nightsError.message);
+  }
+
   revalidatePath("/[league]/seasons/[seasonId]", "page");
 
   // A run that places nothing isn't an error — it deleted the old drafts and
@@ -780,7 +816,6 @@ export type PublishState = { ok: boolean; message: string } | null;
  * under a button that will fail the same way again.
  */
 function revalidateAfterPublish() {
-  revalidatePath("/[league]/schedule-builder", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
   revalidatePath("/[league]/schedule", "page");
   // The scoring list reads through getSchedule, so a replace changes which games
@@ -1203,7 +1238,6 @@ export async function redateDraftSchedule(
   // The draft shows on the builder and on the season setup hub, and nowhere
   // else — a draft is invisible to the public schedule and the feeds until it
   // is published.
-  revalidatePath("/[league]/schedule-builder", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
 
   // ⚠️ REPORTED, NOT REFUSED, and the asymmetry with `checkNightMove` is
@@ -1327,7 +1361,6 @@ export async function discardSchedule(formData: FormData) {
     .delete()
     .eq("season_id", seasonId)
     .eq("is_draft", true);
-  revalidatePath("/[league]/schedule-builder", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
 }
 
@@ -1484,11 +1517,10 @@ export async function rescheduleNight(
     },
   });
 
-  revalidatePath("/[league]/schedule-builder", "page");
   // The repair page lists this season's nights and their ice times, so a moved
   // night makes its pickers stale exactly as it does the builder's.
-  revalidatePath("/[league]/schedule-builder/repair", "page");
-  revalidatePath("/[league]/schedule-builder/one-off", "page");
+  revalidatePath("/[league]/schedule/repair", "page");
+  revalidatePath("/[league]/schedule/one-off", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
   revalidatePath("/[league]/schedule", "page");
   revalidatePath("/[league]", "page");
@@ -1791,8 +1823,7 @@ export async function applyOneOffGame(
   );
   if (problem) return { ok: false, message: problem };
 
-  revalidatePath("/[league]/schedule-builder", "page");
-  revalidatePath("/[league]/schedule-builder/one-off", "page");
+  revalidatePath("/[league]/schedule/one-off", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
   revalidatePath("/[league]/schedule", "page");
   revalidatePath("/[league]/schedule", "page");
@@ -2119,8 +2150,7 @@ export async function applyScheduleRepair(input: {
     new_data: { games_rewritten: rows.length },
   });
 
-  revalidatePath("/[league]/schedule-builder", "page");
-  revalidatePath("/[league]/schedule-builder/repair", "page");
+  revalidatePath("/[league]/schedule/repair", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
   revalidatePath("/[league]/schedule", "page");
   revalidatePath("/[league]", "page");

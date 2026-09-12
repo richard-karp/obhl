@@ -215,8 +215,17 @@ test.describe("Path 23 — season gating", () => {
     await expect(row).toBeVisible();
 
     // Editable, not merely visible — a read-only page would satisfy everything
-    // above and still leave the reported bug in place.
-    await row.getByRole("button", { name: "Suspend" }).click();
+    // above and still leave the reported bug in place. ⛔ The control is in the
+    // row's dialog now, and the badge it sets is back on the row, so the modal
+    // has to be shut before the row is read: Radix marks everything behind it
+    // `aria-hidden`.
+    await row.getByRole("button", { name: "Edit" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Suspend" }).click();
+    await page.waitForLoadState("networkidle");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
     await expect(
       row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" }),
     ).toBeVisible();

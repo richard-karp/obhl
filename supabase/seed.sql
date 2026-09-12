@@ -18,19 +18,77 @@ create function pg_temp.finalize_seed_game(
 ) returns void language plpgsql as $fn$
 declare
   v_game uuid; h_sk uuid[]; a_sk uuid[]; n_h int; n_a int; k int;
+  h_g uuid; a_g uuid; v_dow smallint;
 begin
+  -- ⛔ ONE GOALIE DRESSES, AND THE GAME NAMES THEM. This used to insert EVERY
+  -- roster row into `game_rosters` and set no goalie of record, which was fine
+  -- while every team had exactly one goalie and stopped being fine the moment
+  -- one had two: `v_goalie_stats`' fallback is
+  -- `distinct on (game_id, team_id) ... order by gr.player_id`, so it picked
+  -- the goalie with the lower random UUID. Which of a team's two goalies owned
+  -- three finalized games therefore changed from one `db reset` to the next,
+  -- and the other one silently accrued a skater line for games they never
+  -- played. Measured 2026-09-11: both Sharks goalies dressed in all three
+  -- finals, and only the lower UUID reached the view.
+  --
+  -- The starter is the goalie whose night this is, else the lowest jersey, else
+  -- the lowest id — deterministic, and stable across a `db reset`.
+  --
+  -- ⚠️ THAT IS NOT `suggestGoalie`, AND AN EARLIER VERSION OF THIS COMMENT SAID
+  -- IT WAS. That function has a THIRD rule this deliberately does not copy: two
+  -- or more goalies and none owns the night means it suggests NOBODY. The two
+  -- are answering different questions. `suggestGoalie` decides what to
+  -- pre-select before a game is played, where declining to guess is the safe
+  -- answer; this decides who actually played in a game the fixture is asserting
+  -- was finished, and a finished game had a goalie. Copying rule 3 here would
+  -- leave finalized games with a null goalie of record — which contradicts what
+  -- `setGoalie` maintains, and would put `v_goalie_stats` back on the
+  -- lowest-UUID fallback branch this function exists to close.
+  --
+  -- The two agree on today's data by construction rather than by accident: the
+  -- only two-goalie team's finalized games are all on the night one of them
+  -- owns. If you finalize a game on a night neither owns, they diverge — the
+  -- fixture will name someone the app would not have suggested. That is
+  -- correct, but know that it is happening.
+  v_dow := extract(dow from (p_sched at time zone 'America/New_York'))::smallint;
+
+  -- ⚠️ `left_on is null` AND A FINAL `player_id`, both for the same reason as
+  -- the rest of this: no arbitrary answers. Every app path filters departed
+  -- rows (see `suggest.ts`'s `@param goalies` — "active rows only"), and
+  -- without the id tiebreak two goalies with equal sort keys — both matching
+  -- the night, or both with a null jersey, which the unique index permits —
+  -- leave `limit 1` to pick whichever Postgres reaches first. Neither is
+  -- reachable in today's seed; both are one line.
+  select player_id into h_g from team_players
+   where season_id = p_season and team_id = p_home and position = 'G'
+     and left_on is null
+   order by (night_of_week is distinct from v_dow), jersey_number nulls last,
+            player_id
+   limit 1;
+  select player_id into a_g from team_players
+   where season_id = p_season and team_id = p_away and position = 'G'
+     and left_on is null
+   order by (night_of_week is distinct from v_dow), jersey_number nulls last,
+            player_id
+   limit 1;
+
   insert into games (season_id, home_team_id, away_team_id, scheduled_at, status,
-                     week, round, home_goals, away_goals, result_type, finalized_at)
+                     week, round, home_goals, away_goals, result_type, finalized_at,
+                     home_goalie_id, away_goalie_id)
     values (p_season, p_home, p_away, p_sched, 'final',
-            p_rnd, p_rnd, p_hg, p_ag, 'regulation', p_sched + interval '2 hours')
+            p_rnd, p_rnd, p_hg, p_ag, 'regulation', p_sched + interval '2 hours',
+            h_g, a_g)
     returning id into v_game;
 
+  -- Skaters, plus the one goalie who played. A backup does not dress.
   insert into game_rosters (game_id, team_id, player_id)
     select v_game, p_home, player_id from team_players
-    where season_id = p_season and team_id = p_home;
+    where season_id = p_season and team_id = p_home
+      and (position <> 'G' or player_id = h_g);
   insert into game_rosters (game_id, team_id, player_id)
     select v_game, p_away, player_id from team_players
-    where season_id = p_season and team_id = p_away;
+    where season_id = p_season and team_id = p_away
+      and (position <> 'G' or player_id = a_g);
 
   select array_agg(player_id order by jersey_number) into h_sk
     from team_players where season_id = p_season and team_id = p_home and position <> 'G';
@@ -113,7 +171,7 @@ begin
     values ('Oceanview Beer Hockey League', 'obhl', true)
     returning id into v_league;
 
-  insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system)
+  insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system, game_nights)
     -- ⚠️ THE YEAR IN THIS NAME IS NOT A CLAIM ABOUT THE DATES. The name is the
     -- handle 17 assertions use to find this season; the dates are relative to
     -- today. Do not "fix" the mismatch by pinning the dates back.
@@ -127,8 +185,28 @@ begin
     -- `ends_on` regardless, so the rule was not even applied consistently.
     -- Nothing in the app reads `ends_on` except display and that draft-only
     -- check. Reverted.
+    --
+    -- ⛔ TWO NIGHTS, DECLARED AND PLAYED, AND BOTH HALVES ARE LOAD-BEARING.
+    -- `game_nights` is what every night control keys off: the roster's Night
+    -- column, the player dialog's select, the goalie a scoresheet pre-selects.
+    -- At one night `hasMultipleNights` is false and NONE of it renders, so a
+    -- single-night fixture cannot exercise the feature at all — the suite would
+    -- go green having never seen it.
+    --
+    -- ⚠️ DECLARED RATHER THAN DERIVED, because deriving is not deterministic
+    -- here: the TONIGHT fixture below is always today, so a suite run on a
+    -- Friday would put Friday into this league's nights and one run on a
+    -- Tuesday would not. Round 5 is moved to Thursday so the declaration is
+    -- also true of the games.
+    --
+    -- ⛔ ROUND 5 ONLY, NOT ROUNDS 4 AND 5. Rounds 1-3 are finalized and 4-5 are
+    -- left `scheduled`, and a finalized game already HAS a goalie of record,
+    -- which overrides the suggestion. Moving both would have left no scheduled
+    -- Tuesday game anywhere — so the one assertion this fixture exists for,
+    -- that the two nights pre-select DIFFERENT goalies, could not be made.
+    -- Sharks play round 4 (Tue) and round 5 (Thu), both still to be played.
     values (v_league, 'Spring 2026', v_l1_anchor, v_l1_anchor + 49, true,
-            '{"win":2,"tie":1,"loss":0}'::jsonb)
+            '{"win":2,"tie":1,"loss":0}'::jsonb, '{2,4}'::smallint[])
     returning id into v_season;
 
   insert into league_rules (league_id, content) values (v_league,
@@ -172,13 +250,27 @@ begin
         returning id into v_player;
       v_ocean_players := array_append(v_ocean_players, v_player);
 
-      if j = 1 then pos := 'G';
+      -- ⛔ SHARKS (i = 1) CARRIES A SECOND GOALIE, BY CONVERTING #8 RATHER THAN
+      -- ADDING A 15TH PLAYER. The two-goalie case is the one the night feature
+      -- exists for — it is what "which of them starts on Thursday?" means — and
+      -- with one goalie per team nothing could exercise it. Converting keeps
+      -- every roster at 14, so the counts other specs assert do not move.
+      -- #1 and #8 also put a real gap between the jerseys, which is what
+      -- `suggestGoalie`'s lowest-jersey tiebreak is measured against.
+      if j = 1 or (i = 1 and j = 8) then pos := 'G';
       elsif j <= 5 then pos := 'D';
       else pos := 'F';
       end if;
 
-      insert into team_players (season_id, team_id, player_id, jersey_number, position, is_captain)
-        values (v_season, v_team, v_player, j, pos, (j = 6));
+      -- The night this player turns out. Only Sharks' two goalies are pinned:
+      -- everyone else is null, which is "no fixed night" and is what most of a
+      -- real roster looks like. #1 takes Tuesday, #8 Thursday, so the two
+      -- nights pre-select DIFFERENT goalies — the assertion the e2e makes.
+      insert into team_players (season_id, team_id, player_id, jersey_number, position, is_captain, night_of_week)
+        values (v_season, v_team, v_player, j, pos, (j = 6),
+                case when i = 1 and j = 1 then 2
+                     when i = 1 and j = 8 then 4
+                end);
     end loop;
   end loop;
 
@@ -197,9 +289,9 @@ begin
       (4, 1, 5, (v_l1_anchor + 28 + time '19:00') at time zone 'America/New_York'),
       (4, 2, 3, (v_l1_anchor + 28 + time '20:15') at time zone 'America/New_York'),
       (4, 4, 6, (v_l1_anchor + 28 + time '21:30') at time zone 'America/New_York'),
-      (5, 1, 6, (v_l1_anchor + 35 + time '19:00') at time zone 'America/New_York'),
-      (5, 2, 5, (v_l1_anchor + 35 + time '20:15') at time zone 'America/New_York'),
-      (5, 3, 4, (v_l1_anchor + 35 + time '21:30') at time zone 'America/New_York')
+      (5, 1, 6, (v_l1_anchor + 37 + time '19:00') at time zone 'America/New_York'),
+      (5, 2, 5, (v_l1_anchor + 37 + time '20:15') at time zone 'America/New_York'),
+      (5, 3, 4, (v_l1_anchor + 37 + time '21:30') at time zone 'America/New_York')
     ) as t(rnd, h, a, sched)
   loop
     if g.rnd <= 3 then
@@ -212,6 +304,32 @@ begin
         values (v_season, v_team_ids[g.h], v_team_ids[g.a], g.sched, 'scheduled', g.rnd, g.rnd);
     end if;
   end loop;
+
+  -- ── A CANCELLED GAME, STILL IN THE FUTURE ──────────────────────────────
+  --
+  -- ⛔ THE "Cancelled" SECTION OF `/<league>/schedule` HAD NO FIXTURE AT ALL
+  -- UNTIL 2026-09-11, and a regression shipped through the gap: a date gate
+  -- meant to keep the Score button off unplayed games also took the "Manage"
+  -- button — the only route to `restoreGame` — off cancelled ones. Nothing
+  -- caught it because nothing seeded a cancelled game.
+  --
+  -- ⚠️ FUTURE-DATED ON PURPOSE. A game is normally called off in ADVANCE, so
+  -- that is the case the section mostly holds and the one the gate broke. A
+  -- past-dated cancellation would have exercised nothing.
+  --
+  -- ⛔ DATED FROM TODAY, NOT FROM `v_l1_anchor`. The anchor is ~120 days back
+  -- and the whole season window with it, so every anchor-relative date is in
+  -- the PAST — an "anchor + 44" cancellation looked future-dated and was not,
+  -- which would have exercised precisely nothing. It sits outside `ends_on`,
+  -- which nothing enforces (see the note on that column above).
+  --
+  -- ⚠️ Round 7, outside the round-robin above, so it changes no team's
+  -- games-played, standings or balance — a cancelled game is excluded from
+  -- every stats view.
+  insert into games (season_id, home_team_id, away_team_id, scheduled_at, status, week, round)
+    values (v_season, v_team_ids[1], v_team_ids[2],
+            (current_date + 14 + time '19:00') at time zone 'America/New_York',
+            'cancelled', 7, 7);
 
   -- ── TONIGHT ────────────────────────────────────────────────────────────
   --
@@ -298,12 +416,25 @@ begin
     values ('Harbor Rec Hockey League', 'harbor', true)
     returning id into v_league;
 
-  insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system)
+  insert into seasons (league_id, name, starts_on, ends_on, is_active, point_system, game_nights)
     -- ⚠️ THE YEAR IN THIS NAME IS NOT A CLAIM ABOUT THE DATES. The name is the
     -- handle 17 assertions use to find this season; the dates are relative to
     -- today. Do not "fix" the mismatch by pinning the dates back.
+    --
+    -- ⛔ HARBOR IS THE ONE-NIGHT LEAGUE, AND IT HAS TO SAY SO. `{3}` is
+    -- Wednesday (`v_l2_anchor` is Monday+2), which is the night its ROUND-ROBIN
+    -- runs on. ⚠️ Not every game: the cross-league "tonight" fixture below is
+    -- always TODAY, whatever weekday that is, which is precisely why declaring
+    -- this matters —
+    -- with `game_nights` empty,
+    -- `seasonNightsFor` falls back to the weekdays the games DERIVE, so Harbor
+    -- derived two nights on any day that is not a Wednesday, grew a Night
+    -- column, and
+    -- the test asserting a single-night league has none failed six days in
+    -- seven. This is the same clock-dependence `0049` documents; OBHL declares
+    -- its nights for the same reason.
     values (v_league, 'Spring 2026', v_l2_anchor, v_l2_anchor + 47, true,
-            '{"win":2,"tie":1,"loss":0}'::jsonb)
+            '{"win":2,"tie":1,"loss":0}'::jsonb, '{3}'::smallint[])
     returning id into v_season;
 
   insert into league_rules (league_id, content) values (v_league,
