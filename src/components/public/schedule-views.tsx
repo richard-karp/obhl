@@ -93,7 +93,15 @@ export function ScheduleViews({
             <Link
               key={t.view}
               href={href(t.view)}
-              aria-current={active ? "page" : undefined}
+              // ⛔ `"true"`, NOT `"page"`, AND THAT IS NOT A TYPO.
+              // `nav-links.tsx:48` already marks the header's "Schedule" as
+              // `aria-current="page"` on this URL. Two of those at once is
+              // valid ARIA and reads as a fault — `staff-links.tsx:124`
+              // records that this exact condition on this exact page was
+              // removed on 2026-09-11, and it would come straight back here.
+              // `"true"` says "the current one of these" without claiming to
+              // be the current PAGE, which is what a view tab actually is.
+              aria-current={active ? "true" : undefined}
               className={cn(
                 "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors",
                 active

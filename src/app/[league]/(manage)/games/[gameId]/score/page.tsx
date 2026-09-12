@@ -235,10 +235,23 @@ export default async function ScoreGamePage({
    * What `finalizeGame` refused over, recomputed for display.
    *
    * ⛔ THE ACTION IS THE GATE; THIS ONLY EXPLAINS IT. Both sides call
-   * `scoresheetProblems` so they cannot disagree about what is missing — a page
-   * that computed a shorter list would offer "Complete anyway" for a refusal
-   * that never happened, and a longer one would name a problem the action was
-   * happy with.
+   * `scoresheetProblems`, so they share the RULE — but not its inputs, and the
+   * difference is worth knowing rather than being asserted away:
+   *
+   * ⚠️ THE GOALIE POOL HERE IS SMALLER THAN THE ACTION'S. `roster` above is
+   * read with `.is("left_on", null)` because the goalie BUTTONS must not offer
+   * a departed player; `scoresheetGaps` applies no such filter, and neither
+   * does `v_goalie_stats`, whose fallback joins `team_players` unfiltered. So a
+   * team whose only dressed goalie has since left the roster counts for the
+   * action and not for this page.
+   *
+   * ✅ The direction is the safe one, and only one direction is safe. This page
+   * can only ever over-report, which at worst names a problem the action was
+   * content with. The reverse — the action refusing while this page finds
+   * nothing — would render no banner and no `confirm=1`, and the next press
+   * would be refused again: a loop. That cannot happen while this set is a
+   * subset of the action's, which is the invariant to preserve if either read
+   * changes.
    *
    * ⚠️ `allBoards`, not `boards`. A captain sees only their own side, and the
    * warning is about the game.

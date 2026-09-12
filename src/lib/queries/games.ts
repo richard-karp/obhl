@@ -135,6 +135,12 @@ export async function getGameBoxScore(gameId: string) {
         .filter((id) => isGoalie.has(`${id}|${teamId}`)),
     };
 
+    // Resolved once and branched on, rather than calling `goalieLine` and
+    // asking again when it returns null — the second call would be a repeat of
+    // the same work plus a cast back to the two kinds it cannot be.
+    const record = resolveGoalieOfRecord(input);
+    if (record.kind !== "player") return record;
+
     const line = goalieLine({
       ...input,
       goalsAgainst,
@@ -142,8 +148,7 @@ export async function getGameBoxScore(gameId: string) {
       // The same comparison `v_team_game_results` makes, per side.
       outcome:
         goalsFor > goalsAgainst ? "W" : goalsFor < goalsAgainst ? "L" : "T",
-    });
-    if (!line) return resolveGoalieOfRecord(input) as { kind: "sub" | "none" };
+    })!;
 
     // ⚠️ TWO NAME SOURCES, AND EACH COVERS WHAT THE OTHER CANNOT. The embedded
     // `players` row exists only for an EXPLICIT pick — it is joined off
