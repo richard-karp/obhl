@@ -30,10 +30,6 @@ export default async function StandingsPage({
       ) : (
         <StandingsTable rows={rows} league={slug} />
       )}
-      <p className="text-muted-foreground text-xs">
-        Tiebreakers: points, then wins, head-to-head, goal differential, goals
-        for.
-      </p>
     </div>
   );
 }
