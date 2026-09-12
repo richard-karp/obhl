@@ -448,7 +448,9 @@ async function scoresheetGaps(gameId: string): Promise<string | null> {
       goalieIsSub: !!g[`${which}_goalie_is_sub`],
       dressedGoalieIds: mine
         .map((r) => r.player_id)
-        .filter((id): id is string => !!id && goalieKeys.has(`${id}|${teamId}`)),
+        .filter(
+          (id): id is string => !!id && goalieKeys.has(`${id}|${teamId}`),
+        ),
     };
   };
 

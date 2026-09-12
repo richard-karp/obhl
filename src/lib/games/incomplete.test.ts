@@ -32,7 +32,9 @@ describe("scoresheetProblems", () => {
   it("accepts a dressed goalie as recorded, with no explicit pick", () => {
     // The view's fallback branch is a real answer, not an omission.
     expect(
-      scoresheetProblems([ok({ goalieId: null, dressedGoalieIds: ["keeper"] })]),
+      scoresheetProblems([
+        ok({ goalieId: null, dressedGoalieIds: ["keeper"] }),
+      ]),
     ).toEqual([]);
   });
 

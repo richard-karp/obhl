@@ -467,10 +467,10 @@ export function ScoreBoard({ data }: { data: ScoreBoardData }) {
             ))}
           </ul>
           <p className="text-muted-foreground text-xs">
-            A missing goalie means no GP, no GAA and no W/L for them all
-            season. Fix it below, or press{" "}
-            <strong className="text-foreground">Complete anyway</strong> if
-            that is really how the game went.
+            A missing goalie means no GP, no GAA and no W/L for them all season.
+            Fix it below, or press{" "}
+            <strong className="text-foreground">Complete anyway</strong> if that
+            is really how the game went.
           </p>
         </div>
       ) : null}
