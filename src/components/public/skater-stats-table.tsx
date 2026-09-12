@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { TeamLogo } from "@/components/shared/team-logo";
+import { TeamCrestLink } from "@/components/shared/team-crest-link";
 import type { SkaterRow } from "@/lib/queries/stats";
 
 type SortCol = "gp" | "g" | "a" | "pts" | "pim" | "ppg";
@@ -91,7 +91,6 @@ export function SkaterStatsTable({
               <TableHead className="w-10 text-center">#</TableHead>
             ) : null}
             <TableHead>Player</TableHead>
-            <TableHead className="hidden sm:table-cell">Team</TableHead>
             <SortHead
               label="GP"
               col="gp"
@@ -151,33 +150,27 @@ export function SkaterStatsTable({
                 </TableCell>
               ) : null}
               <TableCell className="font-medium">
-                <Link
-                  href={`/${league}/players/${r.player_id}`}
-                  className="hover:underline"
-                >
-                  {r.first_name} {r.last_name}
-                </Link>
-                {r.jersey_number != null ? (
-                  <span className="text-muted-foreground ml-1 text-xs">
-                    #{r.jersey_number}
-                  </span>
-                ) : null}
-              </TableCell>
-              <TableCell className="hidden sm:table-cell">
-                <Link
-                  href={`/${league}/teams/${r.team_slug}`}
-                  className="flex items-center gap-2 hover:underline"
-                >
-                  <TeamLogo
-                    name={r.team_name ?? ""}
+                <span className="flex items-center gap-2">
+                  <TeamCrestLink
+                    slug={r.team_slug}
+                    name={r.team_name}
                     color={r.team_color}
                     logoPath={r.team_logo_path}
                     textColor={r.team_logo_text_color}
+                    league={league}
                   />
-                  <span className="text-muted-foreground text-sm">
-                    {r.team_name}
-                  </span>
-                </Link>
+                  <Link
+                    href={`/${league}/players/${r.player_id}`}
+                    className="hover:underline"
+                  >
+                    {r.first_name} {r.last_name}
+                  </Link>
+                  {r.jersey_number != null ? (
+                    <span className="text-muted-foreground text-xs">
+                      #{r.jersey_number}
+                    </span>
+                  ) : null}
+                </span>
               </TableCell>
               <TableCell className="text-center">{r.gp ?? 0}</TableCell>
               <TableCell className="text-center">{r.g ?? 0}</TableCell>

@@ -1,13 +1,20 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireLeagueRole, type AppRoleList } from "@/lib/auth/guards";
 import { leagueOfGame } from "@/lib/league/of-entity";
-import { leagueDateKey, leagueOffset } from "@/lib/format";
+import {
+  isOnLeagueDate,
+  leagueDateKey,
+  leagueOffset,
+  leagueToday,
+} from "@/lib/format";
 import { logAudit } from "@/lib/audit";
 import { check, revalidateAfterScore } from "@/lib/games/shared";
+import { scoresheetProblems, type SideCheck } from "@/lib/games/incomplete";
 import { finalizeGameById, reopenGameById } from "@/lib/games/finalize";
 // Type-only: `schedule-edits.ts` is a "use server" module, but a type import is
 // erased, so this adds no runtime edge between the two action files. Sharing the
@@ -362,11 +369,165 @@ export async function bumpEmptyNet(formData: FormData) {
   revalidateAfterScore(game_id, true);
 }
 
-/** Finalize: set the official score from goal counters, lock the game, propagate. */
+/**
+ * Finalize: set the official score from goal counters, lock the game, propagate.
+ *
+ * ⛔ IT REFUSES A HALF-ENTERED SHEET ONCE, AND THE REFUSAL IS HERE RATHER THAN
+ * IN THE BUTTON'S LABEL. Production's first three games, measured 2026-09-12:
+ * one team with no dressed players and four of six sides with no goalie of
+ * record, all three games completed without a word. The page can explain what
+ * is missing, but only the action can decline to write it — a page-side warning
+ * is defeated by a tab left open since before the lineup changed.
+ *
+ * ⚠️ THE NIGHTLY SWEEP IS DELIBERATELY UNAFFECTED. `/api/cron/close-night`
+ * calls `finalizeGameById` directly, and games nobody finished are exactly what
+ * it exists to close — a gate there would refuse every one of them.
+ */
 export async function finalizeGame(formData: FormData) {
   const game_id = String(formData.get("game_id"));
   const user = await requireGameRole(game_id, "scorekeeper", "league_manager");
+  const confirmed = String(formData.get("confirm") ?? "") === "1";
+
+  // ⚠️ `redirect()` throws, so it must not sit inside a try — see
+  // `node_modules/next/dist/docs/01-app/02-guides/redirecting.md`.
+  if (!confirmed) {
+    const incomplete = await scoresheetGaps(game_id, user.role);
+    if (incomplete) redirect(incomplete);
+  }
+
   await finalizeGameById(game_id, user.id);
+
+  // ⛔ AND TAKE `?incomplete=1` BACK OFF THE URL. It is a parameter about one
+  // submission, but it survives the redirect-free success path and the page
+  // re-renders under it — so pressing Reopen afterwards puts the game back
+  // into a state with problems while the URL still says "already warned", and
+  // the button comes back pre-armed with `confirm=1`. The next finalize would
+  // then skip a gate nobody had been shown. Clearing it here is what keeps
+  // "confirm is only sent once the action has refused" true.
+  if (confirmed) {
+    const slug = await leagueSlugOfGame(game_id);
+    if (slug) redirect(`/${slug}/games/${game_id}/score`);
+  }
+}
+
+/** The slug the scoresheet lives under, or null if it cannot be read. */
+async function leagueSlugOfGame(gameId: string): Promise<string | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("games")
+    .select("season:seasons!inner(league:leagues!inner(slug))")
+    .eq("id", gameId)
+    .maybeSingle();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data as any)?.season?.league?.slug ?? null;
+}
+
+/**
+ * Where to send someone whose sheet is missing something, or null when it is
+ * complete — or when they could not read the answer if we sent it.
+ *
+ * ⚠️ The league slug is READ, not taken from the form. `requireGameRole`
+ * resolves a league *id* (`leagueOfGame`) and hands back a user, so the slug
+ * needs its own lookup — and a hidden input would let an edited submission
+ * steer where this lands. It rides along in the select below, so it costs
+ * nothing extra.
+ */
+async function scoresheetGaps(
+  gameId: string,
+  /** The caller's role, which decides whether the scoresheet is reachable. */
+  role: string | null,
+): Promise<string | null> {
+  const supabase = await createClient();
+  const { data: game } = await supabase
+    .from("games")
+    .select(
+      `season_id, scheduled_at, home_team_id, away_team_id,
+       home_goalie_id, away_goalie_id, home_goalie_is_sub, away_goalie_is_sub,
+       season:seasons!inner(league:leagues!inner(slug)),
+       home_team:teams!games_home_team_id_fkey(name),
+       away_team:teams!games_away_team_id_fkey(name)`,
+    )
+    .eq("id", gameId)
+    .maybeSingle();
+  // ⛔ FAIL OPEN, NOT CLOSED. This is a warning, not a permission —
+  // `requireGameRole` above is the guard. A read that comes back empty means we
+  // cannot tell whether anything is missing, and blocking a finalize on that
+  // would take the scoresheet away over a transient.
+  if (!game) return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const g = game as any;
+
+  // ⛔ NEVER REFUSE TOWARDS A PAGE THE CALLER CANNOT OPEN, AND THIS IS NOT
+  // HYPOTHETICAL — IT IS WEEKLY. The last slot starts at 9:40pm, so a
+  // scorekeeper is routinely still on the sheet after midnight, and
+  // `score/page.tsx` bounces a scorekeeper off a game that is not today,
+  // straight to `/tonight`. Redirecting them there would mean: the game is not
+  // written, the banner explaining why is never rendered, and they land on an
+  // empty page — the exact "indistinguishable from a broken app" symptom that
+  // guard's own comment says already cost a round of misdiagnosis.
+  //
+  // ⚠️ SO THEY FINALIZE WITHOUT THE WARNING, DELIBERATELY. A warning that
+  // cannot be displayed must not quietly become a refusal: losing the game is
+  // worse than losing the message. `finalizeGame` has no day limit of its own
+  // (the rule is page-level only — see `ACCESS_CONTROL_HANDOFF.md`), so this
+  // restores exactly the behaviour that existed before the gate.
+  //
+  // ⚠️ The predicate MIRRORS `score/page.tsx`'s and must keep mirroring it. If
+  // that guard changes, a refusal here starts pointing at a door again.
+  if (
+    role === "scorekeeper" &&
+    !isOnLeagueDate(g.scheduled_at, leagueToday())
+  ) {
+    return null;
+  }
+
+  const [{ data: rosters, error: rostersError }, { data: tp, error: tpError }] =
+    await Promise.all([
+      supabase
+        .from("game_rosters")
+        .select("team_id, player_id")
+        .eq("game_id", gameId),
+      supabase
+        .from("team_players")
+        .select("player_id, team_id, position")
+        .eq("season_id", g.season_id)
+        .eq("position", "G"),
+    ]);
+  // ⛔ THESE FAIL OPEN TOO, AND THEY DID NOT. A discarded error here is not
+  // "nothing is dressed", it is "we could not find out" — and the difference
+  // is a refusal on every side of every game whenever a read blips. The `games`
+  // read above already says why; these two were getting the opposite treatment
+  // silently.
+  if (rostersError || tpError) return null;
+
+  const goalieKeys = new Set(
+    (tp ?? []).map((r) => `${r.player_id}|${r.team_id}`),
+  );
+
+  const side = (which: "home" | "away"): SideCheck => {
+    const teamId = g[`${which}_team_id`] as string;
+    const mine = (rosters ?? []).filter((r) => r.team_id === teamId);
+    return {
+      teamName: g[`${which}_team`]?.name ?? which,
+      dressedCount: mine.length,
+      goalieId: g[`${which}_goalie_id`] ?? null,
+      goalieIsSub: !!g[`${which}_goalie_is_sub`],
+      dressedGoalieIds: mine
+        .map((r) => r.player_id)
+        .filter(
+          (id): id is string => !!id && goalieKeys.has(`${id}|${teamId}`),
+        ),
+    };
+  };
+
+  const problems = scoresheetProblems([side("away"), side("home")]);
+  if (problems.length === 0) return null;
+
+  const slug = g.season?.league?.slug;
+  // Without a slug there is no page to send them back to; completing the game
+  // is a better outcome than a dead redirect.
+  return slug ? `/${slug}/games/${gameId}/score?incomplete=1` : null;
 }
 
 /**

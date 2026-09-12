@@ -11,6 +11,10 @@ import { getEnrolledTeams } from "@/lib/queries/teams";
 import { canManageLeague, canScoreLeague } from "@/lib/auth/guards";
 import Link from "next/link";
 import { ScheduleFilter } from "@/components/public/schedule-filter";
+import {
+  ScheduleViews,
+  resolveScheduleView,
+} from "@/components/public/schedule-views";
 import { GameRow } from "@/components/public/game-row";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/shared/page-header";
@@ -152,10 +156,11 @@ export default async function SchedulePage({
   searchParams,
 }: {
   params: Promise<{ league: string }>;
-  searchParams: Promise<{ team?: string; season?: string }>;
+  searchParams: Promise<{ team?: string; season?: string; view?: string }>;
 }) {
   const { league: leagueParam } = await params;
-  const { team, season: seasonParam } = await searchParams;
+  const { team, season: seasonParam, view: viewParam } = await searchParams;
+  const view = resolveScheduleView(viewParam);
 
   // This page absorbed `/manage/score`, which was the same games in a table
   // with a button on each row. The games are the same games; the button is the
@@ -188,6 +193,15 @@ export default async function SchedulePage({
   const exportQuery = selected
     ? `?team=${encodeURIComponent(selected.slug)}`
     : "";
+
+  // What the view links carry with them: everything in the URL except the view
+  // itself. ⛔ Rebuilt from `selected` for the same reason `exportQuery` is —
+  // an unknown slug leaves the list unfiltered, and a link that kept passing it
+  // would say the page is narrowed when it is not. `season` is copied straight
+  // through because staff may be pinned to a season the switcher set.
+  const viewQuery = new URLSearchParams();
+  if (selected) viewQuery.set("team", selected.slug);
+  if (manageCtx && seasonParam) viewQuery.set("season", seasonParam);
 
   // Resolved once for the whole render — the groups below and three
   // `GroupedGames` all ask, and the answer cannot change mid-render.
@@ -396,69 +410,110 @@ export default async function SchedulePage({
             </div>
           ) : null}
 
-          {awaitingGroups.length > 0 ? (
+          {/*
+            ⛔ THE VIEW ROW IS BELOW THE MANAGER BLOCK, NOT ABOVE IT. Those
+            tools — the edit panel, moving a night, repair and one-off — act on
+            the season, not on whichever list is showing, so putting them
+            inside a view would hide two thirds of a manager's controls behind
+            a link and make them appear to move when the list changed.
+          */}
+          <ScheduleViews
+            league={slug}
+            current={view}
+            awaitingCount={awaitingScore.length}
+            query={viewQuery.toString()}
+          />
+
+          {/*
+            ⛔ `resolveScheduleView` CANNOT RETURN `to-score` WHEN THE LIST IS
+            EMPTY — it does not know the count — so this view has to survive
+            being asked for with nothing in it. A stale link, or a bookmark
+            made while games were outstanding, lands here after somebody
+            scored them; an empty state says so, where an absent section would
+            read as a broken page.
+          */}
+          {view === "to-score" ? (
             <section className="space-y-4">
-              <h2 className="text-lg font-bold tracking-tight">
-                Awaiting a score
-              </h2>
-              <p className="text-muted-foreground text-sm">
-                {awaitingScore.length} game
-                {awaitingScore.length === 1 ? "" : "s"} played with no result
-                recorded yet.
-              </p>
-              {/* Most recent first: the night just gone is the one being
-                  chased, and an older one is a bigger problem the further
-                  down it sits. */}
-              <GroupedGames
-                groups={awaitingGroups}
-                league={slug}
-                canScore={canScore}
-                canManage={canManage}
-                today={today}
-              />
+              <h2 className="text-lg font-bold tracking-tight">To score</h2>
+              {awaitingGroups.length === 0 ? (
+                <EmptyState title="Every game played has a result" />
+              ) : (
+                <>
+                  <p className="text-muted-foreground text-sm">
+                    {awaitingScore.length} game
+                    {awaitingScore.length === 1 ? "" : "s"} played with no
+                    result recorded yet.
+                  </p>
+                  {/* Most recent first: the night just gone is the one being
+                      chased, and an older one is a bigger problem the further
+                      down it sits. */}
+                  <GroupedGames
+                    groups={awaitingGroups}
+                    league={slug}
+                    canScore={canScore}
+                    canManage={canManage}
+                    today={today}
+                  />
+                </>
+              )}
             </section>
           ) : null}
 
-          <section className="space-y-4">
-            <h2 className="text-lg font-bold tracking-tight">Upcoming</h2>
-            {upcomingGroups.length === 0 ? (
-              <EmptyState title="No upcoming games" />
-            ) : (
-              <GroupedGames
-                groups={upcomingGroups}
-                league={slug}
-                canScore={canScore}
-                canManage={canManage}
-                today={today}
-              />
-            )}
-          </section>
+          {view === "upcoming" ? (
+            <>
+              <section className="space-y-4">
+                <h2 className="text-lg font-bold tracking-tight">Upcoming</h2>
+                {upcomingGroups.length === 0 ? (
+                  <EmptyState title="No upcoming games" />
+                ) : (
+                  <GroupedGames
+                    groups={upcomingGroups}
+                    league={slug}
+                    canScore={canScore}
+                    canManage={canManage}
+                    today={today}
+                  />
+                )}
+              </section>
 
-          {resultGroups.length > 0 ? (
-            <section className="space-y-4">
-              <h2 className="text-lg font-bold tracking-tight">
-                Recent Results
-              </h2>
-              <GroupedGames
-                groups={resultGroups}
-                league={slug}
-                canScore={canScore}
-                canManage={canManage}
-                today={today}
-              />
-            </section>
+              {/*
+                ⛔ CANCELLED BELONGS WITH UPCOMING, NOT WITH RESULTS. A
+                cancelled game is a fixture that is not happening — it has no
+                result to file under — and this section is the only route to
+                `restoreGame` (`7fda0e3`, and `05-scoring` reaches it through
+                here). Filing it under Results would lose that a second time.
+              */}
+              {cancelled.length > 0 ? (
+                <section className="space-y-4">
+                  <h2 className="text-lg font-bold tracking-tight">
+                    Cancelled
+                  </h2>
+                  <GroupedGames
+                    groups={cancelled}
+                    league={slug}
+                    canScore={canScore}
+                    canManage={canManage}
+                    today={today}
+                  />
+                </section>
+              ) : null}
+            </>
           ) : null}
 
-          {cancelled.length > 0 ? (
+          {view === "results" ? (
             <section className="space-y-4">
-              <h2 className="text-lg font-bold tracking-tight">Cancelled</h2>
-              <GroupedGames
-                groups={cancelled}
-                league={slug}
-                canScore={canScore}
-                canManage={canManage}
-                today={today}
-              />
+              <h2 className="text-lg font-bold tracking-tight">Results</h2>
+              {resultGroups.length === 0 ? (
+                <EmptyState title="No games played yet" />
+              ) : (
+                <GroupedGames
+                  groups={resultGroups}
+                  league={slug}
+                  canScore={canScore}
+                  canManage={canManage}
+                  today={today}
+                />
+              )}
             </section>
           ) : null}
         </div>

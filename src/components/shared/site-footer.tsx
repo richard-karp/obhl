@@ -12,7 +12,6 @@ export function SiteFooter({ leagueName }: { leagueName: string }) {
           >
             Staff sign in
           </Link>
-          <span>Built with Next.js &amp; Supabase</span>
         </div>
       </div>
     </footer>
