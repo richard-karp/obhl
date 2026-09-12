@@ -1,5 +1,4 @@
 import { createClient } from "@/utils/supabase/server";
-import type { ThreeStarEntry } from "@/lib/utils/three-stars";
 
 export type BoxLine = {
   team_id: string;
@@ -81,7 +80,6 @@ export type LatestRecapGame = {
   away_goals: number;
   home_team_name: string;
   away_team_name: string;
-  three_stars: ThreeStarEntry[] | null;
   ai_recap: string | null;
 };
 
@@ -93,7 +91,7 @@ export async function getLatestGameWithRecapData(
   const { data } = await (supabase as any)
     .from("games")
     .select(
-      "id, scheduled_at, home_goals, away_goals, three_stars, ai_recap, " +
+      "id, scheduled_at, home_goals, away_goals, ai_recap, " +
         "home_team:teams!games_home_team_id_fkey(name), " +
         "away_team:teams!games_away_team_id_fkey(name)",
     )
@@ -113,7 +111,6 @@ export async function getLatestGameWithRecapData(
     away_goals: d.away_goals ?? 0,
     home_team_name: d.home_team?.name ?? "",
     away_team_name: d.away_team?.name ?? "",
-    three_stars: (d.three_stars as ThreeStarEntry[]) ?? null,
     ai_recap: d.ai_recap ?? null,
   };
 }
