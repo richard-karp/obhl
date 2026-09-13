@@ -4,7 +4,7 @@ import { archivedPlayerIdsIn } from "@/lib/players/archive";
 import { removeRosterPlayer } from "@/lib/actions/rosters";
 import { PlayerEditDialog } from "@/components/manage/player-edit-dialog";
 import { seasonNightsFor } from "@/lib/queries/season";
-import { hasMultipleNights, NIGHT_LABEL } from "@/lib/season/nights";
+import { hasMultipleNights } from "@/lib/season/nights";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -17,6 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/empty-state";
+import { NightBadge } from "@/components/shared/night-badge";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { LogoUpload } from "@/components/manage/logo-upload";
 import type { TeamRow } from "@/lib/queries/teams";
@@ -141,8 +142,12 @@ export async function RosterEditor({
         .is("left_on", null)
         .eq("seasons.league_id", leagueId),
     ]);
-  // The season's nights, for the Night column and the dialog's select. Shared
+  // The season's nights, for the dialog's select and for `showNight`. Shared
   // with the page above through `cache()`, so this costs nothing extra.
+  // ⚠️ STILL NEEDED AFTER THE NIGHT COLUMN BECAME A PILL. The column was only
+  // one of the two readers; `PlayerEditDialog` offers these as the options a
+  // manager picks from, so deleting this alongside the column would empty the
+  // control that sets the value the pill displays.
   const nights = await seasonNightsFor(season);
   const showNight = hasMultipleNights(nights);
 
@@ -202,11 +207,13 @@ export async function RosterEditor({
           reading the same list; splitting one and not the other would make the
           editor a different document from the page it sits on.
 
-          ⚠️ THE ROW IS FIVE COLUMNS NOW, NOT EIGHT CONTROLS. Everything a
+          ⚠️ THE ROW IS THREE COLUMNS NOW, NOT EIGHT CONTROLS. Everything a
           player can have done to them is behind Edit. That is what fixes the
           horizontal fit the maintainer reported: the panel was opening inside
           the last CELL of a row that already carried Rookie, Suspend, Injury,
-          Set, Set Default, Make C, Edit, Transfer and Remove.
+          Set, Set Default, Make C, Edit, Transfer and Remove. Three and not
+          four because the night is a pill in the name cell rather than a
+          column of its own — see `NightBadge`.
         */
         <div className="space-y-6">
           {(
@@ -229,9 +236,6 @@ export async function RosterEditor({
                       <TableRow className="bg-muted/40">
                         <TableHead className="w-12 text-center">#</TableHead>
                         <TableHead>Player</TableHead>
-                        {showNight ? (
-                          <TableHead className="text-center">Night</TableHead>
-                        ) : null}
                         <TableHead className="text-right">Manage</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -243,6 +247,11 @@ export async function RosterEditor({
                           </TableCell>
                           <TableCell className="font-medium">
                             {r.players?.first_name} {r.players?.last_name}
+                            <NightBadge
+                              night={
+                                showNight ? (r.night_of_week ?? null) : null
+                              }
+                            />
                             {r.is_captain ? (
                               <Badge
                                 variant="secondary"
@@ -276,13 +285,6 @@ export async function RosterEditor({
                               </Badge>
                             ) : null}
                           </TableCell>
-                          {showNight ? (
-                            <TableCell className="text-muted-foreground text-center">
-                              {r.night_of_week === null
-                                ? "—"
-                                : (NIGHT_LABEL[r.night_of_week] ?? "—")}
-                            </TableCell>
-                          ) : null}
                           <TableCell>
                             <div className="flex items-center justify-end gap-1">
                               <PlayerEditDialog

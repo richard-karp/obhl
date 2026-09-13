@@ -8,7 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import type { getGameBoxScore, BoxLine } from "@/lib/queries/games";
+import type { getGameBoxScore, BoxLine, BoxGoalie } from "@/lib/queries/games";
 
 type Box = NonNullable<Awaited<ReturnType<typeof getGameBoxScore>>>;
 
@@ -50,12 +50,52 @@ function TeamScore({
   );
 }
 
+/**
+ * Who was in net, under the team's skaters.
+ *
+ * ⛔ THE TWO "NO LINE" CASES READ DIFFERENTLY ON PURPOSE. A substitute goalie
+ * is a complete answer that carries no individual record (`0015`); nobody
+ * having entered anything is a gap. Four of the six team-sides in the
+ * maintainer's first three production games are the second kind, and this
+ * string is how they find out — so it has to say "nobody recorded this", not
+ * show a blank or a `—` that reads as a zero.
+ */
+function GoalieLineRow({ goalie }: { goalie: BoxGoalie }) {
+  if (goalie.kind === "sub") {
+    return (
+      <p className="text-muted-foreground px-3 py-2 text-xs">
+        Substitute goalie — no individual stats.
+      </p>
+    );
+  }
+  if (goalie.kind === "none") {
+    return (
+      <p className="text-muted-foreground px-3 py-2 text-xs">
+        No goalie recorded.
+      </p>
+    );
+  }
+  return (
+    <div className="flex items-center gap-3 px-3 py-2 text-sm">
+      <span className="text-muted-foreground w-8 shrink-0 text-center tabular-nums">
+        {goalie.number ?? "—"}
+      </span>
+      <span className="flex-1 truncate font-medium">{goalie.name}</span>
+      <span className="text-muted-foreground tabular-nums">GA {goalie.ga}</span>
+      {goalie.shutout ? <span className="font-semibold">SO</span> : null}
+      <span className="w-4 text-center font-bold">{goalie.outcome}</span>
+    </div>
+  );
+}
+
 function TeamLines({
   team,
   lines,
+  goalie,
 }: {
   team: { id: string; name: string } | null | undefined;
   lines: BoxLine[];
+  goalie: BoxGoalie;
 }) {
   const rows = lines
     .filter((l) => l.team_id === team?.id)
@@ -114,13 +154,19 @@ function TeamLines({
             </TableRow>
           </TableBody>
         </Table>
+        <div className="bg-muted/10 border-t">
+          <p className="text-muted-foreground px-3 pt-2 text-[0.7rem] font-semibold uppercase">
+            Goalie
+          </p>
+          <GoalieLineRow goalie={goalie} />
+        </div>
       </div>
     </div>
   );
 }
 
 export function BoxScore({ box }: { box: Box }) {
-  const { game, lines } = box;
+  const { game, lines, goalies } = box;
   const home = game.home_team;
   const away = game.away_team;
   const homeWin = game.home_goals > game.away_goals;
@@ -137,8 +183,8 @@ export function BoxScore({ box }: { box: Box }) {
 
       {/* Player stat lines */}
       <section className="grid gap-6 sm:grid-cols-2">
-        <TeamLines team={away} lines={lines} />
-        <TeamLines team={home} lines={lines} />
+        <TeamLines team={away} lines={lines} goalie={goalies.away} />
+        <TeamLines team={home} lines={lines} goalie={goalies.home} />
       </section>
     </div>
   );

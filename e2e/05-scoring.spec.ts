@@ -65,14 +65,48 @@ test.describe("Path 10 — Score a game end-to-end", () => {
     await page.getByRole("button", { name: "Add goals" }).first().click();
     await page.waitForLoadState("networkidle");
 
-    // Complete the game
+    const scoresheet = page.url();
+
+    // ⛔ THE FIRST PRESS IS REFUSED, AND THAT IS THE TEST. Nothing above this
+    // line picks a goalie — which is exactly how the maintainer's first three
+    // production games were entered, four of six sides with no goalie of
+    // record and no warning of any kind. `finalizeGame` now bounces a sheet
+    // that is missing a lineup or a goalie back to itself with `?incomplete=1`
+    // rather than writing it.
     await page.getByRole("button", { name: "Complete game" }).click();
+    await page.waitForLoadState("networkidle");
+    await expect(page).toHaveURL(/incomplete=1/);
+
+    // ⚠️ SCOPED. Next's route announcer is also `role="alert"`, so a bare
+    // `getByRole("alert")` matches two elements and fails on strict mode.
+    const warning = page
+      .locator("[role=alert]")
+      .filter({ hasText: "not finished being entered" });
+    await expect(warning).toBeVisible();
+    // Named by team, not a general "something is wrong" — the whole point is
+    // that the scorekeeper can see what to go and fix.
+    await expect(warning.getByRole("listitem").first()).toContainText(
+      "no goalie recorded",
+    );
+    // ⛔ AND THE GAME IS STILL NOT FINAL. Without this the test would pass on a
+    // gate that warned and wrote anyway. ⚠️ Asserted as the ABSENCE of Final
+    // rather than the presence of "Scheduled": recording a goal above bumps
+    // the game to `in_progress`, so naming the status is naming the wrong one.
+    await expect(page.getByText("Final")).toHaveCount(0);
+
+    // The second press carries `confirm=1` and goes through.
+    await page.getByRole("button", { name: "Complete anyway" }).click();
     await page.waitForLoadState("networkidle");
     await expect(page.getByText("Final").first()).toBeVisible();
 
-    // Finalized game appears as a link on public schedule
-    await page.goto("/obhl/schedule");
-    await expect(page.locator('a[href^="/obhl/games/"]').first()).toBeVisible();
+    // ⛔ THE FINALIZED GAME, NOT ANY GAME. This asserted that *some*
+    // `a[href^="/obhl/games/"]` was visible on the schedule. Only a final game
+    // gets that link (`game-row.tsx`), so it was not vacuous — but the seed
+    // finalizes three rounds, so it was satisfied by any of them and would
+    // have passed with this test's own game still unscored. Name the id.
+    const id = new URL(scoresheet).pathname.split("/")[3];
+    await page.goto("/obhl/schedule?view=results");
+    await expect(page.locator(`a[href="/obhl/games/${id}"]`)).toHaveCount(1);
   });
 });
 
@@ -196,10 +230,12 @@ test.describe("Path 11 — Game management", () => {
     page,
   }) => {
     await signedInAs(page, "Manager");
-    await page.goto("/obhl/schedule");
+    // The scorekeeper's game list is the public schedule now, with a button
+    // per row for whoever may open a scoresheet. ⚠️ "Edit" is the label a
+    // FINAL game's button carries (`scoreLabel`), so it is only ever in the
+    // results view.
+    await page.goto("/obhl/schedule?view=results");
 
-    // The scorekeeper's game list is the public schedule now, with a
-    // button per row for whoever may open a scoresheet.
     await page.getByRole("link", { name: "Edit", exact: true }).first().click();
     await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
 

@@ -262,3 +262,84 @@ test.describe("Path 21 — Captain sets goalie of record", () => {
     await expect(page.getByText("Empty-net goals")).toHaveCount(0);
   });
 });
+
+// ── Path 22: a substitute goalie is an answer ───────────────────────────────
+
+test.describe("Path 22 — the finalize gate and the Sub button", () => {
+  /**
+   * ⛔ THE FALSE POSITIVE THE GATE WAS CORRECTED FOR, AND THE ONLY SPEC THAT
+   * WOULD SEE IT COME BACK.
+   *
+   * `finalizeGame` refuses a sheet with no goalie of record — four of six
+   * team-sides in the maintainer's first three production games had none, and
+   * all three completed silently. But `setGoalie` writes
+   * `goalie_id = null, is_sub = true` for the Sub button, and that is a
+   * COMPLETE answer: `0015` gives a substitute goalie no individual record on
+   * purpose. A gate that read the resulting null as "nobody entered this"
+   * would nag a correctly-filled sheet, and a warning that fires on correct
+   * data is how people learn to click through warnings — which would undo the
+   * whole point of the gate.
+   *
+   * `scoresheetProblems` therefore warns on `none` and not on `sub`, and
+   * `incomplete.test.ts` pins that. What the unit test cannot see is whether
+   * the SCORESHEET reaches the same conclusion from real rows — the gap
+   * `AGENTS.md` names, a feature green in every test while doing nothing in
+   * production.
+   */
+  test("a game whose goalies are both subs completes without a warning", async ({
+    page,
+  }) => {
+    await signedInAs(page, "Manager");
+    const gameId = await sharksGameOn(4);
+    await page.goto(`/obhl/games/${gameId}/score`);
+
+    // Both sides need a lineup, or the gate fires on that instead and the test
+    // would pass for the wrong reason.
+    const lineupForms = page.locator("form").filter({
+      has: page.locator('input[name="player_ids"]'),
+    });
+    for (let f = 0; f < (await lineupForms.count()); f++) {
+      const boxes = lineupForms.nth(f).locator('input[type="checkbox"]');
+      for (let i = 0; i < (await boxes.count()); i++)
+        await boxes.nth(i).check();
+      await lineupForms
+        .nth(f)
+        .getByRole("button", { name: "Save lineup" })
+        .click();
+      await page.waitForLoadState("networkidle");
+    }
+
+    // A substitute in each net. ⚠️ Re-resolved each pass: the click re-renders
+    // the board, so a locator held across it goes stale.
+    for (let i = 0; i < 2; i++) {
+      await page
+        .getByRole("button", { name: "Sub", exact: true })
+        .nth(i)
+        .click();
+      await page.waitForLoadState("networkidle");
+    }
+
+    try {
+      await page.getByRole("button", { name: "Complete game" }).click();
+      await page.waitForLoadState("networkidle");
+
+      // No bounce, no banner, and the game is actually written.
+      await expect(page).not.toHaveURL(/incomplete=1/);
+      await expect(
+        page
+          .locator("[role=alert]")
+          .filter({ hasText: "not finished being entered" }),
+      ).toHaveCount(0);
+      await expect(page.getByText("Final").first()).toBeVisible();
+    } finally {
+      // ⚠️ PUT BACK. `sharksGameOn` only returns `scheduled` games, so leaving
+      // this one final quietly shrinks the pool the tests above draw from.
+      await page.goto(`/obhl/games/${gameId}/score`);
+      const reopen = page.getByRole("button", { name: "Reopen" });
+      if (await reopen.isVisible()) {
+        await reopen.click();
+        await page.waitForLoadState("networkidle");
+      }
+    }
+  });
+});

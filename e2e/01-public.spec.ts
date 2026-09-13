@@ -159,11 +159,16 @@ test.describe("Path 3 — Player profile", () => {
     const tab = page.getByRole("tabpanel").first();
     await expect(tab.locator("table tbody tr").first()).toBeVisible();
 
+    // ⛔ BY HREF, NOT "the first link in the row". The row's first link is now
+    // the team crest — the wide Team column was dropped and the crest moved in
+    // beside the name — so `.getByRole("link").first()` reads the team's
+    // `aria-label` as the player's name and navigates to `/obhl/teams/<slug>`.
+    // It passed for as long as the name happened to come first, which is not
+    // what this test is about.
     const firstLink = tab
       .locator("table tbody tr")
       .first()
-      .getByRole("link")
-      .first();
+      .locator('a[href^="/obhl/players/"]');
     const playerName = await firstLink.innerText();
     await firstLink.click();
 
@@ -195,34 +200,53 @@ test.describe("Path 3 — Player profile", () => {
 // ── Path 4: Schedule + game detail ─────────────────────────────────────────
 
 test.describe("Path 4 — Schedule and game detail", () => {
-  test("schedule page shows upcoming and recent results sections", async ({
+  test("schedule page shows upcoming by default and results in their own view", async ({
     page,
   }) => {
     await page.goto("/obhl/schedule");
 
-    // Upcoming section with scheduled games (GameRow cards, not a table)
+    // Upcoming is the landing view (GameRow cards, not a table).
     await expect(page.getByRole("heading", { name: "Upcoming" })).toBeVisible();
     await expect(page.getByText("Scheduled").first()).toBeVisible();
 
-    // Recent Results section (rounds 1-3 are finalized)
-    await expect(
-      page.getByRole("heading", { name: "Recent Results" }),
-    ).toBeVisible();
+    // ⛔ AND RESULTS ARE NOT ON IT. Before the views existed this section sat
+    // below Upcoming on the same page, so asserting the heading was visible
+    // said nothing about where it lived. Its absence here is what makes the
+    // navigation below a real assertion rather than a restatement.
+    await expect(page.getByRole("heading", { name: "Results" })).toHaveCount(0);
+
+    const views = page.getByRole("navigation", { name: "Schedule views" });
+    await views.getByRole("link", { name: "Results" }).click();
+    await expect(page).toHaveURL(/view=results/);
+    await expect(page.getByRole("heading", { name: "Results" })).toBeVisible();
+    // Rounds 1-3 are finalized in the seed, so the view has occupants.
+    await expect(page.getByText("Final").first()).toBeVisible();
   });
 
   test("clicking a finalized game opens its detail page with a score", async ({
     page,
   }) => {
-    await page.goto("/obhl/schedule");
+    // ⚠️ FROM THE RESULTS VIEW. `game-row.tsx` wraps a row in a
+    // `/obhl/games/<id>` link only when the game is FINAL, so the bare
+    // schedule used to serve this test out of its Recent Results section.
+    // That section is a view of its own now and the default one has no such
+    // links at all.
+    await page.goto("/obhl/schedule?view=results");
 
-    // Finalized games in GameRow are wrapped in <Link href="/obhl/games/...">
     const gameLink = page.locator('a[href^="/obhl/games/"]').first();
     await expect(gameLink).toBeVisible();
     await gameLink.click();
     await expect(page).toHaveURL(/\/obhl\/games\//);
 
-    // Box score shows two numeric scores (away–home)
-    await expect(page.locator("text=/\\d+/").first()).toBeVisible();
+    // A real box score: the FINAL marker, both teams' skater tables, and a
+    // goaltending line under each. The seed names a goalie of record on every
+    // game it finalizes, so "No goalie recorded" here means the resolution
+    // broke, not that the fixture is thin.
+    await expect(page.getByText("FINAL")).toBeVisible();
+    await expect(page.getByRole("table")).toHaveCount(2);
+    await expect(page.getByText("Goalie", { exact: true })).toHaveCount(2);
+    await expect(page.getByText("No goalie recorded.")).toHaveCount(0);
+    await expect(page.getByText(/^GA \d+$/).first()).toBeVisible();
   });
 
   /**

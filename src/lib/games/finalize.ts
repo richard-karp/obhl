@@ -96,6 +96,14 @@ export async function finalizeGameById(
       .filter((r) => r.team_id === teamId)
       .reduce((s: number, r) => s + (r.goals ?? 0), 0);
 
+  // ⚠️ NOTHING READS `three_stars` ANY MORE, AND IT KEEPS BEING WRITTEN ON
+  // PURPOSE. The league home's 3 Stars card was removed on 2026-09-12 at the
+  // maintainer's request, taking the last reader with it. The column goes on
+  // filling because every finalized game already carries one: stopping now
+  // would leave the games played up to that date as the only ones that ever
+  // had stars, so the module could not simply be put back. Deleting the
+  // writer is a separate decision from removing the card, and it has not been
+  // made.
   const threeStars = computeThreeStars(
     rosters
       .filter((r) => !r.is_substitute && r.player_id)

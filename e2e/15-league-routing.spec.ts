@@ -77,7 +77,13 @@ test.describe("Path 16 — Per-league routing", () => {
     // cookie-default league (obhl) and 11-schedule-builder regenerates its
     // schedule, so by the time this file runs Oceanview may have no finalized
     // game left to link to. Nothing touches Harbor.
-    await page.goto("/harbor/schedule");
+    //
+    // ⚠️ THE RESULTS VIEW, because only a FINAL game's row is wrapped in a
+    // `/harbor/games/<id>` link (`game-row.tsx`) and the schedule's default
+    // view is Upcoming. Harbor's four finals are all in the past, so the bare
+    // URL now offers nothing to click — it used to work only because every
+    // section was stacked on one page.
+    await page.goto("/harbor/schedule?view=results");
     const href = await page
       .locator('a[href^="/harbor/games/"]')
       .first()
