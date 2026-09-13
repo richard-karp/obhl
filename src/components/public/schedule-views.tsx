@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
  * `01-public.spec.ts` documents for the download links.
  */
 
-export const SCHEDULE_VIEWS = ["to-score", "upcoming", "results"] as const;
+export const SCHEDULE_VIEWS = ["pending", "upcoming", "results"] as const;
 export type ScheduleView = (typeof SCHEDULE_VIEWS)[number];
 
 /** An unknown or absent `?view=` reads as Upcoming rather than 404ing. */
@@ -46,7 +46,7 @@ export function ScheduleViews({
   league: string;
   current: ScheduleView;
   /**
-   * How many games are played and unscored. The To score view is offered only
+   * How many games are played and unscored. The Pending view is offered only
    * when there are some — the same condition its section had when it was a
    * section — and the number rides on the label.
    *
@@ -75,7 +75,7 @@ export function ScheduleViews({
 
   const tabs: { view: ScheduleView; label: string }[] = [
     ...(awaitingCount > 0
-      ? [{ view: "to-score" as const, label: `To score (${awaitingCount})` }]
+      ? [{ view: "pending" as const, label: `Pending (${awaitingCount})` }]
       : []),
     { view: "upcoming", label: "Upcoming" },
     { view: "results", label: "Results" },

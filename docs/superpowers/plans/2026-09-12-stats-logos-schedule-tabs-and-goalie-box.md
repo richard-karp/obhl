@@ -42,6 +42,12 @@ ABSENCE of Final, because recording a goal bumps the game to `in_progress`; and
 test and e2e but **not** a production build — `ScheduleFilter`'s new
 `useSearchParams` would have been the wrong place to find that out.
 
+**And one rename after the fact.** The first view is called **Pending**, not
+"To score" as every line below says — label, heading and `?view=` slug alike
+(`?view=pending`). The maintainer asked for it on 2026-09-13, before the branch
+had merged, so no shipped link carried the old slug and nothing needed a
+redirect. The count still rides on the label, for the reason Task 6 gives.
+
 ---
 
 ## Context

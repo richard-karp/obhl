@@ -435,7 +435,7 @@ test.describe("Path 28b — past and future on the schedule", () => {
     // ⚠️ AND THIS IS A WEAKER GUARANTEE THAN THE ONE IT REPLACES. A view is
     // further away than a section below the fold, which is how these games got
     // forgotten in the first place. The default stays Upcoming because a
-    // scorekeeper's games are always tonight's and To score holds only
+    // scorekeeper's games are always tonight's and Pending holds only
     // previous nights — every row of which their day guard bounces — so the
     // COUNT on the label is what carries the urgency now. Assert it: a link
     // that lost its count would be indistinguishable from a section nobody
@@ -447,12 +447,12 @@ test.describe("Path 28b — past and future on the schedule", () => {
     // `undefined` rather than on the thing it is about.
     await expect(views.getByRole("link", { name: "Upcoming" })).toBeVisible();
     const labels = await views.getByRole("link").allInnerTexts();
-    expect(labels[0]).toMatch(/^To score \(\d+\)$/);
+    expect(labels[0]).toMatch(/^Pending \(\d+\)$/);
     expect(labels.indexOf("Upcoming")).toBe(1);
 
-    await views.getByRole("link", { name: /^To score/ }).click();
-    await expect(page).toHaveURL(/view=to-score/);
-    await expect(page.getByRole("heading", { name: "To score" })).toBeVisible();
+    await views.getByRole("link", { name: /^Pending/ }).click();
+    await expect(page).toHaveURL(/view=pending/);
+    await expect(page.getByRole("heading", { name: "Pending" })).toBeVisible();
     // The past unscored game asserted above is what fills it.
     await expect(
       page.getByText(/played with no result recorded yet/),

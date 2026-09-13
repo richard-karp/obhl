@@ -425,16 +425,16 @@ export default async function SchedulePage({
           />
 
           {/*
-            ⛔ `resolveScheduleView` CANNOT RETURN `to-score` WHEN THE LIST IS
+            ⛔ `resolveScheduleView` CANNOT RETURN `pending` WHEN THE LIST IS
             EMPTY — it does not know the count — so this view has to survive
             being asked for with nothing in it. A stale link, or a bookmark
             made while games were outstanding, lands here after somebody
             scored them; an empty state says so, where an absent section would
             read as a broken page.
           */}
-          {view === "to-score" ? (
+          {view === "pending" ? (
             <section className="space-y-4">
-              <h2 className="text-lg font-bold tracking-tight">To score</h2>
+              <h2 className="text-lg font-bold tracking-tight">Pending</h2>
               {awaitingGroups.length === 0 ? (
                 <EmptyState title="Every game played has a result" />
               ) : (
