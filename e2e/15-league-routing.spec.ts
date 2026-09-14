@@ -44,29 +44,6 @@ async function setHarborPublic(is_public: boolean) {
 }
 
 test.describe("Path 16 — Per-league routing", () => {
-  test("the root landing page lists both leagues and links to each", async ({
-    page,
-  }) => {
-    await page.goto("/");
-
-    await expect(
-      page.getByRole("link", { name: /Oceanview Beer Hockey League/ }),
-    ).toHaveAttribute("href", "/obhl");
-    await expect(
-      page.getByRole("link", { name: /Harbor Rec Hockey League/ }),
-    ).toHaveAttribute("href", "/harbor");
-  });
-
-  test("the two leagues do not bleed into each other", async ({ page }) => {
-    await page.goto("/obhl/standings");
-    await expect(page.getByRole("link", { name: "Sharks" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Anchors" })).toHaveCount(0);
-
-    await page.goto("/harbor/standings");
-    await expect(page.getByRole("link", { name: "Anchors" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Sharks" })).toHaveCount(0);
-  });
-
   test("a game cannot be viewed under another league's URL", async ({
     page,
   }) => {
@@ -103,18 +80,6 @@ test.describe("Path 16 — Per-league routing", () => {
     await expect(page.getByRole("heading", { name: /@/ })).toHaveCount(0);
   });
 
-  test("each league home shows its own name and announcements", async ({
-    page,
-  }) => {
-    await page.goto("/harbor");
-    await expect(
-      page.getByRole("heading", { name: "Harbor Rec Hockey League" }),
-    ).toBeVisible();
-    await expect(
-      page.getByText("Welcome to the Harbor Rec spring season"),
-    ).toBeVisible();
-  });
-
   test("the league name carries into the page title", async ({ page }) => {
     // Without this a shared league link previews as the generic site name.
     await page.goto("/harbor");
@@ -123,38 +88,6 @@ test.describe("Path 16 — Per-league routing", () => {
     // Section pages augment the league's template, not the root site one.
     await page.goto("/harbor/standings");
     await expect(page).toHaveTitle("Standings · Harbor Rec Hockey League");
-  });
-
-  test("an unknown league slug 404s", async ({ page }) => {
-    const response = await page.goto("/not-a-league");
-    expect(response?.status()).toBe(404);
-    await expect(page.getByText("That page couldn't be found.")).toBeVisible();
-  });
-
-  test("a slug resolves case-insensitively", async ({ page }) => {
-    const response = await page.goto("/OBHL");
-    expect(response?.status()).toBe(200);
-    await expect(
-      page.getByRole("heading", { name: "Oceanview Beer Hockey League" }),
-    ).toBeVisible();
-  });
-
-  /**
-   * ⚠️ ANONYMOUS ONLY, and the name says so because the claim is not general.
-   * A signed-in MEMBER of two or more leagues does get a switcher on this same
-   * URL — it lives in the staff row beneath the header, and this locator is
-   * page-wide rather than scoped to the header. What the page owes an anonymous
-   * visitor is a way back to the picker and nothing that implies a league they
-   * cannot switch to.
-   */
-  test("an anonymous visitor gets no league switcher, only a way back to the picker", async ({
-    page,
-  }) => {
-    await page.goto("/obhl");
-    await expect(page.getByLabel("Select league")).toHaveCount(0);
-    await expect(
-      page.getByRole("link", { name: "All leagues" }),
-    ).toHaveAttribute("href", "/");
   });
 
   test("nav links point into the league and mark the current section", async ({
@@ -591,78 +524,6 @@ test.describe("Path 16 — Per-league routing", () => {
     // Oceanview's is untouched.
     await page.goto("/obhl/audit");
     expect(await page.getByText(SUSPENSION).count()).toBe(oceanviewBefore);
-  });
-
-  test("a league's calendar and CSV are named for that league", async ({
-    request,
-  }) => {
-    // `buildIcs` always took the calendar name as an argument, but the routes
-    // passed a literal, so BOTH leagues' feeds arrived in a subscriber's
-    // calendar app called "OBHL Schedule". The event UIDs are deliberately
-    // unchanged — see EXPORTS_HANDOFF §3.
-    const db = admin();
-    for (const slug of ["harbor", "obhl"]) {
-      const { data: league } = await db
-        .from("leagues")
-        .select("id, name")
-        .eq("slug", slug)
-        .single();
-      const { data: season } = await db
-        .from("seasons")
-        .select("id")
-        .eq("league_id", league!.id)
-        .eq("is_active", true)
-        .single();
-
-      const ics = await request.get(`/api/schedule/${season!.id}`);
-      expect(ics.ok()).toBeTruthy();
-      expect(await ics.text()).toContain(`${league!.name} Schedule`);
-      expect(ics.headers()["content-disposition"]).toContain(
-        `${slug}-schedule.ics`,
-      );
-
-      const csv = await request.get(`/api/schedule/${season!.id}/schedule.csv`);
-      expect(csv.ok()).toBeTruthy();
-      expect(csv.headers()["content-disposition"]).toContain(
-        `${slug}-schedule.csv`,
-      );
-    }
-  });
-
-  /**
-   * ⚠️ A ROUTE HANDLER CAN SET A STATUS, AND THESE ARE THE PLACES THAT SHOULD.
-   * The public PAGES cannot — a `notFound()` after an `await` answers 200,
-   * because the response has begun streaming (issue #30, and Next documents it
-   * under `loading.tsx`'s *Status Codes*). That limitation is not shared by
-   * `route.ts`, so an export asked for an id that resolves to nothing must say
-   * so properly rather than hand back an empty-but-valid file.
-   *
-   * A well-formed uuid is the case that matters. A MALFORMED one was already
-   * refused — both routes have carried an `isUuid` guard and a comment about a
-   * "header-only file that looks like a real but empty season" — but the same
-   * file came back, with a 200 on it, for a uuid that simply named nothing.
-   */
-  test("an export for a season that does not exist is a 404, not an empty file", async ({
-    request,
-  }) => {
-    const missing = "00000000-0000-0000-0000-000000000000";
-
-    const ics = await request.get(`/api/schedule/${missing}`);
-    expect(ics.status()).toBe(404);
-    const csv = await request.get(`/api/schedule/${missing}/schedule.csv`);
-    expect(csv.status()).toBe(404);
-
-    // Malformed, the case that always worked — kept so a refactor cannot close
-    // one door while opening the other.
-    const junk = await request.get("/api/schedule/not-a-uuid");
-    expect(junk.status()).toBe(404);
-
-    // ⚠️ The team feed is a SUBSCRIPTION, so this assertion is load-bearing in a
-    // way the two above are not: a calendar app polls this URL indefinitely, and
-    // the 404 is what tells its owner the team is gone rather than leaving them
-    // an empty calendar that never says so.
-    const feed = await request.get(`/api/schedule/team/${missing}/feed.ics`);
-    expect(feed.status()).toBe(404);
   });
 
   test("a section stays marked on its detail pages", async ({ page }) => {

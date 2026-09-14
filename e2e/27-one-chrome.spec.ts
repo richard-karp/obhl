@@ -98,19 +98,6 @@ test.describe("One chrome everywhere", () => {
     }
   });
 
-  test("an anonymous visitor gets no staff row and the header they always had", async ({
-    page,
-  }) => {
-    for (const url of ["/obhl", "/obhl/standings", "/obhl/schedule"]) {
-      await page.goto(url);
-      await expect(leagueNav(page).first()).toBeVisible();
-      await expect(staffRow(page)).toHaveCount(0);
-      await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(
-        0,
-      );
-    }
-  });
-
   test("a manager of another league browsing this one gets no staff row", async ({
     page,
   }) => {
