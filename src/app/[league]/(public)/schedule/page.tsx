@@ -9,6 +9,7 @@ import {
 } from "@/lib/queries/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { canManageLeague, canScoreLeague } from "@/lib/auth/guards";
+import { isPastGame } from "@/lib/games/open-past";
 import Link from "next/link";
 import { ScheduleFilter } from "@/components/public/schedule-filter";
 import {
@@ -215,8 +216,7 @@ export default async function SchedulePage({
    * the scoresheet is being filled in. Comparing date keys is what makes
    * "yesterday" mean yesterday.
    */
-  const isPast = (g: GameWithTeams) =>
-    !!g.scheduled_at && leagueDateKey(g.scheduled_at) < today;
+  const isPast = (g: GameWithTeams) => isPastGame(g, today);
 
   // Anchor on "now": what still needs a score, then what is coming, then what
   // has been played — instead of opening at the season's start.

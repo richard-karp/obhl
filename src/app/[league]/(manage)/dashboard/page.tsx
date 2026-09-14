@@ -11,7 +11,9 @@ import { Button } from "@/components/ui/button";
 import { TeamLogo } from "@/components/shared/team-logo";
 import { EmptyState } from "@/components/shared/empty-state";
 import { SeasonSwitcher } from "@/components/manage/season-switcher";
-import { formatGameDateTime } from "@/lib/format";
+import { formatGameDateTime, leagueToday } from "@/lib/format";
+import { createAdminClient } from "@/utils/supabase/admin";
+import { openPastGames } from "@/lib/games/open-past";
 
 function ActionCard({
   href,
@@ -91,28 +93,34 @@ export default async function DashboardPage({
       </div>
 
       {user.role === "league_manager" ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <ActionCard
-            href={`/${leagueSlug}/people`}
-            title="People & Roles"
-            description="Create staff accounts and assign manager, captain, or scorekeeper roles."
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <ActionCard
+              href={`/${leagueSlug}/people`}
+              title="People & Roles"
+              description="Create staff accounts and assign manager, captain, or scorekeeper roles."
+            />
+            <ActionCard
+              href={`/${leagueSlug}/seasons`}
+              title="Seasons"
+              description="Create seasons, set the active one, and enroll teams (carry forward)."
+            />
+            <ActionCard
+              href={`/${leagueSlug}/teams`}
+              title="Teams"
+              description="Add players to teams and set numbers, positions, and captains."
+            />
+            <ActionCard
+              href={`/${leagueSlug}/schedule`}
+              title="Games"
+              description="Browse the schedule and open the scoresheet for any game."
+            />
+          </div>
+          <OpenGamesCard
+            seasonId={ctx.season?.id ?? null}
+            leagueSlug={leagueSlug}
           />
-          <ActionCard
-            href={`/${leagueSlug}/seasons`}
-            title="Seasons"
-            description="Create seasons, set the active one, and enroll teams (carry forward)."
-          />
-          <ActionCard
-            href={`/${leagueSlug}/teams`}
-            title="Teams"
-            description="Add players to teams and set numbers, positions, and captains."
-          />
-          <ActionCard
-            href={`/${leagueSlug}/schedule`}
-            title="Games"
-            description="Browse the schedule and open the scoresheet for any game."
-          />
-        </div>
+        </>
       ) : null}
 
       {user.role === "scorekeeper" ? (
@@ -145,6 +153,63 @@ export default async function DashboardPage({
         explainWhenAbsent={user.role === "captain"}
       />
     </div>
+  );
+}
+
+/**
+ * Past games nobody finalized. A night that fails to close shows up nowhere
+ * else. Admin client: manager-gated, so it must not depend on the season being
+ * public (see `getSchedule`).
+ */
+async function OpenGamesCard({
+  seasonId,
+  leagueSlug,
+}: {
+  seasonId: string | null;
+  leagueSlug: string;
+}) {
+  if (!seasonId) return null;
+  const games = openPastGames(
+    await getSchedule(seasonId, { client: createAdminClient() }),
+    leagueToday(),
+  );
+  if (games.length === 0) return null;
+
+  return (
+    <section aria-label="Games still open">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Games still open</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-muted-foreground text-sm">
+            These games are in the past and were never finalized.
+          </p>
+          <div className="divide-y rounded-lg border">
+            {games.map((g) => (
+              <div
+                key={g.id}
+                className="flex items-center justify-between gap-3 px-3 py-2"
+              >
+                <span className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground w-32 shrink-0 text-xs">
+                    {formatGameDateTime(g.scheduled_at)}
+                  </span>
+                  <span className="font-medium">
+                    {g.home_team?.name ?? "TBD"} vs {g.away_team?.name ?? "TBD"}
+                  </span>
+                </span>
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/${leagueSlug}/games/${g.id}/score`}>
+                    Open scoresheet
+                  </Link>
+                </Button>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </section>
   );
 }
 

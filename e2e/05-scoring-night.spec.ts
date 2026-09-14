@@ -1061,3 +1061,62 @@ test.describe("Closing the night", () => {
     return new Date(new Date(from).getTime() + hours * 36e5).toISOString();
   }
 });
+
+test.describe("Manage dashboard — games still open", () => {
+  test("a past game left in progress is listed; a final one is not", async ({
+    page,
+  }) => {
+    const db = admin();
+    const { data: season } = await db
+      .from("seasons")
+      .select("id, leagues!inner(slug)")
+      .eq("leagues.slug", "obhl")
+      .eq("is_active", true)
+      .single();
+    const { data: sharks } = await db
+      .from("teams")
+      .select("id")
+      .eq("slug", "sharks")
+      .limit(1)
+      .single();
+    // Not a Sharks game: `sharksGameOn` consumes those. Round 4 is past in the seed.
+    const { data: round4 } = await db
+      .from("games")
+      .select("id, home_team_id, away_team_id")
+      .eq("season_id", season!.id)
+      .eq("round", 4)
+      .eq("status", "scheduled")
+      .eq("is_draft", false)
+      .order("scheduled_at", { ascending: true });
+    const open = (round4 ?? []).find(
+      (g) => g.home_team_id !== sharks!.id && g.away_team_id !== sharks!.id,
+    );
+    if (!open) {
+      throw new Error(
+        "Seed has no scheduled non-Sharks round-4 game — check supabase/seed.sql.",
+      );
+    }
+    const { data: final } = await db
+      .from("games")
+      .select("id")
+      .eq("season_id", season!.id)
+      .eq("status", "final")
+      .limit(1)
+      .single();
+
+    await db.from("games").update({ status: "in_progress" }).eq("id", open.id);
+    try {
+      await signInAs(page, "Manager");
+      await page.goto("/obhl/dashboard");
+      const card = page.getByRole("region", { name: "Games still open" });
+      await expect(
+        card.locator(`a[href="/obhl/games/${open.id}/score"]`),
+      ).toHaveCount(1);
+      await expect(
+        card.locator(`a[href="/obhl/games/${final!.id}/score"]`),
+      ).toHaveCount(0);
+    } finally {
+      await db.from("games").update({ status: "scheduled" }).eq("id", open.id);
+    }
+  });
+});
