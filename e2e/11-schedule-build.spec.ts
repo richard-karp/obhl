@@ -709,9 +709,9 @@ async function aWeekIntoSeason(): Promise<string> {
 
 /** Fill every field on the generate form with something that is not its default. */
 async function fillEverything(page: Page) {
-  // Same hazard as `29-schedule-repair`'s seeding: with the builder locked by a failed read
-  // there is no form here at all, and a bare `fill` waits out the whole test
-  // budget saying only "waiting for getByLabel".
+  // Same hazard as `14-schedule-changes`'s repair seeding: with the builder
+  // locked by a failed read there is no form here at all, and a bare `fill`
+  // waits out the whole test budget saying only "waiting for getByLabel".
   await expectGenerateFormUsable(page);
   await page.getByLabel("First game night").fill(await fallStart());
   await page.getByLabel("Games per team").fill("4");
@@ -841,15 +841,15 @@ test.describe("Path 26 — the generate form's state", () => {
  * the generator's own matchups, nights and ice times — and only its dates are
  * moved, which is exactly what the passage of time would have done to it.
  *
- * Seeds its own season, the shape `29-schedule-repair` and `30-schedule-edits`
- * use, so every mutation stays inside it. That season is deleted afterwards
+ * Seeds its own season, the shape `14-schedule-changes`'s repair and manual-edit
+ * seasons use, so every mutation stays inside it. That season is deleted afterwards
  * rather than left behind: the last test publishes a past-dated schedule on
  * purpose, which locks it for good, and a locked season is not something to
  * hand to the next run.
  */
 
 /**
- * ⛔ COMPUTED, NEVER PINNED — the rule `30-schedule-edits` sets out. Every date
+ * ⛔ COMPUTED, NEVER PINNED — the rule `14-schedule-changes` sets out. Every date
  * here is relative to the clock, because this spec is *about* the clock: a
  * fixed "stale" date stops being stale the moment it is compared against a
  * later today, and a fixed future one eventually is not future.
@@ -863,7 +863,7 @@ const TZ = "America/New_York";
 /**
  * ⚠️ THE SPEC DOES ITS OWN ZONE ARITHMETIC RATHER THAN IMPORTING THE APP'S.
  * Copied deliberately: a relative TypeScript import dies at load in this suite
- * (see `30-schedule-edits`), and reusing `@/lib/format` would in any case let a
+ * (see `14-schedule-changes`), and reusing `@/lib/format` would in any case let a
  * bug in the app's own date handling agree with itself and pass.
  */
 const dateKey = (iso: string) =>

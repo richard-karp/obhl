@@ -51,7 +51,7 @@ export function ScheduleViews({
    * section — and the number rides on the label.
    *
    * ⚠️ THE COUNT IS NOT DECORATION. That list used to sit ABOVE Upcoming on a
-   * single page, deliberately: `30-schedule-edits.spec.ts` records that "a
+   * single page, deliberately: `14-schedule-changes.spec.ts` records that "a
    * section below the fold is how these games got forgotten in the first
    * place", and a view is further away than below the fold. The default stays
    * Upcoming because a scorekeeper's games are always tonight's and so always

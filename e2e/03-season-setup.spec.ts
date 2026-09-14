@@ -312,8 +312,8 @@ async function teardown() {
  * importer ever starts activating what it creates, this fixture is what would
  * need revisiting, not these assertions.
  *
- * It runs late for the same reason `14-one-off-game` does: it creates a league
- * and a season, and the specs before it read the seeded ones.
+ * It runs late for the same reason `14-schedule-changes` does: it creates a
+ * league and a season, and the specs before it read the seeded ones.
  */
 test.describe("Path 23 — season gating", () => {
   test.beforeAll(async () => {
