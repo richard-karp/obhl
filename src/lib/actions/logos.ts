@@ -5,6 +5,7 @@ import { createAdminClient } from "@/utils/supabase/admin";
 import { requireLeagueManager } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit";
 import { leagueOfTeam } from "@/lib/league/of-entity";
+import { logoFileType } from "@/lib/utils/logo-type";
 
 /** Manager uploads a team logo to Storage and points the team at it. */
 export async function uploadTeamLogo(formData: FormData) {
@@ -14,12 +15,13 @@ export async function uploadTeamLogo(formData: FormData) {
   const file = formData.get("logo") as File | null;
   if (!file || file.size === 0) return;
 
-  const ext = (file.name.split(".").pop() || "png").toLowerCase();
-  const path = `teams/${teamId}.${ext}`;
+  const type = logoFileType(file.name);
+  if (!type) return;
+  const path = `teams/${teamId}.${type.ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
 
   const { error } = await admin.storage.from("logos").upload(path, buffer, {
-    contentType: file.type || "image/png",
+    contentType: type.contentType,
     upsert: true,
   });
   if (error) return;

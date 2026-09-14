@@ -3,6 +3,7 @@
 import { uploadTeamLogo } from "@/lib/actions/logos";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { LOGO_ACCEPT } from "@/lib/utils/logo-type";
 
 export function LogoUpload({ teamId }: { teamId: string }) {
   return (
@@ -11,7 +12,7 @@ export function LogoUpload({ teamId }: { teamId: string }) {
       <Input
         type="file"
         name="logo"
-        accept="image/*"
+        accept={LOGO_ACCEPT}
         className="max-w-xs"
         required
       />
