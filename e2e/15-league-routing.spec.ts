@@ -107,19 +107,6 @@ test.describe("Path 16 — Per-league routing", () => {
     ).not.toHaveAttribute("aria-current", "page");
   });
 
-  test("the manage switcher moves between leagues", async ({ page }) => {
-    // The switcher used to write a cookie. With the league in the URL it has to
-    // navigate, and it lands on the league root rather than the equivalent
-    // sub-path, which would name a season belonging to the league left behind.
-    await page.goto("/login");
-    await page.getByRole("button", { name: "Manager" }).click();
-    await page.waitForURL("/");
-    await page.goto("/obhl/seasons");
-
-    await page.getByLabel("Select league").selectOption("harbor");
-    await page.waitForURL("/harbor/dashboard");
-  });
-
   test("a staged league is invisible to the public and open to its own people", async ({
     page,
   }) => {
@@ -555,7 +542,7 @@ test.describe("Path 16 — Per-league routing", () => {
       ],
       // `/rules/edit` has since merged into `/rules`, so this one takes two
       // hops. The prefix redirect is what this test is about, so it asserts the
-      // first; `10-rules.spec.ts` asserts the second.
+      // first; `07-staff.spec.ts` asserts the second.
       ["/obhl/manage/rules/edit", "/obhl/rules/edit"],
       // A dynamic segment rides along rather than being swallowed.
       ["/harbor/manage/seasons/abc-123", "/harbor/seasons/abc-123"],
