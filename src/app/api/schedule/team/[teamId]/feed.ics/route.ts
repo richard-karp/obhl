@@ -16,7 +16,7 @@ export async function GET(
 
   // Named for the league, so a subscriber with feeds from two of them can tell
   // the calendars apart. The event UIDs are deliberately untouched — they are
-  // subscription identity, and EXPORTS_HANDOFF §3 leans on their stability.
+  // subscription identity.
   const [games, league] = await Promise.all([
     getTeamFeedGames(teamId),
     publicLeagueOfTeam(teamId),

@@ -10,8 +10,9 @@ import { isAuthorizedCron, nightWindow } from "@/lib/games/close-night";
  * is the single definition of what "complete" means — it recomputes the score
  * from `game_rosters` and writes the audit entry. A plpgsql version scheduled
  * with `pg_cron` would be a SECOND definition, free to drift from the one the
- * scoresheet uses, and this codebase already insists on one write path
- * (`EXPORTS_HANDOFF` §2). The cost is that this only runs while the app is
+ * scoresheet uses, and this codebase already insists on one write path, per
+ * `RUNBOOK.md` → Schedule edits and exports. The cost is that this only runs
+ * while the app is
  * deployed; the benefit is that a game finalized by the sweep is byte-for-byte a
  * game finalized by a person.
  *

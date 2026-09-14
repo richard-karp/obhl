@@ -16,9 +16,8 @@ import { logAudit } from "@/lib/audit";
  * ⚠️ WHAT THIS FILE CANNOT COVER, so that nobody adds a fake and believes
  * otherwise: the advisory lock, the transaction, and the refusal logic all live
  * in SQL. `admin.rpc` here is a stub that returns whatever the test says. The
- * serialization evidence is the two-psql race in
- * `docs/superpowers/plans/2026-09-06-schedule-write-rpc.md`, against a real
- * Postgres. Vitest cannot see a lock.
+ * serialization evidence is the two-psql race recorded in `RUNBOOK.md` →
+ * Schedule edits and exports, against a real Postgres. Vitest cannot see a lock.
  */
 type RpcReply = { data: unknown; error: { message: string } | null };
 

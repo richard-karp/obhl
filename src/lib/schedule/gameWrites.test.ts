@@ -21,8 +21,8 @@ import {
  *
  * ⛔ WHAT REPLACED THEM IS NOT IN THIS FILE, AND THAT IS THE THING TO KNOW. The
  * behaviour those tests approximated is now proven against a real Postgres and
- * recorded in `docs/superpowers/plans/2026-09-06-schedule-write-rpc.md`: the
- * two-psql race (same season blocks at 3.54s, different seasons at 0.04s) and a
+ * recorded in `RUNBOOK.md` → Schedule edits and exports: the two-psql race
+ * (same season blocks at 3.54s, different seasons at 0.04s) and a
  * mid-batch FK violation leaving all 18 rows unchanged. **Vitest cannot see a
  * lock.** That is exactly how the old compensator passed three rounds of unit
  * tests with a lost-update bug in it, so do not add a fake here and believe it

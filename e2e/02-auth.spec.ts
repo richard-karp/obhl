@@ -178,8 +178,9 @@ test.describe("Path 6 — Auth / Login / Session", () => {
  * else; when the custom-access-token hook (0010) has not fired — it is enabled in
  * the Supabase dashboard, not by a migration, so a restored project simply does
  * not have it — the account signs in with `role: null` and every guard refuses
- * it while `profiles` says it is a manager. That is the standing lockout risk in
- * `LAUNCH_READINESS_HANDOFF.md`, and a test that only drove a working account
+ * it while `profiles` says it is a manager. That is the standing lockout risk
+ * that `RUNBOOK.md` → Deploy and operations → Setting up a hosted instance
+ * records under the auth hook, and a test that only drove a working account
  * would go green whether or not it was fixed.
  *
  * The claim is cleared by construction, not by editing a token: the hook injects

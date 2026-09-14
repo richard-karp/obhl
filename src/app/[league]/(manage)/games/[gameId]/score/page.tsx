@@ -75,8 +75,8 @@ export default async function ScoreGamePage({
   // RLS still lets a scorekeeper's own session update any game in a league they
   // belong to, bounded by `0046`'s trigger to the scoring columns. So this
   // refuses the PAGE, not the write — deliberately, and recorded in
-  // `ACCESS_CONTROL_HANDOFF.md` so nobody mistakes it for the usual
-  // guard-plus-policy pair this codebase writes.
+  // `RUNBOOK.md` → Access control → Scorekeeper day rule so nobody mistakes it
+  // for the usual guard-plus-policy pair this codebase writes.
   //
   // ⚠️ Refused to `/tonight`, NOT to `/` like every other guard here.
   // This one fires at 12:01am on a game somebody was halfway through, and a

@@ -11,9 +11,7 @@
  * ⚠️ AND THE SQL SIDE CARRIES NO POINTER BACK HERE. Adding one means a
  * migration, which is not worth a comment; so this is the asymmetry to know
  * about rather than one to fix. A view is the right home for this rule if it
- * ever gains a third consumer — see the plan under
- * `docs/superpowers/plans/2026-09-12-stats-logos-schedule-tabs-and-goalie-box.md`
- * for why it was not worth a deploy window for the second.
+ * ever gains a third consumer.
  *
  * ⛔ TWO FUNCTIONS, BECAUSE TWO CALLERS ASK DIFFERENT QUESTIONS. The box score
  * has a finished game and wants a stat line. The scoresheet's finalize guard

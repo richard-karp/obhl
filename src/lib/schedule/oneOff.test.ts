@@ -21,7 +21,8 @@ import { twoNightsPerWeek } from "./calendars.test-support";
 /**
  * A real generated season, converted to the planner's index-based shape. Eight
  * teams over three ice times means six of eight play each night — the reference
- * shape from SCHEDULE_HANDOFF.md, where byes are what make the problem hard.
+ * shape from `RUNBOOK.md` → Schedule generator, where byes are what make the
+ * problem hard.
  */
 function season(opts: { teams: number; weeks: number; gamesPerTeam: number }) {
   const ids = Array.from({ length: opts.teams }, (_, i) => `t${i + 1}`);

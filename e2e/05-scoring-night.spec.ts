@@ -549,8 +549,9 @@ test.describe("Path 21 — Captain sets goalie of record", () => {
  * scorekeeper's own session update any game in a league they belong to, bounded
  * by `0046`'s trigger to the scoring columns — so these tests are the ONLY thing
  * standing behind the rule, and there is no policy half to fall back on. That is
- * recorded in `ACCESS_CONTROL_HANDOFF.md`; it is repeated here because a reader
- * of this file might otherwise assume the usual guard-plus-policy pair.
+ * recorded in `RUNBOOK.md` → Access control → Scorekeeper day rule; it is
+ * repeated here because a reader of this file might otherwise assume the usual
+ * guard-plus-policy pair.
  *
  * ⚠️ EVERY TEST HERE DEPENDS ON THE "TONIGHT" FIXTURE. `supabase/seed.sql` seeds
  * one night of three games on the LEAGUE-LOCAL date — the only fixture that is

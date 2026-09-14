@@ -544,8 +544,9 @@ export function assignSlots(opts: SlotOptions): number[][] {
    * weekday*. Its per-weekday counts are then unchanged by construction, and
    * only the repeats and the swapped-with teams are left to score.
    *
-   * `SCHEDULE_HANDOFF.md` §5 predicted this — "a compound move that swaps slots
-   * across two nights at once, restoring each team's share in the same step".
+   * `RUNBOOK.md` → Schedule generator predicted this — "a compound move that
+   * swaps slots across two nights at once, restoring each team's share in the
+   * same step".
    *
    * Only started from a repeat that already exists, so the neighbourhood stays
    * proportional to the damage rather than to the season.

@@ -467,8 +467,9 @@ async function scoresheetGaps(
   // ⚠️ SO THEY FINALIZE WITHOUT THE WARNING, DELIBERATELY. A warning that
   // cannot be displayed must not quietly become a refusal: losing the game is
   // worse than losing the message. `finalizeGame` has no day limit of its own
-  // (the rule is page-level only — see `ACCESS_CONTROL_HANDOFF.md`), so this
-  // restores exactly the behaviour that existed before the gate.
+  // (the rule is page-level only — see `RUNBOOK.md` → Access control →
+  // Scorekeeper day rule), so this restores exactly the behaviour that existed
+  // before the gate.
   //
   // ⚠️ The predicate MIRRORS `score/page.tsx`'s and must keep mirroring it. If
   // that guard changes, a refusal here starts pointing at a door again.

@@ -26,7 +26,7 @@ export function buildIcs(games: IcsGame[], calName: string): string {
         // Do not "fix" it: the UID is subscription identity, so changing it
         // drops and re-adds every event in a subscriber's calendar (losing
         // their reminders) and duplicates them for anyone who downloaded the
-        // one-time file. EXPORTS_HANDOFF §3 leans on this staying stable.
+        // one-time file.
         uid: `game-${g.id}@obhl`,
         start: [
           d.getUTCFullYear(),

@@ -172,8 +172,8 @@ export async function sendPasswordReset(
  *
  * ⚠️ The cost of that choice is that a stolen session can set a password and
  * outlive itself. `secure_password_change` is the dashboard control that would
- * demand reauthentication; it is unread on production, and step 1f of item 7 in
- * `LAUNCH_READINESS_HANDOFF.md` is where that is recorded.
+ * demand reauthentication; it is unread on production, per `RUNBOOK.md` →
+ * Deploy and operations → Open ops items.
  *
  * ⚠️ The floor is checked HERE as well as by the browser's `minLength`, and
  * before Supabase gets a say — see `@/lib/auth/password` for why the number

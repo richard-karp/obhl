@@ -300,8 +300,9 @@ test.describe("Path 4 — Schedule and game detail", () => {
     // ⛔ THE CALENDAR NAME, NOT JUST THE TEAM NAME. A bare `toContain("Ducks")`
     // is already satisfied by the SUMMARY lines above, so it would stay green if
     // the calendar stopped naming the team altogether — and that name is the
-    // whole reason a filtered export is allowed to exist (EXPORTS_HANDOFF §3).
-    // This is what a subscriber sees in their calendar app's sidebar.
+    // whole reason a filtered export is allowed to exist, per `RUNBOOK.md` →
+    // Schedule edits and exports. This is what a subscriber sees in their
+    // calendar app's sidebar.
     expect(unfold(ducksIcsBody)).toContain("— Ducks Schedule");
     expect(unfold(allIcsBody)).not.toContain("— Ducks Schedule");
     expect(ducksIcsRes.headers()["content-disposition"]).toContain(
@@ -312,7 +313,7 @@ test.describe("Path 4 — Schedule and game detail", () => {
     // league. `buildIcs` always took the name as an argument, but the routes
     // passed a literal, so both leagues' feeds arrived in a subscriber's
     // calendar app called "OBHL Schedule". The event UIDs are deliberately
-    // unchanged — see EXPORTS_HANDOFF §3.
+    // unchanged.
     const db = admin();
     for (const slug of ["harbor", "obhl"]) {
       const { data: league } = await db

@@ -145,8 +145,8 @@ function chooseWeekdayByeTargets(
    *
    * ⛔ **With no constraints this function must behave bit-identically to how it
    * did before constraints existed.** It runs on every generation, and the
-   * headline acceptance bar is that the nine metrics in `SCHEDULE_HANDOFF.md`
-   * §1 are unchanged when nothing is constrained. So every new behaviour below
+   * headline acceptance bar is that the metrics in `RUNBOOK.md` → Schedule
+   * generator are unchanged when nothing is constrained. So every new behaviour below
    * is reached only through this argument being present, and when it is absent
    * `weightOf` returns 1 for every team and the bounds are the original ones —
    * not "equivalent", the same expressions.

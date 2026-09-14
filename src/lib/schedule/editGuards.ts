@@ -43,7 +43,7 @@ const identity: NameOf = (id) => id;
  * So the guard now refuses what the write path refuses, and says so honestly.
  * ⚠️ Widening belongs to the schedule-write RPC — it rewrites that pre-flight,
  * and doing it here first means writing it twice. Decided with the user
- * 2026-09-07. See `docs/superpowers/plans/2026-09-06-schedule-write-rpc.md`.
+ * 2026-09-07. See `RUNBOOK.md` → Schedule edits and exports.
  *
  * `final` is refused whether or not goals exist: a 0-0 final holds none and is
  * still a played game.

@@ -49,8 +49,8 @@ export async function finalizeGameById(
    *
    *  - the UPDATE below matches ZERO rows and returns NO error, because the
    *    `games` write policies are `to authenticated`. That is the trap this
-   *    file's own docblock and `ACCESS_CONTROL_HANDOFF.md` both name: an
-   *    RLS-refused UPDATE is not an error, so `check()` sails through.
+   *    file's own docblock and `RUNBOOK.md` → Access control → Traps both
+   *    name: an RLS-refused UPDATE is not an error, so `check()` sails through.
    *  - `logAudit` writes on the ADMIN client regardless, so a `finalize_game`
    *    entry lands in the league's audit log for a game that was never
    *    finalized.

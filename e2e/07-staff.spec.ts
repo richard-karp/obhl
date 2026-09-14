@@ -848,7 +848,7 @@ test.describe("Path 20 — League Office", () => {
   /**
    * ⛔ THE GUARD THAT MATTERS, and the one an absent button does not provide.
    *
-   * `ACCESS_CONTROL_HANDOFF.md`'s *Traps* section: every export of a
+   * `RUNBOOK.md` → Access control → Traps: every export of a
    * `"use server"` file is a callable endpoint, and a control rendered only for a
    * commissioner is a rendering decision, not a restriction. So this replays the
    * commissioner's own submit — verbatim, with only the password swapped — from a

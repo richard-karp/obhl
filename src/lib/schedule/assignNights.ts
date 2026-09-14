@@ -253,9 +253,7 @@ const PHASE_PM_ALLOWANCE_MS = 1_500;
 // fixture (asserted <= 6) that 4/6000 reached — dropping further to steps=1000
 // or restarts=2/3 measurably breaks that bound (worst team jumps to 8). The
 // allowance rounds the measured ~1.4 s up the same way `PHASE_PM_ALLOWANCE_MS`
-// rounds its ~1.3 s. The full sweep, and the quality CLIFF between steps 1500 and
-// 1000 (worst team 4 -> 8, with nothing in between), are in
-// `docs/superpowers/specs/2026-09-09-ice-time-clustering-design.md`.
+// rounds its ~1.3 s.
 const NIGHT_ORDER_ALLOWANCE_MS = 1_500;
 /**
  * ⚠️ NO `constrained` FLAG ANY MORE. It used to subtract the night-order
@@ -1986,7 +1984,7 @@ function assignNightsOnce(
   // league's own priority order, and the manager sees what it cost in the
   // metrics beside the request. Asking for something is what buys that trade —
   // an UNCONSTRAINED generation still runs the rank-off untouched, which is what
-  // keeps `SCHEDULE_HANDOFF.md` §1 true.
+  // keeps `RUNBOOK.md` → Schedule generator true.
   //
   // ⚠️ THIS IS NOT A GENERAL CURE. Two neighbouring limits decide far more
   // often than this branch does, and a "could not be met" is usually one of

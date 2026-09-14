@@ -10,10 +10,11 @@ import {
 } from "./spacing";
 
 /**
- * `SCHEDULE_HANDOFF.md` §5: rescaling `MULT_W` or the `SPACING_W` rematch
- * weights requires rescaling `oneOff.ts`'s churn term in the SAME change, or the
- * repair's sense of a costly move drifts out of step with generation's —
- * quietly, with a plausible-looking schedule. Nothing covered that.
+ * `RUNBOOK.md` → Schedule generator: rescaling `MULT_W` or the `SPACING_W`
+ * rematch weights requires rescaling `oneOff.ts`'s churn term in the SAME
+ * change, or the repair's sense of a costly move drifts out of step with
+ * generation's — quietly, with a plausible-looking schedule. Nothing covered
+ * that.
  */
 describe("MULT_W / SPACING_W / CHURN_W coupling", () => {
   // ⚠️ These ratios are pinned so that changing ONE SIDE IS DELIBERATE. They are

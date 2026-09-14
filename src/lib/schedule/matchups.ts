@@ -34,7 +34,7 @@ export const MULT_W = 50_000;
  * not represent rather than by weight — see `compoundPass`. 5 sits mid-band.
  * Anything above it needs the rematch metrics re-measured — and raising it past
  * `oneOff`'s `CHURN_W.SPACING` scale means re-checking mid-season repair churn
- * in the same change (`SCHEDULE_HANDOFF.md` §5).
+ * in the same change (`RUNBOOK.md` → Schedule generator).
  */
 const WD_SPLIT_W = 5;
 /**

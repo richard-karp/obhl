@@ -1455,7 +1455,7 @@ test.describe("Path 28 — manual schedule edits", () => {
    *
    * ⚠️ SO THIS TESTS THE BACKSTOP, NOT THE GUARD. Playwright cannot post a Next
    * server action — the action id is a build artefact — so what is asserted
-   * here is the RLS half from `ACCESS_CONTROL_HANDOFF.md`.
+   * here is the RLS half from `RUNBOOK.md` → Access control.
    *
    * ⛔ THIS WAS A `fixme` FOR ONE COMMIT, AND THE REASON IS WORTH KEEPING. It
    * failed when written: a scorekeeper's own anon-key session cancelled a

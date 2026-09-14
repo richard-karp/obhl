@@ -134,7 +134,7 @@ export type SetPasswordState = { ok: boolean; message: string } | null;
  * for a commissioner. A form action is an endpoint reachable by anyone who can
  * construct the request — the office page renders this card only for a
  * commissioner, and that is a convenience, not a restriction. This is the exact
- * failure mode `ACCESS_CONTROL_HANDOFF.md`'s *Traps* section is about, and
+ * failure mode `RUNBOOK.md` → Access control → Traps is about, and
  * `league-guards.test.ts` fails the build for any office action that skips it.
  *
  * ⛔ NEVER ANOTHER COMMISSIONER. Setting a password is taking the account over,

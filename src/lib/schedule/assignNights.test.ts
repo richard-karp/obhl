@@ -31,8 +31,7 @@ function nights(count: number, slots = ["19:00", "20:15", "21:30"]): Night[] {
 // pin OBHL_SLOT_RESTARTS to 2000 while `assignNights.ts` defaulted to 20000, so
 // every quality bound below was a claim about a program nobody ran: at 20000 the
 // two ice-time clustering tests in this file fail with "expected 13 to be less
-// than or equal to 6". Measured 2026-09-09; see
-// `docs/superpowers/specs/2026-09-09-schedule-variations-design.md` §1.
+// than or equal to 6". Measured 2026-09-09; see `RUNBOOK.md` → Standing gates.
 //
 // A test config may raise a TIMEOUT. It may not override a constant that shapes
 // the search.
@@ -181,8 +180,8 @@ describe("assignNights — full-season reference schedule", () => {
 // is the shape where night order is free to move. Measured 2026-09-09: without
 // the pass the worst team carries 14 clustered windows.
 // Six seeds gave six distinct schedules when this was measured (see
-// `docs/superpowers/specs/2026-09-09-schedule-variations-design.md` §4). Two is
-// all this needs to assert: that the lever is connected at all.
+// `RUNBOOK.md` → Schedule generator). Two is all this needs to assert: that the
+// lever is connected at all.
 //
 // ⛔ Compares `scheduledAt`, the only positional field that is persisted.
 // Comparing `nightIndex` would pass against a generator that changed nothing a

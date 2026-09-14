@@ -69,7 +69,7 @@ export async function saveRules(leagueId: string, content: unknown) {
   // Two conditions, both deliberate.
   //
   // `saved` rather than `!error`: a write refused at the policy level in this
-  // area need not set `error` (see the traps in ACCESS_CONTROL_HANDOFF.md), and
+  // area need not set `error` (see `RUNBOOK.md` → Access control → Traps), and
   // an audit entry for a save that did not happen is worse than none.
   // `requireLeagueManager` above should make that unreachable — this stops the
   // entry's truthfulness resting on that guard alone.

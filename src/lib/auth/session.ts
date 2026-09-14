@@ -25,7 +25,8 @@ export type SessionUser = {
  * environment can simply not have it — the account signs in with `role: null`
  * and `requireRole` refuses it at every manage page: present in `profiles` with
  * the right role, locked out of the tools, and no error anywhere. That is the
- * standing lockout risk in `LAUNCH_READINESS_HANDOFF.md`.
+ * standing lockout risk that `RUNBOOK.md` → Deploy and operations → Setting up
+ * a hosted instance records under the auth hook.
  *
  * Fixing it here rather than in the hook is a choice: this repairs tokens that
  * have ALREADY been issued, needs no dashboard action, and cannot break sign-in

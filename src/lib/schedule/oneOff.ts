@@ -212,8 +212,9 @@ export type PlanOneOffOptions = {
    * this line.
    *
    * *Why `slot_on` IS honoured:* the repair re-slots every unfrozen night, and
-   * `SCHEDULE_HANDOFF.md` §3 already records the shape of this hazard — a repair
-   * that omits `weekdayOfNight` silently undoes what generation achieved. A
+   * `RUNBOOK.md` → Schedule edits and exports already records the shape of this
+   * hazard — a repair that omits `weekdayOfNight` silently undoes what
+   * generation achieved. A
    * repair that silently re-slots a pinned game is the same failure with a
    * manager's explicit instruction as the casualty, and it would show up in week
    * nine as a pin that quietly stopped meaning anything.

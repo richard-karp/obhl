@@ -163,7 +163,7 @@ test("scorekeeper cannot reach /schedule-builder", async ({ page }) => {
  * generator's `OBHL_SLOT_BUDGET_MS` (5s). That is one budget short of what a
  * generate actually spends: `assignNights` runs Phase S at FIVE candidates —
  * 160, 140 on three seeds, then 200 — each on its own budget, so the search
- * alone can reach ~25s before anything renders (SCHEDULE_HANDOFF §5).
+ * alone can reach ~25s before anything renders (`RUNBOOK.md` → Schedule generator).
  *
  * The gap hid because generate time is hardware-bound: this file's spacing test
  * takes ~3s on a laptop, ~10s on a quiet CI runner, and blew the 15s ceiling on
@@ -446,7 +446,7 @@ test.describe("Path 17 — Schedule Builder", () => {
  * ⛔ COMPUTED, NOT PINNED. This used to be the literal `"2026-09-22"`, which
  * only worked because the old `FIRST_NIGHT` was the literal `"2026-09-15"` —
  * exactly a week earlier and also a Tuesday. `fallStart()` is guaranteed a
- * Tuesday (SCHEDULE_HANDOFF), so a week after it is always a Tuesday too, but
+ * Tuesday, so a week after it is always a Tuesday too, but
  * the calendar date itself moves with the clock. A test that names a slot_on
  * request by an absolute date has to derive that date from the same anchor
  * the generate form uses, or the request lands outside the generated season.
