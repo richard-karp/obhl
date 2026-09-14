@@ -217,26 +217,41 @@ export async function createTeamForSeason(
         };
       }
 
-      // An existing account keeps its role: `profiles.role` is account-wide, so
-      // writing "captain" here would demote a manager or scorekeeper in every
-      // league they work. Same rule as `createStaffAccount` in people.ts.
+      // An existing account keeps its profile, the same rule as
+      // `createStaffAccount` in people.ts. `profiles.role` is account-wide, so
+      // writing "captain" would demote a manager or scorekeeper in every league
+      // they work; and `is_captain_of` (0038) reads `player_id` alone, so
+      // pointing an existing captain at this new player would end the captaincy
+      // they already hold. A different role is refused, an existing captain is
+      // only added to this league, and only a login with no role is written.
       if (uErr) {
         const { data: existing } = await admin
           .from("profiles")
           .select("role")
           .eq("id", userId)
           .maybeSingle();
-        const refusal =
-          existing?.role && existing.role !== "captain"
-            ? `${captainEmail} already has an account as ${existing.role.replace("league_", "")}, and a role is account-wide, so it was left unchanged`
-            : !(await mayWriteProfileOf(manager.id, userId))
-              ? `${captainEmail} already has an account in a league you don't manage, so it was left unchanged`
-              : null;
-        if (refusal) {
+        if (existing?.role && existing.role !== "captain") {
           revalidatePath("/[league]/seasons/[seasonId]", "page");
           return {
             ok: false,
-            message: `Added ${name} with captain ${captainName}, but ${refusal}.`,
+            message: `Added ${name} with captain ${captainName}, but ${captainEmail} already has an account as ${existing.role.replace("league_", "")}, and a role is account-wide, so it was left unchanged.`,
+          };
+        }
+        if (existing?.role === "captain") {
+          const granted = await addLeagueMembership(userId, season.league_id);
+          revalidatePath("/[league]/seasons/[seasonId]", "page");
+          return {
+            ok: false,
+            message: granted.ok
+              ? `Added ${name} with captain ${captainName}, but ${captainEmail} already captains through another player. Their login was added to this league and left linked, so it does not captain ${name}.`
+              : `Added ${name} with captain ${captainName}, but ${captainEmail} already captains through another player, and couldn't be given access to this league (${granted.error}).`,
+          };
+        }
+        if (!(await mayWriteProfileOf(manager.id, userId))) {
+          revalidatePath("/[league]/seasons/[seasonId]", "page");
+          return {
+            ok: false,
+            message: `Added ${name} with captain ${captainName}, but ${captainEmail} already has an account in a league you don't manage, so it was left unchanged.`,
           };
         }
       }
