@@ -31,7 +31,7 @@ schedule building and rules. One instance serves several leagues. Production is
 - ⛔ **A test config may raise a timeout, never set a search constant:** the suite
   then tests a search production never runs (evidence in `AGENTS.md`).
 - ⛔ **e2e resets the one shared local database:** always run
-  `PORT=<port> scripts/e2e-locked.sh <files>`, with a distinct `PORT` per worktree.
+  `PORT=<port> scripts/e2e-locked.sh <files>`; a `PORT` shared with another worktree silently tests its server.
 - ⛔ **CI runs the full e2e split across two machines; every spec must be in
   exactly one list in `.github/workflows/ci.yml`,** or it silently stops running.
 - `14-schedule-changes` stays off `05-scoring-night`'s machine. CI tests the merge
