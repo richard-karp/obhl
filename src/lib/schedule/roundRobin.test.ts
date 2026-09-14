@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  roundRobin,
-  roundRobinRounds,
-  buildBalancedPairings,
-  BYE,
-} from "./roundRobin";
+import { roundRobinRounds, buildBalancedPairings, BYE } from "./roundRobin";
 
 const teams = (n: number) => Array.from({ length: n }, (_, i) => `t${i + 1}`);
 const pairKey = (a: string, b: string) => [a, b].sort().join("|");
@@ -18,10 +13,10 @@ function gamesPerTeam(ps: { home: string; away: string }[]) {
   return gp;
 }
 
-describe("roundRobin", () => {
+describe("roundRobinRounds — whole cycles", () => {
   it("6 teams single: 15 games, each pair once, no byes, 5 games each", () => {
     const ts = teams(6);
-    const ps = roundRobin(ts, 1);
+    const ps = roundRobinRounds(ts, 5);
     expect(ps.length).toBe(15);
     for (const p of ps) {
       expect(p.home).not.toBe(p.away);
@@ -40,7 +35,7 @@ describe("roundRobin", () => {
   });
 
   it("6 teams double: 30 games, each pair exactly twice", () => {
-    const ps = roundRobin(teams(6), 2);
+    const ps = roundRobinRounds(teams(6), 10);
     expect(ps.length).toBe(30);
     const counts = new Map<string, number>();
     for (const p of ps) {
@@ -53,7 +48,7 @@ describe("roundRobin", () => {
 
   it("7 teams (odd): bye team excluded, each pair once, 6 games each", () => {
     const ts = teams(7);
-    const ps = roundRobin(ts, 1);
+    const ps = roundRobinRounds(ts, 7);
     expect(ps.length).toBe(21);
     for (const p of ps) {
       expect(p.home).not.toBe(BYE);
@@ -79,12 +74,6 @@ describe("roundRobinRounds", () => {
     }
     const vals = [...counts.values()];
     expect(Math.max(...vals) - Math.min(...vals)).toBeLessThanOrEqual(1);
-  });
-
-  it("a whole number of cycles equals roundRobin(cycles)", () => {
-    // 6 teams -> 5 rounds per cycle.
-    expect(roundRobinRounds(teams(6), 5)).toEqual(roundRobin(teams(6), 1));
-    expect(roundRobinRounds(teams(6), 10)).toEqual(roundRobin(teams(6), 2));
   });
 
   it("odd teams: games per team differ by at most 1", () => {

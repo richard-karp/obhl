@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { roundRobin, buildBalancedPairings } from "./roundRobin";
+import { roundRobinRounds, buildBalancedPairings } from "./roundRobin";
 import { assignNights, type Night } from "./assignNights";
 import { spacingReport } from "./spacing";
 import {
@@ -43,7 +43,11 @@ it("runs Phase S at the production default, not a test-only one", () => {
 describe("assignNights", () => {
   it("schedules all 6-team games, no team twice a night, 5 games each", () => {
     const ts = teams(6);
-    const { games, report } = assignNights(roundRobin(ts, 1), nights(5), ts);
+    const { games, report } = assignNights(
+      roundRobinRounds(ts, 5),
+      nights(5),
+      ts,
+    );
     expect(report.unscheduled).toBe(0);
     expect(games.length).toBe(15);
 
@@ -61,7 +65,11 @@ describe("assignNights", () => {
 
   it("handles 7 teams (byes) without scheduling a team twice a night", () => {
     const ts = teams(7);
-    const { games, report } = assignNights(roundRobin(ts, 1), nights(11), ts);
+    const { games, report } = assignNights(
+      roundRobinRounds(ts, 7),
+      nights(11),
+      ts,
+    );
     expect(report.unscheduled).toBe(0);
     const perNight = new Map<number, Set<string>>();
     for (const g of games) {
@@ -78,7 +86,11 @@ describe("assignNights", () => {
   it("balances games per night-of-week across two weekly nights (max-min <= 1)", () => {
     const ts = teams(6);
     // 6-team double = 10 rounds; Tue+Thu for 5 weeks = 10 nights × 3 slots.
-    const { report } = assignNights(roundRobin(ts, 2), twoNightsPerWeek(5), ts);
+    const { report } = assignNights(
+      roundRobinRounds(ts, 10),
+      twoNightsPerWeek(5),
+      ts,
+    );
     expect(report.unscheduled).toBe(0);
     expect(report.weekdays.length).toBe(2);
     for (const n of report.nightShareByTeam) {
@@ -90,7 +102,7 @@ describe("assignNights", () => {
 
   it("reports unscheduled games when capacity is insufficient", () => {
     const ts = teams(6);
-    const { report } = assignNights(roundRobin(ts, 1), nights(2), ts);
+    const { report } = assignNights(roundRobinRounds(ts, 5), nights(2), ts);
     expect(report.unscheduled).toBeGreaterThan(0);
     expect(report.totalScheduled).toBeLessThan(15);
   });

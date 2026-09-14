@@ -476,7 +476,6 @@ export async function mergePlayers(
 
   revalidatePath("/[league]/people/duplicates", "page");
   revalidatePath("/[league]/teams/[slug]", "page");
-  revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]", "layout");
 
   const kept = names.get(keepId) ?? "the record";

@@ -623,7 +623,6 @@ async function movePlayerToTeam(opts: {
   // shows on BOTH rosters until something unrelated invalidates the cache —
   // which looks exactly like the bug this feature exists to prevent.
   revalidatePath("/[league]/teams/[slug]", "page");
-  revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/stats", "page");
   revalidatePath("/[league]", "layout");
 
@@ -980,7 +979,6 @@ export async function updateRosterPlayer(
   // The number and position show on the public team page and in the stats
   // tables, not only on this page.
   revalidatePath("/[league]/teams/[slug]", "page");
-  revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/stats", "page");
   return { ok: true, message: `Updated ${name ?? "the player"}.` };
 }
@@ -1087,7 +1085,6 @@ export async function updatePlayerName(
   // person plays in, and `revalidatePath` with a route pattern plus a type
   // invalidates every URL matching it — so this clears the other leagues' pages
   // too, which naming one league's concrete paths would not.
-  revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/stats", "page");
   revalidatePath("/[league]/players/[playerId]", "page");

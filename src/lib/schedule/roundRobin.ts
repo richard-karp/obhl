@@ -60,12 +60,6 @@ export function roundRobinRounds(
   return pairings;
 }
 
-export function roundRobin(teamIds: string[], cycles = 1): Pairing[] {
-  const effective = teamIds.length + (teamIds.length % 2); // + dummy BYE if odd
-  if (effective < 2) return [];
-  return roundRobinRounds(teamIds, cycles * (effective - 1));
-}
-
 /**
  * A balanced set of pairings where every team plays (at least) `gamesPerTeam`
  * games, opponents as equal as possible. Even leagues hit the target exactly;
