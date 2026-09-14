@@ -400,15 +400,8 @@ test.describe("Path 16 — League Rules", () => {
     );
   });
 
-  test("the old /rules/edit URL still lands on the merged page", async ({
-    request,
-  }) => {
-    const res = await request.get("/obhl/rules/edit", { maxRedirects: 0 });
-    expect(res.status()).toBe(308);
-    expect(
-      new URL(res.headers()["location"], "http://localhost").pathname,
-    ).toBe("/obhl/rules");
-  });
+  // The old `/obhl/rules/edit` → `/obhl/rules` redirect is asserted in
+  // `09-access.spec.ts`'s "every legacy URL still lands on its page".
 });
 
 /**

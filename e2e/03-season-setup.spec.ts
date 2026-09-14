@@ -627,14 +627,9 @@ test.describe("who may create a league", () => {
 });
 
 test.describe("the page belongs to no league", () => {
-  test("the old per-league URL redirects here", async ({ page }) => {
-    await signInAs(page, "Manager");
-    // `/:league/import` → `/manage/leagues/new`, for every league, since the
-    // page never belonged to any of them.
-    await page.goto("/obhl/import");
-    await expect(page).toHaveURL(NEW_LEAGUE);
-    await expect(heading(page)).toBeVisible();
-  });
+  // The old `/:league/import` → `/manage/leagues/new` redirect (for every
+  // league, since the page never belonged to any of them) is asserted in
+  // `09-access.spec.ts`'s "every legacy URL still lands on its page".
 
   test("the root page offers it to a manager who belongs to nothing", async ({
     page,
