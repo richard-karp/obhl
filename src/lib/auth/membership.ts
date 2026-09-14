@@ -7,36 +7,16 @@ import { leaguesOfPlayer } from "@/lib/league/of-entity";
 import type { LeagueOption } from "@/lib/league/current";
 
 /**
- * League membership — `profile_leagues` (0032). Roles say *what* an account may
- * do; membership says *where*. Both have to hold, and neither implies the other.
- *
- * Read on the admin client on purpose. This is the check that decides whether
- * the caller may see a league at all, so it must not itself be answered through
- * policies that depend on the answer — and every manage page and action that
- * asks already runs privileged reads. RLS is the second, independent half:
- * 0032 puts the same membership test into the policies, so a session hitting
- * PostgREST directly is refused even where no app guard runs.
- *
- * Memoized per request: a page, its layout and the action it submits to all ask
- * the same question, and the answer cannot change mid-render.
- *
- * THE OFFICE BRANCH IS THE ONE EDIT THAT DELIVERS CROSS-LEAGUE REACH APP-SIDE.
- * Everything downstream is fed from here — `isLeagueMember` (so every guard),
- * `getMemberLeagues` (the switcher), `mayWriteProfileOf`, and the People page's
- * viewer set — so widening it here widens all of them at once, and there is no
- * second place to keep in step. It mirrors the `my_office_tier() is not null`
- * branch inside 0034's `is_league_member`.
- *
- * "Every league, present and future" is resolved at call time rather than
- * stored, which is the whole reason 0034 rejected giving the office real
- * `profile_leagues` rows: a league created later is included by construction
- * instead of by remembering to backfill it.
+ * Admin client on purpose: this decides what the caller may see, so it must not be
+ * answered through policies that depend on it. `0032` is the independent RLS half.
  */
 export const memberLeagueIds = cache(async function memberLeagueIds(
   profileId: string,
 ): Promise<string[]> {
   const admin = createAdminClient();
 
+  // This office branch feeds every guard, the switcher and `mayWriteProfileOf`, and
+  // mirrors `0034`'s `is_league_member`. Reach is resolved here, never stored as rows.
   if (await officeTierOf(profileId)) {
     const { data } = await admin.from("leagues").select("id");
     return (data ?? []).map((r) => r.id);
@@ -49,7 +29,6 @@ export const memberLeagueIds = cache(async function memberLeagueIds(
   return (data ?? []).map((r) => r.league_id);
 });
 
-/** Is this profile a member of this league? A blank league id is never a yes. */
 export async function isLeagueMember(
   profileId: string,
   leagueId: string | null | undefined,
@@ -59,29 +38,8 @@ export async function isLeagueMember(
 }
 
 /**
- * The leagues this profile belongs to, for the staff row's switcher and for the
- * picker's "leagues you can reach" list.
- *
- * ⚠️ `is_public` IS SELECTED AND RETURNED, and the picker must use it rather
- * than inferring publication from absence in `getPublicLeagues`. Those two are
- * NOT the same fact: that read discards nothing now, but it returns `[]` on a
- * failure and is subject to PostgREST's `max_rows` (1000, `config.toml`), so an
- * absence can mean "read failed" or "truncated" as easily as "not public" — and
- * the inference fails in the harmful direction, badging a published league as
- * staged. The extra column is why the return type is wider than `LeagueOption`;
- * consumers that want only the three fields are unaffected.
- *
- * The office is answered directly rather than through `memberLeagueIds`, which
- * for an office member selects every league id only for this function to ask the
- * same table again for the rows behind them.
- *
- * ⚠️ MEMOIZED PER REQUEST, and that is no longer a nicety. `[league]/layout.tsx`
- * calls this for every member on EVERY page under `/<league>`, public pages
- * included — it used to run only on the manage pages, where one uncached admin
- * query per render was invisible. `memberLeagueIds` and `officeTierOf` beneath
- * it are already `cache()`-wrapped, so without this the surrounding comment's
- * claim that "both lookups are memoized" was true of the lookups and false of
- * this.
+ * ⚠️ Returns `is_public`: absence from `getPublicLeagues` can be a failed read, not
+ * staging. Memoized: `[league]/layout.tsx` calls it on every page under `/<league>`.
  */
 export const getMemberLeagues = cache(async function getMemberLeagues(
   profileId: string,
@@ -105,62 +63,8 @@ export const getMemberLeagues = cache(async function getMemberLeagues(
 });
 
 /**
- * May this actor rewrite the profile of an account that already exists?
- *
- * The app-side twin of 0034's `may_write_profile`, and needed because
- * `people.ts` writes on the ADMIN client — no policy runs on that path.
- * `profiles.role` is one instance-wide column (0009 reads it as the role source,
- * 0010's hook copies it into the JWT), so a write here lands in EVERY league the
- * account belongs to, not only the league the form was submitted from.
- *
- * ⚠️ THIS AND `may_write_profile` (0034) ARE ONE RULE WRITTEN TWICE, and must be
- * reviewed as a pair: the same branches, in the same order. They are the app half
- * and the RLS half of the same question.
- *
- * That question is WHO MAY WRITE THIS PROFILE, and the pair is exhaustive of it.
- * It is not exhaustive of every constraint on a profile write: 0034's triggers
- * separately pin one COLUMN's value while a tier is held, so a commissioner who
- * passes this test may still write a deputy's `display_name` or `player_id` and
- * still be refused their `role` until the tier is removed. Two different
- * questions, not a contradiction — but do not read agreement here as permission
- * for any particular column.
- *
- * The rule: YOU MAY WRITE A PROFILE ONLY IF YOUR TIER IS STRICTLY ABOVE THEIRS.
- * Commissioner over everyone but a commissioner; deputy over everyone outside
- * the office; a league manager over tier-0 accounts whose leagues theirs
- * contain. Peers fail at every tier, which is "peers" stated once instead of
- * three times.
- *
- * ⛔ The office is refused EXPLICITLY at tier 0 rather than left to containment.
- * The two halves fail in OPPOSITE directions here, which is exactly why they are
- * written twice and read together:
- *
- *   - In SQL, `contains_leagues_of` reads `profile_leagues` directly. An office
- *     member has no rows, so "is there a league of theirs that is not mine" is
- *     vacuously true and containment PASSES for any caller — the escalation
- *     0034 was probed for.
- *   - Here, `memberLeagueIds` answers for the office with EVERY league, so
- *     containment happens to FAIL instead.
- *
- * Relying on either accident would leave the halves agreeing by luck. The tier
- * comparison below is the actual rule; containment is only the tier-0 test.
- *
- * ⚠️ THE OFFICE BRANCHES HERE ARE UNREACHABLE FROM TODAY'S CALL SITES, and that
- * is worth knowing before trusting them. `updateStaffRole` checks `isMemberOf`
- * first, and an office member has no membership row; if one did — a promoted
- * manager keeps theirs — the demotion guard would fire next, because every
- * office member is a `league_manager`. `createStaffAccount` returns earlier
- * still for any account that already holds a role. Watched: stubbing this
- * function to `true` leaves the e2e forgery still refused.
- *
- * Keep them anyway. This is one half of a mirrored pair, and the mirror is the
- * invariant — the RLS half IS reachable, by any session addressing PostgREST
- * directly, and that is the half trap (b) was about. The rule itself is covered
- * by `precedence.test.ts`.
- *
- * An account in no league and no tier passes containment vacuously, which is
- * what keeps "removed by mistake, add them back" working: `removeStaff` revokes
- * the membership and leaves exactly that shape.
+ * ⚠️ One rule with `0034`'s `may_write_profile` (`people.ts` writes on the admin client):
+ * keep every branch, even ones today's callers can't reach, and review the two as a pair.
  */
 export async function mayWriteProfileOf(
   actorId: string,
@@ -171,8 +75,8 @@ export async function mayWriteProfileOf(
     officeTierOf(profileId),
   ]);
 
-  // Containment is the tier-0 test only, so it is not worth two more queries at
-  // an office tier — `decideProfileWrite` ignores the argument there.
+  // ⛔ The office is decided by tier, never containment: in SQL containment passes for an
+  // office member vacuously (no rows), and here it fails. Neither accident is the rule.
   if (mineTier !== null) return decideProfileWrite(mineTier, theirTier, false);
   if (theirTier !== null) return decideProfileWrite(null, theirTier, false);
 
@@ -188,43 +92,16 @@ export async function mayWriteProfileOf(
 }
 
 /**
- * May this actor rewrite a PLAYER — the global person row, not a roster row?
- *
- * ⛔ NOT `mayWriteProfileOf`, AND NOT REDUCIBLE TO IT. That function answers who
- * may write a *profile*: two office tiers plus a profile-to-profile containment
- * test, over `profiles`/`league_office`. A player is not an account. It has no
- * role, no tier and no `profile_leagues` row, so three of that function's four
- * branches have nothing to evaluate. The same shape of question, a different
- * subject.
- *
- * The rule, mirroring 0033's containment: A MANAGER MAY RENAME A PLAYER ONLY
- * WHEN EVERY LEAGUE THAT PLAYER PLAYS IN IS A LEAGUE THE MANAGER ALSO WORKS.
- * `players` is global (0002_core.sql:43) — one human, one row, in every league
- * they play — so a rename lands everywhere that person appears, including
- * leagues the manager has never seen.
- *
- * ⛔ `memberLeagueIds`, NEVER A DIRECT `profile_leagues` QUERY. An office member
- * has NO `profile_leagues` rows at all — 0034 makes their reach a rule rather
- * than data — so a direct query returns zero leagues and containment fails for
- * them. That would refuse the commissioner: precisely the person the refusal
- * message below sends the manager to, unable to do the thing they were sent to
- * do. `memberLeagueIds` answers the office with every league (its office
- * branch), so containment passes there by construction.
- *
- * A player nobody has rostered contains no leagues and passes vacuously — the
- * same shape `mayWriteProfileOf` relies on for an account in no league, and what
- * keeps a person just created on this page editable by whoever created them.
- *
- * The accepted cost, decided rather than overlooked: a single-league manager
- * cannot fix a typo on a player who also plays elsewhere. `updatePlayerName`
- * refuses out loud and names the League Office. It does not fail silently, and
- * there is no partial rename to fall back to — there is one row.
+ * ⛔ Not `mayWriteProfileOf`: `players` is global, so a rename lands in every league the
+ * player plays, and each must be the actor's. An unrostered player passes vacuously.
  */
 export async function mayWritePlayer(
   actorId: string,
   playerId: string,
 ): Promise<boolean> {
   const admin = createAdminClient();
+  // ⛔ `memberLeagueIds`, never a direct `profile_leagues` query: office members have no
+  // rows, so it would refuse the commissioner the refusal message sends managers to.
   const [mine, theirs] = await Promise.all([
     memberLeagueIds(actorId),
     leaguesOfPlayer(playerId, admin),
@@ -233,21 +110,8 @@ export async function mayWritePlayer(
 }
 
 /**
- * May this actor link THIS player to an account made from this league?
- *
- * ⛔ CONTAINMENT, NOT OVERLAP. `is_captain_of` (0038) and the `game_rosters`
- * captain policies authorize from `profiles.player_id` alone — they never ask
- * which league the account was made in. A player rostered here AND in a league
- * the actor does not work would hand that league's lineup writes to the new
- * login, through the ordinary form. "Rostered in this league" was the first
- * version of this check, and let exactly that through.
- *
- * The rule is `mayWritePlayer`'s containment plus "rostered here", decided by
- * `decideProfileWrite` the way `mayWriteProfileOf` decides it: the office by its
- * tier, explicitly, not by `memberLeagueIds` happening to return every league
- * for them. A player holds no tier, so `theirTier` is null and both office tiers
- * pass. "Rostered here" is asked of the office too — it is a check on the form,
- * not on authority.
+ * ⛔ Containment, not overlap: `is_captain_of` (0038) authorizes from `player_id` alone, so
+ * a player also rostered elsewhere would hand the new login that league's lineup writes.
  */
 export async function mayLinkPlayer(
   actorId: string,
@@ -273,7 +137,6 @@ export async function mayLinkPlayer(
     : "plays_elsewhere";
 }
 
-/** Grant membership. Idempotent — re-adding an existing member is a no-op. */
 export async function addLeagueMembership(
   profileId: string,
   leagueId: string,
@@ -285,22 +148,11 @@ export async function addLeagueMembership(
       onConflict: "profile_id,league_id",
     },
   );
-  // ⚠️ RETURNED RATHER THAN DISCARDED, and the three callers that ignore it are
-  // unaffected — `Promise<void>` widening to a result object breaks nobody.
-  //
-  // ⛔ This used to be a bare `await` with the result dropped, and supabase-js
-  // REPORTS failures rather than throwing them, so a membership that never
-  // landed looked identical to one that did. The importers are where that
-  // bites: both create a league and grant themselves membership as the first
-  // write, and both say in as many words that a league whose creator is not a
-  // member is "a league nobody can open", with no UI to delete it. They now
-  // check, because since the redirect went in there is nothing else left to
-  // notice it — the manager would simply be bounced to the picker with no
-  // message at all.
+  // ⛔ supabase-js reports a failure instead of throwing, so return it: a league whose
+  // creator is not a member is one nobody can open, and nothing else would notice.
   return { ok: !error, error: error?.message ?? null };
 }
 
-/** Revoke membership of ONE league. The account and its other leagues remain. */
 export async function removeLeagueMembership(
   profileId: string,
   leagueId: string,

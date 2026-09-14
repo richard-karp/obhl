@@ -8,25 +8,8 @@ type Client = SupabaseClient<Database>;
 export type LeagueOption = { id: string; name: string; slug: string };
 
 /**
- * Multi-league resolution. The league lives in the URL — `/harbor/standings`,
- * `/harbor/seasons` — so a link to one league is a link to that league
- * for whoever opens it.
- *
- * Memoized with `cache` because App Router layouts cannot hand data to the
- * pages beneath them: `[league]/layout.tsx`, `(public)/layout.tsx` and the page
- * each resolve independently and would otherwise fire the same query three or
- * four times per render. The key is the slug alone, so the client is built
- * inside rather than passed in — a fresh `createClient()` per caller would make
- * every call a cache miss.
- *
- * Resolution is deliberately not filtered on `is_public`; `(public)/layout.tsx`
- * applies that. A league can therefore be staged — manageable before it is
- * visible. RLS narrows this for us: "public read leagues" exposes only
- * `is_public` rows, "manager write leagues" is `for all` for a manager of it, and
- * 0042's "member read leagues" adds any member — so a staged league resolves for
- * its own people and 404s for everyone else. What those people then SEE is
- * another question: the child tables are still gated on `is_public`, so a
- * non-manager member gets the league and an empty page. See 0042.
+ * Not filtered on `is_public`: RLS resolves a staged league for its members (`0042`). Keyed on
+ * the slug alone, so the client is built inside; one passed in would miss the cache every call.
  */
 export const resolveLeagueBySlug = cache(async function resolveLeagueBySlug(
   slug: string,
@@ -41,7 +24,6 @@ export const resolveLeagueBySlug = cache(async function resolveLeagueBySlug(
   return data ?? null;
 });
 
-/** Public leagues only — the root landing page. */
 export async function getPublicLeagues(
   client: Client,
 ): Promise<LeagueOption[]> {
@@ -50,22 +32,14 @@ export async function getPublicLeagues(
     .select("id, name, slug")
     .eq("is_public", true)
     .order("created_at", { ascending: true });
-  // ⚠️ A FAILED READ HERE USED TO BE INDISTINGUISHABLE FROM "no public leagues".
-  // The landing page no longer infers anything from this list's absences — it
-  // reads `is_public` per row — but an empty list still silently empties the
-  // page, so say so rather than returning [] in silence.
+  // ⚠️ An empty list silently empties the landing page, so a failed read is logged.
   if (error) console.error("getPublicLeagues failed:", error.message);
   return data ?? [];
 }
 
 /**
- * The league a season / team belongs to, for the public export routes.
- *
- * Distinct from `lib/league/of-entity`, which answers the same question on the
- * ADMIN client and returns only an id, because it is deciding whether a caller
- * may act. These are for feeds: they read through RLS, so a league that isn't
- * publicly visible names itself to nobody, and they return what a calendar or a
- * filename needs.
+ * For the export feeds: through RLS, unlike `lib/league/of-entity`, which reads on the admin
+ * client for guards. A league the viewer cannot see names itself to nobody here.
  */
 export async function publicLeagueOfSeason(
   seasonId: string,

@@ -4,29 +4,8 @@ import { createAdminClient } from "@/utils/supabase/admin";
 type Admin = ReturnType<typeof createAdminClient>;
 
 /**
- * The auth user id for an address, or null.
- *
- * Paged, rather than one large page. `listUsers` returns a single page and says
- * nothing about the rest, so a lone `perPage: 1000` call turns "this address
- * exists" into "no such account" the moment an instance outgrows it — and the
- * callers here take that answer as fact. In `createStaffAccount` it becomes the
- * raw createUser error instead of the person being added; in
- * `createTeamForSeason` it is quieter still, and the team is reported added with
- * a captain who has no login at all.
- *
- * The loop stops at the first short page, and at a bound, so a backend that
- * ignores paging cannot spin here.
- *
- * ⛔ NORMALISES ITS OWN ARGUMENT, and that is not tidiness. This used to require
- * a pre-lowercased address and treat a raw one as a MISS rather than an error —
- * every call site normalised, so it worked, and the requirement was invisible
- * until a new caller forgot. One did (`landingFor`, 2026-09-10): sign-in
- * succeeded, the lookup silently missed, and a scorekeeper who capitalised their
- * address was sent to the wrong page with nothing logged. The contract now lives
- * here, where it cannot be forgotten, instead of in each caller's memory.
- *
- * Provably inert for the callers that existed when this changed — `people.ts`,
- * `office.ts` and `seasons.ts` all `.trim().toLowerCase()` first.
+ * Paged: a single `listUsers` page turns "exists" into "no such account" as the instance
+ * grows. ⛔ Normalises its own argument, so no caller misses on a capitalised address.
  */
 export async function findUserIdByEmail(
   admin: Admin,
@@ -45,27 +24,8 @@ export async function findUserIdByEmail(
 }
 
 /**
- * Addresses for a set of profile ids.
- *
- * Asked for BY ID, a bounded number at a time.
- *
- * This was `listUsers({ perPage: 1000 })` — one page of the instance's auth
- * users, joined against. A page says nothing about the rest, so past the
- * thousandth auth user staff would start vanishing from the table with no error
- * anywhere. Paging that call would answer the truncation too, and is the worse
- * trade: there is no batch-lookup-by-id in the admin API, so paging means
- * reading the whole auth table, each page before the next can be asked for.
- * That is 50 serial round trips at ten thousand users, where asking per member
- * is one wave of however many staff there are. The cost tracks the list being
- * rendered rather than the instance, which only grows.
- *
- * Bounded anyway: `Promise.all` over the whole list would open a connection per
- * person to render a table, which a large league or office turns into a
- * stampede.
- *
- * A lookup that FAILED is not an account without an address, and the two used to
- * render identically — so a rate-limited page read as staff who simply have no
- * email. They are reported apart.
+ * By id, ten at a time: a `listUsers` page drops staff past its size, and one request per
+ * person at once is a stampede. A failed lookup is reported apart from a missing address.
  */
 export async function emailsByProfileId(
   admin: Admin,

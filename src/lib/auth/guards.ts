@@ -5,23 +5,19 @@ import { officeTierOf } from "./office";
 import { decideLeagueVisible } from "@/lib/league/visibility";
 import type { Tables } from "@/lib/db/helpers";
 
-/** Redirects to /login if not signed in. */
 export async function requireUser(): Promise<SessionUser> {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   return user;
 }
 
-/** Redirects to the league picker if signed in but lacking one of the given roles. */
 export async function requireRole(...roles: AppRole[]): Promise<SessionUser> {
   const user = await requireUser();
-  // Not /<league>/dashboard: a guard has no league in hand, and the
-  // picker is the one page that needs none.
+  // Refusal goes to the picker, not /<league>/dashboard: a guard has no league in hand.
   if (!user.role || !roles.includes(user.role)) redirect("/");
   return user;
 }
 
-/** The rest parameter shape of the role guards, for wrappers that forward it. */
 export type AppRoleList = [AppRole, ...AppRole[]];
 
 export function requireManager() {
@@ -29,13 +25,8 @@ export function requireManager() {
 }
 
 /**
- * A league to check against: an id in hand, or a lookup to run only if the
- * caller clears the role check first.
- *
- * Actions hold an entity id and have to resolve the league from it. Passing the
- * resolved id meant the lookup ran BEFORE the role check — so an unauthenticated
- * request still cost an admin-client query on its way to /login. Passing the
- * lookup instead keeps the cheap check first.
+ * A league id, or a lookup that runs only after the role check passes, so an
+ * unauthenticated request costs no admin-client query on its way to /login.
  */
 export type LeagueRef =
   string | null | undefined | (() => Promise<string | null>);
@@ -44,21 +35,8 @@ const resolveLeague = async (ref: LeagueRef) =>
   typeof ref === "function" ? await ref() : ref;
 
 /**
- * Role AND membership of this league (`profile_leagues`, 0032).
- *
- * The role guards above answer "may this account do this kind of thing", which
- * used to be the whole question because roles were instance-wide: a scorekeeper
- * for one league could open the other league's scoresheet and score its games.
- * This adds "…in this league", which is the half that was missing.
- *
- * The league id has to come from the caller, and every manage page has it — the
- * league is in the route, and `resolveLeagueBySlug` is `cache()`-wrapped, so
- * resolving it is a cache hit rather than another query. Actions that hold only
- * an entity id resolve the league through `lib/league/of-entity`.
- *
- * Refusal is the same redirect as a wrong role: to the picker, which is the one
- * page that needs no league. A member of nothing therefore lands somewhere that
- * still works, rather than on a 404 that looks like a broken link.
+ * Role AND membership (`profile_leagues`): `role` is instance-wide. An action
+ * holding only an entity id resolves the league through `lib/league/of-entity`.
  */
 export async function requireLeagueRole(
   league: LeagueRef,
@@ -75,17 +53,8 @@ export function requireLeagueManager(league: LeagueRef) {
 }
 
 /**
- * Manager of the one league that EVERY id names.
- *
- * For an action that writes with more than one id. Checking each id's league
- * separately is not enough: a person who manages both leagues passes two
- * membership checks while binding one league's team into the other's season,
- * because nothing asks whether the ids agree. Requiring a single league is what
- * closes that, and it is the same answer for a manager of one league — their
- * ids have to agree too.
- *
- * An id that resolves to nothing is a refusal, so a stale or invented id fails
- * closed rather than dropping out of the comparison.
+ * One league for EVERY id: separate checks let a manager of both leagues bind one
+ * league's team into the other's season. An id resolving to nothing refuses.
  */
 export async function requireLeagueManagerOf(
   ...refs: Array<() => Promise<string | null>>
@@ -98,21 +67,8 @@ export async function requireLeagueManagerOf(
 }
 
 /**
- * The League Office pages, and the tier within them.
- *
- * ⛔ These are SERVER guards, and they are the ones that matter. The office page
- * renders appoint and remove controls only for a commissioner, but rendering is
- * not a restriction — a form action is reachable by anyone who can construct the
- * request, which is the failure mode `RUNBOOK.md` → Access control is about.
- * Every office action calls `requireCommissioner` itself
- * rather than trusting the page that drew the button.
- *
- * Note what does NOT gate these: `may_write_profile` and `mayWriteProfileOf`
- * answer who may write a PROFILE, and appointing writes `league_office`. The
- * precedence rule has nothing to say about it, so the tier is checked directly.
- *
- * Refusal is the same redirect as a wrong role — to the picker, the one page
- * that needs no league and works for anybody signed in.
+ * ⛔ Every office action calls `requireCommissioner` itself: a page that draws the
+ * controls only for a commissioner restricts nothing (`RUNBOOK.md` → Access control).
  */
 export async function requireOfficeMember(): Promise<SessionUser> {
   const user = await requireUser();
@@ -121,10 +77,8 @@ export async function requireOfficeMember(): Promise<SessionUser> {
 }
 
 /**
- * A commissioner specifically. A deputy sees the roster and changes nothing:
- * "everything a commissioner can do, except the tier" is exactly what the
- * strictly-above rule yields, and the tier is the one thing a deputy is not
- * above.
+ * A deputy may view the office and change nothing. The tier is checked directly:
+ * `mayWriteProfileOf` answers for profiles, and appointing writes `league_office`.
  */
 export async function requireCommissioner(): Promise<SessionUser> {
   const user = await requireUser();
@@ -133,25 +87,8 @@ export async function requireCommissioner(): Promise<SessionUser> {
 }
 
 /**
- * May this viewer see this league at all? 404s if not.
- *
- * `notFound()`, not `redirect()`, and that is the whole point: a staged league
- * must be indistinguishable from a slug that was never taken. A redirect to the
- * picker would confirm the league exists to anyone who typed its name.
- *
- * The rule itself is `decideLeagueVisible`, where the four cells are asserted
- * directly and where its relationship to the RLS half is written down. This is
- * only the lookups, and both are memoized per request — `getSessionUser` since
- * the review that found this docblock claiming a cost it did not pay, and
- * `isLeagueMember` all along. So a published league costs one `getClaims()` for
- * the whole render, and a staged one costs a membership read that some guard on
- * the page was going to make anyway.
- *
- * Used by the layout over every page that is, or is about to become, SHARED —
- * one URL that serves the public and the people who run the league. The staff
- * pages under `(manage)` do not need it: their own guards are strictly
- * stronger, and 404ing a manager out of the league they are staging is the
- * failure this exists to avoid.
+ * `notFound()`, never a redirect: a staged league must look like an untaken slug.
+ * `(manage)` pages skip this; their guards are stronger, and it would 404 the staff.
  */
 export async function requireVisibleLeague(
   league: Tables<"leagues">,
@@ -162,39 +99,16 @@ export async function requireVisibleLeague(
 }
 
 /**
- * Does this viewer manage this league? A QUESTION, not a guard.
- *
- * ⛔ RENDERING IS NOT A RESTRICTION. This decides whether to DRAW an editing
- * surface on a shared page — one URL that serves the public and the people who
- * run the league. It does not protect anything: a form action is reachable by
- * anyone who can construct the request, whether or not a button was drawn for
- * them. Every action behind such a surface calls its own guard —
- * `saveRules` calls `requireLeagueManager` — and that is what actually refuses.
- * This is the same split `RUNBOOK.md` → Access control is about, and the same
- * one the League Office guards are written to.
- *
- * Role AND membership, for the reason `requireLeagueRole` exists: `user.role` is
- * instance-wide, so a manager of the other league would otherwise be offered
- * controls that every action behind them refuses.
+ * ⛔ A question, not a guard: it decides what a shared page draws, and every action
+ * behind it still calls its own guard (`RUNBOOK.md` → Access control).
  */
 export async function canManageLeague(leagueId: string): Promise<boolean> {
   return await hasLeagueRole(leagueId, "league_manager");
 }
 
 /**
- * May this viewer open a scoresheet in this league? Also a QUESTION, not a guard
- * — everything above applies, and `lib/actions/games.ts` guards itself.
- *
- * The same two roles the old `/manage/score` list admitted, which is what makes
- * this a move rather than a widening: a scorekeeper is one of only two
- * non-manager roles any guard has ever admitted, and it is admitted here for
- * exactly the games it was admitted for before.
- *
- * ⚠️ NOT captains, even though the scoresheet itself admits them — they set a
- * dressed lineup there. They reach it from their dashboard, as they did before,
- * and drawing a Score button beside every game on the public schedule would
- * suggest a scope they do not have. Widening captain scope needs new RLS
- * policies and is explicitly out of scope for this change.
+ * Also a question, not a guard. ⚠️ Not captains, though the scoresheet admits them:
+ * a Score button on every public game would suggest a scope they do not have.
  */
 export async function canScoreLeague(leagueId: string): Promise<boolean> {
   return await hasLeagueRole(leagueId, "scorekeeper", "league_manager");

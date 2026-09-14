@@ -24,9 +24,8 @@ describe("isReservedLeagueSlug", () => {
 });
 
 /**
- * The same list lives in the database, because leagues are created by
- * hand-written SQL as often as by the importer. Two copies drift; this is what
- * stops them.
+ * The same list lives in the database, where hand-written SQL creates leagues too.
+ * Two copies drift; this is what stops them.
  */
 describe("the database constraint matches this list", () => {
   const DIR = join(process.cwd(), "supabase/migrations");
@@ -34,16 +33,8 @@ describe("the database constraint matches this list", () => {
     /leagues_slug_not_reserved\s*\n?\s*check \(slug not in \(([^)]*)\)\)/;
 
   /**
-   * The slugs in the constraint AS IT NOW STANDS, which means the LAST
-   * migration that defines it, not the first.
-   *
-   * ⛔ This used to read `0030_league_slug_reserved.sql` by name. That is the
-   * migration which created the constraint, and it stopped being the one that
-   * defines it the moment `0047` dropped and re-added it to add
-   * `set-password` — so this guard, whose entire job is catching drift between
-   * the two lists, would itself have compared against a stale copy and passed
-   * while they diverged. Scanning in filename order fixes that for every future
-   * redefinition too.
+   * ⛔ The LAST migration defining the constraint, never `0030` by name: `0047` redefined it,
+   * and a stale copy would pass while the two lists diverge.
    */
   const sql = (() => {
     const hits = readdirSync(DIR)
@@ -68,10 +59,8 @@ describe("the database constraint matches this list", () => {
   });
 
   it("also refuses an empty slug, which no reserved list would catch", () => {
-    // ⚠️ Across ALL migrations, not the one above. `sql` is now whichever
-    // migration last defines the RESERVED constraint, and the empty-slug rule
-    // is a separate constraint added in 0030 — tying this assertion to the same
-    // file made it fail the moment the two stopped being defined together.
+    // ⚠️ Across all migrations, not `sql`: the empty-slug rule is a separate constraint,
+    // no longer defined in the same file as the reserved list.
     const all = readdirSync(DIR)
       .filter((f) => f.endsWith(".sql"))
       .sort()

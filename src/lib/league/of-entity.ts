@@ -4,19 +4,8 @@ import { createAdminClient } from "@/utils/supabase/admin";
 type Admin = ReturnType<typeof createAdminClient>;
 
 /**
- * Which league an entity belongs to.
- *
- * Server actions receive a season, team, game or roster id and no league — the
- * league lives in the URL of the page that rendered the form, not in the form.
- * A league-scoped guard therefore has to derive it, and these are the
- * derivations the schema supports. Each returns null when the id resolves to
- * nothing, and `requireLeagueRole(null, …)` refuses, so an unknown id fails
- * closed rather than skipping the check.
- *
- * Read on the admin client: the caller's access to the row is the very thing
- * being decided, so answering through the caller's own RLS would be circular.
- * The client is a required argument rather than a default — every caller
- * already builds one, and a default quietly built a second per lookup.
+ * Admin client: the caller's access to the row is what is being decided. Each returns null
+ * for an unknown id, and `requireLeagueRole(null, …)` refuses, so it fails closed.
  */
 
 export async function leagueOfSeason(
@@ -59,11 +48,8 @@ export async function leagueOfGame(
 }
 
 /**
- * Deliberately NOT filtered on `left_on`. This answers which league a row
- * belongs to so a guard can check it, and a departure does not move the row to
- * another league — it makes it history. Filtering here would return null for a
- * departed roster row, and `requireLeagueRole(null, …)` fails closed, so every
- * action naming one would redirect to the picker with nothing to explain it.
+ * Not filtered on `left_on`: a departed roster row still belongs to its league, and a null
+ * here would bounce every action naming it to the picker.
  */
 export async function leagueOfTeamPlayer(
   teamPlayerId: string,
@@ -79,24 +65,8 @@ export async function leagueOfTeamPlayer(
 }
 
 /**
- * Every league a PLAYER plays in — plural, and that is not an oversight.
- *
- * ⛔ The singular resolvers above exist because every other entity belongs to
- * exactly one league. A player does not. `players` has no `league_id` at all
- * (0002_core.sql:43, and 0032's header restates it), deliberately, so that one
- * human is one row across every league they play in. There is therefore no
- * `leagueOfPlayer` to write, and reaching for one is the mistake this function
- * is named to prevent.
- *
- * Derived through the only path the schema offers: `team_players` → `seasons`
- * → `league_id`. NOT filtered on `left_on`: a player who left a team in March
- * still played in that league, and a rename still changes the name on that
- * league's stats pages — which is exactly what the containment test in
- * `mayWritePlayer` is asking about.
- *
- * An empty array means a player nobody has rostered anywhere. Callers must
- * decide what that means for them rather than reading it as "no restriction";
- * in `mayWritePlayer` it passes containment vacuously, and is meant to.
+ * ⛔ Plural: `players` has no `league_id`, so there is no `leagueOfPlayer` to write. Not
+ * filtered on `left_on`, since a rename still changes past stats. `[]` means never rostered.
  */
 export async function leaguesOfPlayer(
   playerId: string,
@@ -110,7 +80,6 @@ export async function leaguesOfPlayer(
   return [...new Set((data ?? []).map((r) => r.season.league_id))];
 }
 
-/** Announcements carry their league directly; the id is all an action gets. */
 export async function leagueOfAnnouncement(
   announcementId: string,
   admin: Admin,
@@ -124,15 +93,7 @@ export async function leagueOfAnnouncement(
   return data?.league_id ?? null;
 }
 
-/**
- * A schedule constraint belongs to the league of the season it constrains.
- *
- * Same shape as `leagueOfTeamPlayer`: the action holds a constraint id and no
- * league, and the season is the only hop to one. Not resolved through `team_id`
- * — a team carries a `league_id` directly, but a constraint's authority comes
- * from the season it is attached to, and those are the same league by
- * construction (a season only enrols its own league's teams).
- */
+/** Through the season, not `team_id`: a constraint's authority comes from its season. */
 export async function leagueOfScheduleConstraint(
   constraintId: string,
   admin: Admin,
@@ -147,17 +108,8 @@ export async function leagueOfScheduleConstraint(
 }
 
 /**
- * Validates a league id, for entities audited under their league's own id.
- *
- * Shaped differently from the resolvers above on purpose: those derive a league
- * from some *other* entity, while this one is for things that are per-league
- * already, where the entity id IS the league id. Two use it —
- * `league_rules` (one row per league, and `saveRules` upserts, so a first save
- * has no row id to name) and `league_staff` (a person spans leagues, so a
- * profile id names no single one; the league is the entity being changed).
- *
- * Still a lookup rather than handing the argument back: an id matching no
- * league returns null and fails closed, like the others.
+ * For entities audited under their league's own id. A lookup rather than an echo, so an id
+ * matching no league fails closed.
  */
 export async function leagueIdIfExists(
   leagueId: string,

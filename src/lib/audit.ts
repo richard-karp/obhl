@@ -11,15 +11,7 @@ import {
 } from "@/lib/league/of-entity";
 
 type AuditEntry = {
-  /**
-   * Who did it, or `null` for something the system did on its own.
-   *
-   * ⚠️ NULLABLE BECAUSE THE COLUMN IS (`0021_audit_log.sql` — `user_id uuid
-   * references auth.users`, no NOT NULL), and because the nightly close-night
-   * sweep has no person behind it. Attributing a system action to whoever
-   * happened to touch the row last would be a lie in the one table whose whole
-   * job is saying who did what. The audit page already renders a null actor.
-   */
+  /** ⚠️ `null` when the system acted (the close-night cron): never attribute it to a person. */
   user_id: string | null;
   action: string;
   entity_type: string;
@@ -27,13 +19,8 @@ type AuditEntry = {
   old_data?: object | null;
   new_data?: object | null;
   /**
-   * The league to file under, when the caller already knows it.
-   *
-   * For actions that DESTROY the entity they are logging: once the row is gone
-   * `leagueOfEntity` has nothing to resolve from and returns null, and a null
-   * league is hidden by RLS and filtered out of every league-scoped view — so
-   * the entry is written correctly and never appears. Resolve the league before
-   * the delete and pass it here.
+   * Pass it when logging a delete: once the row is gone `leagueOfEntity` returns null,
+   * and a null league hides the entry from every view.
    */
   league_id?: string | null;
 };
@@ -41,18 +28,8 @@ type AuditEntry = {
 type Admin = ReturnType<typeof createAdminClient>;
 
 /**
- * The league an audited entity belongs to, so the log can be read and reverted
- * per league.
- *
- * Resolved here rather than at each call site: every one of them already holds
- * the entity id, and none of them holds a league.
- *
- * ⚠️ An entity type that isn't listed logs with no league. The entry is still
- * written, but a null league is filtered out of every league-scoped view *and*
- * hidden by RLS (`manages_league(null)` is false) — so it is correct and
- * invisible. Safe for a best-effort log, and a silent no-op for anyone adding a
- * new `entity_type`: add the type here in the same change that starts logging
- * it.
+ * ⚠️ An unlisted `entity_type` files under a null league, hidden from every view: add its
+ * case in the change that starts logging it (`RUNBOOK.md` → Access control → Traps).
  */
 async function leagueOfEntity(
   admin: Admin,
@@ -70,45 +47,19 @@ async function leagueOfEntity(
       return leagueOfTeamPlayer(entityId, admin);
     case "announcement":
       return leagueOfAnnouncement(entityId, admin);
-    // Added in the SAME change as the first `logAudit({entity_type:
-    // "schedule_constraint"})` call, per the warning above: an unhandled type
-    // logs with a null league, and a null league is hidden by RLS and filtered
-    // out of every league-scoped view — correct, written, and permanently
-    // invisible. A DELETE resolves to null here once the row is gone, so
-    // `deleteScheduleConstraint` reads the league before the delete and passes
-    // it explicitly.
+    // A delete resolves to null here, so `deleteScheduleConstraint` passes `league_id` itself.
     case "schedule_constraint":
       return leagueOfScheduleConstraint(entityId, admin);
-    // A player is global — `players` has no `league_id`, and the same human in
-    // two leagues is two records — so there is no league to resolve from the id.
-    // Listed anyway rather than left to `default`, so the null is a decision
-    // someone made and not a type nobody added. Callers logging a player pass
-    // `league_id` themselves; `mergePlayers` does.
+    // Null by decision: `players` has no `league_id`. Callers pass `league_id`, as `mergePlayers` does.
     case "player":
       return null;
     case "league_rules":
     case "league_staff":
-    // An import creates the league it is filed under, so the league's own id is
-    // the only id the entry can name.
+    // An import files under the league it creates.
     case "league":
       return leagueIdIfExists(entityId, admin);
-    // ⛔ NULL BY DECISION, NOT BY DEFAULT. The League Office is instance-wide: a
-    // tier reaches every league, so there is no league to file an appointment
-    // under, and picking one would be a lie.
-    //
-    // This case looks redundant — `default` already returns null, and even an
-    // explicit `league_id: null` from the caller falls through to here, because
-    // `logAudit` resolves `entry.league_id ?? leagueOfEntity(...)` and `??`
-    // treats null as absent. That is exactly why it is written out. Reaching
-    // null by decision and reaching it by falling off the end of a switch are
-    // indistinguishable afterwards, and the warning above tells the next person
-    // that an unlisted type is a MISTAKE. Without this line, "office" looks like
-    // one of those mistakes forever.
-    //
-    // The consequence is intended and load-bearing: a null league is hidden by
-    // RLS and filtered out of every league-scoped view, so these entries never
-    // clutter a league's log. They are read on the admin client instead — see
-    // `recentOfficeAudit`.
+    // ⛔ Null by decision, not a missing case: the Office is instance-wide. Its entries are read
+    // on the admin client (`recentOfficeAudit`), never in a league's log.
     case "office":
       return null;
     default:
@@ -125,36 +76,15 @@ export type OfficeAuditEntry = {
 };
 
 /**
- * ⛔ TWO FEEDS SHARE `entity_type: "office"`, AND THEY MUST NOT SHARE A LIMIT.
- *
- * Everything with no league is filed under this one type, because a null league
- * is hidden by RLS and filtered out of every league-scoped view — so any other
- * type would be written correctly and be invisible forever. That makes the type
- * a bucket, not a subject, and the two things in it move at completely
- * different rates:
- *
- * - **Oversight** — appointments, removals, and a commissioner setting someone
- *   else's password. Rare, and the reason the band exists.
- * - **Self-serve** — `set_own_password`. User-driven and unbounded; at launch
- *   most of the staff will do it in the same week.
- *
- * Reading both through one `limit` means five people setting their own passwords
- * hides every appointment from the band on every league's audit page. So the
- * queries are split by ACTION, and each surface asks for the feed it wants.
+ * ⛔ Two feeds share `entity_type: "office"` and must not share a limit: a week of
+ * self-serve password changes would push every appointment out of the band.
  */
 const OVERSIGHT_ACTIONS = ["appoint_deputy", "remove_deputy", "set_password"];
 const SELF_SERVE_ACTIONS = ["set_own_password"];
 
 /**
- * Recent League Office appointments and removals.
- *
- * Read on the admin client on purpose: these entries carry no league, and a null
- * league is hidden by `managers read audit_log` — so a session could never see
- * them, which is what keeps them out of the per-league log.
- *
- * Names come from the entry's own snapshot first and the live profile only as a
- * fallback. The snapshot is the point of an audit entry: after a profile is
- * deleted it is the only thing left that says who this was.
+ * Admin client: a null league is hidden by `managers read audit_log`. Names come from the
+ * entry's snapshot first, the only record left once a profile is deleted.
  */
 export async function recentOfficeAudit(
   limit = 5,
@@ -162,15 +92,7 @@ export async function recentOfficeAudit(
   return officeEntries(OVERSIGHT_ACTIONS, limit);
 }
 
-/**
- * Recent self-serve password changes, as their own feed.
- *
- * Read only on `/manage/office`: these are instance-wide account events, and a
- * league's manager can neither act on them nor be expected to care that a
- * scorekeeper in another league chose a password. Kept OUT of the shared band
- * for the reason above, and kept visible somewhere because an entry nobody can
- * read is the same as no entry at all.
- */
+/** Read only on `/manage/office`: instance-wide account events no league manager acts on. */
 export async function recentPasswordAudit(
   limit = 10,
 ): Promise<OfficeAuditEntry[]> {

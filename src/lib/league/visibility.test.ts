@@ -2,15 +2,8 @@ import { describe, it, expect } from "vitest";
 import { decideLeagueVisible } from "./visibility";
 
 /**
- * Four cells, and the two that matter are the diagonal: a staged league must be
- * invisible to a stranger and visible to its own people. The other two are the
- * published cases, where identity is irrelevant.
- *
- * This is a COMPLETE truth table over the two-boolean domain, so it pins the
- * intended function rather than merely agreeing with the implementation: every
- * other boolean function of two booleans fails at least one row, both term-drops
- * included. A separate pair of knock-out assertions used to sit below it and was
- * removed as duplicate coverage — the table already catches what they caught.
+ * A complete truth table over two booleans, so it pins the function: every other boolean
+ * function of two booleans fails at least one row, both term-drops included.
  */
 describe("decideLeagueVisible — the four cells", () => {
   const cases: [boolean, boolean, boolean, string][] = [
