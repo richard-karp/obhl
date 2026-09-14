@@ -28,7 +28,7 @@ import type { DbClient } from "@/lib/db/helpers";
  */
 function fakeClient(
   updated: Array<{ id: string }>,
-  opts?: { gameMissing?: boolean },
+  opts?: { gameMissing?: boolean; rosters?: unknown[]; updates?: unknown[] },
 ) {
   const build = (table: string) => {
     let isUpdate = false;
@@ -44,7 +44,7 @@ function fakeClient(
       // game_rosters: one home goal, so a successful finalize writes 1-0 and a
       // roster read that came back empty would be visible as 0.
       return Promise.resolve({
-        data: [
+        data: opts?.rosters ?? [
           {
             team_id: "home",
             goals: 1,
@@ -68,7 +68,10 @@ function fakeClient(
               settle().then(...args);
           if (prop === "update") {
             isUpdate = true;
-            return () => chainable;
+            return (payload: unknown) => {
+              opts?.updates?.push(payload);
+              return chainable;
+            };
           }
           return () => chainable;
         },
@@ -134,5 +137,49 @@ describe("finalizeGameById", () => {
       finalizeGameById("g1", null, fakeClient([], { gameMissing: true })),
     ).rejects.toThrow(/g1/);
     expect(logAudit).not.toHaveBeenCalled();
+  });
+
+  it("writes each side's score as the sum of its roster's goals", async () => {
+    const updates: unknown[] = [];
+    const line = (
+      team_id: string,
+      player_id: string,
+      goals: number | null,
+      is_substitute = false,
+    ) => ({
+      team_id,
+      goals,
+      assists: 0,
+      pim: 0,
+      is_substitute,
+      player_id,
+      players: { first_name: "A", last_name: player_id },
+    });
+    await finalizeGameById(
+      "g1",
+      "u1",
+      fakeClient([{ id: "g1" }], {
+        updates,
+        rosters: [
+          line("home", "h1", 2),
+          line("home", "h2", 1),
+          line("home", "h3", 1, true), // a substitute's goal still counts for the side
+          line("away", "a1", 1),
+          line("away", "a2", null),
+        ],
+      }),
+    );
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({
+      status: "final",
+      home_goals: 4,
+      away_goals: 1,
+    });
+    expect(logAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "finalize_game",
+        new_data: { home_goals: 4, away_goals: 1 },
+      }),
+    );
   });
 });

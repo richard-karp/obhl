@@ -134,9 +134,10 @@ export async function GET(request: NextRequest) {
   // ⚠️ THE WINDOW IS IN THE RESPONSE ON PURPOSE. Vercel's cron log shows the body,
   // so a run that closed nothing says WHICH night it looked at rather than leaving
   // you to guess between "no stale games" and "the window is wrong". It is also
-  // what lets `verify-close-night.mjs` place its fixture inside the real window
-  // instead of keeping a second copy of this date arithmetic — the copy would be
-  // free to drift from the code it is meant to be checking.
+  // what lets `05-scoring-night`'s *Closing the night* tests place their fixture
+  // inside the real window instead of keeping a second copy of this date
+  // arithmetic — the copy would be free to drift from the code it is meant to be
+  // checking.
   return NextResponse.json(
     { closed: closed.length, failed: failed.length, from, to },
     { status: failed.length > 0 && closed.length === 0 ? 500 : 200 },

@@ -64,8 +64,6 @@ identity.
 | `npm run db:reset` | Drop + re-apply all migrations and `seed.sql` |
 | `npm run seed:users` | Create/sync the staff accounts via the admin API |
 | `npm run gen-types` | Generate DB types from the local schema |
-| `npm run verify:auth` | Verify the auth hook + per-role RLS write policies |
-| `npm run verify:scoring` | Verify score → finalize → standings/stats propagation |
 
 ## Architecture
 

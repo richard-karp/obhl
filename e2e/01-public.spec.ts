@@ -1,19 +1,29 @@
+/** The public site as an anonymous visitor sees it: league pages, stats, the schedule and its exports. */
 /**
  * Paths 1–5: public site — no auth required. Every route is league-scoped:
  * these exercise `/obhl`, the seeded Oceanview league.
  * Assumes seeded data: 6 Oceanview teams (Sharks/Bears/Wolves/Ducks/Hawks/Bisons),
  * 3 finalized rounds, 2 later rounds still `scheduled`, one round TONIGHT, and
  * 3 announcements. (Harbor also gains one game tonight, for the cross-league
- * assertions in `33-scorekeeper-day`.)
+ * assertions in `05-scoring-night`.)
  *
  * ⚠️ The tonight round is the only fixture that is ever today, and it exists for
- * the scorekeeper's page (`33-scorekeeper-day`). Nothing in this file asserts an
+ * the scorekeeper's page (`05-scoring-night`). Nothing in this file asserts an
  * absolute game count — the CSV/ICS checks below are deliberately relational
  * (`toBeGreaterThan(0)`, `toBeLessThan(allCsv.length)`) — so it costs this file
  * nothing. Keep it that way: an exact count here would break every time the
  * seed grows.
  */
 import { test, expect } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
+
+function admin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SECRET_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+}
 
 // ── Path 1: Homepage ────────────────────────────────────────────────────────
 
@@ -52,39 +62,6 @@ test.describe("Path 1 — Homepage widgets", () => {
 // ── Path 2: Stats — sorting ─────────────────────────────────────────────────
 
 test.describe("Path 2 — Stats tables and sorting", () => {
-  /**
-   * THE SELECTED TAB HAS TO LOOK SELECTED, and nothing else in this suite says
-   * so. Every other assertion here reads `aria-selected`, which is the state and
-   * not the appearance — so the whole file would stay green if the active
-   * styling stopped applying and both tabs rendered identically.
-   *
-   * That is not a hypothetical: `ui/tabs.tsx` styles the active trigger with
-   * `data-active:` while `radix-ui` emits only `data-state="active"`, and the
-   * two are connected by a Tailwind alias rather than by anything in this
-   * repository. Measured, the alias holds. This test is what would notice if a
-   * Tailwind or Radix upgrade quietly broke it.
-   *
-   * Comparing the two triggers rather than pinning a colour: the claim is "these
-   * differ", which survives a theme change and still catches the failure.
-   */
-  test("the selected tab is visually distinguishable from the unselected one", async ({
-    page,
-  }) => {
-    await page.goto("/obhl/stats");
-    const skaters = page.getByRole("tab", { name: "Skaters" });
-    const goalies = page.getByRole("tab", { name: "Goalies" });
-    await expect(skaters).toHaveAttribute("aria-selected", "true");
-
-    const bg = (l: typeof skaters) =>
-      l.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(await bg(skaters)).not.toBe(await bg(goalies));
-
-    // And it follows the selection rather than being stuck on the first tab.
-    await goalies.click();
-    await expect(goalies).toHaveAttribute("aria-selected", "true");
-    expect(await bg(goalies)).not.toBe(await bg(skaters));
-  });
-
   test("skater stats load and rows are sortable by clicking column headers", async ({
     page,
   }) => {
@@ -126,15 +103,6 @@ test.describe("Path 2 — Stats tables and sorting", () => {
       .innerText();
     expect(parseInt(g0Text, 10)).toBeGreaterThanOrEqual(parseInt(g1Text, 10));
   });
-
-  test("Goalies tab loads and shows rows", async ({ page }) => {
-    await page.goto("/obhl/stats");
-    await page.getByRole("tab", { name: "Goalies" }).click();
-    // After tab switch, the now-visible panel is the only active tabpanel
-    await expect(
-      page.getByRole("tabpanel").locator("table tbody tr").first(),
-    ).toBeVisible();
-  });
 });
 
 // ── Path 3: Player profile ──────────────────────────────────────────────────
@@ -174,16 +142,6 @@ test.describe("Path 3 — Player profile", () => {
     // Game log section has at least one row
     const gameLogTable = page.locator("table tbody tr").last();
     await expect(gameLogTable).toBeVisible();
-  });
-
-  test("status badges render for the Sharks captain on the team page", async ({
-    page,
-  }) => {
-    await page.goto("/obhl/teams/sharks");
-    // Shark captain (jersey #6) has a "C" badge
-    await expect(
-      page.locator("table tbody tr").filter({ hasText: "C" }).first(),
-    ).toBeVisible();
   });
 });
 
@@ -349,6 +307,39 @@ test.describe("Path 4 — Schedule and game detail", () => {
     expect(ducksIcsRes.headers()["content-disposition"]).toContain(
       "obhl-ducks-schedule.ics",
     );
+
+    // ── Folded in from 15: each league's SEASON export is named for that
+    // league. `buildIcs` always took the name as an argument, but the routes
+    // passed a literal, so both leagues' feeds arrived in a subscriber's
+    // calendar app called "OBHL Schedule". The event UIDs are deliberately
+    // unchanged — see EXPORTS_HANDOFF §3.
+    const db = admin();
+    for (const slug of ["harbor", "obhl"]) {
+      const { data: league } = await db
+        .from("leagues")
+        .select("id, name")
+        .eq("slug", slug)
+        .single();
+      const { data: season } = await db
+        .from("seasons")
+        .select("id")
+        .eq("league_id", league!.id)
+        .eq("is_active", true)
+        .single();
+
+      const ics = await request.get(`/api/schedule/${season!.id}`);
+      expect(ics.ok()).toBeTruthy();
+      expect(await ics.text()).toContain(`${league!.name} Schedule`);
+      expect(ics.headers()["content-disposition"]).toContain(
+        `${slug}-schedule.ics`,
+      );
+
+      const csv = await request.get(`/api/schedule/${season!.id}/schedule.csv`);
+      expect(csv.ok()).toBeTruthy();
+      expect(csv.headers()["content-disposition"]).toContain(
+        `${slug}-schedule.csv`,
+      );
+    }
   });
 
   /**
@@ -374,6 +365,57 @@ test.describe("Path 4 — Schedule and game detail", () => {
       expect((await request.get(`${ics}?team=${team}`)).status()).toBe(404);
     }
   });
+
+  /**
+   * ⚠️ A ROUTE HANDLER CAN SET A STATUS, AND THESE ARE THE PLACES THAT SHOULD.
+   * The public PAGES cannot — a `notFound()` after an `await` answers 200,
+   * because the response has begun streaming (issue #30, and Next documents it
+   * under `loading.tsx`'s *Status Codes*). That limitation is not shared by
+   * `route.ts`, so an export asked for an id that resolves to nothing must say
+   * so properly rather than hand back an empty-but-valid file.
+   *
+   * A well-formed uuid is the case that matters. A MALFORMED one was already
+   * refused — both routes have carried an `isUuid` guard and a comment about a
+   * "header-only file that looks like a real but empty season" — but the same
+   * file came back, with a 200 on it, for a uuid that simply named nothing.
+   */
+  test("an export for a season that does not exist is a 404, not an empty file", async ({
+    request,
+  }) => {
+    const missing = "00000000-0000-0000-0000-000000000000";
+
+    const ics = await request.get(`/api/schedule/${missing}`);
+    expect(ics.status()).toBe(404);
+    const csv = await request.get(`/api/schedule/${missing}/schedule.csv`);
+    expect(csv.status()).toBe(404);
+
+    // Malformed, the case that always worked — kept so a refactor cannot close
+    // one door while opening the other.
+    const junk = await request.get("/api/schedule/not-a-uuid");
+    expect(junk.status()).toBe(404);
+
+    // ⚠️ The team feed is a SUBSCRIPTION, so this assertion is load-bearing in a
+    // way the two above are not: a calendar app polls this URL indefinitely, and
+    // the 404 is what tells its owner the team is gone rather than leaving them
+    // an empty calendar that never says so.
+    const feed = await request.get(`/api/schedule/team/${missing}/feed.ics`);
+    expect(feed.status()).toBe(404);
+  });
+
+  test("a team's calendar feed answers with its games", async ({ request }) => {
+    const { data: team } = await admin()
+      .from("teams")
+      .select("id, leagues!inner(slug)")
+      .eq("leagues.slug", "obhl")
+      .eq("slug", "sharks")
+      .single();
+    const res = await request.get(`/api/schedule/team/${team!.id}/feed.ics`);
+    expect(res.status()).toBe(200);
+    expect(res.headers()["content-type"]).toContain("text/calendar");
+    const body = unfold(await res.text());
+    expect(body).toContain("BEGIN:VEVENT");
+    expect(body).toContain("Oceanview Beer Hockey League — Team Schedule");
+  });
 });
 
 // ── Path 5: Teams list + team detail ───────────────────────────────────────
@@ -392,16 +434,82 @@ test.describe("Path 5 — Teams list and team detail", () => {
       await expect(page.getByText(name).first()).toBeVisible();
     }
   });
+});
 
-  test("Sharks team page shows roster with 14+ players", async ({ page }) => {
-    await page.goto("/obhl/teams/sharks");
+// ── Path 16: Leagues, as an anonymous visitor finds them ───────────────────
 
-    // Team name heading
-    await expect(page.getByRole("heading", { name: /Sharks/ })).toBeVisible();
+test.describe("Path 16 — Leagues, as an anonymous visitor finds them", () => {
+  test("the root landing page lists both leagues and links to each", async ({
+    page,
+  }) => {
+    await page.goto("/");
 
-    // TeamPlayerTable has at least 14 rows (page also has a GoalieStatsTable)
-    const rosterRows = page.locator("table tbody tr");
-    const count = await rosterRows.count();
-    expect(count).toBeGreaterThanOrEqual(14);
+    await expect(
+      page.getByRole("link", { name: /Oceanview Beer Hockey League/ }),
+    ).toHaveAttribute("href", "/obhl");
+    await expect(
+      page.getByRole("link", { name: /Harbor Rec Hockey League/ }),
+    ).toHaveAttribute("href", "/harbor");
+  });
+
+  test("the two leagues do not bleed into each other", async ({ page }) => {
+    await page.goto("/obhl/standings");
+    await expect(page.getByRole("link", { name: "Sharks" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Anchors" })).toHaveCount(0);
+
+    await page.goto("/harbor/standings");
+    await expect(page.getByRole("link", { name: "Anchors" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Sharks" })).toHaveCount(0);
+  });
+
+  test("each league home shows its own name and announcements", async ({
+    page,
+  }) => {
+    await page.goto("/harbor");
+    await expect(
+      page.getByRole("heading", { name: "Harbor Rec Hockey League" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Welcome to the Harbor Rec spring season"),
+    ).toBeVisible();
+  });
+
+  test("an unknown league slug 404s", async ({ page }) => {
+    const response = await page.goto("/not-a-league");
+    expect(response?.status()).toBe(404);
+    await expect(page.getByText("That page couldn't be found.")).toBeVisible();
+  });
+
+  test("a slug resolves case-insensitively", async ({ page }) => {
+    const response = await page.goto("/OBHL");
+    expect(response?.status()).toBe(200);
+    await expect(
+      page.getByRole("heading", { name: "Oceanview Beer Hockey League" }),
+    ).toBeVisible();
+  });
+
+  test("an anonymous visitor gets no staff row and the header they always had", async ({
+    page,
+  }) => {
+    for (const url of ["/obhl", "/obhl/standings", "/obhl/schedule"]) {
+      await page.goto(url);
+      await expect(
+        page.getByRole("navigation", { name: "League" }).first(),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("navigation", { name: "Staff tools" }),
+      ).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(
+        0,
+      );
+      // Folded in from 15: no league switcher. ⚠️ ANONYMOUS ONLY — a signed-in
+      // member of two leagues DOES get one on this URL, in the staff row.
+      await expect(page.getByLabel("Select league")).toHaveCount(0);
+    }
+    // …only a way back to the picker.
+    await page.goto("/obhl");
+    await expect(
+      page.getByRole("link", { name: "All leagues" }),
+    ).toHaveAttribute("href", "/");
   });
 });

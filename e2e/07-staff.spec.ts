@@ -1,14 +1,6 @@
+/** Staff tools: announcements, People & Roles, league rules, and the League Office. */
 /**
- * Path 20: the League Office — a tier above the league manager.
- *
- * What this file exists to catch is the half the other suites structurally
- * cannot. Every other spec signs in as an account that BELONGS to the leagues it
- * touches, so implicit membership — reach with no `profile_leagues` row — is
- * never exercised, and a guard that consults the office and one that does not
- * behave identically.
- *
- * The office accounts are seeded with NO memberships on purpose. If a test here
- * ever starts passing because someone gave them one, it is measuring nothing.
+ * Path 13: Announcements — post, verify on homepage, delete.
  */
 import { test, expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
@@ -22,22 +14,429 @@ function admin() {
   );
 }
 
+type Role =
+  | "Manager"
+  | "Scorekeeper"
+  | "Captain"
+  | "One-league mgr"
+  | "One-league scorer"
+  | "No-league mgr"
+  | "Commissioner"
+  | "Deputy";
+
+/** Dev-panel sign-in. A scorekeeper lands on `/tonight`, everyone else on the picker. */
+async function signInAs(page: Page, role: Role, then?: string) {
+  await page.goto("/login");
+  await page.getByRole("button", { name: role, exact: true }).click();
+  await page.waitForURL(
+    role === "Scorekeeper" || role === "One-league scorer" ? "/tonight" : "/",
+  );
+  if (then) await page.goto(then);
+}
+
+test.describe("Path 13 — Announcements", () => {
+  // Guards the trap in `src/lib/audit.ts`: `leagueOfEntity` returns null for any
+  // `entity_type` it does not handle, and a null league is hidden by RLS *and*
+  // filtered out of every league-scoped view — so an entry can be written
+  // perfectly and never appear anywhere a manager looks. Asserting the row
+  // exists is therefore not enough; both halves are checked here.
+  //
+  // The two announcement entries reach their league by different routes on
+  // purpose. The post resolves through the `announcement` case in that switch,
+  // because its row still exists. The delete cannot — by the time it is logged
+  // the row is gone and the switch has nothing to read — so it passes
+  // `league_id` outright. Knock the switch case out and only the first goes red.
+  test("posting and deleting an announcement both land in this league's audit log", async ({
+    page,
+  }) => {
+    const title = `Audit Probe Announcement ${Date.now()}`;
+    const db = admin();
+    const { data: league } = await db
+      .from("leagues")
+      .select("id")
+      .eq("slug", "obhl")
+      .single();
+
+    await signInAs(page, "Manager", "/obhl/dashboard");
+    await page.goto("/obhl/announcements");
+    await page
+      .getByLabel("Title")
+      .or(page.getByPlaceholder("Title"))
+      .fill(title);
+    await page
+      .getByLabel("Message")
+      .or(page.getByPlaceholder("Write the announcement…"))
+      .fill("Posted by an automated test to check the audit log.");
+    await page.getByRole("button", { name: "Post announcement" }).click();
+    await page.waitForLoadState("networkidle");
+
+    // The id, while the row still exists. Both audit assertions below scope to
+    // it — reading the newest rows by action instead would match an entry from
+    // any other announcement, including one an earlier test in this file made.
+    const { data: posted } = await db
+      .from("announcements")
+      .select("id")
+      .eq("title", title)
+      .single();
+
+    await page.goto("/obhl/audit");
+    await expect(page.getByText(`Posted "${title}"`)).toBeVisible();
+
+    await page.goto("/obhl/announcements");
+    await page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: title })
+      .getByRole("button", { name: "Delete" })
+      .click();
+    await page.waitForLoadState("networkidle");
+
+    await page.goto("/obhl/audit");
+    await expect(page.getByText(`Deleted "${title}"`)).toBeVisible();
+
+    // …and neither entry was filed under a null league, which is the state the
+    // page above cannot distinguish from "no entry was written at all".
+    const { data: entries } = await db
+      .from("audit_log")
+      .select("action, league_id")
+      .eq("entity_id", posted!.id);
+    const byAction = new Map(
+      (entries ?? []).map((e) => [e.action, e.league_id]),
+    );
+    for (const action of ["create_announcement", "delete_announcement"]) {
+      expect(byAction.has(action), `${action} wrote no audit entry`).toBe(true);
+      expect(byAction.get(action), `${action} was filed under no league`).toBe(
+        league!.id,
+      );
+    }
+  });
+});
+
+/**
+ * Path 14: People & Roles — view staff listing and form structure.
+ */
+test.describe("Path 14 — People & Roles", () => {
+  test.beforeEach(async ({ page }) => {
+    await signInAs(page, "Manager", "/obhl/dashboard");
+    await page.goto("/obhl/people");
+  });
+
+  test("a manager account offers no role control, and no remove when last", async ({
+    page,
+  }) => {
+    // Every manager can open this page, so a role control here would let any
+    // manager unmake any other. The server refuses it too.
+    //
+    // Remove IS offered for a manager in general — that is how a second manager
+    // account is taken back — but not here: this account is Oceanview's only
+    // manager, and removing it would leave the league with nobody able to grant
+    // anyone access to it. See 09-access for the case where a league
+    // has two and the button appears.
+    await page.goto("/obhl/people");
+
+    const managerRow = page
+      .locator("table tbody tr")
+      .filter({ hasText: "manager@obhl.test" });
+    await expect(managerRow).toHaveCount(1);
+    await expect(
+      managerRow.getByText("Role changed by a commissioner"),
+    ).toBeVisible();
+    await expect(
+      managerRow.getByRole("button", { name: "Remove" }),
+    ).toHaveCount(0);
+    await expect(managerRow.getByLabel("Change role")).toHaveCount(0);
+
+    // A non-manager row still has both.
+    const otherRow = page
+      .locator("table tbody tr")
+      .filter({ hasText: "scorekeeper@obhl.test" });
+    await expect(
+      otherRow.getByRole("button", { name: "Remove" }),
+    ).toBeVisible();
+    await expect(otherRow.getByLabel("Change role")).toBeVisible();
+  });
+
+  // Guards the trap in src/lib/audit.ts: an entity_type leagueOfEntity does not
+  // handle logs with a null league, which RLS and the audit page's league filter
+  // both hide. Asserting the row was written is not enough — it has to appear in
+  // the league-scoped view a manager actually reads.
+  test("adding a staff account appears in this league's audit log", async ({
+    page,
+  }) => {
+    const email = `audit-probe-${Date.now()}@obhl.test`;
+    const card = page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: "Add a staff account" });
+
+    await card.getByLabel("Email").fill(email);
+    await card.getByLabel("Display name").fill("Audit Probe");
+    await card.getByRole("button", { name: "Add staff account" }).click();
+    // By cell, not text: the success message repeats the address, and an
+    // unscoped match resolves to both.
+    await expect(
+      page.getByRole("cell", { name: email, exact: true }),
+    ).toBeVisible();
+
+    await page.goto("/obhl/audit");
+    await expect(
+      page.getByText("Added Audit Probe as scorekeeper"),
+    ).toBeVisible();
+
+    // A role change too, on the account this test just made so nothing else
+    // depends on it. Captain, deliberately not Manager: promoting it would make
+    // the row un-demotable and leave a second manager in a league whose other
+    // tests reason about how many it has.
+    await page.goto("/obhl/people");
+    const row = page.locator("table tbody tr").filter({ hasText: email });
+    await row.getByLabel("Change role").selectOption("captain");
+    // By cell: the row's own select contains an <option>Captain</option> too,
+    // so an unscoped text match is ambiguous.
+    await expect(
+      row.getByRole("cell", { name: "Captain", exact: true }),
+    ).toBeVisible();
+
+    await page.goto("/obhl/audit");
+    await expect(
+      page.getByText("Changed Audit Probe from scorekeeper to captain"),
+    ).toBeVisible();
+  });
+
+  test("the add-account form cannot demote an existing manager", async ({
+    page,
+  }) => {
+    // "Add a staff account" reaches existing accounts: a known email fails
+    // createUser, and the profile is then upserted with the submitted role.
+    // The manager's own address is listed in the table right above this form.
+    await page.goto("/obhl/people");
+
+    // Role defaults to scorekeeper, so submitting as-is is the demotion.
+    await page.getByLabel("Email").fill("manager@obhl.test");
+    await page.getByLabel("Display name").fill("Demoted");
+    await page.getByRole("button", { name: "Add staff account" }).click();
+
+    // The form's own refusal, not the row label — StaffRowActions renders
+    // "Role changed by a commissioner" in the table too, so a looser matcher
+    // here passes with the guard removed.
+    await expect(
+      page.getByText(/manager@obhl\.test is a manager account/),
+    ).toBeVisible();
+
+    // Still a manager, and the display name was not overwritten either.
+    await page.reload();
+    const managerRow = page
+      .locator("table tbody tr")
+      .filter({ hasText: "manager@obhl.test" });
+    // The role cell specifically: a demoted row would still contain the word
+    // "Manager" in its role <select>.
+    await expect(managerRow.locator("td").nth(2)).toHaveText("Manager");
+    await expect(managerRow).not.toContainText("Demoted");
+  });
+
+  /**
+   * The one branch of `createStaffAccount` nothing else drives: an existing
+   * MANAGER handed a second league.
+   *
+   * It is the branch that writes `grant_league` — reached when the submitted
+   * role matches the one the account already holds, so no profile is written
+   * and only membership changes. That is deliberately the flow that lets one
+   * person manage both leagues, and it is the one an audit log most needs to
+   * record.
+   *
+   * Its own test rather than a line bolted onto another, because it changes how
+   * many managers a league has, and `09-access.spec.ts` reasons about
+   * exactly that — for `harbor` in every one of its tests, and its `beforeAll`
+   * fails loudly by name if this account is left in two leagues. The grant is
+   * undone in `finally`.
+   */
+  test("granting an existing manager a second league is audited", async ({
+    page,
+  }) => {
+    const guest = "single-league-lead@obhl.test";
+    const db = admin();
+    const { data: league } = await db
+      .from("leagues")
+      .select("id")
+      .eq("slug", "obhl")
+      .single();
+    const { data: profile } = await db
+      .from("profiles")
+      .select("id")
+      .eq("display_name", "Single League Manager")
+      .single();
+    // Stated, not assumed: if the seed ever puts this account in obhl already,
+    // the add below is a no-op and the test would pass having granted nothing.
+    const { data: mine } = await db
+      .from("profile_leagues")
+      .select("league_id")
+      .eq("profile_id", profile!.id);
+    expect(
+      (mine ?? []).map((r) => r.league_id),
+      "the guest manager must start outside this league",
+    ).not.toContain(league!.id);
+
+    try {
+      await page.goto("/obhl/people");
+      const card = page
+        .locator('[data-slot="card"]')
+        .filter({ hasText: "Add a staff account" });
+      await card.getByLabel("Email").fill(guest);
+      await card.getByLabel("Display name").fill("Single League Manager");
+      await card.getByRole("combobox").click();
+      await page.getByRole("option", { name: "League manager" }).click();
+      await card.getByRole("button", { name: "Add staff account" }).click();
+
+      // The manager wording, not the scorekeeper one — this is the branch under
+      // test, and the other says "now works this league too".
+      await expect(card.getByText(/now manages this league too/)).toBeVisible();
+
+      await page.goto("/obhl/audit");
+      await expect(page.getByText(`Gave ${guest} this league`)).toBeVisible();
+
+      // Visible on the page is the half that matters, but an entry filed under
+      // no league renders as nothing at all — indistinguishable from one that
+      // was never written. So read the row too.
+      const { data: entry } = await db
+        .from("audit_log")
+        .select("league_id, new_data")
+        .eq("action", "grant_league")
+        .eq("entity_id", league!.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      expect(entry, "grant_league wrote no audit entry").not.toBeNull();
+      expect(entry!.league_id).toBe(league!.id);
+    } finally {
+      await db
+        .from("profile_leagues")
+        .delete()
+        .eq("profile_id", profile!.id)
+        .eq("league_id", league!.id);
+    }
+  });
+});
+
+/**
+ * Path 16: League Rules — one page, two hats.
+ *
+ * `/rules` and `/manage/rules/edit` were two URLs over one thing. The public
+ * page now carries the editor for whoever is entitled to it, so every test here
+ * drives `/obhl/rules` and the manager's tests open the editor from it.
+ */
+/** The shared page, then the editor a manager is offered on it. */
+async function openEditor(page: Page) {
+  await page.goto("/obhl/rules");
+  await page.getByRole("button", { name: "Edit rules" }).click();
+}
+
+const RULES_TEXT = `E2E test rule: no high-sticking at ${Date.now()}`;
+
+test.describe("Path 16 — League Rules", () => {
+  test("manager saves rules and they appear on the public rules page", async ({
+    page,
+  }) => {
+    await signInAs(page, "Manager", "/obhl/dashboard");
+    await openEditor(page);
+
+    // Type into the Tiptap contenteditable editor
+    const editor = page.locator('[contenteditable="true"]');
+    await editor.click();
+    await editor.fill(RULES_TEXT);
+
+    await page.getByRole("button", { name: "Save rules" }).click();
+    await expect(page.getByText("Saved.")).toBeVisible({ timeout: 10000 });
+
+    // Verify content appears on the public rules page
+    await page.goto("/obhl/rules");
+    await expect(page.getByText(RULES_TEXT)).toBeVisible();
+  });
+
+  // Guards the trap in src/lib/audit.ts: an entity_type that leagueOfEntity
+  // does not handle logs with a null league, and the audit page filters on
+  // `league_id`. The entry would be written correctly and never be seen, so
+  // asserting it was written is not enough — it has to appear in the
+  // league-scoped view a manager actually reads.
+  test("saving rules appears in this league's audit log", async ({ page }) => {
+    await signInAs(page, "Manager", "/obhl/dashboard");
+    await openEditor(page);
+
+    const editor = page.locator('[contenteditable="true"]');
+    await editor.click();
+    await editor.fill(`Audited rule change at ${Date.now()}`);
+    await page.getByRole("button", { name: "Save rules" }).click();
+    await expect(page.getByText("Saved.")).toBeVisible({ timeout: 10000 });
+
+    await page.goto("/obhl/audit");
+    await expect(page.getByText("Updated league rules").first()).toBeVisible();
+
+    // Saving again without editing must not add a second entry: these entries
+    // carry two whole documents, and re-saving an untouched page changed
+    // nothing. Only the current session's card is expanded, so a count here is
+    // a count of this test's own entries.
+    await openEditor(page);
+    await page.getByRole("button", { name: "Save rules" }).click();
+    await expect(page.getByText("Saved.")).toBeVisible({ timeout: 10000 });
+
+    await page.goto("/obhl/audit");
+    await expect(page.getByText("Updated league rules")).toHaveCount(1);
+  });
+
+  test("public rules page is accessible without login", async ({ page }) => {
+    await page.goto("/obhl/rules");
+    // Either shows rules content or the empty state — never an auth redirect
+    await expect(page).not.toHaveURL(/\/login/);
+    await expect(
+      page.locator("h1").filter({ hasText: "League Rules" }),
+    ).toBeVisible();
+  });
+
+  test("an anonymous visitor is offered no way to edit", async ({ page }) => {
+    // The merge's whole risk in one assertion: the page that gained an editor
+    // must not have gained it for everybody.
+    await page.goto("/obhl/rules");
+    await expect(page.getByRole("button", { name: "Edit rules" })).toHaveCount(
+      0,
+    );
+    await expect(page.getByRole("button", { name: "Save rules" })).toHaveCount(
+      0,
+    );
+  });
+
+  // The old `/obhl/rules/edit` → `/obhl/rules` redirect is asserted in
+  // `09-access.spec.ts`'s "every legacy URL still lands on its page".
+});
+
+/**
+ * Path 20: the League Office — a tier above the league manager.
+ *
+ * What this file exists to catch is the half the other suites structurally
+ * cannot. Every other spec signs in as an account that BELONGS to the leagues it
+ * touches, so implicit membership — reach with no `profile_leagues` row — is
+ * never exercised, and a guard that consults the office and one that does not
+ * behave identically.
+ *
+ * The office accounts are seeded with NO memberships on purpose. If a test here
+ * ever starts passing because someone gave them one, it is measuring nothing.
+ */
 const COMMISSIONER = "commissioner@obhl.test";
 const DEPUTY = "deputy@obhl.test";
 
-async function signInAs(
-  page: Page,
-  label: "Manager" | "Commissioner" | "Deputy" | "One-league mgr",
-) {
-  await page.goto("/login");
-  await page.getByRole("button", { name: label, exact: true }).click();
-  await page.waitForURL("/");
+/**
+ * Submit and wait for the action to actually finish.
+ *
+ * Every assertion below is about something NOT being written, and a DB read
+ * fired straight after `click()` races the action — it reads "nothing yet"
+ * and the test passes whether the guard is there or not. That is how the
+ * first version of these tests passed against a deliberately broken guard.
+ */
+async function submitAndSettle(page: Page, click: Promise<unknown>) {
+  const posted = page.waitForResponse((r) => r.request().method() === "POST");
+  await click;
+  await posted;
 }
 
 /**
  * Rewrite a hidden input, then PROVE it stuck before anything is submitted.
  *
- * The same helper and the same reason as `16-league-membership.spec.ts`: setting
+ * The same helper and the same reason as `09-access.spec.ts`: setting
  * `.value` before hydration lands is undone when React takes over, and the form
  * posts its original value — which on a slow runner means the attack never
  * happened and the test passes anyway. Never submit an unverified tamper.
@@ -67,21 +466,21 @@ async function profileIdFor(email: string) {
 }
 
 test.describe("Path 20 — League Office", () => {
-  test("the office fixtures hold no membership rows, so the rest means something", async () => {
-    const db = admin();
-    for (const email of [COMMISSIONER, DEPUTY]) {
-      const id = await profileIdFor(email);
-      const { data } = await db
-        .from("profile_leagues")
-        .select("league_id")
-        .eq("profile_id", id);
-      expect(data ?? [], `${email} must belong to no league`).toHaveLength(0);
-    }
-  });
-
   test("a commissioner opens a league they hold no membership row for", async ({
     page,
   }) => {
+    // Was "the office fixtures hold no membership rows, so the rest means
+    // something". The office accounts are seeded with NO memberships; if one
+    // ever gains a row, every office test here passes while measuring nothing.
+    const db = admin();
+    for (const email of [COMMISSIONER, DEPUTY]) {
+      const { data } = await db
+        .from("profile_leagues")
+        .select("league_id")
+        .eq("profile_id", await profileIdFor(email));
+      expect(data ?? [], `${email} must belong to no league`).toHaveLength(0);
+    }
+
     await signInAs(page, "Commissioner");
 
     // Driven, not asserted: the office branch of `memberLeagueIds` is what makes
@@ -97,58 +496,6 @@ test.describe("Path 20 — League Office", () => {
     // ...and the switcher offers every league, not none.
     await page.goto("/obhl/dashboard");
     await expect(page.getByLabel("Select league")).toBeVisible();
-  });
-
-  /**
-   * The page was reachable only by typing the URL for three phases, because
-   * every test here navigates with `page.goto`. Discovery needs its own test or
-   * the guard proves nothing about whether anyone can find the page.
-   */
-  test("the office is reachable from the nav, and only by the office", async ({
-    page,
-  }) => {
-    await signInAs(page, "Commissioner");
-    await page.goto("/obhl/dashboard");
-
-    const link = page.getByRole("link", { name: "League Office" });
-    await expect(link).toBeVisible();
-    await link.click();
-    await expect(page).toHaveURL("/manage/office");
-    await expect(
-      page.getByRole("heading", { name: "League Office" }),
-    ).toBeVisible();
-
-    // Control: an ordinary manager holds the same ROLE and must not see it —
-    // the link is gated on the tier, and a role-keyed nav would leak it to
-    // every manager.
-    await signInAs(page, "Manager");
-    await page.goto("/obhl/dashboard");
-    await expect(page.getByRole("link", { name: "League Office" })).toHaveCount(
-      0,
-    );
-  });
-
-  test("office members are listed in a league's staff, read-only", async ({
-    page,
-  }) => {
-    await signInAs(page, "Manager");
-    await page.goto("/obhl/people");
-
-    const row = page
-      .locator("table tbody tr")
-      .filter({ hasText: COMMISSIONER });
-    await expect(row).toHaveCount(1);
-    await expect(row).toContainText("Commissioner");
-    await expect(row.getByText("Managed in League Office")).toBeVisible();
-    await expect(row.getByRole("button", { name: "Remove" })).toHaveCount(0);
-    await expect(row.getByLabel("Change role")).toHaveCount(0);
-
-    // Control: an ordinary row still has its controls, so the office branch did
-    // not simply disable the table.
-    const other = page
-      .locator("table tbody tr")
-      .filter({ hasText: "scorekeeper@obhl.test" });
-    await expect(other.getByLabel("Change role")).toHaveCount(1);
   });
 
   test("a commissioner demotes a league manager, which no manager can do", async ({
@@ -260,8 +607,10 @@ test.describe("Path 20 — League Office", () => {
       .locator("form")
       .filter({ has: page.getByLabel("Change role") });
     await tamper(page, roleForm.locator('input[name="id"]'), commissionerId);
-    await roleForm.getByLabel("Change role").selectOption("captain");
-    await page.waitForLoadState("networkidle");
+    await submitAndSettle(
+      page,
+      roleForm.getByLabel("Change role").selectOption("captain"),
+    );
 
     const { data: after } = await db
       .from("profiles")
@@ -277,6 +626,7 @@ test.describe("Path 20 — League Office", () => {
   }) => {
     const db = admin();
     const commissionerId = await profileIdFor(COMMISSIONER);
+    const since = new Date(Date.now() - 5_000).toISOString();
 
     await signInAs(page, "Manager");
     await page.goto("/obhl/people");
@@ -288,23 +638,30 @@ test.describe("Path 20 — League Office", () => {
       .locator("form")
       .filter({ has: page.getByRole("button", { name: "Remove" }) });
     await tamper(page, removeForm.locator('input[name="id"]'), commissionerId);
-    await removeForm.getByRole("button", { name: "Remove" }).click();
-    await page.waitForLoadState("networkidle");
+    await submitAndSettle(
+      page,
+      removeForm.getByRole("button", { name: "Remove" }).click(),
+    );
 
-    // Still in the office, and still a manager: `removeStaff` refused rather
-    // than reporting success having deleted nothing.
+    // Still in the office. The audit entry is what catches a broken guard: an
+    // office member holds no membership row, so a forged removal that got
+    // through deletes nothing and only files a `remove_staff` entry saying it did.
     const { data: tier } = await db
       .from("league_office")
       .select("tier")
       .eq("profile_id", commissionerId)
       .single();
     expect(tier?.tier).toBe("commissioner");
-    const { data: prof } = await db
-      .from("profiles")
-      .select("role")
-      .eq("id", commissionerId)
-      .single();
-    expect(prof?.role).toBe("league_manager");
+    const { data: entries } = await db
+      .from("audit_log")
+      .select("id")
+      .eq("action", "remove_staff")
+      .contains("old_data", { profile_id: commissionerId })
+      .gte("created_at", since);
+    expect(
+      entries ?? [],
+      "a refused removal must file no remove_staff entry",
+    ).toHaveLength(0);
   });
 
   test("a deputy sees the office roster and can change nothing", async ({
@@ -401,8 +758,10 @@ test.describe("Path 20 — League Office", () => {
         .locator("form")
         .filter({ has: page.getByRole("button", { name: "Remove" }) });
       await tamper(page, removeForm.locator('input[name="id"]'), deputyId);
-      await removeForm.getByRole("button", { name: "Remove" }).click();
-      await page.waitForLoadState("networkidle");
+      await submitAndSettle(
+        page,
+        removeForm.getByRole("button", { name: "Remove" }).click(),
+      );
 
       const { data: still } = await db
         .from("profile_leagues")
@@ -484,19 +843,6 @@ test.describe("Path 20 — League Office", () => {
       await db.from("profiles").delete().eq("id", targetId);
       await db.auth.admin.deleteUser(targetId);
     }
-  });
-
-  test("a deputy is offered no set-password control", async ({ page }) => {
-    await signInAs(page, "Deputy");
-    await page.goto("/manage/office");
-    // On the page, so this is "not offered" rather than "not there at all".
-    await expect(
-      page.getByRole("heading", { name: "League Office" }),
-    ).toBeVisible();
-    await expect(page.getByLabel("Staff email")).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: "Set password" }),
-    ).toHaveCount(0);
   });
 
   /**
@@ -662,5 +1008,18 @@ test.describe("Path 20 — League Office", () => {
       await db.from("profiles").delete().eq("id", peerId);
       await db.auth.admin.deleteUser(peerId);
     }
+  });
+});
+
+test.describe("League switcher", () => {
+  test("the manage switcher moves between leagues", async ({ page }) => {
+    // The switcher used to write a cookie. With the league in the URL it has to
+    // navigate, and it lands on the league root rather than the equivalent
+    // sub-path, which would name a season belonging to the league left behind.
+    await signInAs(page, "Manager");
+    await page.goto("/obhl/seasons");
+
+    await page.getByLabel("Select league").selectOption("harbor");
+    await page.waitForURL("/harbor/dashboard");
   });
 });

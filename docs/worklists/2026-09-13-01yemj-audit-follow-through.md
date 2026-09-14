@@ -18,13 +18,15 @@
      the local stack. **Production NOT confirmed**: the owner checks with
      `! npx supabase db query --linked "select has_column_privilege('authenticated','public.profiles','role','UPDATE')"`
      (`true` = exposed). Part 1 Task 1 fixes it.
-   - **Commit only with the owner's explicit OK.** Given once, for part 1's seven
-     commits; ask again for any new work. Push/PR only when asked — declined so far.
+   - **Commit only with the owner's explicit OK.** Given for part 1's commits and for
+     part 2 (commit per reviewed task); ask again for any new work. Push/PR only when
+     asked.
    - The work lives in worktree
-     `/Users/richardkarp/dev/obhl/.claude/worktrees/audit-security-and-removals`,
-     branch `worktree-audit-security-and-removals`, cut from `95c7699`. **Part 1, both
-     plans and this file are committed there but NOT pushed.** ⛔ Do not remove the
-     worktree until the branch is pushed: it is the only copy.
+     `/Users/richardkarp/dev/obhl/.claude/worktrees/audit-security-and-removals`.
+     Part 1 is branch `worktree-audit-security-and-removals`, cut from `95c7699`,
+     pushed as PR #78. Part 2 is branch `test/part2-rebuild`, stacked on it. ⛔ Do not
+     remove the worktree while part 2 is unpushed, or while its git-ignored SDD
+     ledgers are still needed.
    - e2e resets the ONE local database all worktrees share: run only
      `PORT=3101 scripts/e2e-locked.sh <specs>`. Nothing `--linked` or `db push` from
      an agent; the owner pushes `0050` and `0051`.
@@ -33,15 +35,22 @@
 4. Verify with `npm test`. Baseline in the worktree, 2026-09-13: **51 files, 643
    passed + 1 todo, 250.7 s**.
 
-**Status: part 1 is implemented, verified, reviewed and committed on this branch
-(`3a7d198`..`ce7c62d`, on `95c7699`) — NOT pushed; no PR yet.** The final review added `0051` (logo bucket types + name check) and
-hardened `0050`; the owner's push is now `0050` AND `0051`. Before pushing, run
-`npx supabase db query --linked "select name, metadata->>'mimetype' from storage.objects where bucket_id = 'logos' and name !~ '\.(png|jpe?g|webp)$'"`
-— `0051` blocks new non-image logos but does not remove existing ones. Progress and every ruling live in the SDD ledger,
-`.superpowers/sdd/2026-09-13-audit-security-and-removals/progress.md` (git-ignored;
-its BASE/HEAD shas are unreferenced snapshot objects, not commits). Part 2's plan is
-written and not started — the owner should review its keep/delete tables before it
-runs. Part 3 is designed; its executable plan is written after part 2 merges.
+**Status (2026-09-14):**
+- **Part 1** (`3a7d198`..`533ad23`, on `95c7699`) is pushed; **PR #78** is open against
+  `main`, not merged. The final review added `0051` (logo bucket types + name check)
+  and hardened `0050`; the owner's production push is `0050` AND `0051`. Before
+  pushing, run
+  `npx supabase db query --linked "select name, metadata->>'mimetype' from storage.objects where bucket_id = 'logos' and name !~ '\.(png|jpe?g|webp)$'"`
+  — `0051` blocks new non-image logos but does not remove existing ones. Ledger:
+  `.superpowers/sdd/2026-09-13-audit-security-and-removals/progress.md` (git-ignored;
+  its BASE/HEAD shas are unreferenced snapshot objects, not commits).
+- **Part 2** is done on `test/part2-rebuild`, stacked on part 1. It is verified (unit
+  618 + 1 todo; full e2e 160 passed across 10 specs) and whole-branch reviewed. Both
+  office-forging residuals are fixed and shown red with their guards loosened. Next:
+  push it as a PR based on part 1's branch. Ledger:
+  `.superpowers/sdd/2026-09-13-part2-test-rebuild/progress.md`.
+- **Part 3** is designed. Its executable plan is written now, and runs on a fresh branch
+  off `main` after part 2 merges.
 
 **How the owner wants it run (2026-09-13):**
 - subagent-driven execution;
@@ -49,16 +58,6 @@ runs. Part 3 is designed; its executable plan is written after part 2 merges.
 - once commits are OK'd, this brief and both plans go into a docs commit on part
   1's PR;
 - this worktree stays until that commit exists.
-
-**Part 1, resuming:**
-- Task 1 review needed fixes, 1 Important finding. e2e/16's "a session cannot mint
-  a manager of another league through the API" wrote `role` in step 2, which 0050
-  refuses anyway. It is retargeted to `display_name`, read back via `db`. It still
-  has to be shown red with `may_write_profile` loosened.
-- Deferred minors: no positive `display_name` control; the INSERT branch is
-  untested; no explicit `security invoker`; the report missed the `seasons.ts` write.
-- On exit: ledger this, then fix round 1 on the Task 1 implementer, re-review, then
-  Tasks 2–7.
 
 ## Owner decisions, 2026-09-13
 
@@ -81,7 +80,8 @@ runs. Part 3 is designed; its executable plan is written after part 2 merges.
   the test pins it.
 - **Part 3** adds a "games still open" card on the manage dashboard.
 - **Refinements accepted:**
-  - part 3's detailed plan is written after part 2 merges;
+  - part 3's detailed plan is written after part 2 merges (revised 2026-09-14:
+    written now, run after part 2 merges);
   - roster changes get their own file, `10-roster-changes`;
   - the split-source deletion rule;
   - `09-access` splits into two tasks;
@@ -91,16 +91,34 @@ runs. Part 3 is designed; its executable plan is written after part 2 merges.
   `/:league/import`; un-refactored `schedule-builder-panel.tsx`; the anon grants on
   `office_tier_of` and `may_write_profile`; the `LeagueRef` thunk.
 
+**Decided 2026-09-14, after part 2 finished:**
+- Part 1 pushed and opened as PR #78.
+- 07-staff's forged-removal test asserts that no `remove_staff` entry was written.
+  Its old role check read a column `removeStaff` never writes. The owner's wording
+  was "membership stays", but an office member has no membership row, so the tier
+  check stands in for that.
+- The forged role-change test was shown red in one local run, with a temporary
+  migration dropping `office_member_keeps_manager_role`.
+- Part 2's plan and brief edits go in one docs commit on `test/part2-rebuild`. Part 2
+  is then pushed as a PR based on part 1's branch.
+- Test size misses: `e2e/**` and the unit test files join part 3's comment trim. No
+  further test cuts.
+- Part 3's plan is written now and runs after part 2 merges.
+- The handoff-read ban (Protocol, step 1) is lifted for part 3 Task 5's executor
+  only, not for planning.
+- Part 3 Task 4 keeps only its e2e; the filter gets no unit test.
+
 ## Index
 
 | Part | State | Where |
 |---|---|---|
-| 1 — security fixes + the two removals | done, committed locally — not pushed | `docs/superpowers/plans/2026-09-13-audit-security-and-removals.md` |
-| 2 — test rebuild (B) | plan written, not started | `docs/superpowers/plans/2026-09-13-part2-test-rebuild.md` |
-| 3 — code, comment and doc trims | design written; executable plan after part 2 merges | _Part 3_ below |
+| 1 — security fixes + the two removals | done; pushed, PR #78 open | `docs/superpowers/plans/2026-09-13-audit-security-and-removals.md` |
+| 2 — test rebuild (B) | done on `test/part2-rebuild` (stacked on part 1); office-forging residuals fixed; stacked PR next | `docs/superpowers/plans/2026-09-13-part2-test-rebuild.md` |
+| 3 — code, comment and doc trims | plan written (2026-09-14); runs after part 2 merges | `docs/superpowers/plans/2026-09-14-part3-trims.md` |
 | Ops — owner only | not started | _Ops_ below |
 
-**Order:** 1 → merge → owner pushes `0050` + `0051` → 2 → merge → write part 3's plan → 3.
+**Order:** 1 → merge → owner pushes `0050` + `0051` → 2 → merge → 3. Part 3's plan is
+written while parts 1 and 2 are in review.
 Part 2 must follow part 1 so the removals land while the full e2e suite still exists.
 
 ## Part 2 — test rebuild
@@ -160,23 +178,23 @@ and not gated: e2e 34 specs / ~12.4k lines → ≈10–12 specs and 3–4k lines
 **Resolved:** ~~Ask the owner: `rankStandings` applies wins before head-to-head — is
 that the league's rule?~~ Yes — points → wins → head-to-head → GD → GF.
 
-**Carried from part 1's final review — NOT yet in the part 2 plan; add before it runs:**
-- `runRosterOnlyImport` failure branches are untested (`season_teams` failure, roster
-  shortfall, no teams, reserved slug, fetch failure, season rollback). `AGENTS.md`
-  points here for them.
-- A manager-session upload of an `.svg` (and of a `.png` name sent as `image/svg+xml`)
-  is refused by `0051`. Control-verify outside the e2e harness first (the `0046` trap).
-- `uploadTeamLogo` refuses a disallowed name before `storage.upload`; edge names
-  (`crest.PNG.svg`, trailing dot) in `logo-type.test.ts`.
-- `0050`: a positive control that a session can still write its own `display_name`, and
-  the INSERT branch (a manager-session insert with a non-null `role`).
-- Four verify-script checks the part 2 plan leaves untested: anon `setStaffPassword`
-  POST; scorekeeper and captain editing a final game; the fallback-game shutout.
+**Owner decisions before part 2 ran (2026-09-13):**
+- Part 2 runs on branch `test/part2-rebuild`, stacked on part 1 (`533ad23`); it
+  rebases onto `main` after part 1 merges.
+- **No new tests unless absolutely necessary.** Of the items part 1's final review
+  carried over, only ONE is added: a manager-session upload of an `.svg` straight to
+  the `logos` bucket is refused (`0051`), control-verified first. Dropped: importer
+  failure-branch tests, `uploadTeamLogo` ordering and edge-name tests, `0050`'s
+  `display_name` and INSERT controls, and the four verify-script checks. `AGENTS.md`'s
+  claim that part 2 covers the importer's failure branches is removed instead.
+- The plan's deletions run as written.
+- Commit after each task passes review; no push.
 
-## Part 3 — design only (the executable plan follows part 2's merge)
+## Part 3 — design (plan written 2026-09-14; runs after part 2 merges)
 
 Its tasks name files part 2 creates or deletes (`05-scoring-night`,
-`calendars.test-support.ts`, the `roundRobin` callers), which is why its plan waits.
+`calendars.test-support.ts`, the `roundRobin` callers), which is why it runs only
+after part 2 merges. If part 2 changes in review, the plan changes with it.
 
 **Constraints to carry:**
 - Start from a fresh branch off `main` after part 2 merges. No `.github/workflows/` edits.
@@ -206,12 +224,13 @@ Its tasks name files part 2 creates or deletes (`05-scoring-night`,
    - Add a manager-only card on the dashboard, using `getSchedule` for
      `getManageContext`'s season. Rows link to the score page; the card is hidden
      when empty.
-   - Unit-test the filter.
+   - No unit test for the filter (owner, 2026-09-14).
    - Add one e2e in `05-scoring-night`: set a non-Sharks round-4 game `in_progress`,
      assert its href on the card, and restore everything in `finally`.
 5. **`RUNBOOK.md` and the docs collapse** (most capable model).
    - Distill from PR #74's `LAUNCH_READINESS_HANDOFF.md`, the other 3 handoffs,
-     `LAUNCH.md` and `AGENTS.md`.
+     `LAUNCH.md` and `AGENTS.md`. This task's executor reads the handoffs; the
+     Protocol's ban is lifted for it alone (owner, 2026-09-14).
    - Delete the rest of `docs/`, except the executing plan.
    - Rewrite the 20 source and e2e path pointers.
    - Trim `README.md`.
@@ -222,6 +241,8 @@ Its tasks name files part 2 creates or deletes (`05-scoring-night`,
    - `src/lib/actions/**`
    - `src/components/**` and `src/app/**`
    - the rest of `src/lib/**` and `next.config.ts`
+   - `e2e/**` and the unit test files (owner, 2026-09-14): part 2 left 2,680
+     comment lines in e2e and 1,732 in unit tests.
 8. **Whole-branch verification**, then the owner's steps: close PR #74 as superseded;
    close PR #51; prune the 21 remote branches.
 

@@ -10,8 +10,6 @@ import {
 /**
  * Phase S under manager constraints.
  *
- * Cadence coverage for the ordinary slot metrics lives in `matchups.test.ts`
- * under `describe("assignSlots weekday split")` — see `SCHEDULE_HANDOFF.md` §6.
  * This file is only about the two things constraints add: a pinned ice time,
  * and the preference term.
  */

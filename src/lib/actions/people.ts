@@ -167,7 +167,7 @@ export async function createStaffAccount(
   //
   // Together those let a manager of one league hand `league_manager` to an
   // account whose only league they cannot reach, through the ordinary form with
-  // no tampering. `e2e/16-league-membership.spec.ts` covers it.
+  // no tampering. `e2e/09-access.spec.ts` covers it.
   //
   // Adding an existing account is still how one person works two leagues: it
   // grants membership and leaves the profile untouched.

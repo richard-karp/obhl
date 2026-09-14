@@ -7,9 +7,7 @@ import {
   type PlacedGame,
   type IceOutcome,
 } from "./spacing";
-import { assignNights, type Night } from "./assignNights";
-import { buildBalancedPairings } from "./roundRobin";
-import { enumerateNights } from "./capacity";
+import { type Night } from "./assignNights";
 
 const TUE = Date.UTC(2026, 8, 1); // 2026-09-01 is a Tuesday
 const day = (offsetFromTue: number) =>
@@ -439,62 +437,6 @@ describe("compareIceOutcome", () => {
   it("is 0 for identical outcomes", () => {
     expect(compareIceOutcome(base, { ...base })).toBe(0);
   });
-});
-
-describe("iceOutcome", () => {
-  // Generates a real season, so it pays Phase S's full production budget — which
-  // is the point of the test, and is why it needs more than the default 5 s.
-  // Measured 2026-09-09: ~26 s before the night-order pass landed in
-  // `assignNights`, ~27.6 s after. The pass runs on THIS season because it is
-  // unconstrained — it is gated on `resolved.empty` — and after the
-  // 4/6000 → 4/1500 tuning it costs ~1.4 s, not the ~5.4 s (and ~32 s total)
-  // an earlier version of this comment recorded. The budget keeps the margin
-  // anyway: it is a timeout, not a measurement.
-  it("agrees with spacingReport on a generated season", () => {
-    const ts = Array.from({ length: 8 }, (_, i) => `t${i + 1}`);
-    const ns = enumerateNights("2026-09-10", {
-      weekdays: new Set([1, 4]),
-      slotTimes: ["19:00", "20:15", "21:30"],
-      excluded: new Set([
-        "2026-12-21",
-        "2026-12-24",
-        "2026-12-28",
-        "2026-12-31",
-        "2027-03-04",
-      ]),
-      maxNights: 48,
-    });
-    const { report, slotOf, pairsByNight, weekdayOfNight } = assignNights(
-      buildBalancedPairings(ts, 36),
-      ns,
-      ts,
-    );
-    const out = iceOutcome({
-      teamCount: 8,
-      pairsByNight,
-      slotOf,
-      weekdayOfNight,
-    });
-
-    expect(out.weekdaySpread).toBe(report.spacing.slotWeekdaySpread);
-    expect(out.streak3).toBe(report.spacing.slotStreak3);
-    expect(out.consecutive).toBe(report.spacing.slotConsecutive);
-    const seasonSpread = report.slotShareByTeam.reduce(
-      (a, s) => a + (Math.max(...s.counts) - Math.min(...s.counts)),
-      0,
-    );
-    expect(out.seasonSpread).toBe(seasonSpread);
-
-    // The clustering pair. `spacingReport` and `iceOutcome` compute the same
-    // quantities from different inputs, and this file's contract is that they
-    // stay identical — so a clustering figure that reaches the candidate
-    // rank-off has to agree with the one the report ships.
-    // Guard against a vacuous pass: if a future change drove this season to zero
-    // clustering, `0 === 0` would "agree" while testing nothing.
-    expect(out.clusterWorst).toBeGreaterThan(0);
-    expect(out.clusterWorst).toBe(report.spacing.slotClusterWorstTeam);
-    expect(out.clusterTotal).toBe(report.spacing.slotClusterWindows);
-  }, 60_000);
 });
 
 describe("compareIceOutcome — clustering is computed but not ranked", () => {

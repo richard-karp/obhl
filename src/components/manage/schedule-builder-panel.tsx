@@ -712,7 +712,7 @@ export async function ScheduleBuilderPanel({
             about, and it has to be the one deciding that: a component mounted
             only while stale unmounts in the same commit its own success lands
             in, and the toast confirming the move is lost with it — the race
-            `28-schedule-form-state.spec.ts` records for the publish toast.
+            `11-schedule-build.spec.ts` records for the publish toast.
 
             The mode gate is safe to leave here because moving a draft cannot
             change the mode. Not on a locked season, for the reason the publish

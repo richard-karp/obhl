@@ -20,7 +20,7 @@ import { NIGHT_LABEL, NIGHT_LONG } from "@/lib/season/nights";
  * `<span>` with no role, so ARIA prohibits naming it and an `aria-label` would
  * be dropped. `sr-only` text WOULD be announced, but it also lands in
  * `innerText`, and the roster e2e strips badge text out of name cells by
- * string-replacing it (`04-rosters`, `19-transfer`) — `season-select.tsx`
+ * string-replacing it (`04-rosters`, `10-roster-changes`) — `season-select.tsx`
  * records the last time an `sr-only` string collided with that suite. The four
  * badges beside this one (`C`, `R`, `SUSP`, `INJ`) carry no accessible name
  * either; giving one of five a name is the inconsistency, not the fix.

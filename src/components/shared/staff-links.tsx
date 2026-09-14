@@ -127,9 +127,11 @@ function Links({ links, base }: { links: NavLink[]; base: string }) {
  * ⛔ THE OLD DEFENCE WAS THAT THE LABELS DIFFERED, AND IT DID NOT HOLD. It
  * argued the staff view of a URL is not the public view of it — but the pages
  * had already merged (a staff page is a public page with more on it), so both
- * links led somewhere identical. `e2e/27-one-chrome.spec.ts` now compares the
- * two rows BY HREF for exactly that reason; a label-based check would have gone
- * on passing.
+ * links led somewhere identical. `e2e/09-access.spec.ts` once compared the two
+ * rows BY HREF for exactly that reason; a label-based check would have gone on
+ * passing. That comparison test was since cut as duplicate UI coverage — what
+ * remains enforced is the page guard itself, in the same file's "One chrome
+ * everywhere" tests.
  *
  * ⚠️ What is left here is what the public nav does NOT name: Dashboard, People
  * & Roles, Seasons, Announcements, Audit Log. Adding a path that `NavLinks`

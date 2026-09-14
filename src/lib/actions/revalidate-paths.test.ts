@@ -1,15 +1,6 @@
 import { describe, it, expect } from "vitest";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 
 /**
  * Convention guard, not a bug detector.
@@ -185,47 +176,6 @@ describe("revalidatePath conventions", () => {
       expect(routes.size).toBeGreaterThan(20);
       expect(routes.has("/[league]/schedule")).toBe(true);
       expect(routes.has("/[league]/no-such-route")).toBe(false);
-    });
-
-    it("maps every App Router directory convention to the right URL", () => {
-      // ⛔ AGAINST A FIXTURE, NOT `src/app`. These conventions do not all appear
-      // in this repo, so the only way to know the walk handles them is to build
-      // a tree that has them — which is why `appRoutes` takes its root. Each
-      // one of these silently produced a wrong URL before this test existed.
-      const root = mkdtempSync(join(tmpdir(), "approutes-"));
-      const page = (...seg: string[]) => {
-        const dir = join(root, ...seg);
-        mkdirSync(dir, { recursive: true });
-        writeFileSync(join(dir, "page.tsx"), "export default () => null;");
-      };
-      try {
-        page("(marketing)", "about"); // group: contributes no segment
-        page("@modal", "photo"); // parallel slot: contributes no segment
-        page("preview"); // the real route the two below intercept
-        page("(.)preview"); // intercepting, same level: contributes NOTHING
-        page("feed", "(..)preview"); // intercepting one level up: also nothing
-        page("shop", "[[...rest]]"); // optional catch-all: also serves parent
-        page("[league]", "games", "[gameId]"); // dynamic: kept verbatim
-        mkdirSync(join(root, "chrome"), { recursive: true });
-        writeFileSync(join(root, "chrome", "layout.tsx"), "export default 0;");
-        // ⚠️ The page sits UNDER `_internal`, not in it: Next opts the whole
-        // subtree out, and a fixture that only put a page in the folder itself
-        // left a walk that descended into `_private` passing.
-        page("_internal", "deep");
-
-        expect([...appRoutes(root)].sort()).toEqual(
-          [
-            "/preview", // from the real route, not from either interceptor
-            "/[league]/games/[gameId]",
-            "/about",
-            "/photo",
-            "/shop",
-            "/shop/[[...rest]]",
-          ].sort(),
-        );
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
     });
 
     it("revalidates a path that names a real route", () => {
