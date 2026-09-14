@@ -43,7 +43,7 @@ function rosterRows(page: Page) {
  *
  * ⛔ NOT `rosterRows(page).first()`. The editor is three sections now and
  * Forwards come first, so the first row on Sharks is jersey #6 — who is the
- * seeded CAPTAIN, and the account `13-goalie`'s Path 21 signs in as.
+ * seeded CAPTAIN, and the account `05-scoring-night`'s Path 21 signs in as.
  * Transferring them clears `is_captain` (`movePlayerToTeam` does it
  * deliberately), so this spec silently broke that one whenever it ran first.
  * It passed alone and failed in the suite, which is the worst shape for it.

@@ -5,10 +5,10 @@
  * Assumes seeded data: 6 Oceanview teams (Sharks/Bears/Wolves/Ducks/Hawks/Bisons),
  * 3 finalized rounds, 2 later rounds still `scheduled`, one round TONIGHT, and
  * 3 announcements. (Harbor also gains one game tonight, for the cross-league
- * assertions in `33-scorekeeper-day`.)
+ * assertions in `05-scoring-night`.)
  *
  * ⚠️ The tonight round is the only fixture that is ever today, and it exists for
- * the scorekeeper's page (`33-scorekeeper-day`). Nothing in this file asserts an
+ * the scorekeeper's page (`05-scoring-night`). Nothing in this file asserts an
  * absolute game count — the CSV/ICS checks below are deliberately relational
  * (`toBeGreaterThan(0)`, `toBeLessThan(allCsv.length)`) — so it costs this file
  * nothing. Keep it that way: an exact count here would break every time the

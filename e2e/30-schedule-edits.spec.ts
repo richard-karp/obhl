@@ -941,7 +941,8 @@ test.describe("Path 28 — manual schedule edits", () => {
     //
     // ⚠️ And by HREF rather than the "Score" label: `scoreLabel` renders a final
     // game as "Edit", and tonight's three games are a shared fixture that
-    // `05-scoring` and `33-scorekeeper-day` each finalize one of.
+    // `05-scoring-night` finalizes two of, across its scoring and
+    // scorekeeper-day tests.
     await signedInAs(page, "Scorekeeper");
     await page.goto("/tonight");
     const score = page.locator('a[href$="/score"]').first();

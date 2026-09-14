@@ -6,7 +6,7 @@ import { test, expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 
-/** The same service-role client the other specs build — see `13-goalie`. */
+/** The same service-role client the other specs build — see `05-scoring-night`. */
 function admin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
