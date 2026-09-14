@@ -6,7 +6,7 @@ import { createAdminClient } from "@/utils/supabase/admin";
 import { requireLeagueManager } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit";
 import { findUserIdByEmail } from "@/lib/auth/users";
-import { addLeagueMembership } from "@/lib/auth/membership";
+import { addLeagueMembership, mayWriteProfileOf } from "@/lib/auth/membership";
 import { leagueOfSeason, leagueOfTeam } from "@/lib/league/of-entity";
 import { getStandings } from "@/lib/queries/standings";
 import { getSkaterLeaders } from "@/lib/queries/stats";
@@ -219,6 +219,30 @@ export async function createTeamForSeason(
           ok: false,
           message: `Added ${name} with captain ${captainName}, but couldn't create or find their login (${uErr?.message ?? "no matching account"}). The team and player are there — add their login from People & Roles.`,
         };
+      }
+
+      // An existing account keeps its role: `profiles.role` is account-wide, so
+      // writing "captain" here would demote a manager or scorekeeper in every
+      // league they work. Same rule as `createStaffAccount` in people.ts.
+      if (uErr) {
+        const { data: existing } = await admin
+          .from("profiles")
+          .select("role")
+          .eq("id", userId)
+          .maybeSingle();
+        const refusal =
+          existing?.role && existing.role !== "captain"
+            ? `${captainEmail} already has an account as ${existing.role.replace("league_", "")}, and a role is account-wide, so it was left unchanged`
+            : !(await mayWriteProfileOf(manager.id, userId))
+              ? `${captainEmail} already has an account in a league you don't manage, so it was left unchanged`
+              : null;
+        if (refusal) {
+          revalidatePath("/[league]/seasons/[seasonId]", "page");
+          return {
+            ok: false,
+            message: `Added ${name} with captain ${captainName}, but ${refusal}.`,
+          };
+        }
       }
 
       const { error: profErr } = await admin.from("profiles").upsert({
