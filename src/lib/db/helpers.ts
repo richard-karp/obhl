@@ -2,10 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/db/types";
 
 /**
- * Either Supabase client. The read helpers in `lib/queries` default to the RLS
- * client, which is right for the public site; a manager-only server action can
- * pass the admin client instead, so it doesn't depend on the season it's
- * operating on being publicly readable.
+ * Either Supabase client. `lib/queries` defaults to the RLS client; only a manager-only server
+ * action may pass the admin client.
  */
 export type DbClient = SupabaseClient<Database>;
 

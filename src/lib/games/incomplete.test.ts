@@ -16,8 +16,7 @@ describe("scoresheetProblems", () => {
   });
 
   it("names the team that dressed nobody", () => {
-    // The production fault, 2026-09-12: Red had zero `game_rosters` rows and
-    // the game finalized 0-3 without a word.
+    // Zero `game_rosters` rows would otherwise finalize without a word.
     expect(scoresheetProblems([ok({ dressedCount: 0 })])).toContain(
       "Red: no players dressed",
     );
@@ -39,11 +38,8 @@ describe("scoresheetProblems", () => {
   });
 
   /**
-   * ⛔ THE FALSE POSITIVE THIS FUNCTION WAS CORRECTED FOR. A Sub selection is a
-   * complete answer that deliberately carries no individual record; warning
-   * about it nags a correctly-entered sheet, and a warning that fires on
-   * correct data teaches people to click through warnings — the exact
-   * behaviour the gate exists to prevent.
+   * ⛔ A Sub is a complete answer with no individual record: a warning that fires on a correct
+   * sheet teaches people to click through warnings.
    */
   it("does not warn about a substitute goalie", () => {
     expect(

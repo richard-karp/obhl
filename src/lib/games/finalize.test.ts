@@ -1,9 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-// `finalizeGameById` only builds its own client when one is not passed, and
-// every test here passes one. Mocking the module keeps `next/headers` — which
-// `@/utils/supabase/server` imports at load and which has no request context
-// under vitest — out of the import graph entirely.
+// Every test passes a client. Mocking keeps `next/headers`, which has no request context
+// under vitest, out of the import graph.
 vi.mock("@/utils/supabase/server", () => ({
   createClient: async () => {
     throw new Error("a client was passed; this must not be called");
@@ -18,13 +16,8 @@ import { finalizeGameById } from "@/lib/games/finalize";
 import type { DbClient } from "@/lib/db/helpers";
 
 /**
- * A chainable stand-in for a PostgREST builder, told only what the UPDATE
- * should report back.
- *
- * `updated` is the row list the UPDATE's `.select()` settles with: `[{id}]` for
- * a write that landed, `[]` for one that matched nothing. That is the only axis
- * these tests vary — the reads always succeed, because the bug being pinned is
- * about a write that SUCCEEDS AND DOES NOTHING.
+ * A chainable PostgREST stand-in. `updated` is what the UPDATE's `.select()` settles with:
+ * `[]` is a write that succeeds and does nothing, the bug these tests pin.
  */
 function fakeClient(
   updated: Array<{ id: string }>,
@@ -94,16 +87,8 @@ describe("finalizeGameById", () => {
   });
 
   /**
-   * ⛔ THE WHOLE POINT OF THIS FILE. An RLS-refused UPDATE is not an error: it
-   * matches no rows and returns `error: null`, so `check()` sails through and
-   * the function returns as though it had worked. That is how the nightly sweep
-   * ran as `anon` for a week while reporting success — `/api/cron/close-night`
-   * counted every call it made as a game closed, because a call that did
-   * nothing is indistinguishable from one that worked.
-   *
-   * The response body is the only production signal this job has: Vercel's cron
-   * log shows it, and nobody is watching at 2am. A count that cannot be trusted
-   * is worse than no count.
+   * ⛔ An RLS-refused UPDATE returns `error: null`, so without this throw the cron counts a
+   * write that did nothing as a closed game, in the only signal the job has.
    */
   it("throws when the update matches no rows", async () => {
     await expect(
@@ -112,11 +97,8 @@ describe("finalizeGameById", () => {
   });
 
   /**
-   * ⛔ AND IT MUST THROW BEFORE THE AUDIT WRITE, NOT AFTER. `logAudit` runs on
-   * the ADMIN client regardless of which client did the update, so an ordering
-   * that audits first files a `finalize_game` entry for a game that was never
-   * finalized — a false record in the one table whose job is saying what
-   * happened. That half of the bug is invisible in the games table entirely.
+   * ⛔ The throw comes before the audit write: `logAudit` runs on the admin client, so auditing
+   * first files a `finalize_game` entry for a game that was never finalized.
    */
   it("files no audit entry when the update matched nothing", async () => {
     await expect(
@@ -125,13 +107,7 @@ describe("finalizeGameById", () => {
     expect(logAudit).not.toHaveBeenCalled();
   });
 
-  /**
-   * ⛔ THE OTHER SILENT-SUCCESS PATH, AND IT IS THE SAME BUG WEARING A HAT. The
-   * read at the top of the function used to `return` when the game came back
-   * empty, which is indistinguishable from a completed finalize to every caller.
-   * `/api/cron/close-night` would count it as closed. A game selected moments
-   * earlier that cannot now be read is an anomaly worth a failure, not a shrug.
-   */
+  /** ⛔ The other silent-success path: returning on an unreadable game reads as a completed finalize. */
   it("throws when the game cannot be read", async () => {
     await expect(
       finalizeGameById("g1", null, fakeClient([], { gameMissing: true })),

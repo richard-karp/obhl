@@ -8,9 +8,8 @@ const side = (over: Partial<SideInput> = {}): SideInput => ({
   ...over,
 });
 
-// Canonical lowercase uuids, deliberately ordered so that the "lowest id"
-// branch cannot pass by accident of array order: `hi` is listed FIRST in every
-// fixture that uses both.
+// Canonical lowercase uuids. `HI` is listed first wherever both appear, so the
+// "lowest id" branch cannot pass by array order.
 const LO = "11111111-1111-4111-8111-111111111111";
 const HI = "99999999-9999-4999-8999-999999999999";
 
@@ -29,10 +28,8 @@ describe("resolveGoalieOfRecord", () => {
   });
 
   it("takes the lowest id when a team dressed two goalies", () => {
-    // ⛔ THIS MIRRORS THE DATABASE, NOT A PREFERENCE. `v_goalie_stats`' fallback
-    // is `distinct on (game_id, team_id) … order by … gr.player_id`, so
-    // Postgres keeps the lowest uuid. A different tie-break here would credit
-    // the box score to one goalie and /stats to the other.
+    // ⛔ Mirrors the database: `v_goalie_stats` keeps the lowest uuid, and another tiebreak
+    // would credit the box score and /stats to different goalies.
     expect(resolveGoalieOfRecord(side({ dressedGoalieIds: [HI, LO] }))).toEqual(
       { kind: "player", playerId: LO },
     );
@@ -45,11 +42,8 @@ describe("resolveGoalieOfRecord", () => {
   });
 
   /**
-   * ⛔ THE TWO TESTS BELOW ARE THE POINT OF THE THREE-VALUE RETURN, and each
-   * would still pass if `sub` and `none` were the same value — so they assert
-   * the exact kind rather than "not a player". Collapsing them is what the
-   * finalize guard cannot survive: `sub` is a complete answer a scorekeeper
-   * gave, `none` is nobody having answered, and only `none` is a problem.
+   * ⛔ These assert the exact kind, not "not a player": the finalize guard cannot survive
+   * `sub` and `none` collapsing into one value.
    */
   it("reports a substitute as `sub`, not as a missing goalie", () => {
     expect(resolveGoalieOfRecord(side({ goalieIsSub: true }))).toEqual({

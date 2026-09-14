@@ -41,8 +41,7 @@ describe("leagueWeekday", () => {
 });
 
 describe("weekdayOf", () => {
-  // Moved here from schedule/assignNights so there's one weekday-from-date
-  // implementation. It reads a plain calendar date, with no timezone involved.
+  // A plain calendar date, with no timezone involved.
   it("reads the weekday of a calendar date", () => {
     expect(weekdayOf("2026-09-14")).toBe(1); // Monday
     expect(weekdayOf("2026-09-13")).toBe(0); // Sunday
@@ -114,9 +113,8 @@ describe("leagueDayStart", () => {
   });
 
   it("uses the offset at MIDNIGHT on a fall-back day, not at noon", () => {
-    // ⛔ 1 Nov 2026 switches EDT->EST at 2am local, so midnight is still EDT
-    // (04:00Z) even though noon that day is EST. `leagueOffset` samples noon and
-    // would put this hour late, clipping 00:00-01:00 off the night.
+    // ⛔ Midnight on 1 Nov 2026 is still EDT (04:00Z) though noon is EST: `leagueOffset`
+    // samples noon and would clip 00:00-01:00 off the night.
     expect(leagueDayStart("2026-11-01")).toBe("2026-11-01T04:00:00.000Z");
   });
 

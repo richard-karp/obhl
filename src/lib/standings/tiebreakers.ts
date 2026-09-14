@@ -1,10 +1,6 @@
 /**
- * Pure standings ordering. Aggregates (W/L/T/PTS/GF/GA) are computed in SQL
- * (v_standings_raw); the ordered table — including the head-to-head tiebreaker,
- * which depends on *which* teams are tied — is computed here.
- *
- * Order: points → wins → head-to-head (among the tied group only) → goal
- * differential → goals for → teamId (deterministic final fallback).
+ * Aggregates come from SQL (`v_standings_raw`); head-to-head depends on which teams are tied, so
+ * ordering is here: points → wins → head-to-head within the tied group → GD → GF → teamId.
  */
 
 export type RankableTeam = {
