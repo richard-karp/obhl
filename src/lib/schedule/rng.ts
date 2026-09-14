@@ -1,4 +1,3 @@
-/** Small seeded PRNG; every schedule phase draws from its own seed. */
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {

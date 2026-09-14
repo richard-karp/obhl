@@ -9,19 +9,13 @@ export type EnumerateNightsOptions = {
   excluded?: Set<string>;
   /** Inclusive last date to consider. Omit to run until `maxNights`. */
   endDate?: string;
-  /** Stop once this many nights have been collected. */
   maxNights?: number;
 };
 
 const DAY_MS = 86_400_000;
 const HARD_GUARD_DAYS = 730; // ~2 years — never walk forever.
 
-/**
- * Chronological list of game nights from `startDate` forward: every selected
- * weekday, minus excluded dates, until `endDate` (inclusive) and/or `maxNights`.
- * UTC arithmetic so DST never shifts a day. Factored from the old inline loop in
- * `generateSchedule`.
- */
+/** ⚠️ UTC arithmetic, so DST never shifts a day; `endDate` is inclusive. */
 export function enumerateNights(
   startDate: string,
   opts: EnumerateNightsOptions,

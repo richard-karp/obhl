@@ -1,35 +1,16 @@
-/**
- * Orientation — who is the home team in each game.
- *
- * The generator never needs this phase: `buildBalancedPairings` emits ordered
- * `Pairing`s and inherits the circle method's parity alternation, which is
- * already roughly even. Repairing a published season does need it, because Phase
- * M works in *unordered* pairs — re-pairing a night produces matchups with no
- * orientation at all, and choosing arbitrarily would walk a season's home/away
- * split off balance one repair at a time.
- *
- * The goal is one number per team: home games minus away games, as near zero as
- * the parity of its game count allows. Sum of squares rather than a spread, for
- * the same reason Phase S uses it — it keeps pulling once the worst team is
- * fixed, instead of letting everyone settle at the edge of an acceptable band.
- */
+// Home/away for repair, whose Phase M pairs are unordered: choosing arbitrarily would walk a
+// season's split off balance one repair at a time.
 
 import { mulberry32 } from "./rng";
 
 export type OrientableGame = {
-  /** The two teams, in no particular order. */
   pair: [number, number];
   /** Already played (or otherwise untouchable): counts, but can't flip. */
   locked: boolean;
-  /**
-   * The orientation this game currently has. Required for locked games, since
-   * that orientation is a fact rather than a choice. On free games it's the
-   * churn tiebreaker: an unchanged game keeps it unless flipping helps.
-   */
+  /** Required when locked (a fact); on a free game, the churn tiebreaker. */
   current?: [number, number];
 };
 
-/** Σ (home − away)² across teams — the quantity `assignHomeAway` minimises. */
 export function homeAwaySpread(
   teamCount: number,
   games: [number, number][],
@@ -42,15 +23,8 @@ export function homeAwaySpread(
   return diff.reduce((s, d) => s + d * d, 0);
 }
 
-/**
- * `[home, away]` per game, aligned with the input.
- *
- * Iterated local search, same shape as Phase S. A plain descent isn't enough:
- * two teams sitting at +2 and −2 with no game between them are only reconciled
- * through a third team, and the first flip of that path is cost-neutral, so
- * strict descent won't take it. Kicking off the incumbent and re-descending
- * finds those paths.
- */
+/** `[home, away]` per game, aligned with the input. Iterated local search: reconciling +2 and
+ *  −2 goes through a third team, and that path's first flip is cost-neutral. */
 export function assignHomeAway(opts: {
   teamCount: number;
   games: OrientableGame[];
@@ -60,8 +34,6 @@ export function assignHomeAway(opts: {
   const { teamCount: T, games, seed = 1, restarts = 40 } = opts;
   const rnd = mulberry32(seed);
 
-  // Seed from the current orientation where there is one, so a game nobody
-  // needed to touch starts out unmoved.
   const out: [number, number][] = games.map((g) => {
     const [a, b] = g.pair;
     const cur = g.current;
@@ -85,7 +57,6 @@ export function assignHomeAway(opts: {
     out[i] = [a, h];
   };
 
-  /** Change in Σ diff² from flipping game `i`. Negative is an improvement. */
   const gain = (i: number): number => {
     const [h, a] = out[i];
     return (
@@ -125,8 +96,6 @@ export function assignHomeAway(opts: {
   let bestSnap = snapshot();
   let bestTotal = total();
 
-  // The theoretical floor: a team with an odd game count can never reach zero,
-  // so there's no point kicking once every team is as even as its parity allows.
   const gameCount = new Array<number>(T).fill(0);
   for (const g of games) {
     gameCount[g.pair[0]]++;

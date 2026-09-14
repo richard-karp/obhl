@@ -1,59 +1,31 @@
-/**
- * Phase P — decide *which teams play which night* before deciding who they play.
- *
- * The participation matrix alone fixes two of the four ranked goals exactly:
- *
- *   - Weekday balance (#1): a team's games on a weekday = that weekday's nights
- *     minus its byes on that weekday, so an even split is purely a statement
- *     about byes.
- *   - Bye rules (#2): "no two byes in a week", "no bye on the same weekday in
- *     consecutive weeks", "no byes in consecutive weeks at all" and "no byes on
- *     back-to-back game nights" are all properties of this matrix too.
- *
- * Deciding it up front — exactly, with branch and bound — is what lets the
- * generator hit both at once. Searching over placed *games* instead (the older
- * approach) has to move four teams to change one team's weekday count, so the
- * two goals fight each other and neither reaches its optimum.
- *
- * Games per team are an input, so every solution keeps games-played equal, and
- * "no team plays twice a night" is structural: a team either plays a night or
- * byes it.
- */
+// ⚠️ Phase P settles who plays which night exactly, before any pairing exists.
+// RUNBOOK.md, _Schedule generator_.
 
 import { mulberry32 } from "./rng";
 
-/** One game night, as this solver sees it. */
 export type ParticipationNight = {
   /** Calendar-week index (Mon-anchored), from `buildNightMeta`. */
   week: number;
   /** Index into the league's distinct weekdays, not a day-of-week number. */
   weekday: number;
-  /** Games scheduled that night — fixes how many teams bye it. */
   games: number;
 };
 
 export type Participation = {
   /** `plays[team][nightIndex]` — the matrix everything downstream reads. */
   plays: boolean[][];
-  /** Rule 1 breaches: team-weeks holding 2+ byes. */
   byeMultiWeek: number;
-  /** Rule 3 breaches: consecutive-week pairs where a team byed in both. */
   byeConsecWeek: number;
-  /** Rule 2 breaches: ...and byed the same weekday in both. */
   byeConsecWeekSameDay: number;
-  /** Rule 4 breaches: a team byeing two *consecutive game nights*. Stated in
-   * nights rather than weeks, so unlike the three above it sees straight through
-   * a holiday gap — which is exactly where the longest layoffs hide. */
+  /** In nights, not weeks, so unlike the three rules above it sees through a holiday gap. */
   byeAdjNight: number;
-  /** Widest per-team weekday spread (0 = perfectly balanced). */
   weekdaySpread: number;
-  /** True when the search ran to completion instead of being cut off, so the
-   * metrics above are the best this calendar allows and re-running with a
-   * bigger budget cannot help. */
+  /** The search completed: a bigger budget cannot improve these metrics. */
   optimal: boolean;
 };
 
-/** Bye-rule cost of a solved matrix, on the same scale the search minimises. */
+/** ⛔ Phase P's objective and the basis of its admissible bound: leave it untouched.
+ *  RUNBOOK.md, _Schedule generator_. */
 export function byeRuleCost(
   p: Omit<Participation, "plays" | "optimal">,
 ): number {
@@ -65,10 +37,8 @@ export function byeRuleCost(
   );
 }
 
-// Bye-rule costs, mirroring SPACING_W so the two searches rank byes the same way.
-// Adjacent nights outrank the week rules: two nights off in a row is the longest
-// layoff a team can be handed, and it is the one breach a week-based rule can't
-// even see when the two nights straddle a break.
+// ⚠️ Mirrors `SPACING_W` so both searches rank byes alike. Adjacent nights outrank the week
+// rules: a week rule can't see two nights off that straddle a break.
 const ADJ_NIGHT_W = 800;
 const MULTI_WEEK_W = 400;
 const CONSEC_SAME_DAY_W = 300;
@@ -77,8 +47,6 @@ const CONSEC_WEEK_W = 150;
 type WeekSlot = { night: number; weekday: number; quota: number };
 type Week = { slots: WeekSlot[]; adjPrev: boolean };
 
-/** Group nights into chronological weeks, tagging calendar adjacency (a holiday
- * gap breaks a run, so byes either side of it aren't "consecutive weeks"). */
 function buildWeeks(nights: ParticipationNight[], teamCount: number): Week[] {
   const byWeek = new Map<number, WeekSlot[]>();
   nights.forEach((n, i) => {
@@ -96,12 +64,8 @@ function buildWeeks(nights: ParticipationNight[], teamCount: number): Week[] {
   }));
 }
 
-/**
- * `minAdj[i][prevAdj][b]` — fewest consecutive-week bye pairs achievable when a
- * team still has `b` bye-weeks to place among weeks `i..end`, where `prevAdj`
- * means the previous week was a bye week *and* is calendar-adjacent to week `i`.
- * Used as an admissible lower bound to prune the search.
- */
+/** ⛔ An admissible lower bound (`minAdj[i][prevAdj][b]`): one that overestimates prunes
+ *  optimal solutions. RUNBOOK.md, _Schedule generator_. */
 function buildMinAdjTable(weeks: Week[], maxByes: number): number[][][] {
   const W = weeks.length;
   const INF = Number.MAX_SAFE_INTEGER / 4;
@@ -123,34 +87,14 @@ function buildMinAdjTable(weeks: Week[], maxByes: number): number[][][] {
   return table;
 }
 
-/**
- * Split each team's byes across the weekdays before deciding which nights they
- * fall on: pick `b[team][weekday]` with the row sums each team owes and the
- * column sums the calendar hands out, as close to an even games-per-weekday
- * split as those two totals allow.
- *
- * This exists because a perfectly even split is often arithmetically impossible
- * — 45 nights over two weekdays can't give ten teams 18 games each way — and
- * then "within a slack band" is far too weak a target: it lets every team sit at
- * the edge of the band when most of them could have been exactly even. Solving
- * the split first turns weekday balance into a fixed per-team quota, which also
- * hands the night-level search a much tighter constraint to prune against.
- */
+/** Fixes each team's byes per weekday before nights, as even as the totals allow. ⚠️ A slack
+ *  band alone lets every team sit at its edge when most could be exactly even. */
 function chooseWeekdayByeTargets(
   nightsPerWd: number[],
   byeQuotaByWd: number[],
   totalByes: number[],
-  /**
-   * Manager constraints, or undefined when there are none.
-   *
-   * ⛔ **With no constraints this function must behave bit-identically to how it
-   * did before constraints existed.** It runs on every generation, and the
-   * headline acceptance bar is that the metrics in `RUNBOOK.md` → Schedule
-   * generator are unchanged when nothing is constrained. So every new behaviour below
-   * is reached only through this argument being present, and when it is absent
-   * `weightOf` returns 1 for every team and the bounds are the original ones —
-   * not "equivalent", the same expressions.
-   */
+  /** ⛔ Undefined without constraints; then this must run the original expressions
+   *  exactly: it runs on every generation, and unconstrained metrics may not move. */
   limits?: {
     /** Teams named by at least one constraint, which absorb the slack. */
     constrained: boolean[];
@@ -162,8 +106,6 @@ function chooseWeekdayByeTargets(
 ): number[][] | null {
   const T = totalByes.length;
   const D = nightsPerWd.length;
-  // Capacity left on weekdays after d, used to force byes forward when the tail
-  // can't absorb them.
   const tailRoom = new Array(D + 1).fill(0);
   for (let d = D - 1; d >= 0; d--)
     tailRoom[d] = tailRoom[d + 1] + nightsPerWd[d];
@@ -178,11 +120,8 @@ function chooseWeekdayByeTargets(
       lo[t] = Math.max(0, rem[t] - tailRoom[d + 1]);
       hi[t] = Math.min(rem[t], nightsPerWd[d]);
       if (limits) {
-        // A team already forced to bye three Mondays cannot be handed a Monday
-        // target of two. Without these bounds the quota below would pin an
-        // unsatisfiable target, every `exactWeekdayTargets` rung of the ladder
-        // would fail identically, and the whole league would drop to the looser
-        // unpinned rungs — trading everyone's weekday balance for one request.
+        // ⚠️ Without these bounds a forced bye pins an unsatisfiable target, every exact rung
+        // fails, and the whole league drops to the unpinned rungs for one request.
         lo[t] = Math.max(lo[t], limits.min[t][d]);
         hi[t] = Math.min(hi[t], limits.max[t][d]);
       }
@@ -191,7 +130,6 @@ function chooseWeekdayByeTargets(
       quota -= lo[t];
     }
     if (quota < 0) return null;
-    // Hand out what's left to whoever is furthest below an even share.
     while (quota > 0) {
       let pick = -1;
       let bestGames = -Infinity;
@@ -211,24 +149,11 @@ function chooseWeekdayByeTargets(
   }
   if (rem.some((r) => r !== 0)) return null;
 
-  // Polish with 2×2 exchanges: they move byes between two teams and two
-  // weekdays at once, so both the row and column totals survive untouched.
-  // Spread is the goal; sum-of-squares only breaks ties between equal spreads.
-  // Games on a weekday can't exceed that weekday's nights, so Σ nightsPerWd² is
-  // a hard ceiling on the tiebreak — weighting one step of spread above it makes
-  // the ordering provably lexicographic instead of merely true at league sizes.
+  // 2×2 exchanges keep row and column totals. ⚠️ `spreadWeight` exceeds Σ nightsPerWd², the
+  // tiebreak's ceiling, so spread outranks it at any league size: don't make it a constant.
   const spreadWeight = 1 + nightsPerWd.reduce((s, n) => s + n * n, 0);
-  /**
-   * Whose evenness the exchange below is actually buying.
-   *
-   * Today the pass spreads slack evenly, which smears one team's request across
-   * the league. When constraints are present, an unconstrained team's imbalance
-   * is worth a thousand of a constrained team's, so an exchange that takes an
-   * unconstrained team to an exact even split at a constrained team's expense is
-   * always taken — the team whose manager asked for something absorbs the cost
-   * of asking. Without constraints every weight is 1, which is the expression
-   * this pass has always evaluated.
-   */
+  /** An unconstrained team's evenness outweighs a constrained team's 1000:1, so the team
+   *  that asked absorbs the cost. Every weight is 1 without constraints. */
   const UNCONSTRAINED_W = 1000;
   const weightOf = limits
     ? (t: number) => (limits.constrained[t] ? 1 : UNCONSTRAINED_W)
@@ -291,49 +216,25 @@ export type SolveParticipationOptions = {
   /** Chronological; index here is the night index everything downstream uses. */
   nights: ParticipationNight[];
   gamesPerTeam: number[];
-  /** How many distinct weekdays the league plays. */
   weekdayCount: number;
   /** Allowed slack over the ideal weekday split, in games. 0 = perfectly even. */
   weekdaySlack?: number;
-  /** Pin per-team weekday bye counts to the evenest split the totals allow,
-   * instead of only keeping them inside the slack band. */
+  /** Pin weekday bye counts to the evenest split, not merely inside the slack band. */
   exactWeekdayTargets?: boolean;
   nodeBudget?: number;
   /** Wall-clock cap. On expiry the best solution found so far is returned. */
   timeBudgetMs?: number;
-  /** Give up this long after the last improvement. The bound can rarely prove
-   * optimality on hard calendars, so without this the search would sit out its
-   * whole budget long after it has stopped finding anything better. */
+  /** Give up this long after the last improvement: the bound rarely proves optimality. */
   stallMs?: number;
   seed?: number;
-  /**
-   * Manager pre-assignments: `plays` false means this team MUST bye that night,
-   * true means it MUST play it. Eliminated variables — applied before the
-   * branch-and-bound rather than penalised inside it, because a forced cell is
-   * not a preference.
-   *
-   * A forced bye MOVES a bye; it never adds one. The bye budget is fixed at
-   * `nights − gamesPerTeam`, so games per team, games per night and how many
-   * times each pair meets are all untouched by anything in here.
-   */
+  /** Manager pre-assignments (`plays` false = must bye), eliminated before the search, never
+   *  penalised. A forced bye moves a bye, so games and meeting counts can't change. */
   forced?: { team: number; night: number; plays: boolean }[];
-  /**
-   * "This team byes at least one night of this calendar week."
-   *
-   * A disjunction rather than a pre-assignment — there is no single cell to
-   * eliminate — so it goes in the feasibility test at node expansion, not in
-   * the assignment. `week` is a calendar-week index on the same numbering as
-   * `ParticipationNight.week`.
-   */
+  /** "Byes at least one night of this week": a disjunction, so a feasibility test at node
+   *  expansion, not a pre-assignment. `week` uses `ParticipationNight.week`'s numbering. */
   byeInWeek?: { team: number; week: number }[];
 };
 
-/**
- * Exact branch-and-bound for the participation matrix: hard weekday balance
- * (within `weekdaySlack` of the ideal split), minimum bye-rule cost. Returns the
- * best matrix found, or null if the weekday target is unreachable / the node
- * budget runs out before any complete solution.
- */
 export function solveParticipation(
   opts: SolveParticipationOptions,
 ): Participation | null {
@@ -353,16 +254,11 @@ export function solveParticipation(
   } = opts;
   const N = nights.length;
   if (T < 2 || N === 0 || D === 0) return null;
-  // A night can't put more than half the league on the ice. Checked per night
-  // because the column check further down only sees each weekday's total, where
-  // an over-full night would be masked by a quiet one on the same weekday.
+  // ⚠️ Checked per night: the weekday column check below would let a quiet night on the same
+  // weekday mask an over-full one.
   if (nights.some((n) => T - 2 * n.games < 0)) return null;
 
-  // ── Manager pre-assignments ────────────────────────────────────────────────
-  //
-  // Built only when there are any, so every reference below short-circuits to
-  // `undefined` on an unconstrained generation and the search runs the code it
-  // has always run.
+  // Built only when forced cells exist, so an unconstrained search runs unchanged.
   const hasForced = !!forced?.length;
   const mustBye = hasForced
     ? Array.from({ length: T }, () => new Array<boolean>(N).fill(false))
@@ -370,10 +266,8 @@ export function solveParticipation(
   const mustPlay = hasForced
     ? Array.from({ length: T }, () => new Array<boolean>(N).fill(false))
     : undefined;
-  // ⚠️ Gated on `hasForced`, NOT on `forced` being present. A season carrying
-  // only `slot_bias` or only `bye_in_week` reaches here with `forced: []` — the
-  // constraint set is non-empty, so the caller does not short-circuit — and the
-  // loop below would then dereference the matrices this branch did not build.
+  // ⚠️ Gated on `hasForced`, not on `forced` being present: a bias-only or `bye_in_week`-only
+  // season arrives with `forced: []`, and the loop would read matrices never built.
   if (hasForced) {
     for (const f of forced!) {
       if (f.team < 0 || f.team >= T || f.night < 0 || f.night >= N) return null;
@@ -381,15 +275,11 @@ export function solveParticipation(
     }
     for (let t = 0; t < T; t++) {
       for (let n = 0; n < N; n++) {
-        // Refused rather than resolved: the caller checks contradictions ahead
-        // of this and reports which two requests collide. Reaching here means
-        // something slipped past that, and guessing which one wins would be a
-        // silent answer to a question the manager has to settle.
+        // Refused, not resolved: the caller reports contradictions first, and guessing a
+        // winner would silently answer what the manager has to settle.
         if (mustBye![t][n] && mustPlay![t][n]) return null;
-        // A night that hands out no byes cannot host a forced one, and a night
-        // with no games cannot host a forced play. Neither is visible to the
-        // week recursion below — it skips zero-quota slots entirely — so both
-        // are refuted here or not at all.
+        // ⚠️ Refuted here or not at all: the week recursion skips zero-quota slots, so it
+        // never sees a forced bye on a no-bye night or a forced play on a no-game night.
         if (mustBye![t][n] && T - 2 * nights[n].games <= 0) return null;
         if (mustPlay![t][n] && nights[n].games === 0) return null;
       }
@@ -399,9 +289,6 @@ export function solveParticipation(
   const weeks = buildWeeks(nights, T);
   const W = weeks.length;
 
-  // `byeInWeek` arrives on the calendar's week numbering; the search walks weeks
-  // by position, so translate once. A week holding no nights cannot be satisfied
-  // and refutes the whole matrix.
   const weekPosOf = new Map<number, number>();
   weeks.forEach((_, i) =>
     weekPosOf.set(nights[weeks[i].slots[0].night].week, i),
@@ -419,8 +306,6 @@ export function solveParticipation(
   const nightsPerWd = new Array(D).fill(0);
   for (const n of nights) nightsPerWd[n.weekday]++;
 
-  // Per-team bye budgets: total, and per weekday (the weekday window is just the
-  // even-games window restated as byes).
   const totalByes = gamesPerTeam.map((g) => N - g);
   if (totalByes.some((b) => b < 0)) return null;
   const wdMin: number[][] = [];
@@ -443,11 +328,6 @@ export function solveParticipation(
     wdMax.push(maxes);
   }
 
-  // Column check, per weekday: the byes that weekday's nights hand out have to
-  // land somewhere, and each team can only absorb between its min and max. A
-  // calendar with an odd number of nights on one weekday routinely fails this,
-  // and catching it here costs O(teams × weekdays) instead of a whole search
-  // that can only end in "infeasible".
   const byeQuotaByWd = new Array(D).fill(0);
   for (const n of nights) byeQuotaByWd[n.weekday] += T - 2 * n.games;
   if (byeQuotaByWd.some((q) => q < 0)) return null;
@@ -461,14 +341,7 @@ export function solveParticipation(
     if (byeQuotaByWd[d] < lo || byeQuotaByWd[d] > hi) return null;
   }
 
-  // Pin each team to an exact per-weekday bye count when the ideal split is
-  // reachable, so the search can't settle for a merely in-band one. Only the
-  // band is used if that pinning turns out to be unsatisfiable (the caller
-  // retries with more slack).
   if (exactWeekdayTargets) {
-    // The per-weekday split has to know about forced cells or it will pin a
-    // target the forced byes already exceed. Undefined without constraints, and
-    // `chooseWeekdayByeTargets` then runs exactly as it always has.
     let limits: Parameters<typeof chooseWeekdayByeTargets>[3];
     if (hasForced || needByeInWeek) {
       const constrained = new Array<boolean>(T).fill(false);
@@ -476,27 +349,12 @@ export function solveParticipation(
         new Array<number>(D).fill(0),
       );
       const maxWd = Array.from({ length: T }, () => [...nightsPerWd]);
-      // ⛔ COUNTED OFF THE DEDUPED MATRICES, NOT OFF `forced` — these are
-      // per-CELL limits, and `forced` is a list of REQUESTS. Two requests can
-      // name one cell without anybody making a mistake: `saveScheduleConstraint`
-      // is a plain insert with no unique index and the team picker keeps its
-      // value after a successful add (see `constraints.ts`), so a double-click
-      // is enough, and a `bye_week` plus a `bye_on` inside that same week
-      // resolves to two entries for one night on its own. Iterating requests
-      // then charged the same night twice, pinning a per-weekday target the
-      // season could not meet: at 8 teams on 8 nights, one duplicated `bye_on`
-      // took `solveParticipation` from a plan to null. The rung ladder hid the
-      // refusal — rungs 4-6 run with `exact: false` and never reach here — so
-      // the visible cost was a quietly worse schedule and no message anywhere.
-      //
-      // `mustBye`/`mustPlay` are booleans, so they deduped it thirty lines
-      // above. Reading them here is what keeps the two loops from disagreeing.
+      // ⛔ Count off the deduped `mustBye`/`mustPlay`, never `forced`: two requests can name
+      // one cell (a double-click), and counting it twice pins an unmeetable weekday target.
       if (hasForced) {
         for (let t = 0; t < T; t++) {
           for (let n = 0; n < N; n++) {
             const d = nights[n].weekday;
-            // A forced play is a night that weekday can no longer spend a bye
-            // on. Never both for one cell — that pair returns null above.
             if (mustPlay![t][n]) {
               constrained[t] = true;
               maxWd[t][d]--;
@@ -530,8 +388,6 @@ export function solveParticipation(
 
   const maxByes = Math.max(0, ...totalByes);
   const minAdj = buildMinAdjTable(weeks, maxByes);
-  // Weeks from i..end that host at least one weekday-d bye slot — a team can
-  // only take one bye per week, so this caps how much of a weekday it can owe.
   const weeksWithWd: number[][] = Array.from({ length: W + 1 }, () =>
     new Array(D).fill(0),
   );
@@ -576,7 +432,6 @@ export function solveParticipation(
     return lb;
   };
 
-  /** Can the remaining weeks still satisfy every team's weekday shortfall? */
   const weekdayReachable = (i: number): boolean => {
     for (let t = 0; t < T; t++) {
       let shortfall = 0;
@@ -591,19 +446,12 @@ export function solveParticipation(
     return true;
   };
 
-  // Cost no solution can undercut. Reaching it means the incumbent is optimal,
-  // which is what stops the search dead on calendars where every week is a bye
-  // week (the bye-rule cost is then the same for every branch, so cost pruning
-  // alone would grind through the whole tree).
+  // No solution can undercut this, so reaching it stops the search: where every week is a
+  // bye week, cost pruning alone would grind through the whole tree.
   const globalLowerBound = remainingLowerBound(0, new Array(T).fill(false));
 
-  /**
-   * Charge one search step against the budgets; true once the search must stop.
-   * Called from the combination enumeration as well as the week recursion — a
-   * week with large per-night bye quotas can explore a wide combination tree
-   * between two week-level calls, and only counting the latter lets the
-   * deadline overshoot.
-   */
+  /** Charges one step against the budgets; true once the search must stop. ⚠️ Also called
+   *  from the combination enumeration, or a wide week overshoots the deadline. */
   const tick = (): boolean => {
     if (done) return true;
     if (++nodes > nodeBudget) {
@@ -648,15 +496,11 @@ export function solveParticipation(
 
     const week = weeks[i];
     const slots = week.slots.filter((s) => s.quota > 0);
-    // Byes this week, per team: how many, and on which weekdays.
     const takenWd: (number[] | null)[] = new Array(T).fill(null);
     const countThisWeek = new Array<number>(T).fill(0);
 
-    /** Cost of handing team `t` a bye on `night` (a `weekday` of this week): a
-     * second bye this week breaks rule 1; a bye next to last week's breaks rule
-     * 3, and rule 2 too if it repeats the weekday. Rule 4 — the previous *night*
-     * was also a bye — is charged on top of whichever of those applies, since it
-     * is a different defect and can occur alongside any of them. */
+    /** A second bye this week costs rule 1; one after last week's, rule 3 (and rule 2 on the
+     *  same weekday). Rule 4, the night before also a bye, is charged on top of any of them. */
     const byeDelta = (t: number, weekday: number, night: number): number => {
       const adj = night > 0 && byeAt[t][night - 1] ? ADJ_NIGHT_W : 0;
       if (countThisWeek[t] > 0) return adj + MULTI_WEEK_W;
@@ -671,10 +515,6 @@ export function solveParticipation(
     const fillSlot = (k: number, addedCost: number): void => {
       if (done || cost + addedCost >= bestCost) return;
       if (k === slots.length) {
-        // The `bye_in_week` disjunction, tested here because that is the first
-        // moment the week's byes are all decided. It is a feasibility test, not
-        // a cost: "at least one bye among these cells" names no single cell to
-        // eliminate, so there is nothing to pre-assign.
         if (needByeInWeek) {
           for (const t of needByeInWeek[i]) if (countThisWeek[t] === 0) return;
         }
@@ -683,7 +523,6 @@ export function solveParticipation(
       }
       const { night, weekday, quota } = slots[k];
       const elig: number[] = [];
-      // Teams the manager has already spent this night's byes on.
       const must: number[] = [];
       for (let t = 0; t < T; t++) {
         if (mustPlay?.[t][night]) continue;
@@ -695,8 +534,6 @@ export function solveParticipation(
         if (asgWd[t][weekday] + 1 > wdMax[t][weekday]) continue;
         elig.push(t);
       }
-      // Forced cells are eliminated variables, so an over-subscribed night or a
-      // team out of budget is a dead branch, not a penalty to search past.
       const need = quota - must.length;
       if (need < 0) return;
       for (const t of must) {
@@ -704,15 +541,11 @@ export function solveParticipation(
         if (asgWd[t][weekday] + 1 > wdMax[t][weekday]) return;
       }
       if (elig.length < need) return;
-      // Cheapest-first, then most-constrained (teams owing the most byes), then
-      // a small random tiebreak so different seeds explore different corners of
-      // what is often a wide plateau. Diving down the cheap branch first gets a
-      // tight incumbent early, which is what makes the cost pruning bite.
+      // Cheapest first (an early tight incumbent makes pruning bite), then most owed, then a
+      // seeded jitter, so different seeds explore the plateau `PLATEAU_SEEDS` samples.
       const jitter = new Map(elig.map((t) => [t, rnd()]));
-      // Built once per slot: `byeDelta` reads `byeAt[t][night - 1]`, and the
-      // night before this one belongs to an already-committed slot (slots run in
-      // chronological order within a week, weeks in order), so it can't change
-      // under the enumeration below.
+      // Built once per slot: the night before belongs to an already-committed slot, so
+      // `byeDelta` can't change under the enumeration.
       const delta = new Map(elig.map((t) => [t, byeDelta(t, weekday, night)]));
       elig.sort(
         (a, b) =>
@@ -753,10 +586,8 @@ export function solveParticipation(
         pick(0, 0);
         return;
       }
-      // Commit the forced byes, enumerate the rest around them, then unwind.
-      // Their deltas are read before any of them is applied: `byeDelta` only
-      // ever looks at its own team's state, so the reads are independent of the
-      // order the writes go in.
+      // Deltas are read before any forced bye is applied, which is safe only because
+      // `byeDelta` reads just its own team's state.
       let mustCost = 0;
       for (const t of must) mustCost += byeDelta(t, weekday, night);
       const prevTaken = must.map((t) => takenWd[t]);
@@ -788,7 +619,6 @@ export function solveParticipation(
   return { plays, optimal: !cutOff, ...describeParticipation(plays, nights) };
 }
 
-/** Recount the bye metrics from a finished matrix (also used to score fallbacks). */
 export function describeParticipation(
   plays: boolean[][],
   nights: ParticipationNight[],
@@ -814,8 +644,6 @@ export function describeParticipation(
       }
       const list = perWeek.get(n.week) ?? perWeek.set(n.week, []).get(n.week)!;
       list.push(n.weekday);
-      // Back-to-back game nights, counted in night indexes so a holiday gap
-      // between the two doesn't hide the breach — it makes it worse.
       if (i > 0 && !plays[t][i - 1]) byeAdjNight++;
     });
     for (const list of perWeek.values()) if (list.length >= 2) byeMultiWeek++;
