@@ -7,16 +7,25 @@ import { logAudit } from "@/lib/audit";
 import { leagueOfTeam } from "@/lib/league/of-entity";
 import { logoFileType } from "@/lib/utils/logo-type";
 
+export type LogoActionState = { ok: boolean; message: string } | null;
+
 /** Manager uploads a team logo to Storage and points the team at it. */
-export async function uploadTeamLogo(formData: FormData) {
+export async function uploadTeamLogo(
+  _prev: LogoActionState,
+  formData: FormData,
+): Promise<LogoActionState> {
   const teamId = String(formData.get("team_id"));
   const admin = createAdminClient();
   const manager = await requireLeagueManager(() => leagueOfTeam(teamId, admin));
   const file = formData.get("logo") as File | null;
-  if (!file || file.size === 0) return;
+  if (!file || file.size === 0) {
+    return { ok: false, message: "Choose an image file first." };
+  }
 
   const type = logoFileType(file.name);
-  if (!type) return;
+  if (!type) {
+    return { ok: false, message: "Logos must be PNG, JPEG or WebP." };
+  }
   const path = `teams/${teamId}.${type.ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
 
@@ -24,17 +33,38 @@ export async function uploadTeamLogo(formData: FormData) {
     contentType: type.contentType,
     upsert: true,
   });
-  if (error) return;
+  if (error) {
+    return { ok: false, message: `Couldn't upload the logo: ${error.message}` };
+  }
 
   const { data: was } = await admin
     .from("teams")
     .select("logo_path")
     .eq("id", teamId)
     .maybeSingle();
-  await admin.from("teams").update({ logo_path: path }).eq("id", teamId);
-  // The upload is `upsert: true`, so a replacement overwrites the file in
-  // Storage and the old image is gone. `old_data` is then the only record that
-  // there was one — the path is the same string when the extension matches.
+  const { error: tErr } = await admin
+    .from("teams")
+    .update({ logo_path: path })
+    .eq("id", teamId);
+  if (tErr) {
+    return {
+      ok: false,
+      message: `Uploaded, but couldn't set it as the team's logo: ${tErr.message}`,
+    };
+  }
+
+  // The upload is `upsert: true`, so a replacement with the same extension
+  // overwrites the file. One with a different extension would leave the old
+  // file publicly served, so it is removed once the team points at the new one
+  // — only this team's own file, never whatever else a stray path names.
+  // `old_data` is then the only record that there was one.
+  if (
+    was?.logo_path &&
+    was.logo_path !== path &&
+    was.logo_path.startsWith(`teams/${teamId}.`)
+  ) {
+    await admin.storage.from("logos").remove([was.logo_path]);
+  }
   await logAudit({
     user_id: manager.id,
     action: "upload_logo",
@@ -45,4 +75,5 @@ export async function uploadTeamLogo(formData: FormData) {
   });
   revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/teams", "page");
+  return { ok: true, message: "Logo updated." };
 }
