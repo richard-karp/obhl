@@ -63,6 +63,13 @@ function makeAdmin() {
         q.verb = "delete";
         return chain;
       },
+      // Added for `setActiveSeason`, which is the first action here to UPDATE.
+      // Purely additive: nothing queues a `<table>.update` response, so every
+      // existing test keeps taking the same fallback it always did.
+      update() {
+        q.verb = "update";
+        return chain;
+      },
       select() {
         if (!q.verb) q.verb = "select";
         return chain;
@@ -129,6 +136,48 @@ beforeEach(() => {
   });
   findUser.mockResolvedValue(null);
   addMembership.mockResolvedValue({ ok: true, error: null });
+});
+
+/**
+ * ⛔ THE ONLY PROOF THIS PATH HAS. The activation notice lives on
+ * `/[league]/seasons/[seasonId]`, and its button posts here — so if this action
+ * doesn't revalidate that page, pressing the button leaves the banner on screen
+ * saying the games are invisible when they no longer are.
+ *
+ * The e2e deliberately cannot cover it: a partial unique index allows one active
+ * season per league, so flipping `is_active` in a spec would deactivate the
+ * seeded Spring 2026 that every later spec depends on. That makes this
+ * assertion, plus one manual click, the whole of the coverage.
+ */
+describe("setActiveSeason", () => {
+  it("revalidates the season setup page the activation notice lives on", async () => {
+    const { revalidatePath } = await import("next/cache");
+    const { setActiveSeason } = await import("./seasons");
+
+    const fd = new FormData();
+    fd.set("id", "season-1");
+    await setActiveSeason(fd);
+
+    expect(revalidatePath).toHaveBeenCalledWith(
+      "/[league]/seasons/[seasonId]",
+      "page",
+    );
+  });
+
+  it("still revalidates the season list and the league layout", async () => {
+    // The two calls that were already there. Pinned so the new one is an
+    // addition rather than a swap — a rewrite that dropped either would
+    // otherwise pass the assertion above.
+    const { revalidatePath } = await import("next/cache");
+    const { setActiveSeason } = await import("./seasons");
+
+    const fd = new FormData();
+    fd.set("id", "season-1");
+    await setActiveSeason(fd);
+
+    expect(revalidatePath).toHaveBeenCalledWith("/[league]/seasons", "page");
+    expect(revalidatePath).toHaveBeenCalledWith("/[league]", "layout");
+  });
 });
 
 describe("createTeamForSeason", () => {

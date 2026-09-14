@@ -382,6 +382,16 @@ export async function setActiveSeason(formData: FormData) {
     new_data: { season_id: id, name: now?.name ?? null },
   });
   revalidatePath("/[league]/seasons", "page");
+  // ⚠️ STRICTLY REDUNDANT, AND KEPT ANYWAY — for convention, not for safety.
+  // `revalidatePath(path, "layout")` is documented to invalidate that layout,
+  // every nested layout beneath it, and every page beneath those
+  // (next/dist/docs, revalidatePath → "What can be invalidated"), so the
+  // `/[league]` layout call on the next line already covers this page. Every
+  // other mutation in this file names the page it affects explicitly, and the
+  // activation notice's button posts here, so naming it keeps the file uniform
+  // and the intent legible. Do not read the unit tests below as pinning a
+  // behaviour the cascade would not already give.
+  revalidatePath("/[league]/seasons/[seasonId]", "page");
   revalidatePath("/[league]", "layout");
 }
 
