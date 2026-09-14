@@ -1,6 +1,5 @@
 "use server";
 
-import Anthropic from "@anthropic-ai/sdk";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireLeagueManager } from "@/lib/auth/guards";
@@ -8,9 +7,6 @@ import { logAudit } from "@/lib/audit";
 import { findUserIdByEmail } from "@/lib/auth/users";
 import { addLeagueMembership, mayWriteProfileOf } from "@/lib/auth/membership";
 import { leagueOfSeason, leagueOfTeam } from "@/lib/league/of-entity";
-import { getStandings } from "@/lib/queries/standings";
-import { getSkaterLeaders } from "@/lib/queries/stats";
-import { getRecentResults } from "@/lib/queries/schedule";
 import { slugify } from "@/lib/utils/slug";
 
 export type SeasonActionState = {
@@ -441,105 +437,6 @@ export async function unenrollTeam(formData: FormData) {
     entity_id: season_id,
     old_data: { team_id, name: team?.name ?? null },
   });
-  revalidatePath("/[league]/seasons/[seasonId]", "page");
-}
-
-/**
- * Generate an AI league summary using Claude and store it in seasons.ai_summary.
- * Pulls current standings, top scorers, and recent results. Manager-only.
- */
-export async function generateLeagueSummary(formData: FormData) {
-  const admin = createAdminClient();
-  const season_id = String(formData.get("season_id"));
-  const manager = await requireLeagueManager(() =>
-    leagueOfSeason(season_id, admin),
-  );
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured.");
-
-  // The same reads the public pages use, through the same helpers. `getStandings`
-  // matters most: it applies the tiebreakers, where ordering by points alone can
-  // name a leader the standings page doesn't.
-  const [ranked, scorers, recentGames, seasonRes] = await Promise.all([
-    getStandings(season_id, { client: admin }),
-    getSkaterLeaders(season_id, { limit: 5, client: admin }),
-    getRecentResults(season_id, { limit: 3, client: admin }),
-    // `ai_summary` alongside the name, on the read that was already happening:
-    // the update below overwrites it, and the replaced text is the only thing
-    // this entry can say that the season row does not already hold.
-    admin
-      .from("seasons")
-      .select("name, ai_summary")
-      .eq("id", season_id)
-      .maybeSingle(),
-  ]);
-
-  const standings = ranked.slice(0, 6);
-  const seasonName = seasonRes.data?.name ?? "Current Season";
-
-  // The view columns are nullable, and an unguarded null interpolates as the
-  // string "null" — straight into the prompt, where it reads as fact. (The
-  // game lines below come from `GameWithTeams`, whose goal counts are not.)
-  const standingsLines = standings.map(
-    (r) =>
-      `${r.team_name ?? "Unknown"}: ${r.wins ?? 0}W-${r.losses ?? 0}L-${r.ties ?? 0}T, ` +
-      `${r.points ?? 0} pts (${r.gp ?? 0} GP)`,
-  );
-  const scorerLines = scorers.map((r) => {
-    const name =
-      [r.first_name, r.last_name].filter(Boolean).join(" ") || "Unknown";
-    return `${name} (${r.team_name ?? ""}): ${r.g ?? 0}G ${r.a ?? 0}A ${r.pts ?? 0}PTS`;
-  });
-  const gameLines = recentGames.map((g) => {
-    const away = g.away_team?.name ?? "Away";
-    const home = g.home_team?.name ?? "Home";
-    return `${away} ${g.away_goals} – ${g.home_goals} ${home}`;
-  });
-
-  const prompt = [
-    `Write a short 2-3 sentence league news update for a recreational adult hockey league.`,
-    `Season: ${seasonName}`,
-    standings.length ? `Standings:\n${standingsLines.join("\n")}` : "",
-    scorers.length ? `Top scorers:\n${scorerLines.join("\n")}` : "",
-    recentGames.length ? `Recent results:\n${gameLines.join("\n")}` : "",
-    `Highlight the standings leader, a standout player, and recent results. Keep it casual and fun.`,
-    `No filler phrases like "The league is heating up" or "In an exciting development".`,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
-  const client = new Anthropic({ apiKey });
-  const msg = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 300,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const summary =
-    msg.content.length > 0 && msg.content[0].type === "text"
-      ? msg.content[0].text.trim()
-      : "";
-  if (!summary) throw new Error("AI returned empty summary.");
-
-  const { error } = await admin
-    .from("seasons")
-    .update({ ai_summary: summary })
-    .eq("id", season_id);
-  if (error) throw new Error(`Save summary failed: ${error.message}`);
-
-  await logAudit({
-    user_id: manager.id,
-    action: "generate_summary",
-    entity_type: "season",
-    entity_id: season_id,
-    // Only the old one. The new summary is in `seasons.ai_summary` already, and
-    // regenerating is destructive — the previous text is gone the moment the
-    // update lands. Same reason `upload_logo` keeps `old_data`.
-    old_data: { summary: seasonRes.data?.ai_summary ?? null },
-  });
-
-  revalidatePath("/[league]", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
 }
 

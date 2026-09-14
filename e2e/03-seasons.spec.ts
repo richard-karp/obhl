@@ -1,5 +1,5 @@
 /**
- * Paths 7–8: Season setup and AI league summary.
+ * Path 7: Season setup.
  */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -228,45 +228,5 @@ test.describe("Path 7 — Season setup", () => {
         .update({ is_active: true })
         .eq("id", wasActive!.id);
     }
-  });
-});
-
-test.describe("Path 8 — AI league summary", () => {
-  test("League Summary card shows Generate button when no summary exists", async ({
-    page,
-  }) => {
-    await signedInAs(page, "Manager");
-    await goToActiveSeasonSetup(page);
-    await page.waitForLoadState("networkidle");
-    await expect(
-      page.getByRole("button", { name: "Generate", exact: true }),
-    ).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText("No summary yet")).toBeVisible();
-  });
-
-  test("Generate triggers Claude and summary appears on both pages", async ({
-    page,
-  }) => {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      test.skip(true, "ANTHROPIC_API_KEY not set — skipping live AI call");
-      return;
-    }
-
-    await signedInAs(page, "Manager");
-    await goToActiveSeasonSetup(page);
-
-    await page.getByRole("button", { name: "Generate" }).click();
-    await expect(page.getByRole("button", { name: "Regenerate" })).toBeVisible({
-      timeout: 30_000,
-    });
-
-    const summaryText = await page.locator("p.italic").first().innerText();
-    expect(summaryText.length).toBeGreaterThan(20);
-
-    await page.goto("/obhl");
-    await expect(
-      page.getByRole("heading", { name: "League Update" }),
-    ).toBeVisible();
   });
 });
