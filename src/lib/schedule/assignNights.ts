@@ -27,31 +27,8 @@ import {
   type ResolvedConstraints,
 } from "./constraints";
 
-/**
- * Assigns pairings onto concrete game nights + ice-time slots.
- *
- * Two independent planners run, and the better schedule wins (`rankSchedule`
- * compares them in the league's priority order: weekday balance ▸ byes ▸ rematch
- * spacing ▸ ice time). Keeping both matters because they fail in different
- * places.
- *
- *   planByParticipation — the primary. It decides *who plays which night* first
- *     (Phase P), then who they play (Phase M), then ice times (Phase S). The
- *     participation matrix alone determines weekday balance and all three bye
- *     rules, so a branch-and-bound over it settles priorities #1 and #2 exactly
- *     instead of hill-climbing at them. It declines — returning null — when it
- *     can't reproduce the caller's matchups exactly or the calendar won't take
- *     the games.
- *
- *   planByWeeks — the fallback, and the only planner for the cases above. It
- *     assigns games to calendar weeks (Phase W) and then to nights within each
- *     week (Phase N). Working over placed games means moving one team's weekday
- *     count drags three others along, so weekday balance and bye spacing pull
- *     against each other; it gets close but can stall short of both optima.
- *
- * Invariants either way: every pairing is placed (so games-played stays equal),
- * and no team plays twice a night.
- */
+// ⚠️ Two planners and the phase order are deliberate; the better plan wins by `rankSchedule`.
+// RUNBOOK.md, _Schedule generator_.
 
 export type Night = { date: string; slots: string[] }; // slots are "HH:MM"
 
@@ -64,17 +41,8 @@ export type ScheduledGame = {
   slotIndex: number;
 };
 
-/**
- * The ONE way a game's stored timestamp is formed. `scheduledAt` is the only
- * placement fact that persists — `src/lib/actions/schedule.ts` writes
- * `scheduled_at` and nothing else — so every site that moves a game between
- * (night, slot) has to re-derive it from exactly these two fields. Factored out
- * on 2026-09-09 after the night-order pass rewrote `nightIndex` alone and left
- * all 69 games of the 6-team fixture pointing at their pre-permutation date:
- * `report.spacing` claimed a worst team of 4 while the persisted schedule was
- * still the pre-branch 14. A single constructor makes that omission impossible
- * to write by hand.
- */
+/** ⛔ The one way to form `scheduledAt`, the only placement field that persists: every
+ *  move between (night, slot) goes through it. RUNBOOK.md, _Schedule generator_. */
 const slotStamp = (nights: Night[], ni: number, s: number) =>
   `${nights[ni].date}T${nights[ni].slots[s]}:00`;
 
@@ -83,61 +51,24 @@ export type BalanceReport = {
   unscheduled: number;
   gamesPerTeam: { team: string; count: number }[];
   slotShareByTeam: { team: string; counts: number[] }[];
-  // Each team's games per distinct night-of-week (aligned to `weekdays`), so a
-  // team isn't loaded onto, e.g., only Tuesdays when players are night-specific.
   weekdays: string[];
   nightShareByTeam: { team: string; counts: number[] }[];
   pairingCounts: { matchup: string; count: number }[];
   minRematchGapNights: number | null;
-  /**
-   * The metrics as the search sees them — **raw**, including breaches a
-   * manager's own forced byes made unavoidable.
-   *
-   * Presentation subtracts the credits from `forcedByeCredits` off the four bye
-   * rows; use `presentSpacing` in `constraints.ts` rather than doing it by hand,
-   * so the report a manager reads and the report a test asserts on cannot drift.
-   *
-   * ⚠️ This report deliberately does NOT carry those credits. Whoever presents
-   * the metrics computes them: `schedule-builder-panel.tsx` does it from the
-   * PERSISTED games, and is not a caller of this function at all — no caller of
-   * `assignNights` needs them, `generateSchedule` reads only `report.constraints`.
-   * One source rather than two — a report field nothing read, and a
-   * recomputation that did.
-   */
+  /** Raw, without forced-bye credits, on purpose. Present it through `presentSpacing`
+   *  (`constraints.ts`), never by hand, so what a manager reads and a test asserts agree. */
   spacing: SpacingReport;
-  /**
-   * Whether each manager constraint actually landed, decided by reading the
-   * placed games. Empty when none were set.
-   */
   constraints: ConstraintOutcome[];
 };
 
-/** Everything `assignNights` takes beyond the pairings and the calendar. */
 export type AssignOptions = {
   /** Manager constraints, already resolved against these exact nights. */
   constraints?: ResolvedConstraints;
-  /**
-   * Which of the equally-valid schedules to return. Default 1, and the default
-   * MUST stay 1 — a season regenerated without this option has to come back
-   * byte-identical, which is the promise `PLATEAU_SEEDS` documents.
-   *
-   * Offsets every phase's PRNG by `(seed - 1) * 1000`, a stride wider than any
-   * phase's own seed list so two variations never share a draw. Phase M's seed
-   * alone is a DEAD LEVER — it re-derives its cycle and returns the same answer
-   * for every seed, measured over eight — so this has to reach Phase P's plateau
-   * sweep, the five Phase S candidates and the night-order pass to move
-   * anything.
-   */
+  /** ⚠️ Default 1, and it must stay 1, so a season regenerated without it comes back the same.
+   *  It must reach Phase P's sweep, Phase S and night order: Phase M's seed alone moves nothing. */
   seed?: number;
-  /**
-   * How many seeds to draw this variation from, best-of by `rankSchedule`.
-   * Omitted means "decide from the game count".
-   *
-   * ⚠️ A caller can only REDUCE the automatic count, never raise it — this is
-   * clamped to it. The option exists so `generateSchedule`'s step-down retry
-   * loop can force a single draw on its degraded path, not so a caller can ask
-   * for an unbounded search.
-   */
+  /** Seeds to draw from; omitted means decided by game count. ⚠️ Clamped: a caller can only
+   *  reduce it (`generateSchedule`'s single-draw retry), never raise it. */
   variations?: number;
 };
 
@@ -145,83 +76,24 @@ const matchupKey = (a: string, b: string) => [a, b].sort().join("|");
 
 const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-// Weekday-balance weight in the unified optimizer — priority #1 is never traded
-// for spacing. Invariant: it must exceed the largest spacing-penalty swing a
-// single swap can produce (≤4 affected teams × their SPACING_W terms, realistically
-// well under ~30k), so any swap that worsens a team's weekday spread by 1 (costing
-// BALANCE_W) can never be justified by spacing gains. Keep this comfortably above
-// the sum of SPACING_W weights if those grow.
+// ⚠️ Must exceed the largest spacing swing one swap can produce (well under ~30k), so
+// weekday balance is never traded for spacing. Raise it if the `SPACING_W` weights grow.
 const BALANCE_W = 100_000;
-// Phase S effort. Ice time is the lowest-ranked goal, but it is also the one
-// with real headroom left: the search keeps finding better slot assignments well
-// past the point the other phases have converged, so it gets a budget sized for
-// a once-a-season job rather than for a fast round trip.
-// Overridable so a deployment can trade schedule quality for a faster round
-// trip without a code change. Anything missing, blank or unparseable falls back
-// to the default: a typo in an environment variable must not quietly turn the
-// search off, which is worse than never having offered the knob.
+// ⚠️ Missing, blank or unparseable falls back to the default: a typo in an environment
+// variable must not quietly turn the search off.
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw == null || raw === "") return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
-/**
- * Phase S restart count. **1,000, and not more** — this search is
- * non-monotonic, and more of it returns a worse schedule.
- *
- * Measured 2026-09-09 on 6 teams / one weeknight / 3 sheets / 23 weeks,
- * worst-team clustered windows by restart count:
- *
- *   250 -> 6 (and back-to-backs 6 -> 8)   500 -> 4   1,000 -> 4   2,000 -> 4
- *   4,000 -> 13   8,000 -> 10   20,000 -> 13
- *
- * It is NOT the 5 s budget truncating the sweep: given a 60 s budget so it
- * completes, 4,000 still returns 13. The cause (a reading, not a measurement) is
- * that `compareIceOutcome` picks among `SLOT_CANDIDATES` without seeing
- * clustering at all, so a better-searched candidate wins its own comparator from
- * a basin the night-order post-pass cannot permute out of.
- *
- * 1,000 is the geometric centre of the measured-good band [500, 2,000]; all
- * three return identical schedules on both reference leagues. The 8-team
- * reference league is unchanged at every value from 500 to 20,000.
- *
- * ⛔ `vitest.config.ts` MUST NOT override this. It pinned 2,000 here while this
- * defaulted to 20,000, and the ice-time clustering tests pass at 2,000 and fail
- * at 20,000 — so the whole schedule suite was a claim about a search production
- * did not run. `assignNights.test.ts` asserts the variable is unset.
- */
+// ⛔ 1,000, not more: more restarts can return a worse schedule. `vitest.config.ts` must not
+// set it (`assignNights.test.ts` asserts so). RUNBOOK.md, _Schedule generator_; _Standing gates_.
 const SLOT_RESTARTS = envInt("OBHL_SLOT_RESTARTS", 1_000);
 const SLOT_BUDGET_MS = envInt("OBHL_SLOT_BUDGET_MS", 5_000);
 
-/**
- * Phase S runs to try, best result kept by `compareIceOutcome`. No single weight
- * wins everywhere: on the reference cadence 140 reaches a flat weekday split
- * where 160 leaves 8, and on Mon/Wed/Fri 160 wins by 4. Measured 2026-08-12.
- *
- * 160 leads and stays in the set, so the outcome can never be worse than the
- * single-weight version that shipped. It is also the stable one — measured three
- * times over it returns the same result, where 140 lands a three-game run in two
- * runs out of three. That instability is why 140 appears three times on
- * different seeds rather than once: the comparator refuses any run that carries
- * a three-game run, so extra samples are what turn 140's good basin from a
- * one-in-three chance into the common case. Seeds are varied explicitly rather
- * than leaning on the wall-clock budget to shake out a different answer.
- *
- * 200 joined them when Phase M learned the compound pass. That changed the
- * pairing set this phase is handed, and the four weights above all landed a
- * three-game run on the new one inside the 5 s budget — not because the set is
- * harder (20 s clears it, and so does 200 at 5 s) but because none of their
- * basins happened to sit on it. Measured 2026-08-12 over five runs, 200 on seed
- * 1 returns season share 0, no three-game run, a *flat* weekday ice split and 48
- * ordinary repeats, and is what the comparator picks every time. Which is this
- * set's whole premise: no single weight wins everywhere, and a weight that misses
- * costs nothing but the sample.
- *
- * Cost is linear — each candidate gets the full slot budget, so this is five
- * times the Phase S time of the single-weight version, ~26 s on the reference
- * season against ~21 s at four. Deliberate: the search runs once a season.
- */
+// ⚠️ No single weight wins everywhere. 160 must stay, so the result can't fall below the
+// single-weight search; 140 repeats on purpose. RUNBOOK.md, _Schedule generator_.
 const SLOT_CANDIDATES: { streak3W: number; seed: number }[] = [
   { streak3W: 160, seed: 1 },
   { streak3W: 140, seed: 1 },
@@ -230,77 +102,27 @@ const SLOT_CANDIDATES: { streak3W: number; seed: number }[] = [
   { streak3W: 200, seed: 1 },
 ];
 
-/**
- * Roughly how long a full generate takes, for the progress indicator in the
- * schedule builder. Phase S dominates — every candidate above gets the whole
- * slot budget — so the estimate is that product plus a flat allowance for the
- * phases either side of it, plus the night-order clustering pass below.
- *
- * Typical, NOT a bound: Phase P alone may spend solve(4_000) plus a 3 s plateau
- * sweep on a hard league. The allowance is sized against the ~1.3 s measured on
- * the reference season.
- *
- * Computed rather than hardcoded so adding a sixth Phase S candidate moves it
- * automatically — that has already happened once.
- */
+// The builder's progress estimate: typical, not a bound.
 const PHASE_PM_ALLOWANCE_MS = 1_500;
-// `improveNightOrder`'s post-pass (runs on every generate — see `nightClass` at the
-// call site below), tuned `restarts`/`steps` in `nightOrder.ts` down from 4/6000
-// to 4/1500 on 2026-09-09 specifically to keep this term small: at 4/6000 it
-// added ~5.4 s to the 8-team reference generate (26.3 s → 31.7 s), and at
-// 4/1500 it adds ~1.4 s (26.3 s → 27.6–27.7 s, measured three times) while still
-// reaching the same `slotClusterWorstTeam` of 4 on the 6-team/1-weeknight/3-slot
-// fixture (asserted <= 6) that 4/6000 reached — dropping further to steps=1000
-// or restarts=2/3 measurably breaks that bound (worst team jumps to 8). The
-// allowance rounds the measured ~1.4 s up the same way `PHASE_PM_ALLOWANCE_MS`
-// rounds its ~1.3 s.
 const NIGHT_ORDER_ALLOWANCE_MS = 1_500;
-/**
- * ⚠️ NO `constrained` FLAG ANY MORE. It used to subtract the night-order
- * allowance for a constrained generate, because the pass was switched off for
- * one. `nightClass` means every season runs the pass, so every season pays for
- * it — keeping the flag would have under-stated a constrained countdown by the
- * full 1.5 s, the opposite of the error it was added to fix.
- */
 export const estimatedGenerateMs = () =>
   SLOT_CANDIDATES.length * SLOT_BUDGET_MS +
   PHASE_PM_ALLOWANCE_MS +
   NIGHT_ORDER_ALLOWANCE_MS;
 
-/** Phase P jitter seeds to sample the bye-optimal plateau with, and the wall
- * clock the sampling may spend. Fixed and ordered, so the schedule stays
- * deterministic for a given input; the first is the one Phase P used before the
- * sweep existed.
- *
- * The budget is a **safety valve, not a bound on the work** — sized so every
- * seed runs on any ordinary machine, because a sweep that stops early stops
- * being deterministic: the same league would generate different schedules on a
- * faster and a slower box, which is exactly what the sentence above promises it
- * does not do. Measured 2026-08-12 on the reference season, all seven remaining
- * seeds finish in ~700 ms, so this leaves better than 4× headroom. It was 400 ms
- * and reached five of the eight — the sweep was silently narrower than its own
- * seed list for as long as it has existed.
- *
- * Raise it, not the seed list, if a cadence is ever slow enough to trip it. */
+/** ⚠️ Fixed and ordered, for repeatable output. The budget must let every seed run (~700 ms
+ *  measured): a sweep cut short depends on the machine. Raise it, not the seed list. */
 const PLATEAU_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
 const PLATEAU_SAMPLE_MS = 3_000;
-// Iterated-local-search budget for the spacing pass. Each candidate swap now
-// re-evaluates O(weeks)-cost spacing terms, and every hill-climb pass is O(G²),
-// so the restart count is the dominant runtime lever — keep it small and scale
-// it down hard as the game count grows so a large-league generate stays fast.
-// The search starts from an already-balanced greedy, so few restarts suffice.
+// Restarts are the dominant runtime lever: keep them few, fewer as the game count grows.
 const HILLCLIMB_PASSES = 30;
 function ilsRestartsFor(gameCount: number): number {
-  // Small leagues are cheap per restart, so keep enough to reliably converge
-  // weekday balance (#1); large leagues cost O(G²·weeks) per restart, so cut
-  // hard to stay well under a second.
   if (gameCount <= 80) return 40;
   if (gameCount <= 120) return 10;
   if (gameCount <= 200) return 4;
   return 2;
 }
 
-/** Precomputed, per-night metadata shared by placement and scoring. */
 type Meta = {
   usedWeekdays: number[];
   wIndex: Map<number, number>;
@@ -321,7 +143,6 @@ function buildMeta(nights: Night[]): Meta {
   };
 }
 
-/** Per-team slot- and weekday-count vectors for the current placement. */
 function vectorsOf(games: ScheduledGame[], teamIds: string[], meta: Meta) {
   const slot = new Map<string, number[]>(
     teamIds.map((t) => [t, new Array(meta.numSlots).fill(0)]),
@@ -342,7 +163,6 @@ const sq = (a: number[]) => a.reduce((s, x) => s + x * x, 0);
 const spread = (a: number[]) =>
   a.length ? Math.max(...a) - Math.min(...a) : 0;
 
-/** Would swapping the two games' (night, slot) positions be legal? */
 function swapLegal(
   g1: ScheduledGame,
   g2: ScheduledGame,
@@ -392,7 +212,6 @@ function nightTeamsOf(games: ScheduledGame[], nights: Night[]): Set<string>[] {
   return nt;
 }
 
-/** Random legal position-swaps to kick out of a local optimum. */
 function perturb(
   games: ScheduledGame[],
   nights: Night[],
@@ -407,8 +226,6 @@ function perturb(
       const i = Math.floor(rnd() * games.length);
       const j = Math.floor(rnd() * games.length);
       if (i === j) continue;
-      // When `week` is given, only swap games in the same week — that keeps the
-      // week-level structure (byes, rematch spacing) fixed while polishing.
       if (week && week[games[i].nightIndex] !== week[games[j].nightIndex])
         continue;
       if (swapLegal(games[i], games[j], nights, nightTeams)) {
@@ -434,35 +251,15 @@ function restore(
   }
 }
 
-/** Weekday-balance penalty for one team's per-weekday count vector. The huge
- * spread term makes any spread ≥ 2 dominate; the sum-of-squares is a smooth
- * gradient toward flatness underneath it. */
 function weekdayPenalty(v: number[]): number {
   return BALANCE_W * Math.max(0, spread(v) - 1) + sq(v);
 }
 
-/** One valid way to assign a week's games to its nights: `assign[j]` is the
- * local night index for game j, and `contrib` is the per-team weekday-count
- * vector that choice adds to the season totals. */
+/** `assign[j]` is game j's LOCAL night index within its week. */
 type WeekColoring = { assign: number[]; contrib: Map<string, number[]> };
 
-/**
- * Dedicated weekday-balancing pass (priority #1). Reassigns each week's games
- * across that week's nights to drive every team's weekday split to as even as
- * possible — same-week only, so the week-level bye/rematch structure from Phase W
- * is untouched.
- *
- * Why whole-week recoloring rather than pairwise swaps: with exact-fit weeks
- * (every ice slot used) the only pairwise move is a 4-team night swap, which
- * shifts imbalance onto three collateral teams at once. Reconciling two
- * complementary imbalances (a team with a spare Monday vs. one with a spare
- * Thursday that never share a light week) then needs a chain of such swaps whose
- * intermediate steps all worsen the penalty, so local search stalls. Instead we
- * treat each week's night-assignment as a free choice (same-week swaps make the
- * colorings independent) and optimize the choices jointly by coordinate descent
- * plus 2-week joint moves — which provably reaches the even split whenever ice
- * capacity per weekday allows it. Mutates `games` (night + slot) in place.
- */
+/** ⚠️ Recolours whole weeks, not pairwise swaps, which stall on exact-fit weeks; same-week
+ *  only, so Phase W's bye and rematch structure holds. Mutates `games`. */
 function balanceWeekdays(
   games: ScheduledGame[],
   nights: Night[],
@@ -473,7 +270,6 @@ function balanceWeekdays(
   if (games.length < 2 || bmeta.usedWeekdays.length < 2) return;
   const nw = bmeta.usedWeekdays.length;
 
-  // Games grouped by calendar week (indices into `games`).
   const weekGames = new Map<number, number[]>();
   games.forEach((g, i) => {
     const w = smeta.week[g.nightIndex];
@@ -497,8 +293,6 @@ function balanceWeekdays(
     return { assign, contrib };
   };
 
-  // Enumerate every valid night-assignment for a week (≤ slots/night, no team
-  // twice a night). Weeks too dense to enumerate keep their current assignment.
   const enumerateColorings = (
     gis: number[],
     nightIdx: number[],
@@ -536,7 +330,6 @@ function balanceWeekdays(
     return out;
   };
 
-  // Per-week: its nights, all candidate colorings, and the current pick.
   type WeekState = {
     week: number;
     gis: number[];
@@ -565,13 +358,6 @@ function balanceWeekdays(
     states.push({ week, gis, nightIdx, options, chosen });
   }
 
-  // Exact branch-and-bound for the ideal split: every team's games spread across
-  // the weekdays with each weekday within [floor, ceil] of g/weekdays (penalty 0).
-  // Run only when local search leaves a spread-2 team, because local search can
-  // stall in a deep minimum even when the ideal is reachable (e.g. exact-fit
-  // weeks) — the B&B finds it directly there. When the ideal is infeasible (the
-  // calendar forces some team off by a game), it exhausts the budget and returns
-  // false, leaving the local-search result in place.
   function solveEvenAssignment(
     sts: WeekState[],
     tids: string[],
@@ -589,9 +375,7 @@ function balanceWeekdays(
     const floorT = new Map(
       tids.map((t) => [t, Math.floor(totalGames.get(t)! / weekdays)]),
     );
-    // Most-constrained weeks first for stronger pruning.
     const order = [...sts].sort((a, b) => a.options.length - b.options.length);
-    // Suffix sum of each team's games in order[i..] for a floor look-ahead prune.
     const suffix: Map<string, number>[] = new Array(order.length + 1);
     suffix[order.length] = new Map(tids.map((t) => [t, 0]));
     for (let i = order.length - 1; i >= 0; i--) {
@@ -637,8 +421,6 @@ function balanceWeekdays(
           const r = run.get(t)!;
           for (let d = 0; d < weekdays; d++) r[d] += v[d];
         }
-        // Floor look-ahead: each team's remaining games must cover its shortfall
-        // to floor across weekdays (necessary condition; leaf check is exact).
         let feasible = true;
         for (const t of tids) {
           const r = run.get(t)!;
@@ -686,18 +468,12 @@ function balanceWeekdays(
   };
   const totalPenalty = () =>
     teamIds.reduce((s, t) => s + weekdayPenalty(totals.get(t)!), 0);
-  // A spread-2 team is the only imbalance the exact solver can still remove; the
-  // sum-of-squares term keeps totalPenalty > 0 even when every team is already as
-  // even as possible, so gate the B&B on spread directly, not on totalPenalty.
+  // ⚠️ Gate on spread, not `totalPenalty`: the sum-of-squares keeps that above 0 even
+  // when every team is already as even as possible.
   const hasImbalance = () => teamIds.some((t) => spread(totals.get(t)!) >= 2);
 
-  // Local search: coordinate descent to a local minimum, then simulated
-  // annealing to escape it. Reconciling two complementary imbalances needs a
-  // chain of recolorings that hand the imbalance from team to team; each
-  // intermediate step is penalty-neutral (one team fixed, one broken → ~0),
-  // which a strict descent won't take but low-temperature SA traverses freely,
-  // while still rejecting genuinely worse states (an extra spread-2 team costs
-  // BALANCE_W).
+  // Descent, then annealing: reconciling two imbalances takes penalty-neutral steps
+  // that a strict descent refuses.
   const localSearchWeekdays = () => {
     let guard = 0;
     let improved = true;
@@ -752,15 +528,9 @@ function balanceWeekdays(
     states.forEach((s, i) => (s.chosen = bestChosen[i]));
   };
 
-  // Cheap local search first; only fall to the exact branch-and-bound if it
-  // leaves a spread-2 team (the B&B overwrites `chosen` on success, keeps the
-  // local-search result on failure). This skips the B&B entirely whenever the
-  // even split is already reached, and caps its cost when it isn't.
   localSearchWeekdays();
   if (hasImbalance()) solveEvenAssignment(states, teamIds, nw, games);
 
-  // Apply the chosen night-assignments back to `games`, packing each night's
-  // games into slots 0..n-1 (ice-time share is polished later by refineSpacing).
   for (const st of states) {
     const perNight = st.nightIdx.map(() => [] as number[]);
     for (let j = 0; j < st.gis.length; j++) {
@@ -778,11 +548,7 @@ function balanceWeekdays(
   }
 }
 
-/**
- * Second-stage refinement (priority #2–#4): improve bye distribution, rematch
- * spacing, and ice-time spread via position swaps — but only swaps that do NOT
- * worsen any team's weekday spread, so the #1 even-schedule balance is preserved.
- */
+/** Priorities 2–4 by swaps that never worsen a team's weekday spread. */
 function refineSpacing(
   games: ScheduledGame[],
   nights: Night[],
@@ -811,9 +577,6 @@ function refineSpacing(
     );
   }
 
-  // Unified per-team cost: weekday balance (#1) dominates via a huge weight, so
-  // the search never trades an even schedule for spacing; ice-time/bye spacing
-  // (#2–#4) ride underneath in teamSpacingCost.
   const tCost = (t: string) => {
     const v = wd.get(t)!;
     return (
@@ -831,8 +594,6 @@ function refineSpacing(
     if (i >= 0) arr[i] = to;
   };
 
-  // One hill-climb to a local optimum: apply balance-preserving swaps that lower
-  // the spacing penalty.
   const climb = () => {
     let improved = true;
     let pass = 0;
@@ -845,8 +606,6 @@ function refineSpacing(
           if (!swapLegal(g1, g2, nights, nightTeams)) continue;
           const n1 = g1.nightIndex;
           const n2 = g2.nightIndex;
-          // Same-week only: keeps the week assignment (byes / rematch spacing)
-          // fixed and just polishes weekday and ice-time balance.
           if (smeta.week[n1] !== smeta.week[n2]) continue;
           const s1 = g1.slotIndex;
           const s2 = g2.slotIndex;
@@ -855,11 +614,6 @@ function refineSpacing(
           const k1 = matchupKey(g1.home, g1.away);
           const k2 = matchupKey(g2.home, g2.away);
           const teams = [...new Set([g1.home, g1.away, g2.home, g2.away])];
-          // k1 === k2 would mean swapping two meetings of the same pair; that's
-          // always rejected by swapLegal (a team can't move to a night it already
-          // plays), so the branch below is defensive. It also guarantees a
-          // matchup's night list never holds a duplicate of the night being
-          // moved in, so replace()'s indexOf targets the right entry.
           const mkeys = k1 === k2 ? [k1] : [k1, k2];
           const before =
             teams.reduce((s, t) => s + tCost(t), 0) +
@@ -965,8 +719,6 @@ type WeekCap = {
   maxPer: number;
 };
 
-/** Per-week capacity: total ice slots that week and the max games a team can
- * play (= number of game nights that week, since no team plays twice a night). */
 function weekCapacities(nights: Night[], smeta: NightMeta): WeekCap[] {
   return smeta.sortedWeeks.map((week) => {
     const nightIdx = smeta.weekNights.get(week)!;
@@ -979,19 +731,11 @@ function weekCapacities(nights: Night[], smeta: NightMeta): WeekCap[] {
   });
 }
 
-// Phase-W selection weights. Each team gets a target games-this-week (full if it
-// was light/byed last week, light if it was full → alternation, and everyone ≥1
-// → coverage). "Need" = target minus games so far, and it dominates so it decides
-// WHICH teams play; rematch spacing only breaks ties, choosing WHICH matchup.
+// ⚠️ `NEED_W` must dominate `SPREAD_W`: need decides which teams play (light and full
+// weeks alternate); rematch spacing only picks which matchup.
 const NEED_W = 10_000;
 const SPREAD_W = 600;
 
-/**
- * Phase W — assign the game list to weeks so every team plays 1–2 games a week
- * (no full-week byes), no matchup repeats within a week (no same-week rematch),
- * light/full weeks alternate, and a pair's meetings are pushed apart. Returns the
- * games per week plus any that couldn't be placed.
- */
 function assignToWeeks(
   pairings: Pairing[],
   teamIds: string[],
@@ -1006,8 +750,6 @@ function assignToWeeks(
     const chosen: Pairing[] = [];
     const weekCount = new Map<string, number>(teamIds.map((t) => [t, 0]));
     const usedMatchups = new Set<string>();
-    // Alternate: a team that was light/byed last week aims to play full this
-    // week; a team that was full aims to play light. Everyone's target is ≥1.
     const target = new Map<string, number>(
       teamIds.map((t) => [
         t,
@@ -1050,8 +792,6 @@ function assignToWeeks(
     prevWeekLoad = weekCount;
   }
 
-  // Repair: place any leftover pairing into a week that came up short (keeps GP
-  // equal). Relaxes only the soft spacing preferences, not the hard constraints.
   for (let i = pool.length - 1; i >= 0; i--) {
     const p = pool[i];
     for (const { week, cap, maxPer } of weekCaps) {
@@ -1077,18 +817,10 @@ function assignToWeeks(
   return { byWeek, unscheduled: pool.length };
 }
 
-// Week-level repair weights: eliminate full-week byes first, then runs of bye
-// weeks, then keep rematches spread across the season.
 const MISS_W = 100_000;
 const CONSEC_W = 1_000;
 const REMATCH_WK_W = 100;
 
-/**
- * Improve the week assignment by swapping games between weeks: drives full-week
- * byes and back-to-back bye weeks toward zero while keeping matchups spread out.
- * Never changes which games exist (GP stays equal) or lets a matchup repeat in a
- * week / a team exceed a week's game nights.
- */
 function repairWeeks(
   byWeek: Map<number, Pairing[]>,
   teamIds: string[],
@@ -1103,7 +835,6 @@ function repairWeeks(
   const order = new Map(weekCaps.map((wc, i) => [wc.week, i]));
   const weeks = weekCaps.map((wc) => wc.week);
 
-  // Per-team games-per-week and per-matchup weeks, maintained across swaps.
   const cnt = new Map<string, Map<number, number>>(
     teamIds.map((t) => [t, new Map()]),
   );
@@ -1161,14 +892,11 @@ function repairWeeks(
         if (a.w === b.w) continue;
         const ka = matchupKey(a.p.home, a.p.away);
         const kb = matchupKey(b.p.home, b.p.away);
-        // a moves to b.w, b moves to a.w — reject if it would exceed a week's
-        // game nights or duplicate a matchup in a week.
         const teams = [...new Set([a.p.home, a.p.away, b.p.home, b.p.away])];
         const before =
           teams.reduce((s, t) => s + teamCost(t), 0) +
           (ka === kb ? matchupCost(ka) : matchupCost(ka) + matchupCost(kb));
 
-        // apply
         for (const t of [a.p.home, a.p.away]) {
           bump(t, a.w, -1);
           bump(t, b.w, +1);
@@ -1220,8 +948,6 @@ function repairWeeks(
   for (const { p, w } of items) byWeek.get(w)!.push(p);
 }
 
-/** After tentatively swapping items i and j, does any team play the same
- * matchup twice in week wa or wb? */
 function hasDupMatchup(
   items: { p: Pairing; w: number }[],
   i: number,
@@ -1242,13 +968,6 @@ function hasDupMatchup(
   return false;
 }
 
-/**
- * Phase N — drop one week's games onto that week's nights. A team plays at most
- * once per night, so its (≤ maxPer) games land on different nights, which keeps
- * each team's weekday split even. Ice slots are packed in order here and owned by
- * the later balance/refine passes, so this only tracks the season weekday counter
- * (which seeds those passes) and appends to `out`.
- */
 function placeWeek(
   weekPairings: Pairing[],
   nightIdx: number[],
@@ -1262,9 +981,6 @@ function placeWeek(
 
   let best: number[] | null = null;
 
-  // Choose which night each game plays on, minimizing weekday imbalance. For a
-  // normal week (a few nights, a handful of games) brute-force every assignment
-  // (m^k) for the optimum; for pathologically dense weeks fall back to greedy.
   if (Math.pow(m, k) <= 20_000) {
     const assign = new Array<number>(k);
     let bestCost = Infinity;
@@ -1308,8 +1024,6 @@ function placeWeek(
     rec(0);
   }
 
-  // Greedy fallback: first-fit each game onto the least-loaded weekday night that
-  // has room and neither team already playing.
   if (!best) {
     best = new Array(k).fill(0);
     const perCount = new Array(m).fill(0);
@@ -1332,8 +1046,7 @@ function placeWeek(
           bestA = a;
         }
       }
-      // No legal night (a team would play twice, or all rooms full): strand it
-      // rather than break the no-team-twice-a-night invariant.
+      // No legal night: strand it rather than break no-team-twice-a-night.
       best[j] = bestA;
       if (bestA < 0) continue;
       perCount[bestA]++;
@@ -1351,7 +1064,6 @@ function placeWeek(
   for (let x = 0; x < m; x++) {
     const ni = nightIdx[x];
     const ps = perNight[x];
-    // Pack into slots in order; ice-time balance is owned by the later passes.
     for (let s = 0; s < ps.length; s++) {
       const p = ps[s];
       seasonWd.get(p.home)![meta.nightW[ni]]++;
@@ -1371,7 +1083,8 @@ function placeWeek(
 
 type Plan = { games: ScheduledGame[]; unscheduled: number };
 
-/** The original week-then-night pipeline (Phase W + Phase N). */
+/** ⚠️ The fallback (Phase W, then N) for shapes `planByParticipation` declines: keep it.
+ *  It cannot honour constraints. RUNBOOK.md, _Schedule generator_. */
 function planByWeeks(
   pairings: Pairing[],
   nights: Night[],
@@ -1381,11 +1094,8 @@ function planByWeeks(
 ): Plan {
   const weekCaps = weekCapacities(nights, smeta);
 
-  // Phase W: assign games to weeks (byes/same-week/rematch spacing structural).
   const { byWeek, unscheduled } = assignToWeeks(pairings, teamIds, weekCaps);
 
-  // Phase N: assign each week's games to its nights (initial weekday split),
-  // tracking a season-long weekday counter so it evens out across the schedule.
   const games: ScheduledGame[] = [];
   const seasonWd = new Map<string, number[]>(
     teamIds.map((t) => [t, meta.usedWeekdays.map(() => 0)]),
@@ -1402,29 +1112,17 @@ function planByWeeks(
     );
   }
 
-  // Drive weekday balance (#1) to optimal by re-picking each week's night
-  // assignment, then polish ice-time + spacing (#2–#4) with weekday-preserving
-  // swaps. Both are same-week only, so Phase W's bye/rematch structure is fixed.
   balanceWeekdays(games, nights, meta, smeta, teamIds);
   refineSpacing(games, nights, teamIds, meta, smeta);
   return { games, unscheduled: unscheduled + stranded };
 }
 
-/**
- * Spread `total` games over nights as evenly as the per-night caps allow, so no
- * night is crammed while another sits half-empty. Null when they don't all fit.
- *
- * Exported so a caller can refute an impossible constraint set on arithmetic
- * before paying for a generate; `planByParticipation` is still the one caller
- * that plans with it.
- */
 export function distributeGames(
   caps: number[],
   total: number,
 ): number[] | null {
   const n = caps.length;
   if (n === 0) return total === 0 ? [] : null;
-  // Bresenham-style even split: night i gets the games between two exact cuts.
   const out = caps.map(
     (_, i) => Math.floor(((i + 1) * total) / n) - Math.floor((i * total) / n),
   );
@@ -1443,11 +1141,6 @@ export function distributeGames(
   return overflow > 0 ? null : out;
 }
 
-/**
- * Participation-first planner: Phase P (who plays when) → Phase M (who plays
- * whom) → Phase S (ice times). Returns null when it can't honour the caller's
- * exact matchups, leaving `planByWeeks` to handle it.
- */
 function planByParticipation(
   pairings: Pairing[],
   nights: Night[],
@@ -1455,7 +1148,6 @@ function planByParticipation(
   meta: Meta,
   smeta: NightMeta,
   resolved: ResolvedConstraints,
-  /** `(AssignOptions.seed - 1) * 1000`; 0 for the default schedule. */
   seedOffset: number,
 ): Plan | null {
   const T = teamIds.length;
@@ -1465,8 +1157,7 @@ function planByParticipation(
   const index = new Map(teamIds.map((t, i) => [t, i]));
   const gamesPerTeam = new Array(T).fill(0);
   const targets = Array.from({ length: T }, () => new Array<number>(T).fill(0));
-  // Instances of each matchup, kept in round order so the caller's home/away
-  // alternation survives into the placed schedule.
+  // Round order, so the caller's home/away alternation survives placement.
   const queues = new Map<string, Pairing[]>();
   for (const p of pairings) {
     const a = index.get(p.home);
@@ -1491,13 +1182,8 @@ function planByParticipation(
     games: perNight[i],
   }));
 
-  // Weekday balance is priority #1, so loosen the target split only as far as
-  // each rung fails. Pinned quotas first (the evenest split the totals allow),
-  // widening the tolerance for them; then the same tolerances without pinning.
-  // Those last three matter because the pinned quotas don't depend on slack —
-  // without them, a calendar whose optimal quotas can't be packed onto nights
-  // fails all three pinned rungs identically and the planner is thrown away
-  // when a looser per-team split would still have worked.
+  // Loosen the weekday split one rung at a time. ⚠️ Keep the unpinned rungs: pinned quotas
+  // ignore slack, so a calendar that can't pack them fails all three pinned rungs alike.
   const rungs = [
     { slack: 0, exact: true },
     { slack: 1, exact: true },
@@ -1506,10 +1192,7 @@ function planByParticipation(
     { slack: 1, exact: false },
     { slack: 2, exact: false },
   ];
-  // One deadline for the whole ladder, not one per rung: a rung that can't work
-  // is almost always refuted by arithmetic in under a millisecond, so in
-  // practice the rung that succeeds still gets the full budget — but a rung
-  // that does burn time can no longer multiply the ladder's cost by six.
+  // ⚠️ One deadline for the whole ladder, not one per rung, or a slow rung costs six times.
   const solve = (budgetMs: number, seed: number): Participation | null => {
     const until = Date.now() + budgetMs;
     for (const { slack, exact } of rungs) {
@@ -1524,8 +1207,7 @@ function planByParticipation(
         exactWeekdayTargets: exact,
         timeBudgetMs: remaining,
         seed,
-        // Undefined when nothing is constrained, so every reference inside the
-        // solver short-circuits and the search runs untouched.
+        // Undefined when unconstrained, so the solver runs exactly as without constraints.
         forced: resolved.empty ? undefined : resolved.forced,
         byeInWeek: resolved.empty ? undefined : resolved.byeInWeek,
       });
@@ -1543,23 +1225,12 @@ function planByParticipation(
       restarts: pairings.length <= 200 ? 12 : 4,
       seed: 1 + seedOffset,
     });
-    // A non-zero error means some pair would meet more or fewer times than the
-    // caller asked for; that's opponent balance, so the matrix is unusable.
+    // ⚠️ Any multiplicity error changes how often a pair meets: never accept one.
     return m && m.multiplicityError === 0 ? m : null;
   };
 
-  /**
-   * A plan-in-progress on the prefix of `rankSchedule` that Phases P and M
-   * decide — everything above ice time. Phase S is the expensive phase and runs
-   * once, on the winner, so it can't take part in the comparison.
-   *
-   * `spacingCost` is Phase M's own objective rather than a recount, which keeps
-   * this honest as that objective grows: a term added to `pairCost` is a term
-   * this selection starts respecting, with nothing to keep in sync. It is also
-   * why the pairing weekday split is deliberately *not* a tiebreak here — that
-   * belongs in `pairCost`, where the search can actually pursue it, and picking
-   * on it from eight samples would only disguise whether it works.
-   */
+  /** The rank prefix Phases P and M decide. ⚠️ The pairing weekday split is not a tiebreak
+   *  here on purpose: it belongs in `pairCost`, where the search can pursue it. */
   const plateauScore = (p: Participation, m: MatchupResult): number[] => [
     p.byeAdjNight,
     p.weekdaySpread,
@@ -1569,11 +1240,6 @@ function planByParticipation(
     m.spacingCost,
   ];
 
-  // Phase P is the expensive step, and a participation matrix Phase M can't pair
-  // up is worthless however good its bye metrics are. So take a cheap one first
-  // and check it can be paired at all; only buy the long search once that's
-  // known — otherwise a calendar that was never going to work burns the whole
-  // budget on its way to being thrown away.
   let part = solve(300, PLATEAU_SEEDS[0] + seedOffset);
   if (!part) return null;
   let matched = match(part);
@@ -1589,17 +1255,8 @@ function planByParticipation(
     }
   }
 
-  // Phase P's optimum is a wide plateau: many matrices tie on every bye metric
-  // and on weekday balance, and which one the dive lands on is settled by its
-  // jitter seed alone. They are not interchangeable downstream — measured across
-  // six seeds on the reference season, rematch spacing ranged from clean to
-  // three breaches and the pairing weekday split from 42 to 94, all at identical
-  // bye cost. Leaving that to the seed means the schedule's rematch spacing is
-  // decided by a coin toss, so sample the plateau and keep the best by the
-  // league's own ranking. Phases P and M together cost ~100 ms a seed against
-  // Phase S's 25 s, which is what makes the choice affordable; the deadline is
-  // there for leagues where Phase M is far dearer than the reference's, and is
-  // not expected to bind — see `PLATEAU_SAMPLE_MS`.
+  // Phase P's optimum is a plateau whose rematch spacing varies by seed at equal bye cost,
+  // so sample it and keep the best rather than leave it to one seed.
   const sampleUntil = Date.now() + PLATEAU_SAMPLE_MS;
   let bestScore = plateauScore(part, matched);
   for (const seed of PLATEAU_SEEDS.slice(1).map((x) => x + seedOffset)) {
@@ -1616,17 +1273,8 @@ function planByParticipation(
     }
   }
 
-  // Phase S pins for `slot_on`. `assignSlots` already carries `initial` and
-  // `pinned` for the mid-season repair, so this reuses them rather than adding a
-  // second mechanism: seed the night with a permutation putting the pinned game
-  // on its ice time, then forbid the search from moving it while the night's
-  // other games permute around it.
-  //
-  // A pin that no longer names a real game — Phase P declined to honour the
-  // implied play night, or the night runs fewer games than the pinned slot
-  // index — is dropped here rather than forced. The constraint is then reported
-  // unmet off the placed games, which is the honest answer; pinning to a slot
-  // that does not exist would corrupt the night's permutation.
+  // `slot_on` pins reuse `assignSlots`' `initial`/`pinned`. ⚠️ A pin naming no real game is
+  // dropped, not forced: forcing it corrupts the night's permutation, and it reports unmet.
   const pinsByNight = new Map<number, { gi: number; slot: number }[]>();
   if (!resolved.empty) {
     for (const pin of resolved.slotPins) {
@@ -1668,8 +1316,7 @@ function planByParticipation(
     weekdayOfNight: meta.nightW,
     restarts: SLOT_RESTARTS,
     timeBudgetMs: SLOT_BUDGET_MS,
-    // ⚠️ Every candidate shares `slotArgs`, so all five carry the same pins and
-    // the same bias — the selection below compares like with like.
+    // ⚠️ Every candidate shares these, so all five carry the same pins and bias.
     ...(pinsByNight.size > 0
       ? {
           initial,
@@ -1687,11 +1334,8 @@ function planByParticipation(
       pairsByNight: matched.pairsByNight,
       slotOf: s,
       weekdayOfNight: meta.nightW,
-      // ⛔ The bias MUST reach the comparator, not just `assignSlots`' internal
-      // cost. Generation runs Phase S five times and keeps the winner by
-      // `compareIceOutcome`; a term invisible to that ranking makes the feature
-      // a coin toss, because the candidate that honours the request best can
-      // lose to one that ignores it.
+      // ⛔ The bias must reach `compareIceOutcome`, not only `assignSlots`, or best-of-five
+      // ignores it. RUNBOOK.md, _Schedule generator_.
       biases: resolved.biases.length > 0 ? resolved.biases : undefined,
     });
 
@@ -1734,24 +1378,8 @@ function planByParticipation(
   return { games, unscheduled: 0 };
 }
 
-/**
- * Schedule quality as a lexicographic tuple, lowest wins, ordered by the
- * league's stated priorities: everything placed ▸ back-to-back byes ▸ weekday
- * balance ▸ byes ▸ rematch spacing ▸ pairing weekday split ▸ ice time.
- *
- * Every metric the search targets has to appear here, or `planByWeeks` can win
- * on an old term while being far worse on a new one. `longestLayoffDays` is the
- * deliberate exception: it is informational, and a long layoff is often a
- * calendar fact no plan can beat, so ranking on it would pick plans for reasons
- * outside their control.
- *
- * `byesAdjNight` outranks weekday balance by the league's decision: an uneven
- * weekday split is preferable to a team sitting out two game nights in a row.
- *
- * Clustering sits LAST on purpose. It can only choose between plans that
- * already tie on every other term, so it can never buy a shorter clustered
- * stretch with a back-to-back — which is what keeps the night-order pass free.
- */
+/** ⚠️ Every metric the search targets must appear, or `planByWeeks` wins on an unranked one;
+ *  `longestLayoffDays` is left out on purpose. Order: RUNBOOK.md, _Schedule generator_. */
 function rankSchedule(
   plan: Plan,
   nights: Night[],
@@ -1766,12 +1394,7 @@ function rankSchedule(
   );
 }
 
-/**
- * The rank vector off an ALREADY-COMPUTED spacing report. Split out for the
- * night-order pass, which needs `longestLayoffDays` from the same report for its
- * own admissibility check (see the call site) and must not pay for a second
- * `spacingReport` on every annealing step — it is the dominant cost there.
- */
+/** `rankSchedule` off a report already computed: the night-order pass can't pay for two. */
 function rankFromReport(
   plan: Plan,
   r: SpacingReport,
@@ -1809,44 +1432,16 @@ function rankLess(a: number[], b: number[]): boolean {
   return false;
 }
 
-/**
- * How many seeds a variation is chosen from, keyed on game count — the same
- * signal `ilsRestartsFor` uses, so this is a function of the INPUT and never of
- * the clock. A clock-sized N would make the schedule hardware-dependent, which
- * is the bug `SLOT_RESTARTS` above exists about.
- *
- * The 8-team reference league (144 games) gets 1: measured 2026-09-09, it takes
- * NOTHING from the night-order pass — worst-team 17 and 94 windows with the pass
- * running and unconstrained, identical at every restart count from 500 to 20,000
- * — so ranking four draws on clustering would spend 4x the time choosing between
- * four schedules of identical quality.
- *
- * At <= 80 games a generate is ~6.6 s, so four is ~26 s: the SAME wall clock the
- * manager waited before `SLOT_RESTARTS` dropped from 20,000.
- */
+/** ⛔ Keyed on game count, never the clock: a clock-sized count makes the schedule depend
+ *  on the hardware. RUNBOOK.md, _Schedule generator_. */
 function variationsFor(gameCount: number): number {
   if (gameCount <= 80) return 4;
   if (gameCount <= 120) return 2;
   return 1;
 }
 
-/**
- * One schedule, best of a block of seeds.
- *
- * Generation repeats for a given input (while the search finishes inside its
- * time budget) — deliberately, see `PLATEAU_SEEDS` — which left a manager who
- * disliked a schedule with no way to ask for another: regenerating returned the
- * byte-identical one. `AssignOptions.seed` selects a variation; this picks the
- * best draw within it.
- *
- * ⛔ Blind rerolling would be the WRONG product. Measured over six seeds on
- * 6 teams / one weeknight / 3 sheets, worst-team clustering ran 4, 10, 13, 11,
- * 4, 10 — so a bare "try another" button can hand the manager something worse
- * than what they already rejected, which is what sends them back to hand-editing
- * the schedule. `rankSchedule` runs on the FINISHED schedule, after the
- * night-order pass, so it is the one comparator in the pipeline that can see
- * clustering at all.
- */
+/** Repeats for a given input while the search finishes inside its time budget. ⛔ Best of
+ *  a seed block, never a blind reroll: a reroll can return a worse schedule. */
 export function assignNights(
   pairings: Pairing[],
   nights: Night[],
@@ -1854,39 +1449,16 @@ export function assignNights(
   options?: AssignOptions,
 ): ReturnType<typeof assignNightsOnce> {
   const resolved = options?.constraints ?? noConstraints();
-  // ⚠️ NOT gated on `resolved.empty` any more. It used to be, and correctly:
-  // with the night-order pass switched off for constrained seasons, no seed in a
-  // block could differ on clustering repair, so four draws cost 4x for nothing.
-  // `nightClass` lets the pass run on every season, which makes the block worth
-  // drawing again — measured 2026-09-09, one pinned season goes 15 -> 14 on the
-  // pass alone and 15 -> 5 once the block comes back.
+  // ⚠️ Not gated on `resolved.empty`: with night order on every season, one pinned season's
+  // worst team goes 15 -> 5 with the block and 15 -> 14 without.
   const auto = variationsFor(pairings.length);
   const n = Math.max(1, Math.min(options?.variations ?? auto, auto));
   const base = options?.seed ?? 1;
   if (n === 1) return assignNightsOnce(pairings, nights, teamIds, options);
 
   const meta = buildMeta(nights);
-  /**
-   * `rankSchedule`'s vector with ONE change: the two clustering terms move
-   * ahead of `slotConsecutive`.
-   *
-   * ⛔ DO NOT "simplify" this back to plain `rankFromReport`. Measured
-   * 2026-09-09 on 6 teams / one weeknight / 3 sheets: seed 1 gives 6
-   * back-to-backs and worst-team 4, seed 2 gives 4 back-to-backs and worst-team
-   * 10. Under `rankSchedule`'s own order `slotConsecutive` outranks clustering,
-   * so best-of-4 picks seed 2 — and the manager gets a WORSE schedule from four
-   * draws than from the single default one, on precisely the metric this
-   * selection exists to improve.
-   *
-   * The two orders answer different questions and both are right for theirs.
-   * `rankSchedule` guards the night-order pass, where the rule is that a
-   * permutation must never trade away an established quality, so clustering
-   * ranks last as a pure tiebreaker. Choosing between complete, independently
-   * generated schedules is a trade, and there a team taking the same ice time
-   * three times in five weeks — the complaint this feature came from — is worse
-   * than one extra pair of back-to-back games. `slotStreak3` (three in a ROW)
-   * stays above clustering: it is strictly worse than three in five.
-   */
+  // ⛔ Don't "simplify" to plain `rankFromReport`: clustering must outrank `slotConsecutive`
+  // here, or best-of-4 can pick worse clustering than the single default draw.
   const rankOf = (r: ReturnType<typeof assignNightsOnce>) => {
     const v = rankFromReport(
       { games: r.games, unscheduled: r.report.unscheduled },
@@ -1896,19 +1468,8 @@ export function assignNights(
     );
     const [consec, worst, windows] = v.slice(v.length - 3);
     return [
-      // ⛔ UNMET REQUESTS FIRST, above every balance and spacing term. None of
-      // `rankFromReport`'s seventeen entries encodes "did we meet the manager's
-      // request", and while a constrained season took a single draw that could
-      // not matter. A block makes it a coin toss — the same failure Phase S
-      // guards on `outcomeFor`, where a term invisible to the ranking lets the
-      // candidate honouring the request best lose to one that ignores it. An
-      // unmet request is a promise broken to a person; clustering is a
-      // preference.
-      //
-      // ⚠️ A NO-OP ON AN UNCONSTRAINED SEASON, and that is why it is safe to put
-      // first: `assignNights` returns `constraints: []` when
-      // `resolved.items.length === 0`, so this is a constant 0 across every draw
-      // and the lexicographic order is untouched.
+      // ⛔ Unmet requests first: no other term sees them, so a block could drop a met one.
+      // A constant 0 on an unconstrained season (`constraints: []`), so safe to put first.
       r.report.constraints.filter((x) => !x.satisfied).length,
       ...v.slice(0, v.length - 3),
       worst,
@@ -1966,64 +1527,10 @@ function assignNightsOnce(
     seedOffset,
   );
 
-  // ⛔ `planByWeeks` CANNOT honour constraints. It searches over placed games
-  // and has no participation matrix to force, so a request never reaches it.
-  //
-  // WHICH IS WHY THE RANK-OFF DOES NOT DECIDE A CONSTRAINED GENERATION. When
-  // Phase P produces a plan that honours the request and then LOSES the
-  // rank-off, the manager is told their request could not be met — while a plan
-  // that met it sat right there, discarded for ranking slightly worse on metrics
-  // they were never shown. Measured 2026-09-04: eight teams, three sheets, eight
-  // games each went from unmet to met under this branch, costing two
-  // consecutive-week byes (1 → 3).
-  //
-  // So when something was asked for, Phase P wins by being the only planner that
-  // can answer at all, and `planByWeeks` ships only if Phase P found nothing.
-  // The trade is deliberate: Phase P's plan can rank below the fallback's on the
-  // league's own priority order, and the manager sees what it cost in the
-  // metrics beside the request. Asking for something is what buys that trade —
-  // an UNCONSTRAINED generation still runs the rank-off untouched, which is what
-  // keeps `RUNBOOK.md` → Schedule generator true.
-  //
-  // ⚠️ THIS IS NOT A GENERAL CURE. Two neighbouring limits decide far more
-  // often than this branch does, and a "could not be met" is usually one of
-  // them rather than a rank-off loss:
-  //
-  //   • `planByParticipation` returns null on some shapes REGARDLESS of
-  //     constraints — measured null even unconstrained at six teams / two
-  //     sheets and at eight teams / two sheets. There is no plan to prefer
-  //     there, so every request is reported unmet and this branch cannot change
-  //     it. A pre-existing limit of Phase P, not of constraints.
-  //   • A shape with no bye budget at all cannot honour any BYE request: six
-  //     teams on three sheets is three games a night, so all six play every
-  //     night and nobody ever byes. `refuteConstraints` says so by arithmetic
-  //     before a search runs. `play_on`, `slot_on` and `slot_bias` still work.
-  //
-  // ⚠️ GATED ON THE KINDS THAT MOVE THE PARTICIPATION MATRIX, not on `!empty`.
-  //
-  // ⛔ AND THE TRADE IS NOT FREE — an earlier version of this comment said the
-  // old branch discarded the rank-off winner "for nothing", which is wrong and
-  // worth stating plainly. A `slot_bias` contributes no forced cell and no
-  // disjunction, so Phase P's MATRIX is byte-identical with and without it —
-  // but `resolved.biases` is consumed INSIDE `planByParticipation`, into
-  // `assignSlots` and into `iceOutcome` (see `slotArgs` and `outcomeFor`
-  // ABOVE, in `planByParticipation`). `planByWeeks` takes no constraints at
-  // all. So forcing Phase P for a
-  // bias-only set was buying the only plan whose Phase S had ever seen the
-  // bias.
-  //
-  // What it cost was real too: measured on the acceptance shape above, one bias
-  // took `byesConsecWeek` from 1 to 2 — a rule-2 breach — and still came back
-  // unmet. And what it buys is smaller than it looks: measured over 12
-  // bias-only runs (T ∈ {6,8,10}, both directions), satisfaction was a wash,
-  // 8/12 either way, while `planByWeeks` now ships in 8 of those 12 — so on
-  // this branch the bias reaches no code at all two times in three.
-  //
-  // A wash on satisfaction and a real cost in ranking is why the better-ranked
-  // schedule wins. The honest description of today's behaviour is that a bias
-  // is heard only when Phase P wins the rank-off on its own merits. Making it
-  // deterministic means plumbing `biases` into the fallback's slot polish,
-  // which is a change to `planByWeeks` and is not this.
+  // ⛔ `planByWeeks` cannot honour constraints, so when a request moves the participation
+  // matrix, Phase P ships whenever it found a plan; otherwise the rank-off decides.
+  // ⛔ Not gated on `!empty`: forcing Phase P for a bias-only set cost a bye breach and
+  // bought no satisfaction (8/12 either way), so a bias stays in the rank-off.
   const needsPhaseP =
     resolved.forced.length > 0 ||
     resolved.byeInWeek.length > 0 ||
@@ -2039,85 +1546,17 @@ function assignNightsOnce(
   ) {
     plan = exact;
   }
-  // Read off which plan SHIPPED, never off which one was preferred: with
-  // constraints set and Phase P returning null, the fallback ships anyway and
-  // every request is then correctly reported unmet.
+  // ⚠️ Which plan shipped, not which was preferred: with Phase P null the fallback ships.
   const plannerHonours = plan === exact;
 
-  // Reordering nights moves clustering while carrying each night's games and
-  // ice times with it. Admissibility is judged on the WHOLE rank vector, so on a
-  // shape where reordering would cost byes, weekday balance or rematch spacing,
-  // every candidate is refused and the identity survives.
-  //
-  // ⛔ CLASS-GATED, NOT CONSTRAINT-GATED. A request names a SPECIFIC night index
-  // (`forced`, `slot_on`), which no entry in `rankSchedule` encodes. A
-  // permutation can relabel which night holds a pinned block of games while
-  // leaving every ranked metric no worse, so the rank vector alone cannot see
-  // that it just moved a pin Phase P had honoured off the night it was pinned
-  // to. `evaluateConstraints` runs afterward, off the final `games`, so it would
-  // then honestly report that met request as unmet — exactly the silent
-  // downgrade the ⛔ block above (`needsPhaseP`) exists to prevent.
-  //
-  // This whole pass used to be switched OFF whenever `resolved.empty` was false,
-  // because the obvious repair — re-evaluating the constraints inside
-  // admissibility — is a constraint evaluation on each of ~6k annealing steps
-  // (4 restarts × 1500 steps, see `nightOrder.ts`). `nightClass` below is the
-  // cheap equivalent: forbid the permutations that COULD break a request rather
-  // than evaluate whether they did, at one O(nights) comparison folded into the
-  // ice-capacity loop that already runs.
-  //
-  // Measured 2026-09-09 on 6 teams / one weeknight / 3 sheets: one `slot_on` pin
-  // took worst-team clustering from 4 to 15 under the old gate. It is 5 now.
-  //
-  // ⛔ REWRITE `scheduledAt` WITH `nightIndex`, ALWAYS. An earlier version of
-  // this comment claimed reassigning `plan.games` with a new `nightIndex` was
-  // "enough to carry the new night order through everything downstream". It is
-  // not, and that was the whole feature's undoing: `scheduledAt` is a STORED
-  // field baked at creation (`slotStamp`, above), and it is the ONLY placement
-  // fact that persists — `src/lib/actions/schedule.ts` writes `scheduled_at`
-  // and never `nightIndex`/`slotIndex`. Measured 2026-09-09 on the 6-team
-  // fixture before the fix: `report.spacing` said worst team 4, 17 windows,
-  // while the schedule re-derived from `scheduledAt` — the database, both CSV
-  // exports, the calendar feed and the manager preview — was still the
-  // pre-branch 14 / 33, with all 69 of 69 games carrying a stale date.
-  //
-  // What IS true of the rest: this runs before `games`/`pairsByNight`/`slotOf`
-  // are read off `plan` below, so those in-memory structures do rebuild from
-  // the moved games with no separate reindexing. `nights` itself is never
-  // reordered, so `weekdayOfNight` (built straight from `nights`, not from
-  // `games`) is correctly left untouched.
-  /**
-   * A permutation may only swap nights carrying the same label.
-   *
-   * ⛔ THE LABEL IS CORRECT ONLY BECAUSE IT COVERS ALL FOUR. Every field of
-   * `ResolvedConstraints` is position-sensitive, each to a different thing, and
-   * a label that misses one lets a permutation move a request the rank vector
-   * cannot see it moving:
-   *
-   *   | field                | position-sensitive to        | label      |
-   *   |----------------------|------------------------------|------------|
-   *   | `forced`, `slotPins` | the night index              | `FIX${n}`  |
-   *   | `byeInWeek`          | the week a night sits in     | `W${week}` |
-   *   | `biases`             | the night-window it names    | one bit    |
-   *
-   * That table is the completeness argument, and it is why the gate could not
-   * simply be narrowed to "no night-indexed requests": there is no field here
-   * that is safe to exempt. Preserving each night's CLASS is a different move —
-   * it keeps every one of those positions intact rather than trading one away.
-   *
-   * ⚠️ A BIAS IS NOT INVARIANT under a night permutation, which is the row most
-   * easily missed. `SlotBias.nights` is a per-night boolean WINDOW, so moving a
-   * game across the window boundary changes what the bias is scored over.
-   * Carrying each bias's membership bit is what keeps it honest — and a
-   * whole-season bias has the same bit on every night, so it costs nothing.
-   *
-   * With no requests every label is `"-|"`, every permutation is admissible, and
-   * this is exactly the behaviour the `resolved.empty` gate used to produce.
-   */
+  // ⛔ Class-gated, not constraint-gated or off: a free permutation can move a met pin (no
+  // rank term sees it), and switching the pass off took one pinned season's worst team 5 -> 15.
+  // ⛔ Rewrite `scheduledAt` with `nightIndex`, always, through `slotStamp`: only
+  // `scheduledAt` persists. RUNBOOK.md, _Schedule generator_.
+  /** ⛔ Only nights with the same label swap, and the label must cover every position-sensitive
+   *  field: `forced`/`slotPins` (night), `byeInWeek` (week), each bias's window bit. */
   const nightClass = (() => {
     const fixed = new Set<number>();
-    // Names one night's participation, and one night's ice time: both make that
-    // night a class of one, i.e. a fixed point of every admissible permutation.
     for (const f of resolved.forced) fixed.add(f.night);
     for (const sp of resolved.slotPins) fixed.add(sp.night);
     const namedWeeks = new Set(resolved.byeInWeek.map((b) => b.week));
@@ -2133,22 +1572,13 @@ function assignNightsOnce(
   {
     const baseReport = spacingReport(plan.games, nights, teamIds);
     const baseRank = rankFromReport(plan, baseReport, teamIds, meta);
-    // The last two entries are the clustering pair this task appended; everything
-    // above them is what must not get worse.
+    // The last two rank entries are clustering; everything above them must not get worse.
     const CLUSTER_TAIL = 2;
     const worstOf = (v: number[]) => v[v.length - 2];
     const totalOf = (v: number[]) => v[v.length - 1];
 
-    // ⚠️ A permutation carries each night's games AND their slot indexes onto
-    // whatever night lands in that position, so a 3-game block moved onto a
-    // 2-sheet night has a game at slot 2 that the night has no ice for — and,
-    // now that `scheduledAt` is rebuilt below, a literal `Tundefined:00` in the
-    // row that ships. Every other placement site consults per-night
-    // `slots.length` (`placeWeek`, `swapLegal`, `slotArgs`), so non-uniform
-    // nights are a supported shape; this is latent only because
-    // `enumerateNights` happens to give every night the same `slotTimes`. Refuse
-    // such an order outright AND penalise it on the same 1e6 scale as a rank
-    // regression, so the anneal is pushed off it rather than wandering there.
+    // ⚠️ A permutation carries slot indexes, so a 3-game night moved onto a 2-sheet night
+    // ships `Tundefined:00`. Refuse it, and penalise it on the rank-regression scale.
     const slotsPerNight = nights.map((n) => n.slots.length);
     const slotsNeeded = new Array<number>(nights.length).fill(0);
     for (const g of plan.games) {
@@ -2158,15 +1588,8 @@ function assignNightsOnce(
       );
     }
 
-    // ⚠️ `longestLayoffDays` is checked HERE but stays out of `rankSchedule`.
-    // The exemption there is correct for its own purpose: a rank-off compares
-    // two planners over the SAME calendar, where a three-week gap is a holiday
-    // no plan can beat, so ranking on it would pick plans for reasons outside
-    // their control. A night permutation is the opposite case — it genuinely
-    // moves which games sit either side of that gap, so on a bye-carrying,
-    // holiday-gapped league it could lengthen a team's worst layoff while every
-    // ranked term ties, and nothing would notice. `number | null`: null is "no
-    // team has two games to sit between", i.e. no constraint, on either side.
+    // ⚠️ Layoff is checked here but kept out of `rankSchedule`: a permutation, unlike a
+    // rank-off, really moves games across a gap. null means no constraint.
     const baseLayoff = baseReport.longestLayoffDays;
 
     const reordered = improveNightOrder(nights.length, (order) => {
@@ -2177,9 +1600,7 @@ function assignNightsOnce(
       for (let n = 0; n < nights.length; n++) {
         const short = slotsNeeded[n] - slotsPerNight[pos[n]];
         if (short > 0) overflow += short;
-        // A night may only move to a night of its own class. Scored through the
-        // same `overflow` penalty so the annealer can cross an inadmissible
-        // region on its way somewhere legal, exactly as it does for capacity.
+        // Same penalty as capacity, so the annealer can cross an inadmissible region.
         if (nightClass[n] !== nightClass[pos[n]]) overflow += 10;
       }
       const moved = plan.games.map((g) => ({
@@ -2214,9 +1635,8 @@ function assignNightsOnce(
         cost: penalty + worstOf(rank) * 1_000 + totalOf(rank),
         admissible: noWorse && better,
       };
-      // ⚠️ `restarts`/`steps` deliberately left at nightOrder.ts's defaults —
-      // they sit on a measured cliff (1500 steps reaches worst-team 4, 1000
-      // reaches 8, nothing in between). Only the seed varies here.
+      // ⚠️ `restarts`/`steps` stay at `nightOrder.ts`'s defaults, on a measured cliff
+      // (1500 steps reach worst team 4, 1000 reach 8). Only the seed varies here.
     }, { seed: 1 + seedOffset });
     if (reordered.some((n, i) => n !== i)) {
       const pos = new Array<number>(nights.length);
@@ -2238,7 +1658,6 @@ function assignNightsOnce(
 
   const { games, unscheduled } = plan;
 
-  // Derive the report from the final placement.
   const { slot: finalSlot, wd: nightTally } = vectorsOf(games, teamIds, meta);
   const finalGp = new Map<string, number>(teamIds.map((t) => [t, 0]));
   const pairingTally = new Map<string, number>();
@@ -2261,10 +1680,8 @@ function assignNightsOnce(
     }
   }
 
-  // The slot assignment behind the winning plan, rebuilt from its games. It is
-  // read back off the placement rather than plumbed out of Phase S because
-  // `planByWeeks` never builds one, and because `refineSpacing` moves games
-  // after Phase S runs — only the games are guaranteed to be what shipped.
+  // ⚠️ Rebuilt from the games, never plumbed out of Phase S: `planByWeeks` builds none,
+  // and later passes move games.
   const teamIndex = new Map(teamIds.map((t, i) => [t, i]));
   const pairsByNight: [number, number][][] = nights.map(() => []);
   const slotOf: number[][] = nights.map(() => []);
@@ -2276,10 +1693,7 @@ function assignNightsOnce(
     slotOf[g.nightIndex].push(g.slotIndex);
   }
 
-  // Constraint outcomes, read off the placed games — never off what a phase was
-  // asked to do. The slot map above is rebuilt from `games` for exactly this
-  // reason: later steps can move things, and verifying a request against itself
-  // would report a pin as honoured whether or not it survived.
+  // Read off the placed games, never off what a phase was asked to do.
   const playsMatrix = teamIds.map(() =>
     new Array<boolean>(nights.length).fill(false),
   );
@@ -2292,16 +1706,8 @@ function assignNightsOnce(
       slotAt.set(`${ti}:${g.nightIndex}`, g.slotIndex);
     }
   }
-  // ⛔ `items.length`, NOT `empty`. `empty` asks "did anything reach a solver
-  // phase", which is the right question for the short-circuits above and the
-  // WRONG one here. An unresolved constraint contributes to none of the four
-  // lists `empty` is computed from, so a set where EVERY constraint failed to
-  // resolve is `empty === true` with `items.length === 1` — and gating the
-  // report on it meant the single likeliest mistake, naming a date that turns
-  // out not to be a game night, produced a cheerful "Generated a 96-game draft
-  // schedule." and no verdict anywhere, while the request sat in the card
-  // looking honoured. It only ever worked when some OTHER constraint in the
-  // same set resolved.
+  // ⛔ `items.length`, not `empty`: a set whose every constraint failed to resolve is
+  // `empty`, and gating on that reports nothing while the request looks honoured.
   const constraints =
     resolved.items.length === 0
       ? []
