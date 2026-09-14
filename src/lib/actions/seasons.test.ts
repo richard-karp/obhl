@@ -28,6 +28,9 @@ const createUser = vi.fn<
     error: { message: string } | null;
   }>
 >();
+const mayWrite = vi.fn<() => Promise<boolean>>();
+/** Every `"<table>.<verb>"` the fake resolved, in order. */
+let calls: string[] = [];
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/auth/guards", () => ({
@@ -37,6 +40,7 @@ vi.mock("@/lib/audit", () => ({ logAudit: () => Promise.resolve() }));
 vi.mock("@/lib/auth/users", () => ({ findUserIdByEmail: () => findUser() }));
 vi.mock("@/lib/auth/membership", () => ({
   addLeagueMembership: () => addMembership(),
+  mayWriteProfileOf: () => mayWrite(),
 }));
 
 type Result = {
@@ -77,6 +81,7 @@ function makeAdmin() {
         return chain;
       },
       then(resolve: (r: Result) => unknown) {
+        calls.push(`${q.table}.${q.verb}`);
         const queued = responses[`${q.table}.${q.verb}`];
         const fallback: Result =
           q.table === "seasons"
@@ -122,6 +127,7 @@ const run = async (fd = form()) => {
 beforeEach(() => {
   vi.clearAllMocks();
   responses = {};
+  calls = [];
   nextId = 0;
   createUser.mockResolvedValue({
     data: { user: { id: "user-1" } },
@@ -129,6 +135,7 @@ beforeEach(() => {
   });
   findUser.mockResolvedValue(null);
   addMembership.mockResolvedValue({ ok: true, error: null });
+  mayWrite.mockResolvedValue(true);
 });
 
 describe("createTeamForSeason", () => {
@@ -199,5 +206,40 @@ describe("createTeamForSeason", () => {
     responses["profiles.upsert"] = { error: { message: "nope" } };
     const r = await run();
     expect(r.message).toMatch(/^Added Otters with captain/);
+  });
+
+  it("leaves an existing staff account's role alone", async () => {
+    createUser.mockResolvedValue({
+      data: null,
+      error: { message: "email address already registered" },
+    });
+    findUser.mockResolvedValue("existing-user");
+    responses["profiles.select"] = {
+      data: { role: "scorekeeper" },
+      error: null,
+    };
+    const r = await run();
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/^Added Otters with captain Ada Lovelace/);
+    expect(r.message).toMatch(/already has an account as scorekeeper/);
+    expect(calls).not.toContain("profiles.upsert");
+    expect(addMembership).not.toHaveBeenCalled();
+  });
+
+  it("adds an existing captain's login to the league without relinking it", async () => {
+    // `is_captain_of` (0038) reads `profiles.player_id` alone, so pointing an
+    // existing captain at this new player would end the captaincy they hold.
+    // The manager may write the account here; the link still must not move.
+    createUser.mockResolvedValue({
+      data: null,
+      error: { message: "email address already registered" },
+    });
+    findUser.mockResolvedValue("existing-user");
+    responses["profiles.select"] = { data: { role: "captain" }, error: null };
+    const r = await run();
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/left linked, so it does not captain Otters/);
+    expect(calls).not.toContain("profiles.upsert");
+    expect(addMembership).toHaveBeenCalled();
   });
 });

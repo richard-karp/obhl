@@ -4,17 +4,13 @@ import * as cheerio from "cheerio";
 /**
  * esportsdesk.com importer (read-only scraping). esportsdesk has no API; pages
  * are server-rendered ColdFusion HTML behind a browser-UA gate. We fetch with a
- * browser User-Agent and parse with cheerio. Scrapes rosters (teams + players),
- * the schedule with final scores, and the published player stat totals; OBHL
- * derives standings from the imported games.
+ * browser User-Agent and parse with cheerio. Scrapes rosters (teams + players)
+ * only — the starting draft for a new OBHL season.
  *
- * Parsing targets the platform's stable CSS hooks where they exist
- * (`tr.boxscores_tables5` for stat rows, `.heading-primary` + `table.table-hover`
- * for the dated schedule) rather than text heuristics, so it generalizes across
- * leagues on the standard "Recreation Sports Management" template. The roster
- * page has no per-row class, so players there are still matched structurally by
- * cell shape. A multi-season league is handled via the `childSeasonID` query
- * param (the value behind each `sel_ChildSeason` option). One-time migration use.
+ * The roster page has no per-row class, so players are matched structurally by
+ * cell shape rather than a text heuristic. A multi-season league is handled via
+ * the `childSeasonID` query param (the value behind each `sel_ChildSeason`
+ * option).
  */
 
 const BASE = "https://www.esportsdesk.com/leagues";
@@ -44,45 +40,6 @@ export type ParsedLeague = {
   seasons: EsportsdeskSeason[];
   teams: ParsedTeam[];
 };
-export type ParsedGame = {
-  /** League-local calendar date, "YYYY-MM-DD". */
-  date: string;
-  /** Team names exactly as they appear in `teams` (the roster import). */
-  homeName: string;
-  awayName: string;
-  homeGoals: number;
-  awayGoals: number;
-  isPlayoff: boolean;
-};
-export type ParsedStat = {
-  name: string;
-  jersey: number;
-  /** Team name as in `teams` (the roster import). */
-  team: string;
-  gp: number;
-  g: number;
-  a: number;
-  pim: number;
-};
-
-const MONTHS: Record<string, number> = {
-  january: 1,
-  february: 2,
-  march: 3,
-  april: 4,
-  may: 5,
-  june: 6,
-  july: 7,
-  august: 8,
-  september: 9,
-  october: 10,
-  november: 11,
-  december: 12,
-};
-
-/** Two-digit zero-pad for date parts. */
-const pad2 = (n: number) => String(n).padStart(2, "0");
-
 /** Pull clientID + leagueID out of any esportsdesk league URL. */
 export function parseEsportsdeskUrl(
   url: string,
@@ -277,155 +234,4 @@ export async function fetchEsportsdeskLeague(
   );
   const current = seasons.find((s) => s.current)?.id ?? season ?? null;
   return { clientId, leagueId, leagueName, season: current, seasons, teams };
-}
-
-/**
- * Final game results from schedule.cfm.
- *
- * The page lays each game day out as a `.heading-primary` date heading
- * ("Monday September 15, 2025" — full date, with year) immediately followed by a
- * `table.table-hover` whose rows are `[type, Away, AwayScore, Home, HomeScore,
- * result, venue]`. We pair every games table with its preceding date heading
- * (in document order) and read the cells directly — no de-duplication, no
- * year-guessing, no positional text scraping. Rows without numeric scores (games
- * not yet played) are skipped. esportsdesk lists the Away team first, which we
- * map to home/away correctly here.
- */
-export async function fetchEsportsdeskSchedule(
-  clientId: string,
-  leagueId: string,
-  teamNames: string[],
-  season?: string | null,
-): Promise<ParsedGame[]> {
-  const $ = cheerio.load(
-    await fetchPage("schedule.cfm", {
-      clientID: clientId,
-      leagueID: leagueId,
-      ...seasonParam(season),
-    }),
-  );
-
-  // Document-order index so each games table can find its date heading.
-  const order = new Map<unknown, number>();
-  let idx = 0;
-  $("*").each((_, el) => {
-    order.set(el, idx++);
-  });
-
-  const dateRe =
-    /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2}),\s+(\d{4})/i;
-  const headings = $(".heading-primary")
-    .map((_, el) => ({
-      pos: order.get(el) ?? 0,
-      text: $(el).text().replace(/\s+/g, " ").trim(),
-    }))
-    .get()
-    .sort((a, b) => a.pos - b.pos);
-
-  const known = new Map(teamNames.map((n) => [n.toLowerCase(), n]));
-  const canon = (s: string) => known.get(s.toLowerCase()) ?? s;
-  const isScore = (s: string) => /^\d{1,2}$/.test(s);
-
-  const games: ParsedGame[] = [];
-  $("table.table-hover").each((_, tbl) => {
-    const tpos = order.get(tbl) ?? 0;
-    // Closest preceding heading; only a dated one marks a game day.
-    let h: (typeof headings)[number] | null = null;
-    for (const x of headings) {
-      if (x.pos < tpos) h = x;
-      else break;
-    }
-    const m = h?.text.match(dateRe);
-    if (!m) return;
-    const date = `${m[3]}-${pad2(MONTHS[m[1].toLowerCase()])}-${pad2(Number(m[2]))}`;
-
-    $(tbl)
-      .find("tr")
-      .each((_, tr) => {
-        const c = $(tr)
-          .find("td")
-          .map((_, td) => $(td).text().replace(/\s+/g, " ").trim())
-          .get();
-        // [type, Away, AwayScore, Home, HomeScore, result, venue]
-        if (c.length < 5 || !isScore(c[2]) || !isScore(c[4])) return;
-        if (!c[1] || !c[3]) return;
-        games.push({
-          date,
-          awayName: canon(c[1]),
-          awayGoals: Number(c[2]),
-          homeName: canon(c[3]),
-          homeGoals: Number(c[4]),
-          isPlayoff: (c[0] || "").toUpperCase() === "PO",
-        });
-      });
-  });
-  return games;
-}
-
-/**
- * Regular-season skater totals from stats_hockey.cfm (showGameType=2), paged 20
- * at a time via start_row. Player rows carry the class `boxscores_tables5` with
- * fixed columns: `[rank, Name, #, Pos, Team, GP, G, A, PTS, P/G, PIM]`. We read
- * those cells directly (team included, so leagues whose teams aren't colours
- * still resolve) and keep rows where PTS = G + A as an integrity check.
- *
- * These are the league's *official* published totals — which in some leagues are
- * intentionally incomplete (goals with no recorded scorer), so the player totals
- * can sum to less than the team's goals-for. We reproduce them as-is.
- */
-export async function fetchEsportsdeskStats(
-  clientId: string,
-  leagueId: string,
-  teamNames: string[],
-  season?: string | null,
-): Promise<ParsedStat[]> {
-  const known = new Map(teamNames.map((n) => [n.toLowerCase(), n]));
-  const seen = new Set<string>();
-  const out: ParsedStat[] = [];
-  // start_row is 1-indexed, 20 rows/page; stop when a page has no player rows.
-  for (let startRow = 1; startRow <= 1000; startRow += 20) {
-    const $ = cheerio.load(
-      await fetchPage("stats_hockey.cfm", {
-        clientID: clientId,
-        leagueID: leagueId,
-        statType: "Player",
-        showGameType: "2",
-        sortby: "PTS1",
-        start_row: String(startRow),
-        ...seasonParam(season),
-      }),
-    );
-    const rows = $("tr.boxscores_tables5");
-    if (rows.length === 0) break;
-    let found = 0;
-    rows.each((_, tr) => {
-      const c = $(tr)
-        .find("td")
-        .map((_, td) => $(td).text().replace(/\s+/g, " ").trim())
-        .get();
-      if (c.length < 11 || !/^\d{1,2}$/.test(c[2])) return;
-      const team = known.get((c[4] || "").toLowerCase());
-      const g = Number(c[6]);
-      const a = Number(c[7]);
-      const pts = Number(c[8]);
-      if (!team || pts !== g + a) return; // integrity guard
-      const name = c[1];
-      const jersey = Number(c[2]);
-      const key = `${name.toLowerCase()}|${team.toLowerCase()}|${jersey}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push({
-        name,
-        jersey,
-        team,
-        gp: Number(c[5]),
-        g,
-        a,
-        pim: Number(c[10]),
-      });
-      found++;
-    });
-    if (found === 0) break;
-  }
-  return out;
 }

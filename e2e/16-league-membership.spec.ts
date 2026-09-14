@@ -830,17 +830,27 @@ test.describe("Path 17 — Per-league membership", () => {
 
   test("a session cannot mint a manager of another league through the API", async () => {
     // The API half of "a manager cannot change the role of someone who works a
-    // league they don't share". The app guard runs in a server action, and a
+    // league they don't share" — proving 0033's containment (`may_write_profile`
+    // / `contains_leagues_of`) on `"manager write profiles"`, which is FOR ALL
+    // and so also guards a plain column write (and DELETE) on another league's
+    // profile, not just `role`. The app guard runs in a server action, and a
     // staff account holds a real Supabase session that never has to go near one
     // — so the same test has to live in the policies (0033), or the app half
     // would look finished and stop nothing.
+    //
+    // ⚠️ This step used to write `role`, but 0050 now refuses every
+    // authenticated role write outright, so a `role` write here would pass
+    // whether or not 0033's containment policy existed and prove nothing about
+    // it. `display_name` is a column 0050 does not touch, so it is the one that
+    // still isolates 0033. `role`'s own refusal is covered separately by
+    // "a session cannot rewrite its own role or player link through the API".
     //
     // Both steps were watched succeeding here before that migration existed.
     const db = admin();
     const shared = await leagueId(LEAD_IN);
     const { data: victim } = await db
       .from("profiles")
-      .select("id, role")
+      .select("id, role, display_name")
       .eq("display_name", "Single League Scorer")
       .single();
     expect(victim!.role, "victim must start as a non-manager").toBe(
@@ -861,12 +871,12 @@ test.describe("Path 17 — Per-league membership", () => {
         "granting a league you manage should still be allowed",
       ).toBeNull();
 
-      // Step 2 is the escalation: `profiles.role` is instance-wide, so this
-      // would make them a manager of the league they actually work, which this
-      // caller is not in.
+      // Step 2 is the escalation: containment says a manager may write only
+      // profiles whose every league the manager also works, so this write to a
+      // plain, 0050-untouched column must still be refused.
       await client
         .from("profiles")
-        .update({ role: "league_manager" })
+        .update({ display_name: "Minted By Another League's Manager" })
         .eq("id", victim!.id);
 
       // Read the ROW, not the error. An RLS-refused UPDATE matches no rows and
@@ -874,24 +884,67 @@ test.describe("Path 17 — Per-league membership", () => {
       // policy is there or not.
       const { data: after } = await db
         .from("profiles")
-        .select("role")
+        .select("display_name")
         .eq("id", victim!.id)
         .single();
       expect(
-        after!.role,
-        "a session minted a manager of a league it cannot reach",
-      ).toBe("scorekeeper");
+        after!.display_name,
+        "a session wrote another league's profile through containment",
+      ).toBe(victim!.display_name);
     } finally {
       await client.auth.signOut();
       await db
         .from("profiles")
-        .update({ role: victim!.role })
+        .update({ display_name: victim!.display_name })
         .eq("id", victim!.id);
       await db
         .from("profile_leagues")
         .delete()
         .eq("profile_id", victim!.id)
         .eq("league_id", shared);
+    }
+  });
+
+  test("a session cannot rewrite its own role or player link through the API", async () => {
+    // 0009's "own profile update" names no columns, so before 0050 any signed-in
+    // account could make itself a league manager, or link itself to another
+    // league's captain. Measured on the local stack 2026-09-13.
+    const db = admin();
+    const { data: self } = await db
+      .from("profiles")
+      .select("id, role, player_id")
+      .eq("display_name", "Single League Scorer")
+      .single();
+    const { data: players } = await db.from("players").select("id").limit(2);
+    const other = (players ?? []).find((p) => p.id !== self!.player_id)!;
+
+    const client = await signedInClient("single-league-scorer@obhl.test");
+    try {
+      await client
+        .from("profiles")
+        .update({ role: "league_manager" })
+        .eq("id", self!.id);
+      await client
+        .from("profiles")
+        .update({ player_id: other.id })
+        .eq("id", self!.id);
+
+      // Read the ROW, not the error — a refused write must leave it as it was.
+      const { data: after } = await db
+        .from("profiles")
+        .select("role, player_id")
+        .eq("id", self!.id)
+        .single();
+      expect(after!.role).toBe(self!.role);
+      expect(after!.player_id).toBe(self!.player_id);
+    } finally {
+      // Service role: allowed by 0050, and restores the fixture if the test
+      // ran red.
+      await db
+        .from("profiles")
+        .update({ role: self!.role, player_id: self!.player_id })
+        .eq("id", self!.id);
+      await client.auth.signOut();
     }
   });
 

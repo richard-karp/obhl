@@ -146,8 +146,6 @@ export default async function AuditLogPage({
         return "Finalized game";
       case "reopen_game":
         return "Reopened game";
-      case "generate_recap":
-        return "Generated AI recap";
       case "save_rules":
         return "Updated league rules";
       // Season, announcement, logo and import entries name their subject from
@@ -177,8 +175,6 @@ export default async function AuditLogPage({
           ? "Carried enrollment forward; every team was already enrolled"
           : "Carried enrollment forward, but no earlier season had teams";
       }
-      case "generate_summary":
-        return "Generated AI league summary";
       case "create_announcement":
         return `Posted "${typeof nd?.title === "string" ? nd.title : "an announcement"}"`;
       case "delete_announcement":
@@ -309,7 +305,6 @@ export default async function AuditLogPage({
     switch (r.action) {
       case "finalize_game":
       case "reopen_game":
-      case "generate_recap":
         return true;
       case "add_player":
         return typeof nd?.player_id === "string";

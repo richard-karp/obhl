@@ -19,8 +19,8 @@ export const metadata: Metadata = { title: "New league" };
  * and `src/lib/actions/league-guards.test.ts` asserts that no page under
  * `[league]/(manage)` uses a role-only guard — correctly, because inside a
  * league the role is not enough. Here there is no league to be a member of: the
- * two importers behind this page create one and grant the creating manager
- * membership as their first write. Moving this file back under `[league]` would
+ * importer behind this page creates one and grants the creating manager
+ * membership as its first write. Moving this file back under `[league]` would
  * fail that test, and rightly.
  *
  * Safe as a top-level route for the same reason `/manage/office` is: `manage` is
@@ -51,7 +51,7 @@ export default async function NewLeaguePage() {
       <div className="space-y-6">
         <PageHeader
           title="Import from esportsdesk"
-          description="Pull a league from an esportsdesk site by URL — rosters only as a starting draft for a new season, or a full migration with the schedule and results."
+          description="Pull a league from an esportsdesk site by URL — teams and players only, as a starting draft for a new season."
         />
         <EsportsdeskImport />
       </div>

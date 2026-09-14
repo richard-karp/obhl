@@ -4,7 +4,6 @@ import { getStandings } from "@/lib/queries/standings";
 import { getSkaterLeaders } from "@/lib/queries/stats";
 import { getUpcoming, getRecentResults } from "@/lib/queries/schedule";
 import { getAnnouncements } from "@/lib/queries/announcements";
-import { getLatestGameWithRecapData } from "@/lib/queries/games";
 import { StandingsTable } from "@/components/public/standings-table";
 import { GameRow } from "@/components/public/game-row";
 import { TeamLogo } from "@/components/shared/team-logo";
@@ -43,14 +42,13 @@ export default async function HomePage({
   // it should still be the canonical `/obhl`.
   const slug = league.slug;
 
-  const [standings, leaders, upcoming, recent, announcements, latestGame] =
+  const [standings, leaders, upcoming, recent, announcements] =
     await Promise.all([
       getStandings(season.id),
       getSkaterLeaders(season.id, { limit: 8 }),
       getUpcoming(season.id, { limit: 5 }),
       getRecentResults(season.id, { limit: 5 }),
       getAnnouncements(league.id, 3),
-      getLatestGameWithRecapData(season.id),
     ]);
 
   return (
@@ -170,31 +168,6 @@ export default async function HomePage({
         </Card>
       </div>
 
-      {latestGame?.ai_recap && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Game Recap</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground text-sm leading-relaxed italic">
-              &ldquo;{latestGame.ai_recap}&rdquo;
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {season.ai_summary && (
-        <Card>
-          <CardHeader>
-            <CardTitle>League Update</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground text-sm leading-relaxed italic">
-              &ldquo;{season.ai_summary}&rdquo;
-            </p>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

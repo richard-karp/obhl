@@ -47,16 +47,6 @@ test.describe("Path 1 — Homepage widgets", () => {
     // No unhandled error boundary
     await expect(page.getByText("Something went wrong")).not.toBeVisible();
   });
-
-  test("shows the League Update card when an AI summary exists, hides it when null", async ({
-    page,
-  }) => {
-    await page.goto("/obhl");
-    // Freshly seeded DB has no ai_summary — card must NOT appear
-    await expect(
-      page.getByRole("heading", { name: "League Update" }),
-    ).not.toBeVisible();
-  });
 });
 
 // ── Path 2: Stats — sorting ─────────────────────────────────────────────────

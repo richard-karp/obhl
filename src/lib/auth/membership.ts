@@ -232,6 +232,47 @@ export async function mayWritePlayer(
   return theirs.every((id) => mine.includes(id));
 }
 
+/**
+ * May this actor link THIS player to an account made from this league?
+ *
+ * ⛔ CONTAINMENT, NOT OVERLAP. `is_captain_of` (0038) and the `game_rosters`
+ * captain policies authorize from `profiles.player_id` alone — they never ask
+ * which league the account was made in. A player rostered here AND in a league
+ * the actor does not work would hand that league's lineup writes to the new
+ * login, through the ordinary form. "Rostered in this league" was the first
+ * version of this check, and let exactly that through.
+ *
+ * The rule is `mayWritePlayer`'s containment plus "rostered here", decided by
+ * `decideProfileWrite` the way `mayWriteProfileOf` decides it: the office by its
+ * tier, explicitly, not by `memberLeagueIds` happening to return every league
+ * for them. A player holds no tier, so `theirTier` is null and both office tiers
+ * pass. "Rostered here" is asked of the office too — it is a check on the form,
+ * not on authority.
+ */
+export async function mayLinkPlayer(
+  actorId: string,
+  playerId: string,
+  leagueId: string,
+  admin: ReturnType<typeof createAdminClient>,
+): Promise<"ok" | "not_in_league" | "plays_elsewhere"> {
+  const theirs = await leaguesOfPlayer(playerId, admin);
+  if (!theirs.includes(leagueId)) return "not_in_league";
+
+  const mineTier = await officeTierOf(actorId);
+  if (mineTier !== null) {
+    return decideProfileWrite(mineTier, null, false) ? "ok" : "plays_elsewhere";
+  }
+
+  const mine = await memberLeagueIds(actorId);
+  return decideProfileWrite(
+    null,
+    null,
+    theirs.every((id) => mine.includes(id)),
+  )
+    ? "ok"
+    : "plays_elsewhere";
+}
+
 /** Grant membership. Idempotent — re-adding an existing member is a no-op. */
 export async function addLeagueMembership(
   profileId: string,

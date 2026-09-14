@@ -225,21 +225,4 @@ test.describe("Path 11 — Game management", () => {
       await page.waitForLoadState("networkidle");
     }
   });
-
-  test("AI game recap card visible on finalized game for manager", async ({
-    page,
-  }) => {
-    await signedInAs(page, "Manager");
-    // The scorekeeper's game list is the public schedule now, with a button
-    // per row for whoever may open a scoresheet. ⚠️ "Edit" is the label a
-    // FINAL game's button carries (`scoreLabel`), so it is only ever in the
-    // results view.
-    await page.goto("/obhl/schedule?view=results");
-
-    await page.getByRole("link", { name: "Edit", exact: true }).first().click();
-    await expect(page).toHaveURL(/\/games\/[^/]+\/score$/);
-
-    await expect(page.getByText("AI Game Recap").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /recap/i })).toBeVisible();
-  });
 });
