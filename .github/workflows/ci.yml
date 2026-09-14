@@ -65,8 +65,11 @@ jobs:
       # The pinned CLI from devDependencies, not a floating one. `start` applies
       # the migrations in supabase/migrations, so 0032 has to be on the branch
       # for the membership tests to have a profile_leagues table to read.
+      # Only what the app and the suite use: db, auth, rest, kong, storage and
+      # Mailpit (02-auth reads it). Nothing uses Realtime, Studio, image
+      # transforms or edge functions.
       - name: Start Supabase
-        run: npx supabase start
+        run: npx supabase start -x studio,meta,realtime,imgproxy,edge-runtime,functions,analytics,vector
 
       # Written to .env.local rather than the job env because three separate
       # things read it: playwright.config.ts (via dotenv), `next dev`, and
@@ -148,5 +151,63 @@ jobs:
             e2e-output.log
           # The reporter is `list`, so playwright-report/ often does not exist;
           # test-results/ holds the failure screenshots. Missing one is normal.
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # MEASUREMENT ONLY (draft PR): the same suite split across two machines, each
+  # with its own freshly seeded database. No spec reads data another creates;
+  # 14 must not run before 05 on one machine, so they are split apart.
+  # Playwright runs files in name order, which both lists already are.
+  e2e-split:
+    name: End-to-end tests (split ${{ matrix.part }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: 1
+            specs: e2e/02-auth.spec.ts e2e/07-staff.spec.ts e2e/11-schedule-build.spec.ts e2e/14-schedule-changes.spec.ts
+          - part: 2
+            specs: e2e/01-public.spec.ts e2e/03-season-setup.spec.ts e2e/04-rosters.spec.ts e2e/05-scoring-night.spec.ts e2e/09-access.spec.ts e2e/10-roster-changes.spec.ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Start Supabase
+        run: npx supabase start -x studio,meta,realtime,imgproxy,edge-runtime,functions,analytics,vector
+
+      - name: Write .env.local
+        run: |
+          set -euo pipefail
+          eval "$(npx supabase status -o env 2>/dev/null)"
+          cat > .env.local <<ENV
+          NEXT_PUBLIC_SUPABASE_URL=$API_URL
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$PUBLISHABLE_KEY
+          SUPABASE_SECRET_KEY=$SECRET_KEY
+          NEXT_PUBLIC_SITE_URL=http://localhost:3000
+          ENV
+
+      # ⛔ `set -o pipefail`, or `tee` returns 0 and a FAILING SUITE PASSES CI.
+      - name: Run end-to-end tests
+        run: |
+          set -o pipefail
+          npx playwright test ${{ matrix.specs }} 2>&1 | tee e2e-output.log
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-split-${{ matrix.part }}
+          path: |
+            test-results/
+            e2e-output.log
           if-no-files-found: ignore
           retention-days: 7
