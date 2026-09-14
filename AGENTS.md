@@ -74,43 +74,18 @@ front which section matters for which kind of change.
   `/manage/`, check its second segment against `next.config.ts`'s redirects: a
   legacy one silently eats some of those paths.
 
-⚠️ **The esportsdesk importer has NO automated end-to-end coverage.**
-`src/lib/actions/import.test.ts` (19 tests) and `seasons.test.ts` (7) stub the
-fetch and the database deliberately, and both e2e import specs stop at the form
-— so a green suite says nothing about the real parser or the real writes. Six
-review rounds found six bugs in that path, four of them after a previous fix had
-"closed" it, and it creates a **public league with no delete UI**.
-
-✅ **Rosters-only HAS been run against a real esportsdesk source** (the
-maintainer, 2026-09-09): `runRosterOnlyImport` — the team loop, `problems[]`, and
-the redirect into `/<slug>/seasons` all work.
-
-⛔ **AND THAT RUN IMMEDIATELY FOUND A SILENT DATA LOSS THE UNIT TESTS COULD NOT
-— in the parser, which they stub.** The roster regex required a jersey *number*,
-and esportsdesk prints an unnumbered player's as `-`, so those rows matched
-nothing and the players vanished with no error and no shortfall: 9 lost from a
-league that had already been imported and looked fine, 83 from an all-unnumbered
-one. Fixed in PR #60, merged `cc98744`. **This is the argument for the gate above** — six review
-rounds and 26 unit tests never touched it, because every one of them stubbed the
-parser out.
-
-⛔ **The FULL migration has not been run, and probably never will be.**
-`runEsportsdeskImport` adds the schedule block, the stats block and the `notes[]`
-machinery on top — roughly 450 lines, plus `src/lib/import/distribute.ts` — and
-none of it has met a real source. **The maintainer said on 2026-09-09 they are
-not sure they will ever need it**, so this is NOT outstanding work: do not plan a
-verification run, and do not spend a review round hardening it.
-
-⚠️ **What to do instead if you find yourself in there.** Treat it as unverified
-against reality and say so rather than fixing quietly — four of the six bugs
-found in this area lived in exactly those blocks. If it ever becomes a burden,
-deleting it is a live option that was considered and deferred, not one that needs
-re-arguing: rosters-only is cleanly separate (`import-rosters.ts` never calls the
-schedule or stats fetchers), and the only shared thread is
-`fetchEsportsdeskSchedule`, which the preview uses for its game count.
-
-Steps, if one is ever run: `docs/superpowers/specs/2026-09-08-league-creation-at-the-root-design.md`,
-under *Acceptance*.
+⚠️ **The esportsdesk importer is rosters-only, and its unit tests stub the
+network and the database.** `import.test.ts` covers three outcomes — the clean
+redirect, a `teams.insert` failure reported as a shortfall, and a failed
+membership grant — and the importer's other failure branches are untested (part 2
+of the 2026-09-13 audit follow-through addresses them). `esportsdesk.test.ts`
+proves the roster parser against saved HTML. Neither can see a change in
+esportsdesk's markup. The one real run (2026-09-09) found a silent data loss the
+stubs could not — unnumbered players printed as `-` matched nothing (fixed in
+PR #60). Treat a green suite here as saying nothing about a live source, and
+remember what a bad run leaves behind: the import creates a **public league with
+no delete UI**. The full migration (schedule, results, stats) was removed on
+2026-09-13; it had never run against a real source.
 
 `docs/superpowers/specs/` holds the per-change design docs these summarise,
 including the alternatives that were considered and rejected. Reach for a spec
