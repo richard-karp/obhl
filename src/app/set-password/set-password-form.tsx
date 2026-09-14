@@ -12,19 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-/**
- * Set your own password, on the session the emailed link just established.
- *
- * Modelled on `components/manage/office-password-form.tsx` — the same single
- * `type="password"` field, the same reported result rather than a quiet refusal,
- * and for the sharper version of the same reason: a password that silently did
- * not get set leaves someone believing they have a way back in.
- *
- * ⚠️ `minLength` here is a courtesy, not the rule. `updateOwnPassword` checks the
- * floor itself, because a form control is not a check. Both read the SAME
- * number: a hint that says 8 while the action enforces 10 is a form that
- * refuses what it invited.
- */
+// ⚠️ `minLength` is a courtesy; `updateOwnPassword` enforces the floor. Both read `MIN_PASSWORD`, or
+// the form refuses what it invited. The result is reported: a silent failure leaves no way back in.
 export function SetPasswordForm() {
   const [state, action, pending] = useActionState<AuthActionState, FormData>(
     updateOwnPassword,
@@ -74,17 +63,8 @@ export function SetPasswordForm() {
   );
 }
 
-/**
- * Ask for the link that gets you here.
- *
- * ⛔ THIS IS WHY A SESSIONLESS VISIT IS NOT AN ERROR PAGE. Someone who lands
- * here without a link — a bookmark, an expired link, a second click on a used
- * one — wants exactly one thing, and refusing them with a sentence and a way
- * back to /login makes them hunt for it. The request form IS the recovery.
- *
- * A plain server action, like the magic-link form: it submits before hydration,
- * which is the state a password path most has to survive.
- */
+// ⛔ A sessionless visit (a bookmark, an expired link) gets this form, not an error page: it is the
+// recovery. A plain server action, so it submits before hydration.
 export function RequestResetForm() {
   const [state, action, pending] = useActionState<AuthActionState, FormData>(
     sendPasswordReset,

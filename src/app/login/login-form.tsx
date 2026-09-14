@@ -11,14 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-/**
- * The magic link, still the primary way in.
- *
- * ⚠️ LEFT ALONE ON PURPOSE when the password block below was added. This form
- * posts straight to a server action, so it submits with no JavaScript at all —
- * the one path that has to keep working when everything else does not. Most
- * staff accounts still have no password.
- */
+// ⚠️ The magic link stays the primary way in: a server action, it submits with no JavaScript, and most
+// staff accounts have no password. Neither sign-in path may become the only one.
 export function LoginForm() {
   const [state, action, pending] = useActionState<AuthActionState, FormData>(
     sendMagicLink,
@@ -58,25 +52,8 @@ export function LoginForm() {
   );
 }
 
-/**
- * Sign in with a password.
- *
- * ⚠️ SECONDARY, BY CONSTRUCTION. It sits below the magic link and is drawn as
- * the fallback, because until people have used the reset flow, almost no staff
- * account has a password. Neither path may become the only one: a single way in
- * is what the whole password effort exists to remove.
- *
- * ⛔ ONE SERVER ACTION, NOT A CLIENT DISPATCHER. An earlier version put both
- * this and the reset trigger in one form and chose between them in a client
- * function, to avoid asking for the address twice. It works — once hydrated. A
- * click BEFORE hydration submits the form natively, and a form whose action is a
- * client function has no endpoint to post to, so the browser reloads /login with
- * the fields cleared and nothing said. Measured: a Playwright click straight
- * after `goto` reproduced it every time, and the same click after
- * `networkidle` signed in fine. Server actions survive that window, so the way
- * to GET a password is a link to `/set-password` instead of a second button
- * here.
- */
+// ⛔ One server action, not a client dispatcher: a click before hydration posts natively, and a client
+// function has no endpoint, so /login reloads blank. Getting a password is a link to `/set-password`.
 export function PasswordSignInForm() {
   const [state, action, pending] = useActionState<AuthActionState, FormData>(
     signInWithPassword,

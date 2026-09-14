@@ -28,17 +28,8 @@ const TIER_LABEL: Record<string, string> = {
   deputy: "Deputy",
 };
 
-/**
- * The League Office roster, at `/manage/office` — outside `[league]`, because
- * the tier belongs to no league.
- *
- * Safe as a top-level route: `manage` is a reserved league slug (0030), reserved
- * for exactly this so that nothing can ever answer beneath it. Its migration
- * says so in as many words.
- */
+// Outside `[league]`, since the tier belongs to no league; safe because `manage` is a reserved slug (0030).
 export default async function OfficePage() {
-  // Visible to the office only. A league manager who is not in it gets the
-  // picker, the same as any other refusal.
   const viewer = await requireOfficeMember();
   const viewerTier = await officeTierOf(viewer.id);
   const isCommissioner = viewerTier === "commissioner";
@@ -46,33 +37,14 @@ export default async function OfficePage() {
   const admin = createAdminClient();
   const [tiers, officeLog, passwordLog] = await Promise.all([
     listOfficeTiers(),
-    // This page is where office changes are readable at all — they carry no
-    // league, so every league-scoped view filters them out.
+    // Office entries carry no league, so this page is the only one that shows them.
     recentOfficeAudit(20),
-    // ⚠️ A SECOND QUERY, NOT A BIGGER ONE. Self-serve password changes share the
-    // `office` entity type and nothing else — see the comment on the split in
-    // `lib/audit.ts`. This page is the only surface that shows them.
+    // ⚠️ A second query, not a bigger one: self-serve password changes share only the `office` entity type.
     recentPasswordAudit(10),
   ]);
 
-  // Candidates are managers who are not already in the office. The role filter
-  // is not cosmetic: 0034's trigger refuses a `league_office` row for anyone who
-  // is not a `league_manager`, so offering a captain here would render a control
-  // whose only possible outcome is a silent refusal.
-  //
-  // ⚠️ Only for a commissioner. A deputy sees no appoint form, and used to pay
-  // for it anyway — this query plus an address lookup per manager, all of it
-  // discarded before render.
-  //
-  // ⚠️ THE ADDRESS LOOKUPS SCALE WITH THE INSTANCE, NOT WITH THIS PAGE. There is
-  // no batch-lookup-by-id in the admin API, so populating the picker costs one
-  // request per manager, in waves of ten. That is a deliberate trade, not an
-  // oversight: the picker is how a commissioner identifies an account, and
-  // `display_name` is nullable, so dropping addresses would degrade the control
-  // to distinguish accounts by nothing. Managers are few by nature — the tier
-  // exists because too FEW people can reach across leagues. If an instance ever
-  // grows enough for this to bite, the fix is a typeahead that looks up on
-  // demand, not a shorter list.
+  // Managers only: `0034`'s trigger silently refuses a tier for anyone else. ⚠️ One address lookup per
+  // manager (no batch API); keep them, since `display_name` is nullable. Fix scale with a typeahead.
   const candidates = isCommissioner
     ? (
         (
@@ -104,8 +76,6 @@ export default async function OfficePage() {
       email: emails.get(id) ?? "—",
       display_name: nameById.get(id) ?? null,
     }))
-    // Commissioners first, then deputies, then by address so the order is stable
-    // across renders rather than following whatever the table returned.
     .sort(
       (a, b) => a.tier.localeCompare(b.tier) || a.email.localeCompare(b.email),
     );
@@ -137,10 +107,7 @@ export default async function OfficePage() {
             office. Both reach every league without being a member of any.
           </p>
           {/*
-            The spec's rule: an unexplained absent control reads as a bug. A
-            commissioner opening this page sees no way to appoint or remove a
-            commissioner — including themselves — and that has to be stated, not
-            left to be discovered.
+            An unexplained absent control reads as a bug: no one can appoint or remove a commissioner here.
           */}
           <p>
             The commissioner tier is <strong>peer-flat</strong>: no commissioner
@@ -204,17 +171,8 @@ export default async function OfficePage() {
       ) : null}
 
       {/*
-        Set-a-password, for the commissioner only.
-
-        ⛔ The card is drawn for a commissioner; `setStaffPassword` REFUSES anyone
-        else itself. Rendering is not a restriction — a form action is an endpoint
-        reachable by anyone who can construct the request, which is the trap
-        `RUNBOOK.md` → Access control names.
-
-        This is the recovery path that needs no email at all: Supabase's built-in
-        mailer is rate-limited and branded as Supabase, and no staff account has a
-        password yet, so a commissioner setting one is the only way the first
-        password on this instance can exist.
+        ⛔ Drawn for a commissioner, but `setStaffPassword` must refuse anyone else itself: a form action is
+        an endpoint (`RUNBOOK.md` → Access control). It is the one password path that needs no email.
       */}
       {isCommissioner ? (
         <Card className="mt-6">
