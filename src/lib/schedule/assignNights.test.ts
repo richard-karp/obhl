@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { roundRobin, buildBalancedPairings } from "./roundRobin";
 import { assignNights, type Night } from "./assignNights";
-import { enumerateNights } from "./capacity";
 import { spacingReport } from "./spacing";
+import {
+  eightTeamMonThu,
+  sixTeamTuesdays,
+  twoNightsPerWeek,
+} from "./calendars.test-support";
 
 const teams = (n: number) => Array.from({ length: n }, (_, i) => `t${i + 1}`);
 
@@ -16,22 +20,6 @@ function nights(count: number, slots = ["19:00", "20:15", "21:30"]): Night[] {
     for (const off of [0, 3]) {
       // Tue, Fri
       if (ns.length >= count) break outer;
-      const d = new Date(base + (w * 7 + off) * 86400000);
-      ns.push({ date: d.toISOString().slice(0, 10), slots });
-    }
-  }
-  return ns;
-}
-
-// Two recurring weeknights (e.g. Tue + Thu) for `weeks` weeks, chronological.
-function twoNightsPerWeek(
-  weeks: number,
-  slots = ["19:00", "20:15", "21:30"],
-): Night[] {
-  const ns: Night[] = [];
-  const base = Date.UTC(2026, 8, 1); // 2026-09-01
-  for (let w = 0; w < weeks; w++) {
-    for (const off of [0, 2]) {
       const d = new Date(base + (w * 7 + off) * 86400000);
       ns.push({ date: d.toISOString().slice(0, 10), slots });
     }
@@ -133,18 +121,13 @@ describe("assignNights", () => {
 // every night — which is what makes weekday balance and bye spacing fight.
 describe("assignNights — full-season reference schedule", () => {
   const ts = teams(8);
-  const ns = enumerateNights("2026-09-10", {
-    weekdays: new Set([1, 4]), // Mon + Thu
-    slotTimes: ["19:00", "20:15", "21:30"],
-    excluded: new Set([
-      "2026-12-21",
-      "2026-12-24",
-      "2026-12-28",
-      "2026-12-31",
-      "2027-03-04",
-    ]),
-    maxNights: 48,
-  });
+  const ns = eightTeamMonThu(48, [
+    "2026-12-21",
+    "2026-12-24",
+    "2026-12-28",
+    "2026-12-31",
+    "2027-03-04",
+  ]);
   const { games, report } = assignNights(buildBalancedPairings(ts, 36), ns, ts);
 
   it("fills the calendar exactly, 36 games a team", () => {
@@ -194,12 +177,7 @@ describe("assignNights — full-season reference schedule", () => {
 // manager can see — the exact failure mode the first clustering attempt shipped.
 describe("assignNights — seeds produce different schedules", () => {
   const ts = teams(6);
-  const ns = enumerateNights("2026-09-08", {
-    weekdays: new Set([2]),
-    slotTimes: ["19:00", "20:15", "21:30"],
-    excluded: new Set<string>(),
-    maxNights: 23,
-  });
+  const ns = sixTeamTuesdays(23);
   const pairings = buildBalancedPairings(ts, 23);
   // ⚠️ `variations: 1` throughout. This describe tests the SEED lever, not
   // block selection — without it each call is a best-of-four and these three
@@ -239,12 +217,7 @@ describe("assignNights — seeds produce different schedules", () => {
 // `2026-09-09-schedule-variations-design.md`).
 describe("assignNights — a variation is the best of its block", () => {
   const ts = teams(6);
-  const ns = enumerateNights("2026-09-08", {
-    weekdays: new Set([2]),
-    slotTimes: ["19:00", "20:15", "21:30"],
-    excluded: new Set<string>(),
-    maxNights: 10,
-  });
+  const ns = sixTeamTuesdays(10);
   // ⚠️ A SHORT season on purpose. This describe tests the MECHANICS of block
   // selection — that the winner is the block's lexicographic minimum and comes
   // from the block — and those do not depend on season length. The quality
@@ -285,12 +258,7 @@ describe("assignNights — a variation is the best of its block", () => {
 describe("assignNights — ice-time clustering, 6 teams on one weeknight", () => {
   const ts = teams(6);
   const SLOT_TIMES = ["19:00", "20:15", "21:30"];
-  const ns = enumerateNights("2026-09-08", {
-    weekdays: new Set([2]),
-    slotTimes: SLOT_TIMES,
-    excluded: new Set<string>(),
-    maxNights: 23,
-  });
+  const ns = sixTeamTuesdays(23);
   const { games, report } = assignNights(buildBalancedPairings(ts, 23), ns, ts);
 
   // Re-derive the season the way everything downstream actually sees it. Only

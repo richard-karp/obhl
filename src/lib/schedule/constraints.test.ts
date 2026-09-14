@@ -11,8 +11,8 @@ import {
 } from "./constraints";
 import { assignNights, type Night } from "./assignNights";
 import { buildBalancedPairings } from "./roundRobin";
-import { enumerateNights } from "./capacity";
 import { buildNightMeta } from "./spacing";
+import { eightTeamMonThu, sixTeamTuesdays } from "./calendars.test-support";
 
 const TEAMS = ["a", "b", "c", "d"];
 const SLOTS = ["19:00", "20:15"];
@@ -740,12 +740,7 @@ describe("presentSpacing", () => {
 
 describe("assignNights with manager constraints", () => {
   const ts = Array.from({ length: 8 }, (_, i) => `t${i + 1}`);
-  const ns = enumerateNights("2026-09-10", {
-    weekdays: new Set([1, 4]), // Mon + Thu
-    slotTimes: ["19:00", "20:15", "21:30"],
-    excluded: new Set<string>(),
-    maxNights: 16,
-  });
+  const ns = eightTeamMonThu(16);
   const meta = buildNightMeta(ns);
   // The first calendar week holding two game nights — `bye_week` needs one.
   const fullWeek = meta.sortedWeeks.find(
@@ -876,12 +871,7 @@ describe("assignNights — a pinned slot survives the clustering pass", () => {
   // is ever lost: verified by temporarily forcing the pass to run
   // unconditionally, which broke this assertion.
   const ts = Array.from({ length: 6 }, (_, i) => `t${i + 1}`);
-  const ns = enumerateNights("2026-09-08", {
-    weekdays: new Set([2]),
-    slotTimes: ["19:00", "20:15", "21:30"],
-    excluded: new Set<string>(),
-    maxNights: 23,
-  });
+  const ns = sixTeamTuesdays(23);
   const pairings = buildBalancedPairings(ts, 23);
   const constraints: ScheduleConstraint[] = [
     c("p1", "t3", "slot_on", { date: ns[11].date, time: "21:30" }),
@@ -904,12 +894,7 @@ describe("assignNights — a pinned slot survives the clustering pass", () => {
 
 describe("assignNights — a constrained season still gets its ice time spread", () => {
   const ts = Array.from({ length: 6 }, (_, i) => `t${i + 1}`);
-  const ns = enumerateNights("2026-09-08", {
-    weekdays: new Set([2]),
-    slotTimes: ["19:00", "20:15", "21:30"],
-    excluded: new Set<string>(),
-    maxNights: 23,
-  });
+  const ns = sixTeamTuesdays(23);
   const pairings = buildBalancedPairings(ts, 23);
   // ⛔ NIGHT 15, AND THE NUMBER MATTERS. Probed 2026-09-09 across nights
   // 1/4/7/11/15/19/22 with the `nightClass` term deleted: the pins on 7, 15 and
