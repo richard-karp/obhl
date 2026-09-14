@@ -271,7 +271,7 @@ test.describe("Path 16 — Per-league routing", () => {
     // asserting ownership — and nothing about the id enforces it.
     //
     // Sourced from Harbor, not Oceanview: the manage specs all run against the
-    // cookie-default league (obhl) and 11-schedule-builder regenerates its
+    // cookie-default league (obhl) and 11-schedule-build regenerates its
     // schedule, so by the time this file runs Oceanview may have no finalized
     // game left to link to. Nothing touches Harbor.
     //

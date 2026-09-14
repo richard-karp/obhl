@@ -122,7 +122,7 @@ const SEASON = `Repair Test ${YEAR}`;
 const FIRST_NIGHT = `${YEAR}-01-05`;
 const SEASON_END = `${YEAR}-06-30`;
 
-/** See `11-schedule-builder.spec.ts` — Phase S runs five candidates. */
+/** See `11-schedule-build.spec.ts` — Phase S runs five candidates. */
 const AFTER_GENERATE = { timeout: 45_000 };
 
 async function signedInAsManager(page: Page) {
