@@ -226,17 +226,20 @@ describe("createTeamForSeason", () => {
     expect(addMembership).not.toHaveBeenCalled();
   });
 
-  it("does not relink a captain account the manager cannot write", async () => {
+  it("adds an existing captain's login to the league without relinking it", async () => {
+    // `is_captain_of` (0038) reads `profiles.player_id` alone, so pointing an
+    // existing captain at this new player would end the captaincy they hold.
+    // The manager may write the account here; the link still must not move.
     createUser.mockResolvedValue({
       data: null,
       error: { message: "email address already registered" },
     });
     findUser.mockResolvedValue("existing-user");
     responses["profiles.select"] = { data: { role: "captain" }, error: null };
-    mayWrite.mockResolvedValue(false);
     const r = await run();
     expect(r.ok).toBe(false);
-    expect(r.message).toMatch(/in a league you don't manage/);
+    expect(r.message).toMatch(/left linked, so it does not captain Otters/);
     expect(calls).not.toContain("profiles.upsert");
+    expect(addMembership).toHaveBeenCalled();
   });
 });
