@@ -1,24 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { NightBadge } from "./night-badge";
 
-/**
- * The two branches the e2e cannot see.
- *
- * ⚠️ THE SEED PINS A NIGHT ON EXACTLY TWO ROWS — Sharks' goalies #1 and #8, per
- * `supabase/seed.sql`. So `04-rosters` can assert the pill renders, but the
- * absence branch it exercises is "no pill on the other twelve rows", which no
- * assertion there names: a component that rendered nothing at all would pass
- * every one of them except the two goalie ones. This pins both branches
- * directly.
- *
- * ⚠️ AND IT PINS THE LETTER, WHICH IS THE WHOLE FEATURE. `NIGHT_LABEL[night]`
- * is three characters; the pill shows one. An edit that dropped the `[0]` would
- * still render a plausible pill and still pass an e2e looking for a badge.
- *
- * Called as a plain function rather than rendered — the same approach as
- * `team-logo.test.ts`, and for the same reason: the component is pure, so its
- * element tree can be read with no DOM and no jsdom.
- */
+// ⚠️ The seed pins a night on two rows only, so e2e can't see the absent branch. ⚠️ The letter is the feature:
+// dropping `[0]` still renders a plausible pill. Called as a plain function, since the component is pure.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const el = (night: number | null) => NightBadge({ night }) as any;
 
@@ -44,9 +28,7 @@ describe("NightBadge", () => {
   });
 
   it("matches the rookie R's shape — outline, same padding and type scale", () => {
-    // ⚠️ NOT COSMETIC. "a little pill like the rookie R" is the request; a
-    // badge that drifts to another variant stops reading as the same kind of
-    // mark as the four beside it.
+    // ⚠️ Not cosmetic: a badge drifting to another variant stops reading like the four beside it.
     const chip = el(0);
     expect(chip.props.variant).toBe("outline");
     expect(chip.props.className).toBe("ml-1 px-1.5 py-0 text-[0.65rem]");

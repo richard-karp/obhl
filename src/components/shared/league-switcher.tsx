@@ -5,17 +5,8 @@ import { useTransition } from "react";
 import type { LeagueOption } from "@/lib/league/current";
 import { cn } from "@/lib/utils";
 
-/**
- * League picker. The league lives in the URL, so switching is navigation — it
- * used to write a cookie, which nothing reads any more.
- *
- * A switch always lands on the chosen league's root (`rootPath`), never the
- * equivalent sub-path: `/harbor/seasons/<uuid>` names a season that
- * belongs to Harbor, so carrying that path across to Oceanview would only 404.
- *
- * Renders nothing when there's only one league. Requires JS: a bare select
- * wouldn't navigate on its own.
- */
+// Switching is navigation, always to the chosen league's `rootPath`: a sub-path names the old league's rows and
+// would 404. Requires JS, since a bare select wouldn't navigate.
 export function LeagueSwitcher({
   leagues,
   currentSlug,
@@ -33,10 +24,8 @@ export function LeagueSwitcher({
   if (leagues.length < 2) return null;
 
   return (
-    // `min-w-0` so this can give way. As a flex item its automatic minimum
-    // size is the select's width, which the cap below pins at 11rem — on a
-    // phone that rigid 176px is what pushed the header past the screen and put
-    // the whole page into horizontal scrolling.
+    // `min-w-0` so this can give way: its automatic minimum is the select's 11rem, which pushed a phone's
+    // header past the screen.
     <div className={cn("flex min-w-0 items-center", className)}>
       <label className="sr-only" htmlFor="league-switcher">
         Select league
@@ -51,9 +40,7 @@ export function LeagueSwitcher({
           const slug = e.currentTarget.value;
           startTransition(() => router.push(`/${slug}${rootPath}`));
         }}
-        // Shrinks between the two bounds and ellipsises what doesn't fit, so a
-        // long league name costs width only when there is width to spare. The
-        // 5rem floor keeps it a usable target once it has given all it can.
+        // Shrinks between two bounds and ellipsises; the 5rem floor keeps it a usable target.
         className="border-input bg-background hover:bg-secondary/60 h-8 max-w-[11rem] min-w-[5rem] truncate rounded-md border px-2 text-sm font-medium transition-colors disabled:opacity-60"
       >
         {leagues.map((l) => (

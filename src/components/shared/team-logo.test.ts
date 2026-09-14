@@ -1,18 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { TeamLogo } from "./team-logo";
 
-/**
- * The CONTROL for the team-logo work: `TeamLogo` itself was never the bug. Every
- * screen that showed white letters on a pale chip, or initials for a team with a
- * real crest, was a CALLER that never plumbed `logo_text_color` / `logo_path`
- * through its `select`. This file pins the contract those callers have to feed,
- * so a later edit here cannot quietly move the goalposts underneath them.
- *
- * Called as a plain function rather than rendered: the component is pure and
- * returns an element tree, so the two branches can be told apart by `type` and
- * `props` with no DOM. That is what keeps this in the `node` environment the
- * rest of the suite already runs in — no jsdom, no renderer.
- */
+// Pins the contract callers feed (`logo_text_color`, `logo_path`), so an edit here can't move it under them.
+// Called as a plain function: the component is pure, so no DOM or jsdom is needed.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const el = (props: Parameters<typeof TeamLogo>[0]) => TeamLogo(props) as any;
 
