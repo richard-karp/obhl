@@ -33,9 +33,7 @@ describe("publishMode", () => {
   });
 
   it("stays locked even with a draft sitting there", () => {
-    // A stale draft generated before the first game was played. It must not
-    // offer a replace — started outranks every other signal. Task 5 relies on
-    // this to decide whether to render the publish control at all.
+    // A stale draft from before the first game was played must not offer a replace.
     expect(publishMode({ liveCount: 40, draftCount: 42, started: true })).toBe(
       "locked",
     );

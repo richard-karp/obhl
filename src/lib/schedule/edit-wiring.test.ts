@@ -2,21 +2,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-/**
- * Convention guard, a sibling of `src/lib/actions/league-guards.test.ts`.
- *
- * ⛔ WHY THIS FILE EXISTS. Two fixes to `schedule-edits.ts` were written,
- * reported as done in a commit message, and never actually applied: the edits
- * were made by pattern replacement, the file had since been reformatted, the
- * patterns matched nothing, and nothing asserted the result. The full suite —
- * 476 unit tests and the whole e2e run — passed over both.
- *
- * They survived because neither is observable from outside: one is a refusal on
- * a pair no test constructs, the other is an argument that only changes how a
- * message reads. So the check has to be structural. These assertions are ugly
- * on purpose; they fail loudly the moment a guard stops being where it is
- * claimed to be, which is the failure the last two review rounds actually had.
- */
+/** ⛔ Structural on purpose: two fixes to `schedule-edits.ts` were reported done and never
+ *  applied, and neither is observable from outside, so these assert where the guards sit. */
 const SRC = readFileSync(
   join(process.cwd(), "src/lib/actions/schedule-edits.ts"),
   "utf8",
@@ -32,14 +19,8 @@ function bodyOf(name: string): string {
   return SRC.slice(start, next === -1 ? SRC.length : next);
 }
 
-/**
- * Every `name(...)` call in the file, with its arguments.
- *
- * ⚠️ A REGEX CANNOT DO THIS, AND THE FIRST VERSION OF THIS TEST PROVED IT:
- * `preserved(countsFor(rows), countsFor(after), nameOf)` nests parentheses, so
- * a non-greedy match stops at the first `)` and reports an argument list that
- * ends before the argument under test. Count depth instead.
- */
+/** Every `name(...)` call with its arguments. ⚠️ Count depth, not a regex: nested parentheses
+ *  end a non-greedy match before the argument under test. */
 function callsTo(name: string): string[] {
   const out: string[] = [];
   let from = 0;
@@ -58,14 +39,8 @@ function callsTo(name: string): string[] {
 }
 
 describe("schedule-edits wiring", () => {
-  /**
-   * Both two-game exchanges read ONE side of the season (`seasonRows` is scoped
-   * by `is_draft`), so a draft/published pair puts the partner outside every
-   * list that reasons about it. It fails closed, but as "the schedule changed
-   * while this was on screen" — a refusal that names the wrong cause and leaves
-   * the manager with nothing to do. The guard landed in `exchangeTeams` alone
-   * while the commit claimed both.
-   */
+  /** Both exchanges read one side of the season (`is_draft`), so a draft/published pair must
+   *  be refused outright; a missing guard surfaces as "the schedule changed". */
   it.each(["exchangeTeams", "exchangeSlots"])(
     "%s refuses a draft/published pair outright",
     (name) => {
@@ -73,11 +48,7 @@ describe("schedule-edits wiring", () => {
     },
   );
 
-  /**
-   * `preserved` takes the team names the caller has already resolved. Called
-   * with two arguments it falls back to its identity default and every balance
-   * refusal names a raw UUID — correct, useless, and invisible to every test.
-   */
+  /** Without `nameOf`, every balance refusal names a raw UUID and no other test notices. */
   it("passes nameOf to preserved at every call site", () => {
     const calls = callsTo("preserved");
     expect(calls.length).toBeGreaterThan(0);

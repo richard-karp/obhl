@@ -5,20 +5,8 @@ import type { GameWrite } from "./gameWrites";
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn(async () => {}) }));
 import { logAudit } from "@/lib/audit";
 
-/**
- * ⛔ THIS FILE IS THE ANSWER TO "WHAT REPLACED THE DELETED TESTS", AND IT IS NOT
- * THE OBVIOUS ONE. `0045` deleted 19 tests, and every one of them covered
- * compensation code that no longer exists — no loss. But the swap introduced
- * three NEW decision branches here, in a file that had no tests at all: what
- * happens when the RPC errors, when it returns an empty array, and when the
- * batch is empty. Those are pure, cheap to fake, and were untested.
- *
- * ⚠️ WHAT THIS FILE CANNOT COVER, so that nobody adds a fake and believes
- * otherwise: the advisory lock, the transaction, and the refusal logic all live
- * in SQL. `admin.rpc` here is a stub that returns whatever the test says. The
- * serialization evidence is the two-psql race recorded in `RUNBOOK.md` →
- * Schedule edits and exports, against a real Postgres. Vitest cannot see a lock.
- */
+// ⚠️ `admin.rpc` is a stub: the lock, the transaction and the refusals live in SQL, and Vitest
+// cannot see a lock. RUNBOOK.md, _Schedule edits and exports_.
 type RpcReply = { data: unknown; error: { message: string } | null };
 
 function fakeAdmin(reply: RpcReply) {
@@ -72,11 +60,7 @@ describe("writeGames", () => {
     });
   });
 
-  /**
-   * ⚠️ `undefined`, NOT `null`. The function defaults `p_is_draft` to null and
-   * reads null as "both sides"; the generated Args type has it as optional
-   * `boolean`, so omitting is how the unscoped case is expressed.
-   */
+  /** ⚠️ `undefined`, not `null`: omitting `p_is_draft` is how the unscoped case is expressed. */
   it("omits the draft scope rather than sending null when unscoped", async () => {
     const { admin, rpc } = fakeAdmin({
       data: [{ applied: 1, refused: null, reason: null }],
@@ -105,11 +89,7 @@ describe("writeGames", () => {
     expect(msg).toContain("Nothing was written.");
   });
 
-  /**
-   * A `returns table` RPC comes back as an array of one row. An empty array
-   * means the function returned no row at all — it has no path to do that, so
-   * reading `[0]` and finding `undefined` must become a refusal, never an `ok`.
-   */
+  /** An empty `returns table` array means no row: a refusal, never `ok`. */
   it("treats an empty result array as a failure, not as success", async () => {
     const { admin } = fakeAdmin({ data: [], error: null });
     const msg = await writeGames(admin, "s1", "u1", "act", [write("g1")]);
