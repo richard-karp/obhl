@@ -631,6 +631,7 @@ test.describe("Path 16 — Per-league routing", () => {
     const oceanviewBefore = await page.getByText(SUSPENSION).count();
 
     // Suspend a Harbor player: one audit entry, against Harbor.
+    const since = new Date().toISOString();
     const teamSlug = await harborId(page, "/harbor/teams", "/harbor/teams/");
     await page.goto(`/harbor/teams/${teamSlug}`);
     // No tab to open: the editor is on the page for a manager. Scoped to its
@@ -654,6 +655,22 @@ test.describe("Path 16 — Per-league routing", () => {
     await expect(
       row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" }),
     ).toBeVisible();
+
+    // `update_player_status` is audited with `void logAudit` — the action returns
+    // before the row exists, so wait for it rather than racing the audit page.
+    await expect
+      .poll(
+        async () => {
+          const { count } = await admin()
+            .from("audit_log")
+            .select("id", { count: "exact", head: true })
+            .eq("action", "update_player_status")
+            .gte("created_at", since);
+          return count ?? 0;
+        },
+        { timeout: 15_000 },
+      )
+      .toBeGreaterThanOrEqual(1);
 
     // Harbor's log has it — which also proves logAudit resolved the league,
     // since an entry with no league_id is filtered out of every scoped view.

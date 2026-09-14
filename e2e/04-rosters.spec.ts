@@ -166,6 +166,7 @@ test.describe("Path 9 — Roster editor", () => {
       manageRoster(page).getByRole("cell", { name: `${first} Player` }),
     ).toBeVisible();
 
+    const since = new Date().toISOString();
     await rosterRows(page)
       .filter({ hasText: first })
       .getByRole("button", { name: "Remove" })
@@ -175,6 +176,22 @@ test.describe("Path 9 — Roster editor", () => {
     await expect(
       manageRoster(page).getByRole("cell", { name: `${first} Player` }),
     ).toHaveCount(0);
+
+    // `remove_player` is audited with `void logAudit` — the action returns before the
+    // row exists, so wait for it rather than racing the audit page.
+    await expect
+      .poll(
+        async () => {
+          const { count } = await admin()
+            .from("audit_log")
+            .select("id", { count: "exact", head: true })
+            .eq("action", "remove_player")
+            .gte("created_at", since);
+          return count ?? 0;
+        },
+        { timeout: 15_000 },
+      )
+      .toBeGreaterThanOrEqual(1);
 
     await page.goto("/obhl/audit");
     await expect(
@@ -187,6 +204,7 @@ test.describe("Path 9 — Roster editor", () => {
     // row is what a manager reads, so the assertion stays there — only the
     // control that changes it is a click deeper.
     const row = rosterRows(page).nth(1);
+    const since = new Date().toISOString();
     let dialog = await openDialogFor(page, row);
     await dialog.getByRole("button", { name: "Make captain" }).click();
     await page.waitForLoadState("networkidle");
@@ -207,6 +225,23 @@ test.describe("Path 9 — Roster editor", () => {
     // audited, under this league. `logAudit` resolves the league from the
     // entity, and an entry filed under none is hidden from every view that
     // would show it.
+    //
+    // `toggle_captain` is audited with `void logAudit` — the action returns before the
+    // row exists, so wait for it rather than racing the audit page.
+    await expect
+      .poll(
+        async () => {
+          const { count } = await admin()
+            .from("audit_log")
+            .select("id", { count: "exact", head: true })
+            .eq("action", "toggle_captain")
+            .gte("created_at", since);
+          return count ?? 0;
+        },
+        { timeout: 15_000 },
+      )
+      .toBeGreaterThanOrEqual(2);
+
     await page.goto("/obhl/audit");
     await expect(page.getByText(/Made .+ captain/).first()).toBeVisible();
     await expect(page.getByText(/Removed captain from /).first()).toBeVisible();
@@ -230,6 +265,7 @@ test.describe("Path 9 — Roster editor", () => {
     page,
   }) => {
     const row = rosterRows(page).nth(2);
+    const since = new Date().toISOString();
     let dialog = await openDialogFor(page, row);
     await dialog.getByRole("button", { name: "Suspend" }).click();
     await page.waitForLoadState("networkidle");
@@ -248,6 +284,23 @@ test.describe("Path 9 — Roster editor", () => {
 
     // ── Folded in from the former audit-log spec: both writes are audited,
     // under this league.
+    //
+    // `update_player_status` is audited with `void logAudit` — the action returns
+    // before the row exists, so wait for it rather than racing the audit page.
+    await expect
+      .poll(
+        async () => {
+          const { count } = await admin()
+            .from("audit_log")
+            .select("id", { count: "exact", head: true })
+            .eq("action", "update_player_status")
+            .gte("created_at", since);
+          return count ?? 0;
+        },
+        { timeout: 15_000 },
+      )
+      .toBeGreaterThanOrEqual(2);
+
     await page.goto("/obhl/audit");
     await expect(
       page.getByText(/Updated is suspended for /).first(),
@@ -284,7 +337,25 @@ test.describe("Path 12 — Audit revert", () => {
     await expect(page).toHaveURL(/\/teams\//);
     // The editing forms are simply on the page for a manager now — no tab to
     // open and no `?tab=` to wait for.
+    const since = new Date().toISOString();
     await suspendVia(page, rosterRows(page).nth(2));
+
+    // `update_player_status` is audited with `void logAudit` — the action returns
+    // before the row exists, so wait for it rather than racing the audit page:
+    // the revert button only appears for session entries the page can already see.
+    await expect
+      .poll(
+        async () => {
+          const { count } = await admin()
+            .from("audit_log")
+            .select("id", { count: "exact", head: true })
+            .eq("action", "update_player_status")
+            .gte("created_at", since);
+          return count ?? 0;
+        },
+        { timeout: 15_000 },
+      )
+      .toBeGreaterThanOrEqual(1);
 
     await page.goto("/obhl/audit");
     const revertBtn = page
