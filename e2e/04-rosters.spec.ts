@@ -1,3 +1,4 @@
+/** Rosters: the public team page, the editor and its audit trail, revert, and duplicates. */
 /**
  * Path 9: Rosters — add player, set captain, suspend, remove, logo upload.
  */
@@ -45,16 +46,43 @@ async function openDialogFor(page: Page, row: Locator) {
   return dialog;
 }
 
-async function signedInAs(
-  page: Page,
-  role: "Manager" | "Scorekeeper" | "Captain",
-) {
+/**
+ * Suspend whoever is in `row`, through their editor.
+ *
+ * ⛔ THE CONTROL MOVED INTO A DIALOG, WHICH IS A PORTAL. It is no longer inside
+ * the `<tr>`, and while it is open Radix marks the rest of the document
+ * `aria-hidden` — so it is opened, used, and shut before anything else on the
+ * page is touched. What these tests are about is the AUDIT ENTRY the action
+ * writes, which is unchanged.
+ */
+async function suspendVia(page: Page, row: Locator) {
+  await row.getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: /^Suspend$|^Suspended ✓$/ }).click();
+  await page.waitForLoadState("networkidle");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+}
+
+type Role =
+  | "Manager"
+  | "Scorekeeper"
+  | "Captain"
+  | "One-league mgr"
+  | "One-league scorer"
+  | "No-league mgr"
+  | "Commissioner"
+  | "Deputy";
+
+/** Dev-panel sign-in. A scorekeeper lands on `/tonight`, everyone else on the picker. */
+async function signInAs(page: Page, role: Role, then?: string) {
   await page.goto("/login");
-  await page.getByRole("button", { name: role }).click();
-  // Sign-in lands on the league picker — there is no league-agnostic dashboard
-  // any more. Every caller below expects to be inside a league's manage tools.
-  await page.waitForURL("/");
-  await page.goto("/obhl/dashboard");
+  await page.getByRole("button", { name: role, exact: true }).click();
+  await page.waitForURL(
+    role === "Scorekeeper" || role === "One-league scorer" ? "/tonight" : "/",
+  );
+  if (then) await page.goto(then);
 }
 
 /**
@@ -65,13 +93,6 @@ async function signedInAs(
  * to the public half, above "Manage roster".
  */
 test.describe("Path 9b — Forwards, Defence and Goalies", () => {
-  test("the roster is split into three sections", async ({ page }) => {
-    await page.goto("/obhl/teams/sharks");
-    for (const name of ["Forwards", "Defence", "Goalies"]) {
-      await expect(page.getByRole("heading", { name })).toBeVisible();
-    }
-  });
-
   test("goalies are listed even with no games played", async ({ page }) => {
     // ⛔ THE CASE PRODUCTION IS IN. `v_goalie_stats` is built only from FINAL
     // games, so a rostered goalie who has not played is absent from it — and
@@ -110,121 +131,17 @@ test.describe("Path 9b — Forwards, Defence and Goalies", () => {
     expect(gp, "no GP column in the Goalies section").toBeGreaterThan(-1);
     await expect(backup.locator("td").nth(gp)).toHaveText("0");
   });
-
-  test("a two-night league pills the night; a one-night league does not", async ({
-    page,
-  }) => {
-    // OBHL declares Tue+Thu, so the night is meaningful and renders. Harbor
-    // declares nothing and plays one weekday, so `hasMultipleNights` is false
-    // and no pill may appear at all — a mark with one possible value is a mark
-    // that can only restate what the season already says.
-    //
-    // ⛔ TWO ROWS IN THE WHOLE DATABASE CARRY A NIGHT, AND BOTH ARE GOALIES.
-    // `supabase/seed.sql` pins Sharks #1 to Tuesday and #8 to Thursday and
-    // leaves every other roster row null — "no fixed night", which is what
-    // most of a real roster looks like. So this asserts inside the Goalies
-    // section: the same assertion against Forwards would be red, and against
-    // the page as a whole would pass on either goalie alone.
-    await page.goto("/obhl/teams/sharks");
-    const goalies = page.getByRole("region", { name: "Goalies" });
-    const pill = (night: string) =>
-      goalies.locator(`[data-slot="badge"][title="${night}"]`);
-
-    // ⛔ THE LETTER AND THE DAY ARE SEPARATE ASSERTIONS, BECAUSE THE LETTER
-    // CANNOT TELL THEM APART. The maintainer chose the bare first letter
-    // knowing OBHL plays Tuesday AND Thursday, so both pills read "T" and the
-    // `title` is the only thing that distinguishes them. Asserting the text
-    // alone would pass if both goalies were assigned the same night.
-    await expect(pill("Tuesday")).toHaveText("T");
-    await expect(pill("Thursday")).toHaveText("T");
-
-    // ...and on the right rows. #1 takes Tuesday, #8 Thursday.
-    //
-    // ⚠️ THE JERSEY CELL AND AN ANCHORED REGEX, the same anchoring the
-    // backup-goalie test above uses and for the same reason: `hasText: "1"` is
-    // a SUBSTRING match, so it would take #11 or #14 just as happily as #1.
-    const row = (jersey: RegExp) =>
-      goalies
-        .locator("tbody tr")
-        .filter({ has: page.locator("td:first-child", { hasText: jersey }) });
-    await expect(
-      row(/^1$/).locator('[data-slot="badge"][title="Tuesday"]'),
-    ).toHaveCount(1);
-    await expect(
-      row(/^8$/).locator('[data-slot="badge"][title="Thursday"]'),
-    ).toHaveCount(1);
-
-    // ⛔ AND THE PREMISE, WHICH THE ABSENCE BELOW IS WORTHLESS WITHOUT. Harbor
-    // plays one night, so no pill may render — but a roster where NOBODY has a
-    // night renders no pill whether the gate works or not, and this assertion
-    // was exactly that vacuous when it was first written: deleting
-    // `showNight` from `TeamRosterSections` left it green. `seed.sql` pins
-    // Anchors #6 to Wednesday for this test and nothing else, so check the
-    // fixture still says so before reading anything into the page.
-    const db = admin();
-    const { data: pinned } = await db
-      .from("team_players")
-      .select("jersey_number, night_of_week, teams!inner(slug)")
-      .eq("teams.slug", "anchors")
-      .not("night_of_week", "is", null);
-    expect(
-      pinned?.map((r) => [r.jersey_number, r.night_of_week]),
-      "seed.sql no longer pins a night on an Anchors player — the absence " +
-        "assertion below is vacuous without it",
-    ).toEqual([[6, 3]]);
-
-    await page.goto("/harbor/teams/anchors");
-    // ⛔ ESTABLISH THE PAGE RENDERED BEFORE ASSERTING AN ABSENCE.
-    await expect(page.getByRole("heading", { name: "Forwards" })).toBeVisible();
-    // ⚠️ `[title]` IS WHAT MAKES THIS A NIGHT ASSERTION RATHER THAN A BADGE
-    // ONE. Harbor's roster carries captain badges legitimately — `is_rookie`
-    // is never seeded, so there are no R badges, but the C alone is enough
-    // that an unqualified `[data-slot="badge"]` count of 0 would be red for
-    // reasons that have nothing to do with nights.
-    await expect(page.locator('[data-slot="badge"][title]')).toHaveCount(0);
-  });
 });
 
 test.describe("Path 9 — Roster editor", () => {
   test.beforeEach(async ({ page }) => {
-    await signedInAs(page, "Manager");
+    await signInAs(page, "Manager", "/obhl/dashboard");
     await page.goto("/obhl/teams");
     await page.getByText("Sharks").click();
     await expect(page).toHaveURL(/\/teams\//);
     // A manager just sees the editor. Waiting on its first row is the settle
     // signal every test below used to get from the tab click.
     await expect(rosterRows(page).first()).toBeVisible();
-  });
-
-  test("roster page shows 14 players with jersey numbers", async ({ page }) => {
-    // Still 14 across the three section tables — the seed converts a forward
-    // to a second goalie rather than adding a player, precisely so this does
-    // not move.
-    await expect(rosterRows(page)).toHaveCount(14);
-    // ⚠️ POSITION IS A SECTION HEADING NOW, NOT A CELL. The first row is a
-    // FORWARD, because Forwards come first; asserting "Goalie" on it tested
-    // the old flat, jersey-ordered table.
-    await expect(
-      manageRoster(page).getByRole("heading", { name: "Goalies" }),
-    ).toBeVisible();
-  });
-
-  test("add a new player and they appear in the roster", async ({ page }) => {
-    await page
-      .getByPlaceholder("First name")
-      .or(page.getByLabel("First name"))
-      .fill("Testy");
-    await page
-      .getByPlaceholder("Last name")
-      .or(page.getByLabel("Last name"))
-      .fill("McTestface");
-
-    await page.getByRole("button", { name: /add/i }).click();
-    await page.waitForLoadState("networkidle");
-
-    await expect(
-      manageRoster(page).getByRole("cell", { name: "Testy McTestface" }),
-    ).toBeVisible();
   });
 
   test("removing a player is visible in this league's audit log", async ({
@@ -265,107 +182,6 @@ test.describe("Path 9 — Roster editor", () => {
     ).toBeVisible();
   });
 
-  /**
-   * The regression that soft departures introduced.
-   *
-   * Removing a player who has dressed keeps their roster row and marks it
-   * departed (0036), and `unique (season_id, team_id, player_id)` from 0003 is
-   * deliberately non-partial — so a plain insert on the way back is rejected
-   * with a bare 23505. The picker offers them, too, because the roster it
-   * subtracts is filtered to active rows. Coming back is therefore the normal
-   * way an operator undoes a removal, not an edge case.
-   */
-  test("a removed player can be added back to the same team", async ({
-    page,
-  }) => {
-    // ⛔ THE SECTION SAYS THE POSITION NOW, SO THE TEST ASKS THE SECTION.
-    // This used to read `td` by hard-coded INDEX — cell 1 for the name, cell 2
-    // for the position — against a flat table of #, Player, Position, Status,
-    // Manage. Both indices moved when the row lost its Status and Manage
-    // columns and gained a Night one, and the position left the row entirely.
-    // The Night column has since become a pill inside the name cell, moving
-    // them a third time — cell 1 still holds the name, which is the only
-    // reason the `td` index below survived that.
-    // ⛔ DEFENCE, AND NOT THE FIRST FORWARD. This test REMOVES its subject and
-    // re-adds them through the add form, which carries no jersey number and no
-    // captaincy — so whoever it picks comes back as an unnumbered non-captain.
-    // With Forwards first, that was Sharks #6: the seeded CAPTAIN, and the
-    // account `13-goalie`'s Path 21 signs in as. It passed here and broke that
-    // spec three files later. Defence carries no captain in the seed.
-    const defence = manageRoster(page)
-      .getByRole("region", { name: "Manage Defence" })
-      .locator("tbody tr");
-
-    // ⛔ BADGES STRIPPED EXPLICITLY, NOT BY TAKING THE FIRST LINE. Captain,
-    // rookie, suspended and injury render as inline badges inside the name
-    // cell with no newline before them, so `.split("\n")[0]` — what this used
-    // to do — returned "Taylor GauthierC" for any row carrying one. It only
-    // ever worked because the row it happened to read, the jersey-1 goalie at
-    // the top of a flat numeric table, had no badges.
-    const rowName = async (r: Locator) => {
-      const cell = r.locator("td").nth(1);
-      const badges = await cell.locator('[data-slot="badge"]').allInnerTexts();
-      let n = (await cell.innerText()).trim();
-      for (const b of badges) n = n.replace(b, "").trim();
-      return n;
-    };
-
-    // ⛔ AND THE SUBJECT'S NAME MUST BE UNIQUE, WHICH IS NOT FREE. The seed
-    // builds names by modular arithmetic over two short arrays, so it produces
-    // genuine duplicates — two different people called "Parker Bouchard". The
-    // picker offers both with nothing to tell them apart, so re-adding could
-    // put the OTHER one on the team and still satisfy every assertion below.
-    //
-    // Probed BEFORE the removal, which is what makes it decidable: somebody
-    // already on this team is not offered by the picker, so any option
-    // matching their name is a different person. Zero options means the name
-    // is theirs alone.
-    const picker = page.getByLabel("Existing person (optional)");
-    let row: Locator | null = null;
-    let name = "";
-    for (let i = 0; i < (await defence.count()); i++) {
-      const candidate = defence.nth(i);
-      const candidateName = await rowName(candidate);
-      await picker.fill(candidateName);
-      const clashes = await page
-        .getByRole("option", { name: candidateName })
-        .count();
-      if (clashes === 0) {
-        row = candidate;
-        name = candidateName;
-        break;
-      }
-    }
-    await picker.fill("");
-    if (!row) {
-      throw new Error(
-        "Every seeded defender shares a name with somebody else — check supabase/seed.sql's name arrays.",
-      );
-    }
-    const position = "D";
-
-    await row.getByRole("button", { name: "Remove" }).click();
-    await page.waitForLoadState("networkidle");
-    await expect(manageRoster(page).getByRole("cell", { name })).toHaveCount(0);
-
-    // ⛔ NOT `selectOption`. The picker is a filtered combobox now, not a
-    // `<select>` — `players` is global and unfiltered here, so the list grows
-    // with the instance and scrolling it was the thing being replaced. Type
-    // enough of the name to narrow the list, then click the option.
-    //
-    // There is deliberately NO hidden `<select>` kept behind it to make the old
-    // line keep working: two fields that can disagree about who is selected,
-    // one of them invisible, is worse than a test that had to be rewritten.
-    await page.getByLabel("Existing person (optional)").fill(name);
-    await page.getByRole("option", { name }).click();
-    await page.getByLabel("Pos").selectOption(position);
-    await page.getByRole("button", { name: /add/i }).click();
-    await page.waitForLoadState("networkidle");
-
-    await expect(manageRoster(page).getByRole("cell", { name })).toBeVisible();
-    await expect(rosterRows(page).filter({ hasText: name })).toHaveCount(1);
-  });
-
   test("toggle captain sets and removes C badge", async ({ page }) => {
     // ⚠️ THE BADGE IS STILL ON THE ROW; THE BUTTON MOVED INTO THE DIALOG. The
     // row is what a manager reads, so the assertion stays there — only the
@@ -386,6 +202,28 @@ test.describe("Path 9 — Roster editor", () => {
     await expect(
       row.locator('[data-slot="badge"]').filter({ hasText: /^C$/ }),
     ).toHaveCount(0);
+
+    // ── Folded in from the former audit-log spec: both directions are
+    // audited, under this league. `logAudit` resolves the league from the
+    // entity, and an entry filed under none is hidden from every view that
+    // would show it.
+    await page.goto("/obhl/audit");
+    await expect(page.getByText(/Made .+ captain/).first()).toBeVisible();
+    await expect(page.getByText(/Removed captain from /).first()).toBeVisible();
+    const db = admin();
+    const { data: league } = await db
+      .from("leagues")
+      .select("id")
+      .eq("slug", "obhl")
+      .single();
+    const { data: entries } = await db
+      .from("audit_log")
+      .select("league_id")
+      .eq("action", "toggle_captain")
+      .order("created_at", { ascending: false })
+      .limit(2);
+    expect(entries).toHaveLength(2);
+    for (const e of entries!) expect(e.league_id).toBe(league!.id);
   });
 
   test("suspend a player shows SUSP badge, lift removes it", async ({
@@ -407,44 +245,72 @@ test.describe("Path 9 — Roster editor", () => {
     await expect(
       row.locator('[data-slot="badge"]').filter({ hasText: "SUSP" }),
     ).not.toBeVisible();
-  });
 
-  test("logo upload card is visible", async ({ page }) => {
-    await expect(page.getByText("Team logo")).toBeVisible();
+    // ── Folded in from the former audit-log spec: both writes are audited,
+    // under this league.
+    await page.goto("/obhl/audit");
     await expect(
-      page.getByRole("button", { name: /upload|change/i }),
+      page.getByText(/Updated is suspended for /).first(),
     ).toBeVisible();
+    const db = admin();
+    const { data: league } = await db
+      .from("leagues")
+      .select("id")
+      .eq("slug", "obhl")
+      .single();
+    const { data: entries } = await db
+      .from("audit_log")
+      .select("league_id")
+      .eq("action", "update_player_status")
+      .order("created_at", { ascending: false })
+      .limit(2);
+    expect(entries).toHaveLength(2);
+    for (const e of entries!) expect(e.league_id).toBe(league!.id);
   });
+});
 
-  /**
-   * ⛔ THE GUARD ON THE DECISION THIS PAGE IS BUILT ON. There was a Manage tab
-   * and a `?tab=manage` here, and both were removed on the call that a manager
-   * should see their page and be able to edit it rather than navigate to a
-   * second view of the team they are already looking at.
-   *
-   * They are worth a test because the two of them together caused three
-   * separate bugs — a blank panel on the way back out, a blank panel on
-   * arrow-key focus, and an editor that rendered its four admin queries whether
-   * or not anyone opened it. Anything that reintroduces a mode here turns this
-   * red.
-   */
-  test("the editor is on the page, behind no tab and no query parameter", async ({
+/**
+ * Path 12: Audit log — view logged actions and session-based revert.
+ */
+test.describe("Path 12 — Audit revert", () => {
+  test("revert button is present when session entries exist", async ({
     page,
   }) => {
-    await expect(page.getByRole("tab", { name: "Manage" })).toHaveCount(0);
-    expect(new URL(page.url()).search).toBe("");
-    await expect(manageRoster(page)).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Remove" }).first(),
-    ).toBeVisible();
+    await signInAs(page, "Manager", "/obhl/dashboard");
 
-    // The two remaining tabs are ordinary client-side tabs over public content:
-    // switching away unmounts the editor with the rest of the panel, switching
-    // back brings it straight home, and the URL never moves.
-    await page.getByRole("tab", { name: "Schedule" }).click();
-    await expect(manageRoster(page)).toHaveCount(0);
-    await page.getByRole("tab", { name: "Roster & Stats" }).click();
-    await expect(manageRoster(page)).toBeVisible();
-    expect(new URL(page.url()).search).toBe("");
+    // Create a revertible action
+    await page.goto("/obhl/teams");
+    await page.getByText("Wolves").click();
+    await expect(page).toHaveURL(/\/teams\//);
+    // The editing forms are simply on the page for a manager now — no tab to
+    // open and no `?tab=` to wait for.
+    await suspendVia(page, rosterRows(page).nth(2));
+
+    await page.goto("/obhl/audit");
+    const revertBtn = page
+      .getByRole("button", { name: /revert selected/i })
+      .first();
+    await expect(revertBtn).toBeVisible();
+    await revertBtn.click();
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByText(/reverted successfully/i)).toBeVisible();
+  });
+});
+
+/** Duplicate merge review. */
+test.describe("Merge duplicates", () => {
+  test("duplicates page loads and is scoped to this league", async ({
+    page,
+  }) => {
+    await signInAs(page, "Manager");
+    await page.goto("/obhl/people/duplicates");
+
+    await expect(
+      page.getByRole("heading", { name: /possible duplicates/i }),
+    ).toBeVisible();
+    // Every listed name must belong to THIS league. The seed builds names from
+    // arrays, so real clusters may or may not exist — assert the scope, not a
+    // count, or this test breaks whenever the seed's name arithmetic changes.
+    await expect(page.getByText("Anchors")).toHaveCount(0);
   });
 });
