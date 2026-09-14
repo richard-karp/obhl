@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { discardSchedule } from "@/lib/actions/schedule";
+import { setActiveSeason } from "@/lib/actions/seasons";
+import { needsActivation } from "@/lib/schedule/activationNotice";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import {
   getPublishState,
@@ -82,9 +84,34 @@ type DraftRow = {
 export async function ScheduleBuilderPanel({
   seasonId,
   league,
+  isActive,
+  leagueHasAnotherActiveSeason,
 }: {
   seasonId: string;
   league: string;
+  /**
+   * Whether this is the league's active season — i.e. the one the public site
+   * shows. Drives the activation notice at the top of the panel.
+   *
+   * ⛔ A PROP, AND IT MUST NOT BECOME A READ OF OUR OWN. The season read below
+   * is a `.maybeSingle()` whose error is discarded, so on a failed read `season`
+   * is null — and `season?.is_active` would be `undefined`, making `!isActive`
+   * true and announcing "nobody can see these games" about a perfectly active
+   * season, driven by a failure nothing here looked at. That is the exact class
+   * of bug `readFailed` exists to prevent, so it must not be reintroduced by the
+   * feature that warns about it. The setup page has already fetched this row and
+   * proven it non-null and league-owned.
+   */
+  isActive: boolean;
+  /**
+   * Whether the league already has a DIFFERENT season set active. Suppresses
+   * the activation notice — see `needsActivation`'s archive guard for why, and
+   * for the case that deliberately goes unwarned as a result.
+   *
+   * ⚠️ Resolved by the page, which treats a failed read as `true`. Same reason
+   * `isActive` is a prop: a read failure must not become a confident claim.
+   */
+  leagueHasAnotherActiveSeason: boolean;
 }) {
   const admin = createAdminClient();
 
@@ -401,6 +428,61 @@ export async function ScheduleBuilderPanel({
 
   return (
     <div className="space-y-6">
+      {/*
+        ⛔ ABOVE THE `mode === "locked"` FORK, NOT INSIDE IT. This is the answer
+        to "why can nobody see this schedule?", so it has to be the first thing
+        on the card in EVERY mode — most of all on a started season, where the
+        games have actually been played and the public still cannot see them.
+        `needsActivation` takes no `started` input for that reason; putting this
+        inside the fork would hide it in the worst case.
+
+        ⚠️ THE BUTTON SAYS "Make this season active", NOT "Set active". The setup
+        page renders its own `Set active` button in the PageHeader whenever the
+        season is inactive — a strict superset of this condition — so the two are
+        always on screen together. Sharing an accessible name makes every
+        `getByRole("button", { name: ... })` in the e2e a strict-mode violation,
+        and the longer label reads better inside this sentence anyway.
+      */}
+      {needsActivation({
+        isActive,
+        liveCount: publish.liveCount,
+        // ⛔ `publish.readFailed`, NOT the panel-wide `readFailed` above. That
+        // one folds in `draftsError`, and a failed DRAFT read says nothing about
+        // this season's published games — `liveCount` is still accurate, so
+        // suppressing on it hides a true banner for an unrelated reason.
+        readFailed: publish.readFailed,
+        leagueHasAnotherActiveSeason,
+      }) ? (
+        <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+          <p className="font-semibold">
+            ⚠ These games aren&apos;t on the public site yet
+          </p>
+          {/*
+            ⛔ "the public schedule and standings", NOT "and calendar feeds".
+            `getTeamFeedGames` filters on team and `is_draft` with NO season
+            scope — EXPORTS_HANDOFF §2 records that as deliberate, since a
+            subscription is a standing thing — and `public read games` gates on
+            `leagues.is_public` with no `is_active` term. So a published
+            inactive season IS already in every existing subscriber's calendar,
+            and an earlier version of this banner told managers the opposite.
+            Saying so plainly beats a headline that is quietly false.
+          */}
+          <p>
+            The schedule is published, but this isn&apos;t the league&apos;s
+            active season — the public schedule and standings show the active
+            season only. Make it active when you&apos;re ready. Note that team
+            calendar subscriptions already include these games: those feeds span
+            every season.
+          </p>
+          <form action={setActiveSeason}>
+            <input type="hidden" name="id" value={seasonId} />
+            <Button type="submit" size="sm" variant="secondary">
+              Make this season active
+            </Button>
+          </form>
+        </div>
+      ) : null}
+
       {mode === "locked" ? (
         <Card>
           <CardHeader>

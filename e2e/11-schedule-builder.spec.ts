@@ -646,6 +646,122 @@ test.describe("Path 17 — Schedule Builder", () => {
     await expect(page.getByText("No draft schedule")).toBeVisible();
   });
 
+  /**
+   * Publishing a schedule does not make it public — `is_active` is a separate
+   * action on a separate screen — so a manager can finish the builder and have a
+   * season nobody can see. These two tests are the ONLY thing tying the
+   * `needsActivation` predicate to a rendered banner: its unit test stays green
+   * even if the panel stops calling it and inlines the condition wrong.
+   *
+   * ⛔ PLACED BEFORE "removing a published schedule", NOT AFTER IT. That test
+   * ends with Fall 2026 holding zero live games, so a notice test appended after
+   * it would find `liveCount === 0` and legitimately see nothing. This one
+   * leaves the season published, which is the state that test then cleans up.
+   *
+   * ⛔ NEITHER TEST CLICKS "Make this season active". A partial unique index
+   * allows one active season per league, so activating Fall 2026 would
+   * deactivate the seeded Spring 2026 that specs 14/15/21/23/28/29/30/34 all
+   * assume — and a failure between the click and the restore would take the rest
+   * of the run with it. The revalidation behind that button is covered by
+   * `seasons.test.ts` instead.
+   */
+  test("a published but inactive season says nobody can see it yet", async ({
+    page,
+  }) => {
+    // ⛔ Before any count() probe, per this file's own rule: neither locked card
+    // renders the texts below, so a read failure fails here by name instead of
+    // sending the probe down the wrong branch.
+    await expectGenerateFormUsable(page);
+
+    const notice = page.getByText("These games aren't on the public site yet");
+    const publishedCount = page.getByText(/Published: \d+ games/);
+
+    // ⛔ A SECOND WAIT, AND IT IS NOT BELT-AND-BRACES. `count()` resolves
+    // immediately, so probing before the publish/draft summary has rendered can
+    // read 0 on a season that IS published — sending this down the generate
+    // branch, where the button reads "Replace published schedule" and the
+    // publish click times out instead. `expectGenerateFormUsable` above does not
+    // cover it: the generate form renders in `published` mode too, so it can be
+    // visible while this summary is not. The removal test below carries the same
+    // guard for the same measured reason; keep the two in step.
+    await expect(
+      page.getByText(/Published: \d+ games|No draft schedule/).first(),
+    ).toBeVisible();
+
+    if ((await publishedCount.count()) === 0) {
+      // ⚠️ OPPORTUNISTIC, NOT GUARANTEED. workers: 1 means the republish test
+      // above normally leaves Fall 2026 already published, so this branch —
+      // and with it this "absent before publishing" control — usually does not
+      // run. The active-season test below is the control that always fires.
+      await expect(notice).toHaveCount(0);
+
+      await page.getByLabel("First game night").fill(await fallStart());
+      await page.getByLabel("Games per team").fill("4");
+      await page
+        .locator('label:has-text("Tue") input[name="weekdays"]')
+        .check();
+      await page
+        .locator('label:has-text("Thu") input[name="weekdays"]')
+        .check();
+      await page.getByRole("button", { name: "Generate schedule" }).click();
+      // The publish button does not exist until the draft renders; without this
+      // wait the click's own actionability wait is capped below Phase S's search.
+      const publish = page.getByRole("button", { name: /Publish \d+ games/ });
+      await expect(publish).toBeVisible(AFTER_GENERATE);
+      await publish.click();
+    }
+
+    // The precondition, asserted rather than assumed — without it the notice
+    // assertion below is being made about a page that may not have rendered a
+    // published schedule at all.
+    await expect(publishedCount).toBeVisible();
+
+    await expect(notice).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Make this season active" }),
+    ).toBeVisible();
+  });
+
+  test("an active season with games shows no activation notice", async ({
+    page,
+  }) => {
+    // Spring 2026 is active AND has live games — the exact case that must stay
+    // quiet. `/obhl/schedule-builder` redirects to the active season's setup
+    // page, which is the same navigation the started-season test below uses.
+    await page.goto("/obhl/schedule-builder");
+
+    // ⛔ THIS ASSERTION IS NOT DECORATION. A bare toHaveCount(0) below would
+    // pass on a 404, on a redirect to /login, and on a page where the panel
+    // never mounted. Spring 2026 renders the locked card, so this text proves
+    // the panel is on screen and that `isActive` is the only reason the notice
+    // is absent.
+    //
+    // ⚠️ WHAT THIS PAIR CANNOT PROVE ON ITS OWN: that the notice sits ABOVE the
+    // `mode === "locked"` fork rather than inside it. Spring 2026 is active AND
+    // started, so `needsActivation` returns false either way and this control
+    // passes under both placements.
+    //
+    // ⚠️ AND NO OTHER SPEC CAN SEPARATE THEM EITHER, for a reason worth writing
+    // down before someone spends an afternoon on it. The state that would —
+    // inactive AND started, with published games — also has to sit in a league
+    // with NO active season, because `needsActivation`'s archive guard suppresses
+    // the notice whenever a different season is already live.
+    //
+    // `31-stale-draft.spec.ts` builds an inactive, started, published season and
+    // looks like the answer, but it seeds into `obhl`, whose Spring 2026 is
+    // active — so the guard correctly silences the notice there. Both seeded
+    // leagues have an active season, so proving placement needs a league built
+    // from scratch (the `21-season-gating.spec.ts` pattern), which is a fixture,
+    // not a line.
+    //
+    // Until then: `activationNotice.test.ts` pins the logic exhaustively, and
+    // the placement is held by the panel's own comment and by review.
+    await expect(page.getByText("The season is under way")).toBeVisible();
+    await expect(
+      page.getByText("These games aren't on the public site yet"),
+    ).toHaveCount(0);
+  });
+
   test("a started season locks the builder", async ({ page }) => {
     // The active Spring 2026 season is in the past, so it has started.
     await page.goto("/obhl/schedule-builder");

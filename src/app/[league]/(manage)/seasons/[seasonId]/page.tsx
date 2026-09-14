@@ -78,28 +78,56 @@ export default async function SeasonSetupPage({
   // URL is the only claim of ownership — enforce it rather than trust it.
   if (!season || season.league_id !== league.id) notFound();
 
-  const [{ data: enrolled }, { data: captains }, { count: publishedCount }] =
-    await Promise.all([
-      admin
-        .from("season_teams")
-        .select(
-          "team_id, teams!season_teams_team_id_fkey(id, name, color, logo_text_color, logo_path)",
-        )
-        .eq("season_id", seasonId),
-      admin
-        .from("team_players")
-        .select(
-          "team_id, players!team_players_player_id_fkey(first_name, last_name)",
-        )
-        .eq("season_id", seasonId)
-        .eq("is_captain", true)
-        .is("left_on", null),
-      admin
-        .from("games")
-        .select("*", { count: "exact", head: true })
-        .eq("season_id", seasonId)
-        .eq("is_draft", false),
-    ]);
+  const [
+    { data: enrolled },
+    { data: captains },
+    { count: publishedCount },
+    { data: leagueActive, error: leagueActiveError },
+  ] = await Promise.all([
+    admin
+      .from("season_teams")
+      .select(
+        "team_id, teams!season_teams_team_id_fkey(id, name, color, logo_text_color, logo_path)",
+      )
+      .eq("season_id", seasonId),
+    admin
+      .from("team_players")
+      .select(
+        "team_id, players!team_players_player_id_fkey(first_name, last_name)",
+      )
+      .eq("season_id", seasonId)
+      .eq("is_captain", true)
+      .is("left_on", null),
+    admin
+      .from("games")
+      .select("*", { count: "exact", head: true })
+      .eq("season_id", seasonId)
+      .eq("is_draft", false),
+    // Which season this league currently shows the public, if any. Feeds the
+    // builder's activation notice: the banner means "nothing is live and this
+    // should be", so a league that already has an active season must not get
+    // it — see `needsActivation`'s archive guard.
+    admin
+      .from("seasons")
+      .select("id")
+      .eq("league_id", league.id)
+      .eq("is_active", true)
+      .maybeSingle(),
+  ]);
+
+  // ⛔ A FAILED READ COUNTS AS "another season is active", i.e. suppress. We
+  // cannot know otherwise, and the banner carries a one-click button that
+  // changes what the whole public site shows — offering that on information
+  // nobody has is the bad way to be wrong. A missing banner is the harmless one.
+  if (leagueActiveError) {
+    console.error(
+      "league active season read failed:",
+      leagueActiveError.message,
+    );
+  }
+  const leagueHasAnotherActiveSeason = leagueActiveError
+    ? true
+    : !!leagueActive?.id && leagueActive.id !== seasonId;
 
   const captainOf = new Map<string, string>();
   for (const c of (captains ?? []) as any[]) {
@@ -278,7 +306,17 @@ export default async function SeasonSetupPage({
               description="Enroll at least two teams above, then the schedule builder appears here."
             />
           ) : (
-            <ScheduleBuilderPanel seasonId={seasonId} league={league.slug} />
+            <ScheduleBuilderPanel
+              seasonId={seasonId}
+              league={league.slug}
+              // Read here rather than inside the panel: this row has already
+              // been fetched, proven non-null and checked against the league.
+              // The panel's own season read discards its error, so resolving
+              // `is_active` there would turn a failed read into a false "nobody
+              // can see these games" — see the prop's note.
+              isActive={season.is_active}
+              leagueHasAnotherActiveSeason={leagueHasAnotherActiveSeason}
+            />
           )}
         </CardContent>
       </Card>
