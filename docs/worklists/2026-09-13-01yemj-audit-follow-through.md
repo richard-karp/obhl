@@ -114,7 +114,7 @@
 |---|---|---|
 | 1 — security fixes + the two removals | done; pushed, PR #78 open | `docs/superpowers/plans/2026-09-13-audit-security-and-removals.md` |
 | 2 — test rebuild (B) | done on `test/part2-rebuild` (stacked on part 1); office-forging residuals fixed; stacked PR next | `docs/superpowers/plans/2026-09-13-part2-test-rebuild.md` |
-| 3 — code, comment and doc trims | design written; plan being written; runs after part 2 merges | _Part 3_ below |
+| 3 — code, comment and doc trims | plan written (2026-09-14); runs after part 2 merges | `docs/superpowers/plans/2026-09-14-part3-trims.md` |
 | Ops — owner only | not started | _Ops_ below |
 
 **Order:** 1 → merge → owner pushes `0050` + `0051` → 2 → merge → 3. Part 3's plan is
