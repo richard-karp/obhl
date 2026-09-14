@@ -7,6 +7,7 @@ import { findUserIdByEmail } from "@/lib/auth/users";
 import { logAudit } from "@/lib/audit";
 import {
   addLeagueMembership,
+  mayLinkPlayer,
   mayWriteProfileOf,
   removeLeagueMembership,
 } from "@/lib/auth/membership";
@@ -121,6 +122,23 @@ export async function createStaffAccount(
   }
 
   const admin = createAdminClient();
+  // `is_captain_of` trusts `profiles.player_id` alone, so the player's EVERY
+  // league must be one this manager works — see `mayLinkPlayer`. Any role, and
+  // before the first write.
+  if (playerId) {
+    const link = await mayLinkPlayer(actor.id, playerId, leagueId, admin);
+    if (link === "not_in_league") {
+      return { ok: false, message: "Pick a player from this league's rosters." };
+    }
+    if (link === "plays_elsewhere") {
+      return {
+        ok: false,
+        message:
+          "That player also plays in a league you don't manage, so you can't link them to an account. A manager of every league they play in, or the League Office, can.",
+      };
+    }
+  }
+
   let userId: string | undefined;
   // Whether this address already had a login decides what may be written below:
   // a brand-new account has no role anywhere to overwrite.
