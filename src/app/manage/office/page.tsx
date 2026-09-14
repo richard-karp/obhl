@@ -209,7 +209,7 @@ export default async function OfficePage() {
         ⛔ The card is drawn for a commissioner; `setStaffPassword` REFUSES anyone
         else itself. Rendering is not a restriction — a form action is an endpoint
         reachable by anyone who can construct the request, which is the trap
-        `RUNBOOK.md` → Access control → Traps names.
+        `RUNBOOK.md` → Access control names.
 
         This is the recovery path that needs no email at all: Supabase's built-in
         mailer is rate-limited and branded as Supabase, and no staff account has a

@@ -103,8 +103,8 @@ export async function requireLeagueManagerOf(
  * ⛔ These are SERVER guards, and they are the ones that matter. The office page
  * renders appoint and remove controls only for a commissioner, but rendering is
  * not a restriction — a form action is reachable by anyone who can construct the
- * request, which is the failure mode `RUNBOOK.md` → Access control → Traps is
- * about. Every office action calls `requireCommissioner` itself
+ * request, which is the failure mode `RUNBOOK.md` → Access control is about.
+ * Every office action calls `requireCommissioner` itself
  * rather than trusting the page that drew the button.
  *
  * Note what does NOT gate these: `may_write_profile` and `mayWriteProfileOf`
@@ -170,8 +170,8 @@ export async function requireVisibleLeague(
  * anyone who can construct the request, whether or not a button was drawn for
  * them. Every action behind such a surface calls its own guard —
  * `saveRules` calls `requireLeagueManager` — and that is what actually refuses.
- * This is the same split `RUNBOOK.md` → Access control → Traps is about, and
- * the same one the League Office guards are written to.
+ * This is the same split `RUNBOOK.md` → Access control is about, and the same
+ * one the League Office guards are written to.
  *
  * Role AND membership, for the reason `requireLeagueRole` exists: `user.role` is
  * instance-wide, so a manager of the other league would otherwise be offered
