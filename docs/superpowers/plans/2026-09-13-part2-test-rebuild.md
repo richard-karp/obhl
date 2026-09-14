@@ -12,8 +12,9 @@
 
 ## Global Constraints
 
-- Start from a fresh branch off `main` once part 1 has merged. Never bare `git stash`.
-- **Commit only when the owner has approved committing on this branch.** Push and PR only when asked.
+- Work on branch `test/part2-rebuild`, stacked on part 1 (`533ad23`) in the part 1 worktree (owner, 2026-09-13). It rebases onto `main` after part 1 merges. Never bare `git stash`.
+- **Commit after each task's review is clean** (owner, 2026-09-13). No `Co-Authored-By` or other attribution trailer. Push and PR only when asked.
+- **No new tests beyond this plan unless absolutely necessary** (owner, 2026-09-13). The one addition is 5h's `uploading an SVG straight to the logos bucket` row.
 - No `.github/workflows/` edits.
 - e2e only via `PORT=3101 scripts/e2e-locked.sh <full file names>`, never a glob. The full-suite checkpoints name every file too.
 - Nothing `--linked`. `workers: 1` stays.
@@ -27,7 +28,7 @@
   - (c) a value assertion on scores, standings, stats or three stars;
   - (d) a schedule invariant: every pair plays, no double-booking, per-night sheet capacity, weekday balance ≤ 1, or dates moving with nightIndex;
   - (e) a named data-integrity trap: postponement date, `checkOneOffWrite`, `planRepair`, the audit null-league trap, stale publish, or audit revert.
-- A red-proof migration is always `supabase/migrations/0051_tmp_red_proof.sql`. It is deleted before the green run and never committed. `git status --short supabase/migrations` prints nothing at the end of any task.
+- A red-proof migration is always `supabase/migrations/0052_tmp_red_proof.sql`. It is deleted before the green run and never committed. `git status --short supabase/migrations` prints nothing at the end of any task.
 - Order that must survive the merge (measured 2026-09-13):
   - Spec 22 transfers a goalie and never restores it, and 13's Path 20 counts goalie suggestions. So 22's tests (`10-roster-changes`) must run after 13's (`05-scoring-night`).
   - 21's teardown ignored errors, and a leftover imported league would become 16's `LEAD_OUT`. The merged teardown asserts the delete.
@@ -846,7 +847,7 @@ Every row names the survival-rule letter that keeps a test, or the reason it goe
 
 **A hidden control counts as (b) only while no kept test drives the refusal behind it.** Rendering is not a restriction. Once a kept test drives the server or RLS refusal, a test that a button is absent adds nothing, and goes.
 
-**The source headers move too.** Each source spec's header docblock is placed, verbatim, above the `test.describe` that holds its tests, so no ⛔ warning is lost before part 3 trims comments. Each merged file then opens with the one-line docblock its sub-task gives.
+**The source headers move too.** Each source spec's header docblock is placed, verbatim, above the `test.describe` that holds its tests, so no ⛔ warning is lost before part 3 trims comments. Each merged file then opens with the one-line docblock its sub-task gives. ⚠️ The one-liner goes ABOVE the carried headers and never replaces one — including the header of the file being edited in place or renamed (01, 02, 03, 04, 05, 07, 09, 11, 14), which stays verbatim beneath it.
 
 **One `admin()` per file** (it is identical in every source spec):
 
@@ -1884,7 +1885,7 @@ git commit -m "test(e2e): move routing and chrome access tests into 09-access"
 **Files:**
 - Modify: `e2e/09-access.spec.ts`
 - Delete: `e2e/16-league-membership.spec.ts`
-- Temporary, never committed: `supabase/migrations/0051_tmp_red_proof.sql`, and one edit to `src/app/[league]/(manage)/audit/page.tsx`
+- Temporary, never committed: `supabase/migrations/0052_tmp_red_proof.sql`, and one edit to `src/app/[league]/(manage)/audit/page.tsx`
 
 **Interfaces:**
 - Produces: `PAGE_REFUSALS`, `API_REFUSALS`, `type Db`, `anonClient()`, `captainFixture()`, `TOTALS_VIEWS`, plus 16's `signedInClient()`, `leagueId()`, `leaguesOf()`, `theOneLeague()`, `tamper()`, `submitAndSettle()`, `crossLeagueRosterRows()`, `teamRosterUrl()` and `openRosterEditor()`, all moved to module level unchanged. 15's `leaguesOfAccount(name)` calls become `leaguesOf(name)`.
@@ -2467,6 +2468,48 @@ After 16's moved tests:
         };
       },
     },
+    {
+      // Part 1's 0051, found live by its final review: a manager session could
+      // store `teams/<team>.svg` as image/svg+xml in the PUBLIC logos bucket,
+      // around `uploadTeamLogo`'s allowlist. The one test the owner added.
+      title: "uploading an SVG straight to the logos bucket",
+      as: "single-league-lead@obhl.test",
+      arrange: async (db) => {
+        const { data: team } = await db
+          .from("teams")
+          .select("id")
+          .eq("league_id", await leagueId(LEAD_IN))
+          .limit(1)
+          .single();
+        const name = `${team!.id}.svg`;
+        const stored = async (d: Db) => {
+          const { data } = await d.storage
+            .from("logos")
+            .list("teams", { search: name });
+          return (data ?? []).filter((o) => o.name === name).length;
+        };
+        expect(await stored(db), "the fixture must start with no such object").toBe(0);
+        return {
+          attempt: async (client) => {
+            await client.storage
+              .from("logos")
+              .upload(
+                `teams/${name}`,
+                new Blob(['<svg xmlns="http://www.w3.org/2000/svg"/>'], {
+                  type: "image/svg+xml",
+                }),
+                { contentType: "image/svg+xml", upsert: true },
+              );
+          },
+          assertRefused: async (db) => {
+            expect(await stored(db)).toBe(0);
+          },
+          restore: async (db) => {
+            await db.storage.from("logos").remove([`teams/${name}`]);
+          },
+        };
+      },
+    },
   ];
 
   for (const row of API_REFUSALS) {
@@ -2602,24 +2645,42 @@ Expected: exactly 1 failed, `One-league mgr is refused at /<another league>/audi
 
 - [ ] **Step 7: Red proof 2 — the API table**
 
-Create `supabase/migrations/0051_tmp_red_proof.sql`:
+Create `supabase/migrations/0052_tmp_red_proof.sql`:
 
 ```sql
 -- RED PROOF ONLY. Delete before the green run. Never commit.
 create policy "tmp red proof: any roster insert" on public.game_rosters
   for insert to authenticated with check (true);
 drop trigger profiles_privileged_columns_are_server_only on public.profiles;
-alter view public.v_skater_season_totals set (security_invoker = false);
+-- The smallest set that lets anon read a private league's totals (all 32
+-- combinations measured 2026-09-14; the outer totals views alone give 0 rows).
 alter view public.v_goalie_season_totals set (security_invoker = false);
+alter view public.v_skater_stats set (security_invoker = false);
+alter view public.v_goalie_stats set (security_invoker = false);
+alter view public.v_team_game_results set (security_invoker = false);
+-- Both halves of 0051: no bucket type list, and 0051's function with the
+-- extension anchor removed from its pattern.
+update storage.buckets set allowed_mime_types = null where id = 'logos';
+create or replace function public.logo_object_league(p_name text)
+returns uuid language plpgsql stable security definer set search_path = public as $$
+declare v_league uuid;
+begin
+  if p_name !~ '^teams/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.' then
+    return null;
+  end if;
+  select league_id into v_league from teams where id = substring(p_name from 7 for 36)::uuid;
+  return v_league;
+end $$;
 ```
 
-Run: `PORT=3101 scripts/e2e-locked.sh e2e/09-access.spec.ts -g "the API refuses|can still|can read a public"`
-Expected: exactly 3 failed:
+Run: `PORT=3101 scripts/e2e-locked.sh e2e/09-access.spec.ts` (the WHOLE file — a `-g` filter drops `Remove takes a person out…`, the only test that writes the obhl audit entry `reading another league's audit log` arranges on; corrected 2026-09-14 after execution)
+Expected: exactly 4 failed:
 - `the API refuses dressing a player on the other team as a captain`
 - `the API refuses rewriting its own role or player link`
 - `the API refuses reading a staged league's season totals anonymously`
+- `the API refuses uploading an SVG straight to the logos bucket`
 
-The other 10 pass: six API rows and four controls. The pattern also matches 16's `a manager can still promote someone whose leagues they all share`. If a targeted row stays green, stop and report: the loosening did not reach that guard, so the row proves nothing yet.
+Every other test in the file passes (42). If a targeted row stays green, stop and report: the loosening did not reach that guard, so the row proves nothing yet. ⚠️ The staged-league row's guard is the INNER invoker views: flipping only the two totals views leaves `v_skater_stats` / `v_goalie_stats` enforcing anon's RLS, and the row stays green (measured 2026-09-14). The migration must also flip the inner views — the minimal set measured during execution is recorded in the SDD ledger and in Task 5h's commit.
 
 - [ ] **Step 8: Red proof 3 — the grant control**
 
@@ -2637,7 +2698,7 @@ Expected: both FAIL. The control fails on `42501`, and the staged-league row fai
 Then:
 
 ```bash
-rm supabase/migrations/0051_tmp_red_proof.sql
+rm supabase/migrations/0052_tmp_red_proof.sql
 git status --short supabase/migrations
 ```
 
@@ -2646,7 +2707,7 @@ Expected: `git status` prints nothing.
 - [ ] **Step 9: Run green**
 
 Run: `PORT=3101 scripts/e2e-locked.sh e2e/09-access.spec.ts`
-Expected: 45 passed:
+Expected: 46 passed:
 
 | Group | Tests |
 |---|---|
@@ -2655,7 +2716,7 @@ Expected: 45 passed:
 | 15's moved tests | 10 |
 | 27's other-league test | 1 |
 | 16's moved tests | 9 |
-| API table | 9 |
+| API table | 10 |
 | API controls | 3 |
 | legacy table | 1 |
 
@@ -2981,7 +3042,7 @@ Run: `ls e2e/*.spec.ts`
 Expected: exactly these 15 files, which the next command names.
 
 Run: `PORT=3101 scripts/e2e-locked.sh e2e/01-public.spec.ts e2e/02-auth.spec.ts e2e/03-season-setup.spec.ts e2e/04-rosters.spec.ts e2e/05-scoring-night.spec.ts e2e/07-staff.spec.ts e2e/09-access.spec.ts e2e/10-roster-changes.spec.ts e2e/11-schedule-builder.spec.ts e2e/14-one-off-game.spec.ts e2e/23-schedule-constraints.spec.ts e2e/28-schedule-form-state.spec.ts e2e/29-schedule-repair.spec.ts e2e/30-schedule-edits.spec.ts e2e/31-stale-draft.spec.ts`
-Expected: 187 passed (186 passed and 1 skipped if the local mail API is down):
+Expected: 188 passed (187 passed and 1 skipped if the local mail API is down):
 
 | File | Tests |
 |---|---|
@@ -2991,7 +3052,7 @@ Expected: 187 passed (186 passed and 1 skipped if the local mail API is down):
 | `04-rosters` | 6 |
 | `05-scoring-night` | 18 |
 | `07-staff` | 20 |
-| `09-access` | 45 |
+| `09-access` | 46 |
 | `10-roster-changes` | 7 |
 | `11-schedule-builder` | 17 |
 | `14-one-off-game` | 2 |
@@ -3368,7 +3429,7 @@ git commit -m "test(e2e): one schedule-changes spec; retime and stale-write chec
 
 **Files:**
 - Delete: `scripts/verify-auth.mjs`, `scripts/verify-close-night.mjs`, `scripts/verify-office-password.mjs`, `scripts/verify-role-fallback.mjs`, `scripts/verify-roster-editing.mjs`, `scripts/verify-scoring.mjs`, `scripts/verify-transfers.mjs`
-- Modify: `package.json`, `README.md`, `src/app/api/cron/close-night/route.ts` (one comment), `e2e/05-scoring-night.spec.ts` (one comment), `ACCESS_CONTROL_HANDOFF.md` (one command)
+- Modify: `package.json`, `README.md`, `AGENTS.md` (one clause), `src/app/api/cron/close-night/route.ts` (one comment), `e2e/05-scoring-night.spec.ts` (one comment), `ACCESS_CONTROL_HANDOFF.md` (one command)
 
 **Interfaces:** none.
 
@@ -3437,6 +3498,7 @@ git rm scripts/verify-auth.mjs scripts/verify-close-night.mjs scripts/verify-off
 
 4. `e2e/05-scoring-night.spec.ts`, in the header that came from 34: replace `` `scripts/verify-close-night.mjs` covers exactly this, but nothing ran it`` with `A script, since deleted, covered exactly this, but nothing ran it`.
 5. `ACCESS_CONTROL_HANDOFF.md`: in the one paragraph containing `npm run verify:close-night`, replace that command with `PORT=3101 scripts/e2e-locked.sh e2e/05-scoring-night.spec.ts -g "Closing the night"`. Read only that paragraph. Part 3 replaces the file.
+6. `AGENTS.md`: in the esportsdesk paragraph, delete the parenthetical ` (part 2 of the 2026-09-13 audit follow-through addresses them)`. The owner decided on 2026-09-13 that part 2 adds no importer tests, so the sentence ends `…the importer's other failure branches are untested.`
 
 - [ ] **Step 3: Verify nothing still points at them**
 
@@ -3449,7 +3511,7 @@ Expected: no errors.
 - [ ] **Step 4: Commit (only if approved)**
 
 ```bash
-git add -A scripts package.json README.md src/app/api/cron/close-night/route.ts e2e/05-scoring-night.spec.ts ACCESS_CONTROL_HANDOFF.md
+git add -A scripts package.json README.md AGENTS.md src/app/api/cron/close-night/route.ts e2e/05-scoring-night.spec.ts ACCESS_CONTROL_HANDOFF.md
 git commit -m "chore: delete the verify scripts, now ported or covered by e2e"
 ```
 
@@ -3472,8 +3534,8 @@ Expected: exactly `01-public`, `02-auth`, `03-season-setup`, `04-rosters`, `05-s
 Run: `npm run typecheck && npm run lint && npm test 2>&1 | tail -8`
 Expected:
 - no errors;
-- the test count is part 1's final count minus 17: Task 1 −35; Task 3 −1, +3, +1, +6, +9.
-- If part 1 landed as planned (644 − 18 − 5 + 2 + 2 + 2 = 627, counting the todo), that is 610: 609 passed + 1 todo.
+- the test count is part 1's final count minus 15: Task 1 −35; Task 3 −1, +3, +1, +6, +11 (`safe-next-path.test.ts` gained two dot-segment rows in Task 3's fix round, 2026-09-13).
+- Part 1 landed at 633 passed + 1 todo (measured 2026-09-13, after its final fix wave), so that is 618 passed + 1 todo.
 - Record the Duration line.
 
 - [ ] **Step 3: Production build**
@@ -3484,7 +3546,7 @@ Expected: success.
 - [ ] **Step 4: Full e2e, checkpoint 2**
 
 Run: `PORT=3101 scripts/e2e-locked.sh e2e/01-public.spec.ts e2e/02-auth.spec.ts e2e/03-season-setup.spec.ts e2e/04-rosters.spec.ts e2e/05-scoring-night.spec.ts e2e/07-staff.spec.ts e2e/09-access.spec.ts e2e/10-roster-changes.spec.ts e2e/11-schedule-build.spec.ts e2e/14-schedule-changes.spec.ts`
-Expected: 159 passed (158 passed and 1 skipped if the local mail API is down):
+Expected: 160 passed (159 passed and 1 skipped if the local mail API is down):
 
 | File | Tests |
 |---|---|
@@ -3494,7 +3556,7 @@ Expected: 159 passed (158 passed and 1 skipped if the local mail API is down):
 | `04-rosters` | 6 |
 | `05-scoring-night` | 18 |
 | `07-staff` | 20 |
-| `09-access` | 45 |
+| `09-access` | 46 |
 | `10-roster-changes` | 7 |
 | `11-schedule-build` | 11 |
 | `14-schedule-changes` | 16 |
