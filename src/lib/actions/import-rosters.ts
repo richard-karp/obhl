@@ -37,10 +37,8 @@ const palette = [
 
 /**
  * Import ONLY teams and players from an esportsdesk season, as the starting
- * draft for a new OBHL season. Deliberately a sibling of runEsportsdeskImport
- * rather than a flag on it: that one is a faithful one-time migration and this
- * one throws away everything but the rosters, so "success" means two different
- * things. It never calls fetchEsportsdeskSchedule or fetchEsportsdeskStats.
+ * draft for a new OBHL season. Positions aren't on esportsdesk (all default to
+ * F); goalies are fixed in Rosters afterwards.
  */
 export async function runRosterOnlyImport(
   _prev: ImportRunState,
@@ -128,7 +126,7 @@ export async function runRosterOnlyImport(
   // that FAILS deletes the league again (the season insert), and this entry goes
   // with it: `audit_log.league_id` is `references leagues(id) on delete cascade`
   // (0031). A rolled-back import leaves no entry, which is right — nothing was
-  // created. `mode` is what separates this from a full migration in the log.
+  // created.
   await logAudit({
     user_id: manager.id,
     action: "import_league",
@@ -252,14 +250,20 @@ export async function runRosterOnlyImport(
   // This import creates a league; the root landing page lists them.
   revalidatePath("/");
 
-  // A clean run ends in the league it just made — see the long note at the tail
-  // of `runEsportsdeskImport` for why `redirect` has to sit outside a `try` and
-  // why `replace` beats `push`. Both apply here; nothing encloses this line
-  // either, the file's one `try` having closed long before it.
+  // A clean run ends in the league it just made.
   //
-  // ⚠️ THE GATE IS SHORTER THAN ITS SIBLING'S BY ONE CONJUNCT, deliberately.
-  // That one also checks `notes.length === 0`; this importer fetches neither a
-  // schedule nor stats, so it has no notes to check and no `notes[]` at all.
+  // ⛔ THIS LINE MUST STAY OUTSIDE EVERY `try`. `redirect` works by throwing, so
+  // an enclosing `catch` would swallow it and the run would silently fall
+  // through — `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/redirect.md`
+  // says so twice.
+  //
+  // `replace`, not the server-action default `push`: leaving the one-shot form
+  // in history means Back lands on a blank form for a league that already exists.
+  //
+  // ⚠️ THE GATE IS TWO CONJUNCTS: no team or roster came up short (`problems`),
+  // and the manager was actually added to the league (`membership.ok`). Both
+  // have to hold — a run that imported every team but could not grant the
+  // creator membership must not redirect them into a page they cannot open.
   if (problems.length === 0 && membership.ok)
     redirect(`/${leagueSlug}/seasons`, RedirectType.replace);
 

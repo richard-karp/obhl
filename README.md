@@ -64,8 +64,6 @@ identity.
 | `npm run db:reset` | Drop + re-apply all migrations and `seed.sql` |
 | `npm run seed:users` | Create/sync the staff accounts via the admin API |
 | `npm run gen-types` | Generate DB types from the local schema |
-| `npm run verify:auth` | Verify the auth hook + per-role RLS write policies |
-| `npm run verify:scoring` | Verify score → finalize → standings/stats propagation |
 
 ## Architecture
 
@@ -103,9 +101,9 @@ identity.
    that needs the dashboard — a manager with no league yet can still sign in and
    reach the next one.
 7. **Create the first league** in-app at **`/manage/leagues/new`**, which imports
-   a league from an esportsdesk URL (rosters only, or a full migration with the
-   schedule and results). A signed-in manager also reaches it from the "New
-   league" link on the landing page. Until 2026-09-08 this page lived at
+   the teams and players of an esportsdesk league into a new public league,
+   with its first season left inactive. A signed-in manager also reaches it from
+   the "New league" link on the landing page. Until 2026-09-08 this page lived at
    `/<league>/import` and so needed a league to already exist — the first league
    on an instance had to be inserted by hand in SQL. It does not any more.
 8. **Add everyone else** from **People & Roles** inside the new league.

@@ -44,7 +44,7 @@ export default async function TeamsPage({
   // 0032's "manager write teams"/"manager write season_teams" are `for all`
   // using `manages_league`, so a manager reads their own staged league's teams
   // through their own session. Measured, not assumed — reverting to this line
-  // leaves the staged-league assertion in `15-league-routing.spec.ts` green,
+  // leaves the staged-league assertion in `e2e/09-access.spec.ts` green,
   // which is what that assertion is now here to keep true.
   const teams = await getEnrolledTeams(ctx.season.id);
 

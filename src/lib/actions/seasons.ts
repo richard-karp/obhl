@@ -1,16 +1,12 @@
 "use server";
 
-import Anthropic from "@anthropic-ai/sdk";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { requireLeagueManager } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit";
 import { findUserIdByEmail } from "@/lib/auth/users";
-import { addLeagueMembership } from "@/lib/auth/membership";
+import { addLeagueMembership, mayWriteProfileOf } from "@/lib/auth/membership";
 import { leagueOfSeason, leagueOfTeam } from "@/lib/league/of-entity";
-import { getStandings } from "@/lib/queries/standings";
-import { getSkaterLeaders } from "@/lib/queries/stats";
-import { getRecentResults } from "@/lib/queries/schedule";
 import { slugify } from "@/lib/utils/slug";
 
 export type SeasonActionState = {
@@ -221,6 +217,45 @@ export async function createTeamForSeason(
         };
       }
 
+      // An existing account keeps its profile, the same rule as
+      // `createStaffAccount` in people.ts. `profiles.role` is account-wide, so
+      // writing "captain" would demote a manager or scorekeeper in every league
+      // they work; and `is_captain_of` (0038) reads `player_id` alone, so
+      // pointing an existing captain at this new player would end the captaincy
+      // they already hold. A different role is refused, an existing captain is
+      // only added to this league, and only a login with no role is written.
+      if (uErr) {
+        const { data: existing } = await admin
+          .from("profiles")
+          .select("role")
+          .eq("id", userId)
+          .maybeSingle();
+        if (existing?.role && existing.role !== "captain") {
+          revalidatePath("/[league]/seasons/[seasonId]", "page");
+          return {
+            ok: false,
+            message: `Added ${name} with captain ${captainName}, but ${captainEmail} already has an account as ${existing.role.replace("league_", "")}, and a role is account-wide, so it was left unchanged.`,
+          };
+        }
+        if (existing?.role === "captain") {
+          const granted = await addLeagueMembership(userId, season.league_id);
+          revalidatePath("/[league]/seasons/[seasonId]", "page");
+          return {
+            ok: false,
+            message: granted.ok
+              ? `Added ${name} with captain ${captainName}, but ${captainEmail} already captains through another player. Their login was added to this league and left linked, so it does not captain ${name}.`
+              : `Added ${name} with captain ${captainName}, but ${captainEmail} already captains through another player, and couldn't be given access to this league (${granted.error}).`,
+          };
+        }
+        if (!(await mayWriteProfileOf(manager.id, userId))) {
+          revalidatePath("/[league]/seasons/[seasonId]", "page");
+          return {
+            ok: false,
+            message: `Added ${name} with captain ${captainName}, but ${captainEmail} already has an account in a league you don't manage, so it was left unchanged.`,
+          };
+        }
+      }
+
       const { error: profErr } = await admin.from("profiles").upsert({
         id: userId,
         role: "captain",
@@ -382,16 +417,6 @@ export async function setActiveSeason(formData: FormData) {
     new_data: { season_id: id, name: now?.name ?? null },
   });
   revalidatePath("/[league]/seasons", "page");
-  // ⚠️ STRICTLY REDUNDANT, AND KEPT ANYWAY — for convention, not for safety.
-  // `revalidatePath(path, "layout")` is documented to invalidate that layout,
-  // every nested layout beneath it, and every page beneath those
-  // (next/dist/docs, revalidatePath → "What can be invalidated"), so the
-  // `/[league]` layout call on the next line already covers this page. Every
-  // other mutation in this file names the page it affects explicitly, and the
-  // activation notice's button posts here, so naming it keeps the file uniform
-  // and the intent legible. Do not read the unit tests below as pinning a
-  // behaviour the cascade would not already give.
-  revalidatePath("/[league]/seasons/[seasonId]", "page");
   revalidatePath("/[league]", "layout");
 }
 
@@ -427,105 +452,6 @@ export async function unenrollTeam(formData: FormData) {
     entity_id: season_id,
     old_data: { team_id, name: team?.name ?? null },
   });
-  revalidatePath("/[league]/seasons/[seasonId]", "page");
-}
-
-/**
- * Generate an AI league summary using Claude and store it in seasons.ai_summary.
- * Pulls current standings, top scorers, and recent results. Manager-only.
- */
-export async function generateLeagueSummary(formData: FormData) {
-  const admin = createAdminClient();
-  const season_id = String(formData.get("season_id"));
-  const manager = await requireLeagueManager(() =>
-    leagueOfSeason(season_id, admin),
-  );
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured.");
-
-  // The same reads the public pages use, through the same helpers. `getStandings`
-  // matters most: it applies the tiebreakers, where ordering by points alone can
-  // name a leader the standings page doesn't.
-  const [ranked, scorers, recentGames, seasonRes] = await Promise.all([
-    getStandings(season_id, { client: admin }),
-    getSkaterLeaders(season_id, { limit: 5, client: admin }),
-    getRecentResults(season_id, { limit: 3, client: admin }),
-    // `ai_summary` alongside the name, on the read that was already happening:
-    // the update below overwrites it, and the replaced text is the only thing
-    // this entry can say that the season row does not already hold.
-    admin
-      .from("seasons")
-      .select("name, ai_summary")
-      .eq("id", season_id)
-      .maybeSingle(),
-  ]);
-
-  const standings = ranked.slice(0, 6);
-  const seasonName = seasonRes.data?.name ?? "Current Season";
-
-  // The view columns are nullable, and an unguarded null interpolates as the
-  // string "null" — straight into the prompt, where it reads as fact. (The
-  // game lines below come from `GameWithTeams`, whose goal counts are not.)
-  const standingsLines = standings.map(
-    (r) =>
-      `${r.team_name ?? "Unknown"}: ${r.wins ?? 0}W-${r.losses ?? 0}L-${r.ties ?? 0}T, ` +
-      `${r.points ?? 0} pts (${r.gp ?? 0} GP)`,
-  );
-  const scorerLines = scorers.map((r) => {
-    const name =
-      [r.first_name, r.last_name].filter(Boolean).join(" ") || "Unknown";
-    return `${name} (${r.team_name ?? ""}): ${r.g ?? 0}G ${r.a ?? 0}A ${r.pts ?? 0}PTS`;
-  });
-  const gameLines = recentGames.map((g) => {
-    const away = g.away_team?.name ?? "Away";
-    const home = g.home_team?.name ?? "Home";
-    return `${away} ${g.away_goals} – ${g.home_goals} ${home}`;
-  });
-
-  const prompt = [
-    `Write a short 2-3 sentence league news update for a recreational adult hockey league.`,
-    `Season: ${seasonName}`,
-    standings.length ? `Standings:\n${standingsLines.join("\n")}` : "",
-    scorers.length ? `Top scorers:\n${scorerLines.join("\n")}` : "",
-    recentGames.length ? `Recent results:\n${gameLines.join("\n")}` : "",
-    `Highlight the standings leader, a standout player, and recent results. Keep it casual and fun.`,
-    `No filler phrases like "The league is heating up" or "In an exciting development".`,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
-  const client = new Anthropic({ apiKey });
-  const msg = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 300,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const summary =
-    msg.content.length > 0 && msg.content[0].type === "text"
-      ? msg.content[0].text.trim()
-      : "";
-  if (!summary) throw new Error("AI returned empty summary.");
-
-  const { error } = await admin
-    .from("seasons")
-    .update({ ai_summary: summary })
-    .eq("id", season_id);
-  if (error) throw new Error(`Save summary failed: ${error.message}`);
-
-  await logAudit({
-    user_id: manager.id,
-    action: "generate_summary",
-    entity_type: "season",
-    entity_id: season_id,
-    // Only the old one. The new summary is in `seasons.ai_summary` already, and
-    // regenerating is destructive — the previous text is gone the moment the
-    // update lands. Same reason `upload_logo` keeps `old_data`.
-    old_data: { summary: seasonRes.data?.ai_summary ?? null },
-  });
-
-  revalidatePath("/[league]", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
 }
 

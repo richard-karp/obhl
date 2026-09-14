@@ -6,7 +6,6 @@ import {
   setActiveSeason,
   carryForwardEnrollment,
   unenrollTeam,
-  generateLeagueSummary,
 } from "@/lib/actions/seasons";
 import { AddTeamForm } from "@/components/manage/add-team-form";
 import { TeamBrandingForm } from "@/components/manage/team-branding-form";
@@ -72,9 +71,7 @@ export default async function SeasonSetupPage({
 
   const { data: season } = await admin
     .from("seasons")
-    .select(
-      "id, name, league_id, is_active, starts_on, ends_on, ai_summary, created_at",
-    )
+    .select("id, name, league_id, is_active, starts_on, ends_on, created_at")
     .eq("id", seasonId)
     .maybeSingle();
   // The id says nothing about which league it belongs to, so the slug in the
@@ -106,11 +103,7 @@ export default async function SeasonSetupPage({
       .select("*", { count: "exact", head: true })
       .eq("season_id", seasonId)
       .eq("is_draft", false),
-    // Which season this league currently shows the public, if any, and where it
-    // sits in the league's ordering. Feeds the builder's activation notice,
-    // which has to tell a RETIRED season from one that was built and never
-    // flipped on — see `needsActivation`. The two sort columns come along
-    // because the comparison has to match `getLeagueSeasons`.
+    // The league's active season, for the builder's activation notice.
     admin
       .from("seasons")
       .select("id, starts_on, created_at")
@@ -119,25 +112,15 @@ export default async function SeasonSetupPage({
       .maybeSingle(),
   ]);
 
-  // ⛔ "unreadable", NOT null. Null means "this league has nothing live", which
-  // makes the notice FIRE — it is the case the notice was built for. Reporting a
-  // failed read as null would therefore raise a banner carrying a one-click
-  // button that changes what the whole public site shows, on information nobody
-  // has. A missing banner is the harmless way to be wrong.
   if (leagueActiveError) {
     console.error(
       "league active season read failed:",
       leagueActiveError.message,
     );
   }
-  const activeSeason: SeasonStamp | null | "unreadable" = leagueActiveError
-    ? "unreadable"
-    : leagueActive
-      ? {
-          startsOn: leagueActive.starts_on,
-          createdAt: leagueActive.created_at,
-        }
-      : null;
+  const activeSeason: SeasonStamp | null = leagueActive
+    ? { startsOn: leagueActive.starts_on, createdAt: leagueActive.created_at }
+    : null;
 
   const captainOf = new Map<string, string>();
   for (const c of (captains ?? []) as any[]) {
@@ -277,33 +260,6 @@ export default async function SeasonSetupPage({
         </CardContent>
       </Card>
 
-      {/* League summary */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-base">League Summary</CardTitle>
-            <form action={generateLeagueSummary}>
-              <input type="hidden" name="season_id" value={seasonId} />
-              <Button type="submit" variant="outline" size="sm">
-                {season.ai_summary ? "Regenerate" : "Generate"}
-              </Button>
-            </form>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {season.ai_summary ? (
-            <p className="text-muted-foreground text-sm leading-relaxed italic">
-              &ldquo;{season.ai_summary}&rdquo;
-            </p>
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              No summary yet. Click Generate to create an AI-written league
-              update.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
       {/* Step 3 — schedule (gated on having teams) */}
       <Card>
         <CardHeader>
@@ -319,17 +275,13 @@ export default async function SeasonSetupPage({
             <ScheduleBuilderPanel
               seasonId={seasonId}
               league={league.slug}
-              // Read here rather than inside the panel: this row has already
-              // been fetched, proven non-null and checked against the league.
-              // The panel's own season read discards its error, so resolving
-              // `is_active` there would turn a failed read into a false "nobody
-              // can see these games" — see the prop's note.
               isActive={season.is_active}
               thisSeason={{
                 startsOn: season.starts_on,
                 createdAt: season.created_at,
               }}
               activeSeason={activeSeason}
+              activeSeasonReadFailed={!!leagueActiveError}
             />
           )}
         </CardContent>

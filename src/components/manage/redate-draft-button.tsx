@@ -52,7 +52,7 @@ export function RedateForm({
  * ⚠️ ITS SUCCESS MESSAGE IS EXPECTED TO BE LOST, which is why the banner keeps
  * its own. This sits inside a dialog whose branch disappears once the draft
  * stops being stale, so the effect below races that unmount — the same race
- * `28-schedule-form-state.spec.ts` records for the publish toast. Acceptable
+ * `11-schedule-build.spec.ts` records for the publish toast. Acceptable
  * here and only here: the outcome is unmistakable on the page behind it (the
  * warning is gone and every date in the night list has moved), and a FAILURE
  * keeps the dialog open, which is the case that needs words.

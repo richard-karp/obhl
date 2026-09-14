@@ -1,10 +1,9 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState } from "react";
 import Link from "next/link";
 import {
   previewEsportsdeskImport,
-  runEsportsdeskImport,
   type ImportPreviewState,
   type ImportRunState,
 } from "@/lib/actions/import";
@@ -20,32 +19,11 @@ export function EsportsdeskImport() {
     ImportPreviewState,
     FormData
   >(previewEsportsdeskImport, null);
-  // Rosters-only is the default: setting up a new season from last year's
-  // rosters is the common case now, and a full migration is the one-time act.
-  const [mode, setMode] = useState<"rosters" | "full">("rosters");
-  const rostersOnly = mode === "rosters";
-
-  // One hook per action rather than one hook over a dispatcher: each keeps its
-  // own result, so switching modes cannot show the message from the other
-  // importer — they report different things by design.
-  const [runFull, runFullAction, runningFull] = useActionState<
-    ImportRunState,
-    FormData
-  >(runEsportsdeskImport, null);
-  const [runRosters, runRostersAction, runningRosters] = useActionState<
-    ImportRunState,
-    FormData
-  >(runRosterOnlyImport, null);
-  const run = rostersOnly ? runRosters : runFull;
-  const runAction = rostersOnly ? runRostersAction : runFullAction;
-  // Derived from what happened, not from the current mode. A success describes
-  // a league that now exists, and carries the only report of which rosters came
-  // up short, so a stray click on the other radio must not discard it. An error
-  // is about an attempt being retried, so that one stays with its mode.
-  const completed = runRosters?.ok ? runRosters : runFull?.ok ? runFull : null;
-  // Either importer in flight disables both, so switching mode mid-run cannot
-  // start a second one alongside it.
-  const busy = runningRosters || runningFull;
+  const [run, runAction, running] = useActionState<ImportRunState, FormData>(
+    runRosterOnlyImport,
+    null,
+  );
+  const completed = run?.ok ? run : null;
 
   return (
     <div className="space-y-6">
@@ -55,50 +33,6 @@ export function EsportsdeskImport() {
           <CardTitle className="text-base">1. Source</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <fieldset className="space-y-2">
-            <legend className="mb-2 text-sm font-medium">What to import</legend>
-            <div className="flex items-start gap-2">
-              <input
-                type="radio"
-                id="mode-rosters"
-                name="mode"
-                value="rosters"
-                checked={rostersOnly}
-                onChange={() => setMode("rosters")}
-                disabled={busy}
-                className="mt-1"
-              />
-              <div>
-                <Label htmlFor="mode-rosters">
-                  Rosters only (new season setup)
-                </Label>
-                <p className="text-muted-foreground text-xs">
-                  Teams and players as a starting draft. No games, results, or
-                  stats — fix the rosters afterwards in Rosters.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2">
-              <input
-                type="radio"
-                id="mode-full"
-                name="mode"
-                value="full"
-                checked={!rostersOnly}
-                onChange={() => setMode("full")}
-                disabled={busy}
-                className="mt-1"
-              />
-              <div>
-                <Label htmlFor="mode-full">
-                  Full migration (teams, schedule, results, stats)
-                </Label>
-                <p className="text-muted-foreground text-xs">
-                  A faithful one-time copy of a finished esportsdesk season.
-                </p>
-              </div>
-            </div>
-          </fieldset>
           <form action={previewAction} className="space-y-2">
             <Label htmlFor="url">esportsdesk league URL</Label>
             <div className="flex gap-2">
@@ -114,10 +48,8 @@ export function EsportsdeskImport() {
             </div>
             <p className="text-muted-foreground text-xs">
               Any esportsdesk page URL works as long as it has clientID and
-              leagueID.{" "}
-              {rostersOnly
-                ? "Imports the teams and players only."
-                : "Pulls teams, rosters, and the schedule with final results (one-time migration)."}
+              leagueID. Imports the teams and players only — no games, results,
+              or stats.
             </p>
             {preview && !preview.ok ? (
               <p
@@ -145,14 +77,6 @@ export function EsportsdeskImport() {
               {preview.preview.teams.length} teams ·{" "}
               {preview.preview.teams.reduce((n, t) => n + t.players.length, 0)}{" "}
               players
-              {rostersOnly ? null : (
-                <>
-                  {" · "}
-                  {preview.gameCount > 0
-                    ? `${preview.gameCount} games (final results)`
-                    : "no schedule found"}
-                </>
-              )}
             </p>
 
             {/* Season picker — for leagues with multiple seasons, reloads the
@@ -217,29 +141,16 @@ export function EsportsdeskImport() {
             </div>
 
             {completed ? (
-              // ⚠️ ONLY A PARTIAL SUCCESS EVER LANDS HERE NOW. A clean run
-              // redirects into the new league from the action and never comes
-              // back, so this block is the report on a run that finished with
-              // something wrong — and it is the only place that report exists.
-              // The link is what replaces the redirect the manager did not get:
-              // somewhere to go once they have read it — except when the
-              // membership grant is what failed, which the ⛔ block below
-              // explains and gates.
+              // ⚠️ Only a PARTIAL success lands here: a clean run redirects from
+              // the action. This block is the only record of what came up short.
               <div
                 role="status"
                 aria-live="polite"
                 className="space-y-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
               >
                 <p>{completed.message}</p>
-                {/*
-                  ⛔ NOT OFFERED WHEN THE MEMBERSHIP GRANT FAILED. The message
-                  above then says "you cannot open it yet", and a link beside it
-                  would contradict that in the worst way — following it hits
-                  `requireLeagueManager` and bounces to the picker, which looks
-                  like the link is broken rather than like access is missing.
-                  The action decides this, not the page: only it knows why the
-                  run reported instead of redirecting.
-                */}
+                {/* ⛔ No link when the membership grant failed: it would bounce
+                    to the picker and read as a broken link. */}
                 {completed.canOpen ? (
                   <Link
                     href={`/${completed.slug}/seasons`}
@@ -278,12 +189,8 @@ export function EsportsdeskImport() {
                   />
                 </div>
                 <div className="flex items-center gap-3 sm:col-span-2">
-                  <Button type="submit" disabled={busy}>
-                    {busy
-                      ? "Importing…"
-                      : rostersOnly
-                        ? "Import rosters"
-                        : "Import into OBHL"}
+                  <Button type="submit" disabled={running}>
+                    {running ? "Importing…" : "Import rosters"}
                   </Button>
                   {run && !run.ok ? (
                     <p role="alert" className="text-destructive text-sm">
@@ -291,9 +198,9 @@ export function EsportsdeskImport() {
                     </p>
                   ) : null}
                   <span className="text-muted-foreground text-xs">
-                    {rostersOnly
-                      ? "Creates a new inactive league with these teams and players and nothing else. Set any goalie positions in Rosters (esportsdesk rarely records them)."
-                      : "Imports the selected season as a new inactive league. Set any goalie positions in Rosters (esportsdesk rarely records them)."}
+                    Creates a new inactive league with these teams and players
+                    and nothing else. Set any goalie positions in Rosters
+                    (esportsdesk rarely records them).
                   </span>
                 </div>
               </form>

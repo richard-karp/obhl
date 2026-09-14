@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
@@ -12,7 +11,6 @@ import {
   leagueOffset,
   leagueToday,
 } from "@/lib/format";
-import { logAudit } from "@/lib/audit";
 import { check, revalidateAfterScore } from "@/lib/games/shared";
 import { scoresheetProblems, type SideCheck } from "@/lib/games/incomplete";
 import { finalizeGameById, reopenGameById } from "@/lib/games/finalize";
@@ -36,8 +34,7 @@ type UserClient = Awaited<ReturnType<typeof createClient>>;
  * the scoresheet, not in the payload — so the guard derives it. The RLS
  * policies (0032) carry the same membership test, which is what covers the
  * writes here that go through the user's own client; this is the half that
- * covers the reads, the admin-client write in `generateGameRecap`, and the
- * refusal happening before any work is done.
+ * covers the reads and the refusal happening before any work is done.
  */
 async function requireGameRole(gameId: string, ...roles: AppRoleList) {
   return requireLeagueRole(
@@ -539,106 +536,6 @@ export async function reopenGame(formData: FormData) {
   const game_id = String(formData.get("game_id"));
   const user = await requireGameRole(game_id, "scorekeeper", "league_manager");
   await reopenGameById(game_id, user.id);
-}
-
-/**
- * Generate an AI game recap using Claude and store it in games.ai_recap.
- * Requires ANTHROPIC_API_KEY env var. Manager-only.
- */
-export async function generateGameRecap(formData: FormData) {
-  const game_id = String(formData.get("game_id"));
-  // The recap is saved on the ADMIN client, so RLS does not stand behind this
-  // one — the guard is the whole of it.
-  const user = await requireGameRole(game_id, "league_manager");
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured.");
-
-  const supabase = await createClient();
-  const admin = createAdminClient();
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: gameRaw } = await (supabase as any)
-    .from("games")
-    .select(
-      "id, scheduled_at, home_goals, away_goals, home_team_id, away_team_id, " +
-        "home_team:teams!games_home_team_id_fkey(name), " +
-        "away_team:teams!games_away_team_id_fkey(name)",
-    )
-    .eq("id", game_id)
-    .eq("status", "final")
-    .maybeSingle();
-  if (!gameRaw) throw new Error("Game not found or not final.");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const g = gameRaw as any;
-
-  const { data: rosters } = await supabase
-    .from("game_rosters")
-    .select("team_id, player_id, goals, assists, pim, is_substitute")
-    .eq("game_id", game_id);
-
-  const playerIds = (rosters ?? [])
-    .filter((r) => r.player_id && !r.is_substitute)
-    .map((r) => r.player_id!);
-
-  const { data: players } = playerIds.length
-    ? await supabase
-        .from("players")
-        .select("id, first_name, last_name")
-        .in("id", playerIds)
-    : { data: [] };
-
-  const nameOf = new Map(
-    (players ?? []).map((p) => [p.id, `${p.first_name} ${p.last_name}`]),
-  );
-
-  const lines = (rosters ?? [])
-    .filter((r) => r.player_id && !r.is_substitute)
-    .map((r) => {
-      const teamName =
-        r.team_id === g.home_team_id ? g.home_team.name : g.away_team.name;
-      return `${nameOf.get(r.player_id!) ?? "Unknown"} (${teamName}): ${r.goals}G ${r.assists}A ${r.pim}PIM`;
-    });
-
-  const prompt = [
-    `Write a short, energetic 2-3 sentence game recap for a recreational adult hockey league.`,
-    `Game: ${g.away_team?.name} at ${g.home_team?.name}`,
-    `Final score: ${g.away_team?.name} ${g.away_goals} – ${g.home_team?.name} ${g.home_goals}`,
-    lines.length ? `Player stats:\n${lines.join("\n")}` : "",
-    `Keep it fun and casual. No filler phrases like "In a thrilling matchup".`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const { default: Anthropic } = await import("@anthropic-ai/sdk");
-  const client = new Anthropic({ apiKey });
-  const msg = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 300,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const recap =
-    msg.content.length > 0 && msg.content[0].type === "text"
-      ? msg.content[0].text.trim()
-      : "";
-  if (!recap) throw new Error("AI returned empty recap.");
-
-  const { error } = await admin
-    .from("games")
-    .update({ ai_recap: recap })
-    .eq("id", game_id);
-  if (error) throw new Error(`Save recap failed: ${error.message}`);
-
-  void logAudit({
-    user_id: user.id,
-    action: "generate_recap",
-    entity_type: "game",
-    entity_id: game_id,
-  });
-
-  revalidateAfterScore(game_id, true);
-  revalidatePath("/[league]", "page");
 }
 
 // --- Game-day status changes (scorekeeper / manager): cancel, postpone, etc. ---

@@ -480,7 +480,7 @@ export default async function SchedulePage({
                 ⛔ CANCELLED BELONGS WITH UPCOMING, NOT WITH RESULTS. A
                 cancelled game is a fixture that is not happening — it has no
                 result to file under — and this section is the only route to
-                `restoreGame` (`7fda0e3`, and `05-scoring` reaches it through
+                `restoreGame` (`7fda0e3`, and `05-scoring-night` reaches it through
                 here). Filing it under Results would lose that a second time.
               */}
               {cancelled.length > 0 ? (

@@ -1,3 +1,4 @@
+/** Signing in and out: the dev panel, a claimless token, passwords and the reset mail. */
 /**
  * Path 6: Auth — login and session management.
  */
@@ -13,10 +14,30 @@ function admin() {
   );
 }
 
+type Role =
+  | "Manager"
+  | "Scorekeeper"
+  | "Captain"
+  | "One-league mgr"
+  | "One-league scorer"
+  | "No-league mgr"
+  | "Commissioner"
+  | "Deputy";
+
+/** Dev-panel sign-in. A scorekeeper lands on `/tonight`, everyone else on the picker. */
+async function signInAs(page: Page, role: Role, then?: string) {
+  await page.goto("/login");
+  await page.getByRole("button", { name: role, exact: true }).click();
+  await page.waitForURL(
+    role === "Scorekeeper" || role === "One-league scorer" ? "/tonight" : "/",
+  );
+  if (then) await page.goto(then);
+}
+
 /**
  * Rewrite a hidden input, then PROVE it stuck before submitting.
  *
- * The same helper and the same reason as `16-league-membership.spec.ts`: setting
+ * The same helper and the same reason as `09-access.spec.ts`: setting
  * `.value` before hydration lands is undone when React takes over, and the form
  * posts its original value — so on a slow runner the tamper never happened and
  * the test passes for the wrong reason.
@@ -54,27 +75,87 @@ async function accessTokenClaims(page: Page) {
   };
 }
 
-async function signedInAs(
+// Mailpit, from `[inbucket] port` in supabase/config.toml.
+const MAIL = "http://127.0.0.1:54324/api/v1";
+
+/**
+ * ⚠️ `networkidle` BEFORE THE FIRST CLICK, and it is not padding. The password
+ * form's submit is a server action: pre-hydration React posts the form for real,
+ * so a click landing in that window behaves differently from one after it. The
+ * earlier client-dispatcher version of this form silently ate the submit there —
+ * see `login-form.tsx` — and this wait is what makes the test drive the state a
+ * user reaches, rather than the race.
+ */
+async function signInWithPassword(
   page: Page,
-  role: "Manager" | "Scorekeeper" | "Captain",
+  email: string,
+  password: string,
 ) {
   await page.goto("/login");
-  await page.getByRole("button", { name: role }).click();
-  // ⚠️ THE LANDING IS ROLE-DEPENDENT NOW. Everyone still lands on the league
-  // picker, except a scorekeeper, who lands on `/tonight`. The two
-  // explicit "Manager" sign-ins further down this file are unaffected, and
-  // their assertions about the picker still hold.
-  await page.waitForURL(role === "Scorekeeper" ? "/tonight" : "/");
-  await page.goto("/obhl/dashboard");
+  await page.waitForLoadState("networkidle");
+  // ⚠️ BY ID, NOT BY ORDER. `/login` has two "Email" fields — the magic link's
+  // and this one — and `getByLabel("Email").last()` would silently start driving
+  // the magic-link form the day the blocks are reordered, failing every test
+  // here with a message about none of that.
+  await page.locator("#password-email").fill(email);
+  await page.locator("#password").fill(password);
+  await page.getByRole("button", { name: "Sign in with password" }).click();
 }
 
-async function signOut(page: Page) {
-  await page.getByRole("button", { name: "Sign out" }).click();
-  // The league's public home, not `/login`. See `signOut` in
-  // `lib/actions/auth.ts` and `e2e/26-sign-out-destination.spec.ts`, which owns
-  // the destination rules including the fallback and the tampered-slug case.
-  await page.waitForURL("/obhl");
+/**
+ * The newest message addressed to `email`, waited for.
+ *
+ * ⚠️ POLLED AND FILTERED BY RECIPIENT. Reading `messages[0]` straight after the
+ * click assumes Mailpit has already ingested the mail and that nothing else
+ * landed in the gap — an assumption that reddens a run for nothing the code did.
+ * `/api/v1/search?query=to:<address>` is Mailpit's own filter; verified against
+ * the running container rather than taken from documentation.
+ */
+async function newestMailIdFor(email: string): Promise<string> {
+  const url = `${MAIL}/search?query=${encodeURIComponent(`to:${email}`)}`;
+  let id: string | null = null;
+  await expect
+    .poll(
+      async () => {
+        const list = await (await fetch(url)).json();
+        id = list.messages?.[0]?.ID ?? null;
+        return id;
+      },
+      { message: `no mail for ${email} arrived` },
+    )
+    .not.toBeNull();
+  return id!;
 }
+
+const signOut = (page: Page) => page.getByRole("button", { name: "Sign out" });
+
+/**
+ * ⛔ THE ORDER OF THE THREE ASSERTIONS BELOW IS LOAD-BEARING, and getting it
+ * wrong makes a test that passes against the OLD behaviour. Every one of these
+ * matchers retries, so any of them evaluated against the page the browser has
+ * not left yet passes instantly:
+ *
+ *   - `toHaveURL("/")` after signing out FROM `/` is already true, always;
+ *   - so is "the picker heading is visible", for the same reason.
+ *
+ * The sign-out button disappearing is the one condition that cannot be true
+ * before the navigation, whatever the destination — so it goes first, and the
+ * other two are only read once it holds. Watched: with the assertions in the
+ * other order, the picker test passed against the `/login` redirect this change
+ * replaces.
+ */
+async function assertLandedSignedOutOn(
+  page: Page,
+  url: string,
+  heading: string,
+) {
+  await expect(signOut(page)).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+  await expect(page).toHaveURL(url);
+}
+
+const PICKER = ["/", "Choose your league"] as const;
+const LEAGUE_HOME = ["/obhl", "Oceanview Beer Hockey League"] as const;
 
 test.describe("Path 6 — Auth / Login / Session", () => {
   test("dev quick sign-in lands on the league picker, not a dead /dashboard", async ({
@@ -87,251 +168,8 @@ test.describe("Path 6 — Auth / Login / Session", () => {
       page.getByRole("heading", { name: "Choose your league" }),
     ).toBeVisible();
   });
-
-  test("the manage dashboard shows the manager's tools", async ({ page }) => {
-    await signedInAs(page, "Manager");
-    await expect(page.getByRole("heading", { name: "Manage" })).toBeVisible();
-    await expect(page.getByText("People & Roles").first()).toBeVisible();
-    await expect(page.getByText("Seasons").first()).toBeVisible();
-  });
-
-  test("sign out returns to the league's public home, not the sign-in screen", async ({
-    page,
-  }) => {
-    await signedInAs(page, "Manager");
-    await signOut(page);
-    await expect(page).toHaveURL("/obhl");
-    await expect(
-      page.getByRole("heading", { name: "Oceanview Beer Hockey League" }),
-    ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
-  });
-
-  test("unauthenticated access to a manage route redirects to /login", async ({
-    page,
-  }) => {
-    await page.goto("/obhl/seasons");
-    await expect(page).toHaveURL(/\/login/);
-  });
-
-  test("scorekeeper dashboard shows Score Games card but not People & Roles", async ({
-    page,
-  }) => {
-    await signedInAs(page, "Scorekeeper");
-    await expect(page.getByText("Score Games").first()).toBeVisible();
-    // People & Roles card should not appear on a scorekeeper dashboard
-    const peopleCard = page.locator('[data-slot="card-title"]', {
-      hasText: "People & Roles",
-    });
-    await expect(peopleCard).not.toBeVisible();
-  });
-
-  test("captain dashboard shows team card", async ({ page }) => {
-    await signedInAs(page, "Captain");
-    await expect(page.getByText(/captain the/i)).toBeVisible();
-  });
 });
 
-/**
- * The role badge specifically, not the word anywhere on the page. As a bare
- * `getByText("Manager")` this matched any future content containing the word —
- * a staff name, an announcement — so the absence assertions below would have
- * started failing on unrelated copy.
- */
-const badge = (page: Page) =>
-  page.locator('[data-slot="badge"]', { hasText: "Manager" });
-
-/**
- * The chrome. A signed-in manager used to see exactly what a stranger saw on
- * every public page — no badge, no way out — which is the confusion the account
- * cluster exists to end. There is now ONE header for every page under
- * `/<league>`; `e2e/27-one-chrome.spec.ts` owns that claim, and this block keeps
- * the account half of it.
- */
-test.describe("Path 6b — Auth-aware chrome", () => {
-  test("a signed-in manager carries their badge onto the public site", async ({
-    page,
-  }) => {
-    await page.goto("/login");
-    await page.getByRole("button", { name: "Manager" }).click();
-    await page.waitForURL("/");
-
-    // The picker: the page sign-in actually lands on, and the one page with no
-    // league in its URL.
-    await expect(badge(page)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
-
-    // A public league page: same header, plus the staff link row beneath it.
-    await page.goto("/obhl/standings");
-    await expect(badge(page)).toBeVisible();
-    const staff = page.getByRole("navigation", { name: "Staff tools" });
-    await expect(staff).toBeVisible();
-    await expect(staff.getByRole("link", { name: "Seasons" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
-  });
-
-  test("an anonymous visitor sees none of it", async ({ page }) => {
-    for (const url of ["/", "/obhl/standings"]) {
-      await page.goto(url);
-      await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(
-        0,
-      );
-      await expect(badge(page)).toHaveCount(0);
-      await expect(
-        page.getByRole("navigation", { name: "Staff tools" }),
-      ).toHaveCount(0);
-    }
-  });
-
-  test("the public header does not overflow at md, signed in or out", async ({
-    page,
-  }) => {
-    // `md` is where the inline nav appears and where the bar has always been at
-    // its tightest — see the measurement in `site-header.tsx`. Signed in the
-    // links drop to their own row instead of sharing it with the account
-    // controls, which is what keeps this true.
-    //
-    // Measured on the BAR, not on the document. The document is the weaker
-    // subject: `NavLinks` carries `overflow-x-auto`, and an overflowing flex
-    // item with its own scroller can absorb the excess by clipping its links
-    // rather than pushing the page sideways — which is the mechanism
-    // `manage-nav.tsx` documents. The bar's own `scrollWidth` sees the overflow
-    // either way.
-    //
-    // Controlled 2026-09-05: with the signed-in class strings reverted to `md:`,
-    // this fails on the signed-in leg. It is not a check that cannot fail.
-    //
-    // ⚠️ The ANONYMOUS leg has no such demonstration, and cannot easily have one:
-    // anonymous is the state the layout was already sized for, so there is no
-    // edit that makes it overflow without changing what it is testing. Read it as
-    // a regression guard on a measured-good state, not as a proven-sensitive
-    // assertion.
-    // Three subjects, because each can absorb what the one above it would show.
-    // The document is the weakest: the bar can overflow while the page does not.
-    // The bar is stronger, but `NavLinks` is an `overflow-x-auto` scroller, and a
-    // scroll container contributes zero min-content — so its wrapper can shrink
-    // to nothing and CLIP THE LINKS while the bar still reports no overflow.
-    // Asserting on the nav's own scroller is what closes that.
-    //
-    // ⛔ THE NAV TERM USED TO BE VACUOUS FOR A SIGNED-IN VIEWER, and that is why
-    // it is written out at this length. `SiteHeader` renders `NavLinks` TWICE —
-    // once inside the bar behind `hidden lg:block`, once below it behind
-    // `lg:hidden` — and exactly one is ever displayed. A bare
-    // `querySelector("header nav")` takes the FIRST, so signed in below `lg` it
-    // took the `display:none` one, measured 0 <= 0, and passed without looking at
-    // anything.
-    //
-    // ⚠️ BUT "assert over every visible nav" IS THE WRONG REPAIR, and measuring
-    // says so. Watched 2026-09-06, `scrollWidth/clientWidth` of the visible nav:
-    //
-    //             in the bar        below the bar
-    //   anon 1280   444/444           (hidden)
-    //   anon  768   444/444           (hidden)
-    //   anon  390   (hidden)          444/374   ← scrolls, by design
-    //   member 768  (hidden)          752/752
-    //   member 390  (hidden)          444/374   ← scrolls, by design
-    //
-    // The row below the bar is a full-width scroller and is MEANT to scroll on a
-    // phone; asserting it never does would pin a false claim. The two navs are
-    // different subjects and get different assertions:
-    //
-    //   in the bar — a flex item competing with the account cluster, so its
-    //     wrapper can be squeezed and clip. `scrollWidth <= clientWidth`.
-    //   below the bar — has the full width, so what matters is that it does not
-    //     take MORE than the viewport. `clientWidth <= documentElement`.
-    //
-    // `visible` is required to be non-empty so the whole term cannot go quiet
-    // again if both class strings change at once.
-    const fits = () =>
-      page.evaluate(() => {
-        const bar = document.querySelector("header > div");
-        if (!bar) throw new Error("header bar not found");
-        const visible = [...document.querySelectorAll("header nav")].filter(
-          (n) => n.clientWidth > 0,
-        );
-        if (visible.length === 0)
-          throw new Error("no VISIBLE header nav — the term would be vacuous");
-        const inBar = visible.filter((n) => bar.contains(n));
-        const belowBar = visible.filter((n) => !bar.contains(n));
-        const doc = document.documentElement;
-        return (
-          bar.scrollWidth <= bar.clientWidth &&
-          inBar.every((n) => n.scrollWidth <= n.clientWidth) &&
-          belowBar.every((n) => n.clientWidth <= doc.clientWidth) &&
-          doc.scrollWidth <= doc.clientWidth
-        );
-      });
-
-    await page.setViewportSize({ width: 768, height: 800 });
-    await page.goto("/obhl/standings");
-    expect(await fits()).toBe(true);
-
-    await page.goto("/login");
-    await page.getByRole("button", { name: "Manager" }).click();
-    await page.waitForURL("/");
-    await page.goto("/obhl/standings");
-    expect(await fits()).toBe(true);
-    await expect(badge(page)).toBeVisible();
-
-    // ⚠️ RE-MEASURED, not assumed. This bar now draws on the STAFF pages too —
-    // the second header that used to serve them is gone — and a staff page is
-    // where the widest link set lives. The bar itself is unchanged and the staff
-    // row sits BELOW it, outside `<header>`, so `fits()` still measures the same
-    // three subjects it always did; this leg is what demonstrates that rather
-    // than asserting it. Measured 2026-09-06: true at 768px on the dashboard and
-    // on the ten-link manager pages.
-    for (const url of ["/obhl/dashboard", "/obhl/seasons"]) {
-      await page.goto(url);
-      await expect(
-        page.getByRole("navigation", { name: "Staff tools" }),
-      ).toBeVisible();
-      expect(await fits()).toBe(true);
-    }
-
-    // ── 390px: the staff row, which `fits()` above does NOT see ──────────────
-    //
-    // ⛔ THIS LEG HAS A CONTROL AND IT CAUGHT A REAL DEFECT. `fits()` measures
-    // the header bar, the header's nav, and the document. The staff row lives
-    // outside `<header>`, so only the DOCUMENT term can see it — and at 768px
-    // there is enough room that it never does.
-    //
-    // At 390px it does. Watched 2026-09-06 with the row's scroller as plain
-    // `min-w-0` (no `flex-1`): `documentElement` 399/390 signed in, because both
-    // flex children shrank in proportion and the league switcher's wrapper was
-    // handed 55px while `LeagueSwitcher` puts its `min-w-[5rem]` floor on the
-    // SELECT — which then painted to x=399. An anonymous visitor measured
-    // 390/390 on the same URLs, which is the control: the row is the difference.
-    //
-    // Both signed-in states are asserted because they differ in what the row
-    // holds: a member of two leagues gets the switcher, and it is the switcher
-    // that overflowed.
-    //
-    // ⚠️ RE-CONTROLLED 2026-09-06 after `fits()` was rewritten to stop measuring
-    // a `display:none` nav: reverting the row's scroller to plain `min-w-0` turns
-    // THIS leg red again, and restoring `flex-1` turns it green. The term that
-    // catches it is the DOCUMENT one — the staff row is not inside `<header>`, so
-    // no nav term sees it — which is exactly why the document term is still here
-    // after the nav terms were tightened.
-    await page.setViewportSize({ width: 390, height: 800 });
-    // ⚠️ A TEAM PAGE IS IN THIS LOOP SINCE 2026-09-11. The roster's Goalies
-    // section is the widest table in the app — thirteen columns before six of
-    // them drop below `sm` — and it landed on a page this guard had never
-    // measured. The other two URLs are about the staff row; this one is about
-    // the table under it.
-    for (const url of [
-      "/obhl/standings",
-      "/obhl/seasons",
-      "/obhl/teams/sharks",
-    ]) {
-      await page.goto(url);
-      await expect(
-        page.getByRole("navigation", { name: "Staff tools" }),
-      ).toBeVisible();
-      await expect(page.getByLabel("Select league")).toBeVisible();
-      expect(await fits()).toBe(true);
-    }
-  });
-});
 /**
  * Path 6b: the role LOCKOUT — an account whose token carries no role claim.
  *
@@ -459,49 +297,207 @@ test.describe("Path 6b — a session with no role claim", () => {
 });
 
 /**
- * ⛔ `/login` STILL OFFERS THE MAGIC LINK, and must never stop.
+ * Path 24: the password half of auth — sign in, set your own, and the landing
+ * that hands out the link.
  *
- * This test used to assert the opposite of half of itself — no password field at
- * all — because no staff account had a password and a password-primary login
- * page would have locked every real user out. The self-serve flow now exists
- * (`sendPasswordReset` → `/auth/confirm?next=/set-password` →
- * `updateOwnPassword`), so a password field is allowed; what is NOT allowed is
- * it becoming the only door. The link is the path that works with no JavaScript
- * and for the accounts that have no password, which is still most of them.
+ * ⛔ NOTHING SEEDED IS TOUCHED. Every seeded account's password is `hockey123`
+ * and `devSignIn` hardcodes it, so a test that changed one and then failed
+ * before restoring it would break the quick sign-in every other spec uses. This
+ * one makes its own auth user and deletes it, so the fixture cannot be dirtied
+ * by a red step.
+ *
+ * ⚠️ WHAT THIS CANNOT PROVE: that a reset email arrives on PRODUCTION. The last
+ * test here drives the whole loop against the local stack — request, read the
+ * real message out of Mailpit, open the link, set a password — which covers
+ * every hop except the one that needs the project's SMTP and a verified sending
+ * domain. That hop is dashboard work and is not reachable from a test.
  */
-test("login offers the magic link first, with the password path as a fallback", async ({
-  page,
-}) => {
-  await page.goto("/login");
-  await expect(
-    page.getByRole("button", { name: "Send magic link" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Sign in with password" }),
-  ).toBeVisible();
-  // The way to GET a password. Without it the field is a door with no key.
-  await expect(
-    page.getByRole("link", { name: "Set or reset your password" }),
-  ).toBeVisible();
+test.describe("Path 24 — password sign-in", () => {
+  const EMAIL = `password-path-${Date.now()}@obhl.test`;
+  const PASSWORD = "hockey12345";
+  let userId = "";
+
+  test.describe.configure({ mode: "serial" });
+
+  test.beforeAll(async () => {
+    const db = admin();
+    const { data, error } = await db.auth.admin.createUser({
+      email: EMAIL,
+      password: PASSWORD,
+      email_confirm: true,
+    });
+    if (error) throw new Error(`createUser: ${error.message}`);
+    userId = data!.user!.id;
+  });
+
+  /**
+   * ⛔ AUDIT ROWS FIRST. `audit_log.user_id` references `auth.users` with no
+   * cascade, so once this account has logged a password change, deleting it fails
+   * — and `deleteUser`'s error is a returned value, not a throw, so the failure
+   * would be silent and the account would outlive the test. Asserted, because a
+   * cleanup that quietly does nothing is how a fixture rots.
+   */
+  test.afterAll(async () => {
+    if (!userId) return;
+    const db = admin();
+    await db.from("audit_log").delete().eq("user_id", userId);
+    const { error } = await db.auth.admin.deleteUser(userId);
+    expect(error, "the test account must not outlive the test").toBeNull();
+  });
+
+  test("signs in with a password and lands on the league picker", async ({
+    page,
+  }) => {
+    await signInWithPassword(page, EMAIL, PASSWORD);
+    await expect(page).toHaveURL("/");
+  });
+
+  test("refuses a wrong password without saying which half was wrong", async ({
+    page,
+  }) => {
+    await signInWithPassword(page, EMAIL, "wrongwrongwrong");
+    await expect(page.getByRole("status")).toContainText("do not match");
+    // No oracle: the same sentence for an address with no account at all.
+    await signInWithPassword(page, `nobody-${Date.now()}@obhl.test`, PASSWORD);
+    await expect(page.getByRole("status")).toContainText("do not match");
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test("sets its own password on the session, and the new one works", async ({
+    page,
+  }) => {
+    await signInWithPassword(page, EMAIL, PASSWORD);
+    await expect(page).toHaveURL("/");
+
+    await page.goto("/set-password");
+    await page.getByLabel("New password").fill("hockey54321");
+    await page.getByRole("button", { name: "Set password" }).click();
+    await expect(page.getByRole("status")).toContainText("Password set");
+
+    await page.context().clearCookies();
+    await signInWithPassword(page, EMAIL, "hockey54321");
+    await expect(page).toHaveURL("/");
+
+    // ⛔ THE AUDIT ENTRY, ASSERTED RATHER THAN ASSUMED. `logAudit` swallows every
+    // error by design, so a broken insert here is invisible in the app and would
+    // never fail a test that only drove the UI.
+    const { data: entries } = await admin()
+      .from("audit_log")
+      .select("action, entity_type, entity_id, new_data")
+      .eq("entity_id", userId)
+      .eq("action", "set_own_password");
+    expect(
+      entries?.length,
+      "the password change must be logged",
+    ).toBeGreaterThan(0);
+    expect(entries![0].entity_type).toBe("office");
+    // Never the password itself — the entries are read on the admin client.
+    expect(JSON.stringify(entries![0].new_data)).not.toContain("hockey54321");
+  });
+
+  /**
+   * The whole loop, through a real message.
+   *
+   * ⛔ THE HOP THIS EXISTS FOR is `redirectTo` surviving into the email and back
+   * out of `/auth/confirm`. Measured on 2026-09-05: the mail carries
+   * `redirect_to=…%2Fauth%2Fconfirm%3Fnext%3D%2Fset-password`, the browser lands
+   * on `/auth/confirm?code=…&next=%2Fset-password`, and the route redirects to
+   * `/set-password`. ⚠️ Note the PKCE `code` — there is NO `type` parameter, so
+   * `/auth/confirm` cannot tell a recovery link from a magic link, which is why
+   * the landing page has to be named in the query rather than inferred.
+   *
+   * ⛔ AND WHY THAT MATTERS OFF THIS MACHINE: a `redirectTo` that is not on
+   * Supabase's allow-list is refused SILENTLY — measured, no error — and the mail
+   * points at the Site URL instead, so the person lands signed-in on `/` with the
+   * token spent. Locally this passes only because `config.toml` allows
+   * `http://localhost:3000/**`. This test is green here and says nothing about
+   * production's allow-list.
+   *
+   * Skips rather than fails when the local mail API is not answering: the port is
+   * `[inbucket] port` from `supabase/config.toml`, and a red run on an assumption
+   * about someone's environment is worse than a gap that announces itself.
+   */
+
+  test("the emailed link lands on /set-password and finishes the flow", async ({
+    page,
+  }) => {
+    const reachable = await fetch(`${MAIL}/messages`).then(
+      (r) => r.ok,
+      () => false,
+    );
+    test.skip(
+      !reachable,
+      `no local mail API at ${MAIL} — skipping the mail loop`,
+    );
+
+    await page.context().clearCookies();
+    await page.goto("/set-password");
+    await page.waitForLoadState("networkidle");
+    await page.getByLabel("Email").fill(EMAIL);
+    await page.getByRole("button", { name: "Email me a link" }).click();
+    await expect(page.getByRole("status")).toContainText("on its way");
+
+    const id = await newestMailIdFor(EMAIL);
+    const msg = await (await fetch(`${MAIL}/message/${id}`)).json();
+    const body = (msg.Text ?? "") + (msg.HTML ?? "");
+    const link = body
+      .match(/https?:\/\/[^\s"'<>)]+verify[^\s"'<>)]*/)?.[0]
+      ?.replace(/&amp;/g, "&");
+    expect(link, "the reset mail must carry a verify link").toBeTruthy();
+    expect(link, "…which must name the landing page").toContain(
+      encodeURIComponent("/auth/confirm?next=/set-password"),
+    );
+
+    await page.goto(link!);
+    await expect(page).toHaveURL(/\/set-password$/);
+    await page.getByLabel("New password").fill("mailloop12345");
+    await page.getByRole("button", { name: "Set password" }).click();
+    await expect(page.getByRole("status")).toContainText("Password set");
+
+    // The password the loop just set is the one that works.
+    await page.context().clearCookies();
+    await signInWithPassword(page, EMAIL, "mailloop12345");
+    await expect(page).toHaveURL("/");
+  });
 });
 
 /**
- * The recovery landing, reached without a link.
+ * Where signing out LANDS you.
  *
- * ⚠️ A sessionless visit offers the REQUEST form, not an error: the same URL is
- * both halves of the flow. What it must not do is offer a password field that
- * has no session to write through. The signed-in half needs a real recovery
- * email and cannot be driven from here.
+ * It used to be `/login` — the email-entry screen — which reads as a failed
+ * sign-out rather than a finished one: the person deliberately left, and the app
+ * answered by asking them to come back. The destination is now the public home
+ * of the league they were in, and `/` when there is no league in context.
+ *
+ * ⛔ The slug arrives from the CLIENT, as a hidden field on the sign-out form,
+ * and becomes a redirect target. The third test is the one that matters: a slug
+ * that does not resolve must land on `/`, not on whatever was posted.
  */
-test("/set-password offers a fresh link when there is no recovery session", async ({
-  page,
-}) => {
-  await page.goto("/set-password");
-  await expect(
-    page.getByRole("heading", { name: "Set your password" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Email me a link" }),
-  ).toBeVisible();
-  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+test.describe("Sign-out destination", () => {
+  test("from a league page it lands on that league's public home", async ({
+    page,
+  }) => {
+    await signInAs(page, "Manager");
+    await page.goto("/obhl/standings");
+    await signOut(page).click();
+
+    await assertLandedSignedOutOn(page, ...LEAGUE_HOME);
+  });
+
+  test("a posted slug that does not resolve lands on / rather than on itself", async ({
+    page,
+  }) => {
+    await signInAs(page, "Manager");
+    await page.goto("/obhl");
+    // Rewriting the hidden field is exactly what an attacker controls. The
+    // server has to resolve it rather than trust it.
+    const field = page.locator('form input[name="league"]');
+    await expect(field).toHaveValue("obhl");
+    await field.evaluate((el) => {
+      (el as HTMLInputElement).value = "no-such-league-anywhere";
+    });
+    await signOut(page).click();
+
+    await assertLandedSignedOutOn(page, ...PICKER);
+  });
 });

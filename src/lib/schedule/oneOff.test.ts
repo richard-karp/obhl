@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildBalancedPairings } from "./roundRobin";
-import { assignNights, type Night } from "./assignNights";
+import { assignNights } from "./assignNights";
 import { weekdayOf } from "@/lib/format";
 import {
   planOneOff,
@@ -16,21 +16,7 @@ import {
   type OneOffRow,
 } from "./oneOff";
 import { homeAwaySpread } from "./homeAway";
-
-const SLOTS = ["19:00", "20:15", "21:30"];
-
-/** Two recurring weeknights (Tue + Thu) for `weeks` weeks, chronological. */
-function twoNightsPerWeek(weeks: number): Night[] {
-  const ns: Night[] = [];
-  const base = Date.UTC(2026, 8, 1); // 2026-09-01
-  for (let w = 0; w < weeks; w++) {
-    for (const off of [0, 2]) {
-      const d = new Date(base + (w * 7 + off) * 86400000);
-      ns.push({ date: d.toISOString().slice(0, 10), slots: SLOTS });
-    }
-  }
-  return ns;
-}
+import { twoNightsPerWeek } from "./calendars.test-support";
 
 /**
  * A real generated season, converted to the planner's index-based shape. Eight

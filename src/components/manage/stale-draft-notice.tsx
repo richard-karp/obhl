@@ -33,7 +33,7 @@ export type StaleNotice = {
  * OWNS THE BANNER RATHER THAN SITTING INSIDE ONE. A successful move takes the
  * draft out of the stale state, so a component rendered only while stale
  * unmounts in the same commit its result arrives in — and the `useEffect` that
- * toasts never runs. That is not a theory: `28-schedule-form-state.spec.ts`
+ * toasts never runs. That is not a theory: `11-schedule-build.spec.ts`
  * records the same race for PublishControls' success toast, which "often never
  * renders at all", and the first end-to-end run of this feature reproduced it.
  * Keeping this mounted and returning `null` when there is nothing to say is

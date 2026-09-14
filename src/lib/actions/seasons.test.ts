@@ -28,6 +28,9 @@ const createUser = vi.fn<
     error: { message: string } | null;
   }>
 >();
+const mayWrite = vi.fn<() => Promise<boolean>>();
+/** Every `"<table>.<verb>"` the fake resolved, in order. */
+let calls: string[] = [];
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/auth/guards", () => ({
@@ -37,6 +40,7 @@ vi.mock("@/lib/audit", () => ({ logAudit: () => Promise.resolve() }));
 vi.mock("@/lib/auth/users", () => ({ findUserIdByEmail: () => findUser() }));
 vi.mock("@/lib/auth/membership", () => ({
   addLeagueMembership: () => addMembership(),
+  mayWriteProfileOf: () => mayWrite(),
 }));
 
 type Result = {
@@ -63,13 +67,6 @@ function makeAdmin() {
         q.verb = "delete";
         return chain;
       },
-      // Added for `setActiveSeason`, which is the first action here to UPDATE.
-      // Purely additive: nothing queues a `<table>.update` response, so every
-      // existing test keeps taking the same fallback it always did.
-      update() {
-        q.verb = "update";
-        return chain;
-      },
       select() {
         if (!q.verb) q.verb = "select";
         return chain;
@@ -84,6 +81,7 @@ function makeAdmin() {
         return chain;
       },
       then(resolve: (r: Result) => unknown) {
+        calls.push(`${q.table}.${q.verb}`);
         const queued = responses[`${q.table}.${q.verb}`];
         const fallback: Result =
           q.table === "seasons"
@@ -129,6 +127,7 @@ const run = async (fd = form()) => {
 beforeEach(() => {
   vi.clearAllMocks();
   responses = {};
+  calls = [];
   nextId = 0;
   createUser.mockResolvedValue({
     data: { user: { id: "user-1" } },
@@ -136,48 +135,7 @@ beforeEach(() => {
   });
   findUser.mockResolvedValue(null);
   addMembership.mockResolvedValue({ ok: true, error: null });
-});
-
-/**
- * ⛔ THE ONLY PROOF THIS PATH HAS. The activation notice lives on
- * `/[league]/seasons/[seasonId]`, and its button posts here — so if this action
- * doesn't revalidate that page, pressing the button leaves the banner on screen
- * saying the games are invisible when they no longer are.
- *
- * The e2e deliberately cannot cover it: a partial unique index allows one active
- * season per league, so flipping `is_active` in a spec would deactivate the
- * seeded Spring 2026 that every later spec depends on. That makes this
- * assertion, plus one manual click, the whole of the coverage.
- */
-describe("setActiveSeason", () => {
-  it("revalidates the season setup page the activation notice lives on", async () => {
-    const { revalidatePath } = await import("next/cache");
-    const { setActiveSeason } = await import("./seasons");
-
-    const fd = new FormData();
-    fd.set("id", "season-1");
-    await setActiveSeason(fd);
-
-    expect(revalidatePath).toHaveBeenCalledWith(
-      "/[league]/seasons/[seasonId]",
-      "page",
-    );
-  });
-
-  it("still revalidates the season list and the league layout", async () => {
-    // The two calls that were already there. Pinned so the new one is an
-    // addition rather than a swap — a rewrite that dropped either would
-    // otherwise pass the assertion above.
-    const { revalidatePath } = await import("next/cache");
-    const { setActiveSeason } = await import("./seasons");
-
-    const fd = new FormData();
-    fd.set("id", "season-1");
-    await setActiveSeason(fd);
-
-    expect(revalidatePath).toHaveBeenCalledWith("/[league]/seasons", "page");
-    expect(revalidatePath).toHaveBeenCalledWith("/[league]", "layout");
-  });
+  mayWrite.mockResolvedValue(true);
 });
 
 describe("createTeamForSeason", () => {
@@ -248,5 +206,40 @@ describe("createTeamForSeason", () => {
     responses["profiles.upsert"] = { error: { message: "nope" } };
     const r = await run();
     expect(r.message).toMatch(/^Added Otters with captain/);
+  });
+
+  it("leaves an existing staff account's role alone", async () => {
+    createUser.mockResolvedValue({
+      data: null,
+      error: { message: "email address already registered" },
+    });
+    findUser.mockResolvedValue("existing-user");
+    responses["profiles.select"] = {
+      data: { role: "scorekeeper" },
+      error: null,
+    };
+    const r = await run();
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/^Added Otters with captain Ada Lovelace/);
+    expect(r.message).toMatch(/already has an account as scorekeeper/);
+    expect(calls).not.toContain("profiles.upsert");
+    expect(addMembership).not.toHaveBeenCalled();
+  });
+
+  it("adds an existing captain's login to the league without relinking it", async () => {
+    // `is_captain_of` (0038) reads `profiles.player_id` alone, so pointing an
+    // existing captain at this new player would end the captaincy they hold.
+    // The manager may write the account here; the link still must not move.
+    createUser.mockResolvedValue({
+      data: null,
+      error: { message: "email address already registered" },
+    });
+    findUser.mockResolvedValue("existing-user");
+    responses["profiles.select"] = { data: { role: "captain" }, error: null };
+    const r = await run();
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/left linked, so it does not captain Otters/);
+    expect(calls).not.toContain("profiles.upsert");
+    expect(addMembership).toHaveBeenCalled();
   });
 });

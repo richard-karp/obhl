@@ -337,7 +337,8 @@ Each of these cost a review round or a wrong fix in the session that built it.
   matches `.env*`, so `.env.example` is untracked — a note added there is
   invisible to anyone who clones. The value must be set in the Vercel project's
   environment, and locally passed on the command line
-  (`CRON_SECRET=… npm run dev`) for `npm run verify:close-night` to reach the
+  (`CRON_SECRET=… npm run dev`) for `PORT=3101 scripts/e2e-locked.sh
+  e2e/05-scoring-night.spec.ts -g "Closing the night"` to reach the
   route.
 
 - **⚠️ `/tonight` IS NOT A REVERT OF `fbb0802`, AND IT IS NOT CALLED

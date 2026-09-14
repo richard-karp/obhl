@@ -55,22 +55,6 @@ export async function revertAuditEntries(
           await finalizeGameById(entry.entity_id, manager.id);
           break;
 
-        case "generate_recap": {
-          const { error } = await admin
-            .from("games")
-            .update({ ai_recap: null })
-            .eq("id", entry.entity_id);
-          if (error) throw new Error(`Clear recap failed: ${error.message}`);
-          void logAudit({
-            user_id: manager.id,
-            action: "revert_generate_recap",
-            entity_type: "game",
-            entity_id: entry.entity_id,
-          });
-          revalidatePath("/[league]", "page");
-          break;
-        }
-
         case "add_player": {
           // Read from the row rather than the entry. `new_data` may be missing
           // `team_id` on older entries, and that gap used to skip the
