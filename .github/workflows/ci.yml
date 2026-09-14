@@ -44,13 +44,30 @@ jobs:
 
   # e2e needs the real stack: a local Supabase, a seeded database and a dev
   # server. Split from `check` so a type error does not wait on Docker.
+  #
+  # Two machines, each with its own freshly seeded database (measured on #80:
+  # 12m40s on one machine, ~8 min split). No spec reads data another spec
+  # creates. The one ordering rule — 14-schedule-changes must not run before
+  # 05-scoring-night on the same database — holds because they are on different
+  # machines. ⚠️ A spec added later must keep that true: if it reads another
+  # spec's data, put both on the same machine.
+  #
+  # Every spec file must appear in exactly one list, or it silently stops
+  # running. Playwright runs the files in name order, whatever order is given.
   e2e:
-    name: End-to-end tests
+    name: End-to-end tests (${{ matrix.part }})
     runs-on: ubuntu-latest
-    # The suite runs single-worker by design (playwright.config.ts sets
-    # workers: 1, fullyParallel: false) and takes ~10 min locally; add image
-    # pulls for `supabase start` on a cold runner and 30 is uncomfortably tight.
-    timeout-minutes: 45
+    # Single worker per machine (playwright.config.ts sets workers: 1,
+    # fullyParallel: false); a cold runner still pulls the Supabase images.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: 1
+            specs: e2e/02-auth.spec.ts e2e/11-schedule-build.spec.ts e2e/14-schedule-changes.spec.ts
+          - part: 2
+            specs: e2e/01-public.spec.ts e2e/03-season-setup.spec.ts e2e/04-rosters.spec.ts e2e/05-scoring-night.spec.ts e2e/07-staff.spec.ts e2e/09-access.spec.ts e2e/10-roster-changes.spec.ts
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -63,10 +80,11 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # The pinned CLI from devDependencies, not a floating one. `start` applies
-      # the migrations in supabase/migrations, so 0032 has to be on the branch
-      # for the membership tests to have a profile_leagues table to read.
+      # the migrations in supabase/migrations. Only what the app and the suite
+      # use is started: db, auth, rest, kong, storage and Mailpit (02-auth reads
+      # it); nothing uses Realtime, Studio, image transforms or edge functions.
       - name: Start Supabase
-        run: npx supabase start
+        run: npx supabase start -x studio,meta,realtime,imgproxy,edge-runtime,functions,analytics,vector
 
       # Written to .env.local rather than the job env because three separate
       # things read it: playwright.config.ts (via dotenv), `next dev`, and
@@ -95,7 +113,7 @@ jobs:
       - name: Run end-to-end tests
         run: |
           set -o pipefail
-          npm run test:e2e 2>&1 | tee e2e-output.log
+          npx playwright test ${{ matrix.specs }} 2>&1 | tee e2e-output.log
 
       # Why the stack failed, not just which assertion gave up.
       #
@@ -140,7 +158,7 @@ jobs:
         if: failure() || steps.diag.outputs.transient == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.part }}
           path: |
             playwright-report/
             test-results/
