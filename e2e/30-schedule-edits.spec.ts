@@ -71,7 +71,7 @@ async function signedInAs(page: Page, role: "Manager" | "Scorekeeper") {
 /**
  * A signed-in ANON-key client — the same access a browser session has, and the
  * only way this suite can ask what RLS actually permits. Same shape as
- * `16-league-membership.spec.ts`.
+ * `09-access.spec.ts`.
  */
 async function signedInClient(email: string) {
   const client = createClient(

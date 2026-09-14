@@ -464,7 +464,7 @@ test.describe("Path 22 — Roster editing", () => {
     const localName = await playerName(local.player_id);
     const team = await teamName(shared.team_id);
 
-    // Harbor only — 16-league-membership derives the same confinement rather
+    // Harbor only — 09-access derives the same confinement rather
     // than naming it, and for the same reason.
     await signInAs(page, "One-league mgr");
     await openRoster(page, "harbor", team);

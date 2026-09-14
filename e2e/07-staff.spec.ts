@@ -129,7 +129,7 @@ test.describe("Path 14 — People & Roles", () => {
     // Remove IS offered for a manager in general — that is how a second manager
     // account is taken back — but not here: this account is Oceanview's only
     // manager, and removing it would leave the league with nobody able to grant
-    // anyone access to it. See 16-league-membership for the case where a league
+    // anyone access to it. See 09-access for the case where a league
     // has two and the button appears.
     await page.goto("/obhl/people");
 
@@ -242,7 +242,7 @@ test.describe("Path 14 — People & Roles", () => {
    * record.
    *
    * Its own test rather than a line bolted onto another, because it changes how
-   * many managers a league has, and `16-league-membership.spec.ts` reasons about
+   * many managers a league has, and `09-access.spec.ts` reasons about
    * exactly that — for `harbor` in every one of its tests, and its `beforeAll`
    * fails loudly by name if this account is left in two leagues. The grant is
    * undone in `finally`.
@@ -422,7 +422,7 @@ const DEPUTY = "deputy@obhl.test";
 /**
  * Rewrite a hidden input, then PROVE it stuck before anything is submitted.
  *
- * The same helper and the same reason as `16-league-membership.spec.ts`: setting
+ * The same helper and the same reason as `09-access.spec.ts`: setting
  * `.value` before hydration lands is undone when React takes over, and the form
  * posts its original value — which on a slow runner means the attack never
  * happened and the test passes anyway. Never submit an unverified tamper.

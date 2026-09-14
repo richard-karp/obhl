@@ -376,7 +376,7 @@ test.describe("Path 23 — season gating", () => {
 
     // Membership for the account these tests sign in as, and ONLY that account.
     // Granting it to every manager would put the single-league accounts that
-    // `16-league-membership` derives its whole scenario from into two leagues.
+    // `09-access` derives its whole scenario from into two leagues.
     const { data: mgr } = await db
       .from("profiles")
       .select("id")
@@ -561,7 +561,7 @@ test.describe("Path 23 — season gating", () => {
  * Creating a league lives at `/manage/leagues/new`, outside `[league]`.
  *
  * This file exists because the move CHANGED who may reach the page, and the
- * assertion it replaces said the opposite. `16-league-membership` used to list
+ * assertion it replaces said the opposite. `09-access` used to list
  * `/import` among the paths where "a manager of another league is refused" —
  * true while the page sat under `[league]` and guarded with
  * `requireLeagueManager`, and wrong now. The page guards with `requireManager()`,

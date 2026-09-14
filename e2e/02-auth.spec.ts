@@ -37,7 +37,7 @@ async function signInAs(page: Page, role: Role, then?: string) {
 /**
  * Rewrite a hidden input, then PROVE it stuck before submitting.
  *
- * The same helper and the same reason as `16-league-membership.spec.ts`: setting
+ * The same helper and the same reason as `09-access.spec.ts`: setting
  * `.value` before hydration lands is undone when React takes over, and the form
  * posts its original value — so on a slow runner the tamper never happened and
  * the test passes for the wrong reason.
