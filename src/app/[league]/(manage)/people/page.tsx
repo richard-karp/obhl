@@ -154,7 +154,7 @@ export default async function PeoplePage({
         */}
         <SeasonSwitcher ctx={ctx} />
         {/*
-          Here, not in the top nav: a sixth nav link pushes the whole set onto its own row.
+          The only link to the duplicates review: neither `NavLinks` nor the staff row lists it.
         */}
         <Button asChild variant="outline" size="sm">
           <Link href={`/${leagueSlug}/people/duplicates`}>

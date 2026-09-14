@@ -315,9 +315,8 @@ export default async function SchedulePage({
                     {awaitingScore.length === 1 ? "" : "s"} played with no
                     result recorded yet.
                   </p>
-                  {/* Most recent first: the night just gone is the one being
-                      chased, and an older one is a bigger problem the further
-                      down it sits. */}
+                  {/* Most recent first: the night just gone is the one being chased,
+                      and an older one is a bigger problem the further down it sits. */}
                   <GroupedGames
                     groups={awaitingGroups}
                     league={slug}
