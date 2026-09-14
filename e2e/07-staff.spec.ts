@@ -420,6 +420,20 @@ const COMMISSIONER = "commissioner@obhl.test";
 const DEPUTY = "deputy@obhl.test";
 
 /**
+ * Submit and wait for the action to actually finish.
+ *
+ * Every assertion below is about something NOT being written, and a DB read
+ * fired straight after `click()` races the action — it reads "nothing yet"
+ * and the test passes whether the guard is there or not. That is how the
+ * first version of these tests passed against a deliberately broken guard.
+ */
+async function submitAndSettle(page: Page, click: Promise<unknown>) {
+  const posted = page.waitForResponse((r) => r.request().method() === "POST");
+  await click;
+  await posted;
+}
+
+/**
  * Rewrite a hidden input, then PROVE it stuck before anything is submitted.
  *
  * The same helper and the same reason as `09-access.spec.ts`: setting
@@ -593,8 +607,10 @@ test.describe("Path 20 — League Office", () => {
       .locator("form")
       .filter({ has: page.getByLabel("Change role") });
     await tamper(page, roleForm.locator('input[name="id"]'), commissionerId);
-    await roleForm.getByLabel("Change role").selectOption("captain");
-    await page.waitForLoadState("networkidle");
+    await submitAndSettle(
+      page,
+      roleForm.getByLabel("Change role").selectOption("captain"),
+    );
 
     const { data: after } = await db
       .from("profiles")
@@ -621,8 +637,10 @@ test.describe("Path 20 — League Office", () => {
       .locator("form")
       .filter({ has: page.getByRole("button", { name: "Remove" }) });
     await tamper(page, removeForm.locator('input[name="id"]'), commissionerId);
-    await removeForm.getByRole("button", { name: "Remove" }).click();
-    await page.waitForLoadState("networkidle");
+    await submitAndSettle(
+      page,
+      removeForm.getByRole("button", { name: "Remove" }).click(),
+    );
 
     // Still in the office, and still a manager: `removeStaff` refused rather
     // than reporting success having deleted nothing.
@@ -734,8 +752,10 @@ test.describe("Path 20 — League Office", () => {
         .locator("form")
         .filter({ has: page.getByRole("button", { name: "Remove" }) });
       await tamper(page, removeForm.locator('input[name="id"]'), deputyId);
-      await removeForm.getByRole("button", { name: "Remove" }).click();
-      await page.waitForLoadState("networkidle");
+      await submitAndSettle(
+        page,
+        removeForm.getByRole("button", { name: "Remove" }).click(),
+      );
 
       const { data: still } = await db
         .from("profile_leagues")

@@ -356,6 +356,7 @@ test.describe("Path 22 — one-off games", () => {
     const relabel = page.getByText("Nothing to repair");
     await expect(picker.or(relabel)).toBeVisible({ timeout: 30000 });
 
+    const since = new Date(Date.now() - 5_000).toISOString();
     if (await picker.isVisible()) {
       await expect(
         page.getByText(/opponent balance restored/).first(),
@@ -389,7 +390,8 @@ test.describe("Path 22 — one-off games", () => {
       .from("audit_log")
       .select("league_id")
       .eq("action", "schedule_one_off")
-      .eq("entity_id", season!.id);
+      .eq("entity_id", season!.id)
+      .gte("created_at", since);
     expect(entries, "a one-off that landed wrote no audit entry").toHaveLength(1);
     expect(entries![0].league_id).toBe(league!.id);
 
