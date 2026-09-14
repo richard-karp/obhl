@@ -1,10 +1,5 @@
-/**
- * What the rosters-only import REPORTS, and when it redirects instead.
- *
- * ⚠️ The database and the HTML parser are stubbed. This proves which failures
- * get recorded and which block the redirect — nothing about the writes, and
- * nothing about the parser (`esportsdesk.test.ts` covers that).
- */
+// What the rosters-only import reports, and when it redirects. ⚠️ Network and database are
+// stubbed: nothing here proves the writes or the parser (`RUNBOOK.md` → Importer).
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ParsedLeague } from "@/lib/import/esportsdesk";
 
@@ -15,18 +10,11 @@ const addMembership =
   vi.fn<() => Promise<{ ok: boolean; error: string | null }>>();
 const redirected = vi.fn<(path: string, type?: string) => void>();
 
-/**
- * `redirect` THROWS in production — that is the whole reason both actions have
- * to call it outside a `try`. The stub throws too, so a regression that moves it
- * inside one shows up here as a swallowed redirect (the action returning a
- * message instead), which is exactly how it would fail for real.
- */
+// `redirect` throws in production, so the stub throws too: a regression that moves it inside a
+// `try` shows up here as a swallowed redirect.
 class RedirectSignal extends Error {}
 vi.mock("next/navigation", () => ({
-  // ⚠️ BOTH ARGUMENTS. Taking only `path` left `RedirectType.replace` unpinned
-  // — swapping it for `push` survived — and the ⛔ note at the redirect argues
-  // specifically for `replace`, since Back would otherwise land on a blank form
-  // for a league that already exists.
+  // ⚠️ Both arguments, so `RedirectType.replace` is pinned, not only the path.
   redirect: (path: string, type?: string) => {
     redirected(path, type);
     throw new RedirectSignal(path);
@@ -57,15 +45,8 @@ vi.mock("@/lib/import/esportsdesk", async (importOriginal) => {
 type Query = { table: string; verb: string; single: boolean };
 type Result = { data?: unknown; error?: { message: string } | null };
 
-/**
- * Per-test overrides, keyed `"<table>.<verb>"`. Anything unset succeeds.
- *
- * An ARRAY is consumed one entry per call, which is what lets a test fail some
- * of a table's writes and not others. A single object applies to every call.
- * ⛔ Without the array form every "N of M" assertion had N === M, so the
- * denominators in those messages — the number that tells a manager how much
- * they lost — were pinned by nothing.
- */
+// Per-test overrides, keyed `"<table>.<verb>"`; unset calls succeed. ⛔ An array is consumed one
+// entry per call, the only way to fail some writes and pin an "N of M" denominator.
 let responses: Record<string, Result | Result[]> = {};
 /** Ids handed back by inserts, so the action's own bookkeeping stays coherent. */
 let nextId = 0;
@@ -209,19 +190,15 @@ describe("runRosterOnlyImport", () => {
   });
 
   it("does not claim a shortfall when only the membership grant failed", async () => {
-    // ⛔ THE REGRESSION THIS PINS: with the shortfall unconditional, a
-    // membership-only failure read "0 of 2 teams did not import cleanly:"
-    // followed by nothing.
+    // ⛔ With the shortfall unconditional, a grant-only failure read "0 of 2 teams did not
+    // import cleanly:" followed by nothing.
     const { runRosterOnlyImport } = await import("./import-rosters");
     addMembership.mockResolvedValue({ ok: false, error: "rls refused" });
     const r = await run(runRosterOnlyImport);
     expect(r.redirected).toBe(false);
     if (r.redirected) return;
     expect(r.state.message).not.toMatch(/did not import cleanly/);
-    // ⚠️ POSITIVE, not only the negative above. Asserting what the message does
-    // NOT say left `${accessWarning}` unpinned in this file — deleting it kept
-    // every test green, which is the same interpolation bug already fixed twice
-    // in `import.ts`.
+    // ⚠️ Positive as well as negative: only this pins `${accessWarning}` in the message.
     expect(r.state.message).toMatch(/You were NOT added to this league/);
     expect(r.state.canOpen).toBe(false);
     expect(r.state.slug).toBe("new-league");

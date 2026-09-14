@@ -1,22 +1,5 @@
-/**
- * `createTeamForSeason`'s partial outcomes.
- *
- * ⛔ THIS FUNCTION HAD NO COVERAGE OF ANY KIND, which is how a silent skip
- * survived in it: `if (userId) { … }` with no `else` meant a captain whose
- * login could be neither created nor found was passed over without a word, and
- * the team reported as added with a captain who cannot sign in. No e2e drives
- * team-with-captain creation and no unit test existed, so nothing was going to
- * catch it.
- *
- * The function is deliberately full of partial exits — a team without a captain
- * is a valid state, so a captain step failing reports what landed rather than
- * rolling the team back. That design only works if each exit actually reports,
- * which is what this file pins.
- *
- * ⚠️ Same trade as `import.test.ts`: the database and the auth admin API are
- * stubbed, so this proves the branching and nothing about the writes. The fake
- * models the chains this function uses, not supabase-js.
- */
+// `createTeamForSeason` keeps the team when a captain step fails, so every partial exit must
+// report. ⚠️ Database and auth admin API are stubbed: this proves the branching, not the writes.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const findUser = vi.fn<() => Promise<string | null>>();
@@ -166,11 +149,8 @@ describe("createTeamForSeason", () => {
   });
 
   it("reports a captain whose login could be neither created nor found", async () => {
-    // ⛔ THE SILENT SKIP. `if (userId)` with no `else` passed over the whole
-    // captain block here and still returned ok — a team reported as added with
-    // a captain who cannot sign in. `findUserIdByEmail` returns null for a
-    // FAILED `listUsers` exactly as it does for "not there", so any auth
-    // outage lands on this path.
+    // ⛔ `findUserIdByEmail` returns null for a failed `listUsers` as for "not there", so any auth
+    // outage lands here and must not report the captain as added.
     createUser.mockResolvedValue({
       data: null,
       error: { message: "service unavailable" },
@@ -227,9 +207,8 @@ describe("createTeamForSeason", () => {
   });
 
   it("adds an existing captain's login to the league without relinking it", async () => {
-    // `is_captain_of` (0038) reads `profiles.player_id` alone, so pointing an
-    // existing captain at this new player would end the captaincy they hold.
-    // The manager may write the account here; the link still must not move.
+    // `is_captain_of` (0038) reads `profiles.player_id` alone, so relinking an existing captain
+    // here would end the captaincy they hold.
     createUser.mockResolvedValue({
       data: null,
       error: { message: "email address already registered" },

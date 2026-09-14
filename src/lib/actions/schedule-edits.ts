@@ -12,29 +12,8 @@ import { candidatesFor, swap } from "@/lib/schedule/replacePlan";
 import { writeGames } from "@/lib/schedule/writeGames";
 import type { GameWrite } from "@/lib/schedule/gameWrites";
 
-/**
- * Manual schedule edits — every one of them a TRADE.
- *
- * ⛔ THE CONSTRAINT THAT SHAPED THIS FILE, in the user's words: "Total games
- * played and games per night are non-negotiable. Those numbers always have to
- * be even" — even meaning EQUAL. Follow it through and the obvious operations
- * cannot exist: replacing a team leaves one side a game short forever, and
- * moving a game to another night robs the night it left. Only trades preserve
- * both counts, so there are exactly three primitives here and no fourth.
- *
- * ⚠️ These do NOT run the repair. A repair re-optimises the whole schedule
- * against its goals; these leave every soft goal — bye spacing, weekday
- * balance, ice-time share — exactly as the manager left it. Making the schedule
- * worse by those measures is an ALLOWED outcome: two captains agreed to the
- * swap, and the app's job is to keep the two hard numbers true, not to
- * re-impose its own preferences. See the design doc, 2026-09-07.
- *
- * ⛔ NO TRANSACTION. `writeGames` is compensation-only, so a runtime dying
- * between the two rows of an exchange leaves one written — publicly, as a game
- * with a duplicated team. The user was told twice and chose to ship before the
- * 2026-09-10 rebuild. The deferred `pg_advisory_xact_lock` RPC closes it, and
- * these three are its first customers.
- */
+// ⛔ Every edit is a trade: games per team and per night never change, so no replace-a-team or
+// move-to-another-night primitive may exist. Soft goals are left as the manager left them.
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -50,21 +29,8 @@ type SeasonRow = GuardRow & {
   label: string | null;
 };
 
-/**
- * ⛔ THIS WAS WIDER, AND THE WIDENING WAS DEAD CODE. It read
- * `["scheduled", "postponed", "cancelled"]`, matching the user's decision that
- * games carrying no result stay editable. It could never work:
- * `applyGameWrites`'s pre-flight (`gameWrites.ts:246`) refuses any row whose
- * status is not `scheduled` BEFORE this set is ever consulted, so the widened
- * values reached nothing. A cancelled game keeps its date and so reached the
- * picker, where choosing it failed with "The schedule changed while this was on
- * screen" — for good, and for a reason the message never gave.
- *
- * ⚠️ Widening belongs to the schedule-write RPC, which rewrites that pre-flight;
- * doing it here first means writing it twice. Decided with the user 2026-09-07.
- * Until then this is `["scheduled"]` — i.e. `writeGames`'s own default — and it
- * stays named so the RPC work has an obvious place to change.
- */
+// The statuses an edit may rewrite, passed to `writeGames` (the `apply_game_writes` RPC). Named so
+// that widening to games with no result has one place to change.
 const EDITABLE_STATUSES = ["scheduled"] as const;
 
 /** Manager of the league this game belongs to, or the request dies here. */
@@ -75,21 +41,8 @@ async function managerOfGame(gameId: string) {
   );
 }
 
-/**
- * One side of the season, never both.
- *
- * ⛔ A SEASON HOLDS A PUBLISHED SCHEDULE AND A DRAFT AT THE SAME TIME — that is
- * what `publishMode`'s "replace" state IS. Reading the union broke this feature
- * in two directions at once, and both were found in review rather than by a
- * test:
- *
- *   - `legalAfter` saw the same six teams on the same nights in both sets and
- *     refused every edit as a doubleheader the manager could not see.
- *   - `candidatesFor` offered a DRAFT game as the trade partner for a published
- *     one. Writing that pair leaves each set separately unbalanced, while a
- *     union-to-union `preserved` check reports no change — the exact outcome the
- *     whole feature exists to prevent.
- */
+// ⛔ One side of the season, never both: a season in "replace" mode holds a published schedule and
+// a draft, and reading the union refuses every edit and offers cross-set trade partners.
 async function seasonRows(
   admin: Admin,
   seasonId: string,
@@ -105,16 +58,7 @@ async function seasonRows(
   return (data ?? []) as SeasonRow[];
 }
 
-/**
- * Team id → name, for messages a manager can act on.
- *
- * ⚠️ A FAILED READ HERE IS SILENT BY DESIGN, AND THAT IS THE POINT OF THIS
- * COMMENT. Names are cosmetic: every refusal below is still correct without
- * them, just uglier, so a lookup failure must not turn a legal edit into a
- * refusal. But it should not vanish either — `seasonRows` throws on the same
- * condition, and a run where every message names a UUID is worth being able to
- * find in the logs.
- */
+// ⚠️ A failed read only logs: names are cosmetic, so it must not turn a legal edit into a refusal.
 async function namesFor(admin: Admin, seasonId: string) {
   const { data, error } = await admin
     .from("season_teams")
@@ -132,14 +76,8 @@ async function namesFor(admin: Admin, seasonId: string) {
   return (id: string) => map.get(id) ?? id;
 }
 
-/**
- * The check every primitive runs before it writes anything.
- *
- * ⛔ `legalAfter` AND `preserved` RUN FOR ALL THREE, including the ones that do
- * not touch teams. Trading two dates can drop a team onto a night it already
- * plays without changing a single team column; a guard bound to "the operation
- * that changes teams" would leave that door open.
- */
+// ⛔ `legalAfter` and `preserved` run for every primitive: trading dates alone can drop a team onto
+// a night it already plays.
 function refusal(
   rows: SeasonRow[],
   after: SeasonRow[],
@@ -179,10 +117,7 @@ function revalidateSchedule() {
 
 /* ------------------------------------------------------------ the primitives */
 
-/**
- * Two games trade a participant. The write behind BOTH "two teams agreed to
- * switch" and the replace-a-team wizard.
- */
+/** Two games trade a participant: "two teams agreed to switch" and the replace-a-team wizard. */
 export async function exchangeTeams(input: {
   gameX: string;
   teamOutX: string;
@@ -210,12 +145,8 @@ export async function exchangeTeams(input: {
     };
   }
 
-  // ⛔ VALIDATE MEMBERSHIP BEFORE SWAPPING. `swap` returns the row UNCHANGED
-  // when the team is on neither side, so a pair of bad ids makes both edits
-  // no-ops: `after` equals `rows`, every check passes trivially, each row is
-  // written back to itself, and the action reports success with an audit entry
-  // claiming a trade that never happened. `candidatesFor` has this check; the
-  // action that actually writes did not.
+  // ⛔ Check membership before swapping: `swap` returns a row unchanged for a team on neither side,
+  // so bad ids write no-ops and audit a trade that never happened.
   const inGame = (r: SeasonRow, t: string) =>
     r.home_team_id === t || r.away_team_id === t;
   if (!inGame(x0, input.teamOutX) || !inGame(y0, input.teamOutY)) {
@@ -291,16 +222,8 @@ export async function exchangeSlots(input: {
   }
   if (x0.id === y0.id)
     return { ok: false, message: "Pick two different games." };
-  // ⛔ THE SAME REFUSAL `exchangeTeams` MAKES, AND FOR THE SAME REASON. Every
-  // check below reads one side of the season (`seasonRows` is scoped by
-  // `is_draft`), so a cross-set pair puts the partner outside every list that
-  // reasons about it. It fails closed — the scoped write cannot find the row —
-  // but it fails as "the schedule changed while this was on screen", which is
-  // not what happened and tells the manager nothing. Say the real reason.
-  //
-  // ⚠️ This landed in `exchangeTeams` and NOT here, and the commit message
-  // claimed both. Nothing caught it: no test exercises a cross-set pair through
-  // this door. If you add a third exchange, add this guard to it too.
+  // ⛔ Same cross-set refusal as `exchangeTeams`: otherwise it fails as "the schedule changed",
+  // which is not what happened. Give any new exchange this guard too.
   if (x0.is_draft !== y0.is_draft) {
     return {
       ok: false,
@@ -363,14 +286,8 @@ export async function exchangeSlots(input: {
   return { ok: true };
 }
 
-/**
- * Move a game's time WITHIN its own night.
- *
- * ⛔ NOT A DATE CHANGE. Moving a game to a different night takes a game from one
- * night and gives it to another, which is exactly what the invariant forbids —
- * that is `exchangeSlots`. This only shuffles ice times inside an evening, which
- * changes no count at all.
- */
+// ⛔ Within its own night only: moving to another night takes a game from one night and gives it
+// to another, which only `exchangeSlots` may do.
 export async function retimeGame(input: {
   gameId: string;
   /** "YYYY-MM-DDTHH:MM", league-local, as a datetime-local field gives it. */
@@ -385,9 +302,7 @@ export async function retimeGame(input: {
     return { ok: false, message: "That game has no date to move within." };
   }
 
-  // ⛔ SHAPE-CHECK BEFORE `Intl`. `leagueOffset` and `leagueDateKey` both build
-  // a `Date` and format it; an unparseable string makes them throw
-  // `RangeError: Invalid time value`, turning a client-callable action into an
+  // ⛔ Shape-check before `leagueOffset` and `leagueDateKey`: a bad string throws `RangeError`, an
   // uncaught server exception instead of a refusal.
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(input.at)) {
     return { ok: false, message: "That is not a valid date and time." };
@@ -443,12 +358,8 @@ export async function retimeGame(input: {
   return { ok: true };
 }
 
-/**
- * The games where `teamIn` could hand its place back to `teamOut`, so the
- * replace-a-team wizard can offer them.
- *
- * An empty list is the refusal — there is no unbalanced single-row fallback.
- */
+// Games where `teamIn` could hand its place back to `teamOut`. An empty list is the refusal: there
+// is no unbalanced single-row fallback.
 export async function replacementOptions(input: {
   gameId: string;
   teamOut: string;
@@ -487,13 +398,8 @@ export async function replacementOptions(input: {
 
 /* ----------------------------------------------------------------- plumbing */
 
-/**
- * ⛔ A FAILED READ IS NOT A MISSING GAME. Every caller turns `null` into "That
- * game no longer exists", which is a confident answer to a question this never
- * asked — the row may be there and the read may have failed. Throwing sends it
- * to the caller's own catch, which says the honest thing ("that didn't go
- * through, reload") instead of inventing a cause.
- */
+// ⛔ A failed read throws rather than returning null: callers read null as "no longer exists",
+// which a failed read cannot know.
 async function oneRow(admin: Admin, id: string): Promise<SeasonRow | null> {
   const { data, error } = await admin
     .from("games")

@@ -9,7 +9,6 @@ import { logoFileType } from "@/lib/utils/logo-type";
 
 export type LogoActionState = { ok: boolean; message: string } | null;
 
-/** Manager uploads a team logo to Storage and points the team at it. */
 export async function uploadTeamLogo(
   _prev: LogoActionState,
   formData: FormData,
@@ -53,11 +52,8 @@ export async function uploadTeamLogo(
     };
   }
 
-  // The upload is `upsert: true`, so a replacement with the same extension
-  // overwrites the file. One with a different extension would leave the old
-  // file publicly served, so it is removed once the team points at the new one
-  // — only this team's own file, never whatever else a stray path names.
-  // `old_data` is then the only record that there was one.
+  // A replacement with another extension would leave the old file publicly served, so it is
+  // removed: only this team's own file, never whatever a stray `logo_path` names.
   if (
     was?.logo_path &&
     was.logo_path !== path &&

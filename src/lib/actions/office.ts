@@ -8,24 +8,8 @@ import { officeTierOf } from "@/lib/auth/office";
 import { findUserIdByEmail } from "@/lib/auth/users";
 import { logAudit } from "@/lib/audit";
 
-/**
- * Appoint and remove deputies.
- *
- * ⛔ Both call `requireCommissioner` themselves. The page draws these controls
- * only for a commissioner, but a form action is reachable by anyone who can
- * construct the request — a rendered restriction is not a restriction.
- *
- * ⛔ Neither touches `profile_leagues`. The tier is purely additive: a manager
- * promoted to deputy keeps the rows they had, inert while the office branch of
- * `memberLeagueIds` answers first, so removing the tier restores exactly the
- * reach they had before with no repair step. Deleting their memberships on
- * appointment would make revocation lossy and silent.
- *
- * Both return void, like the other form actions here, so a refusal is quiet.
- * The page renders a reason wherever it would refuse, which is why that is
- * tolerable — see `people.ts` for the same argument at length.
- */
-
+// ⛔ Each action calls `requireCommissioner` itself: a control drawn only for a commissioner is not
+// a restriction. None touches `profile_leagues`: the tier is additive, so revoking it loses nothing.
 export async function appointDeputy(formData: FormData) {
   const actor = await requireCommissioner();
 
@@ -37,28 +21,22 @@ export async function appointDeputy(formData: FormData) {
   if (await officeTierOf(id)) return;
 
   const admin = createAdminClient();
-  // The insert is the real check as well as the write. `profile_id` is the
-  // primary key, so a second concurrent appointment fails rather than racing,
-  // and 0034's trigger refuses anyone who is not a `league_manager` — a
-  // commissioner cannot appoint a captain into a tier that would give them
-  // nothing but cross-league reach.
-  // Snapshot the name BEFORE the write, for the same reason `removeStaff` does:
-  // the entry is the only thing that still says who this was once the profile is
-  // gone.
+  // Snapshot the name first: once the profile is gone the entry is the only record of who this was.
   const { data: before } = await admin
     .from("profiles")
     .select("display_name")
     .eq("id", id)
     .maybeSingle();
 
+  // The insert is the real check: the primary key refuses a concurrent second appointment, and
+  // 0034's trigger refuses anyone who is not a `league_manager`.
   const { error } = await admin
     .from("league_office")
     .insert({ profile_id: id, tier: "deputy" });
   if (error) return;
 
-  // ⛔ `entity_type: "office"` resolves to a NULL league, by decision — see the
-  // `case "office"` in `leagueOfEntity`. One entry per action, not one per
-  // league: the tier reaches all of them.
+  // ⛔ `entity_type: "office"` files under a null league by decision (`case "office"` in
+  // `leagueOfEntity`): one entry, since the tier reaches every league.
   await logAudit({
     user_id: actor.id,
     action: "appoint_deputy",
@@ -80,21 +58,18 @@ export async function removeDeputy(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   if (!id) return;
 
-  // ⛔ Deputies only. The commissioner tier is peer-flat — no commissioner
-  // outranks another — so it is not editable from the app by anyone, and that is
-  // what stops a single compromised office account emptying the tier.
+  // ⛔ Deputies only: commissioners are peer-flat, so no app path edits that tier and one
+  // compromised office account cannot empty it.
   if ((await officeTierOf(id)) !== "deputy") return;
 
   const admin = createAdminClient();
-  // `tier` is in the WHERE clause as well, so the read above cannot go stale
-  // between the check and the delete: if this profile became a commissioner in
-  // between, the delete matches nothing instead of removing one.
   const { data: before } = await admin
     .from("profiles")
     .select("display_name")
     .eq("id", id)
     .maybeSingle();
 
+  // `tier` is in the WHERE too, so a profile made commissioner since the check is not removed.
   const { error } = await admin
     .from("league_office")
     .delete()
@@ -120,41 +95,8 @@ export async function removeDeputy(formData: FormData) {
 /** Feedback for the set-password form, which cannot afford to refuse quietly. */
 export type SetPasswordState = { ok: boolean; message: string } | null;
 
-/**
- * Set a staff account's password, as a commissioner.
- *
- * ⛔ THIS IS THE NO-EMAIL RECOVERY PATH, and the bootstrap under it. No staff
- * account has a password today — production's were made for magic-link sign-in —
- * so until someone can SET one, "sign in with a password" has nobody who can.
- * This is that someone. It also covers the case email cannot: a staff member
- * whose address no longer reaches them, or a Supabase mailer that is rate-limited
- * at four messages an hour.
- *
- * ⛔ `requireCommissioner` is called HERE, not implied by the card being drawn
- * for a commissioner. A form action is an endpoint reachable by anyone who can
- * construct the request — the office page renders this card only for a
- * commissioner, and that is a convenience, not a restriction. This is the exact
- * failure mode `RUNBOOK.md` → Access control is about, and
- * `league-guards.test.ts` fails the build for any office action that skips it.
- *
- * ⛔ NEVER ANOTHER COMMISSIONER. Setting a password is taking the account over,
- * so it has to obey the same peer-flat rule as the tier itself: no commissioner
- * outranks another, and one who could reset a peer's password could sign in as
- * them and remove them in SQL-free comfort. Checked on the tier directly, the way
- * `appointDeputy` and `removeDeputy` do — `mayWriteProfileOf` answers who may
- * write a PROFILE, and this writes an auth user.
- *
- * Setting your OWN is allowed, and is the bootstrap: a commissioner who arrived
- * by magic link gives themselves a password so the next sign-in needs no email.
- *
- * A `profiles` row is required, so this is a staff tool rather than a general
- * password reset for any auth user that happens to exist.
- *
- * ⚠️ The password is never audited, only the fact and the target. An audit entry
- * naming it would put a live credential in a table read by every manager of the
- * league it lands in — and this one lands under a null league, read on the admin
- * client, which is worse rather than better.
- */
+// ⛔ `requireCommissioner` is called here, not implied by the card: a form action is reachable by
+// anyone (`RUNBOOK.md` → Access control; `league-guards.test.ts` fails the build without it).
 export async function setStaffPassword(
   _prev: SetPasswordState,
   formData: FormData,
@@ -168,16 +110,12 @@ export async function setStaffPassword(
 
   if (!email)
     return { ok: false, message: "Enter the account's email address." };
-  // The floor lives in `@/lib/auth/password` because the self-serve reset
-  // enforces the same one; see the module comment for why it is checked before
-  // Supabase rather than left to Supabase.
+  // The self-serve reset's floor, checked before Supabase: see `@/lib/auth/password`.
   const tooShort = passwordProblem(password);
   if (tooShort) return { ok: false, message: tooShort };
 
   const admin = createAdminClient();
-  // `email` is already lowercased where it is read, and `findUserIdByEmail`
-  // normalises again on its own side, so neither depends on the other getting it
-  // right. It used to depend on exactly that, and a caller eventually forgot.
+  // Lowercased here and again inside `findUserIdByEmail`, so neither relies on the other.
   const id = await findUserIdByEmail(admin, email);
   if (!id) {
     return { ok: false, message: `No account for ${email}.` };
@@ -195,6 +133,8 @@ export async function setStaffPassword(
     };
   }
 
+  // ⛔ Never another commissioner: a password takes the account over, and the tier is peer-flat.
+  // Your own is allowed; that is the bootstrap.
   if (id !== actor.id && (await officeTierOf(id)) === "commissioner") {
     return {
       ok: false,
@@ -206,9 +146,8 @@ export async function setStaffPassword(
   const { error } = await admin.auth.admin.updateUserById(id, { password });
   if (error) return { ok: false, message: error.message };
 
-  // ⛔ `entity_type: "office"` — instance-wide, so it resolves to a NULL league by
-  // decision (see `case "office"` in `leagueOfEntity`) and is read back on
-  // `/manage/office` rather than in any league's log. NO PASSWORD IN THE PAYLOAD.
+  // ⛔ Office entry, null league by decision (`case "office"` in `leagueOfEntity`), read on
+  // `/manage/office`. Never put the password in the payload.
   await logAudit({
     user_id: actor.id,
     action: "set_password",

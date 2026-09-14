@@ -28,11 +28,8 @@ const POSITIONS: readonly Position[] = ["F", "D", "G"];
 const isPosition = (v: string): v is Position =>
   (POSITIONS as readonly string[]).includes(v);
 
-/**
- * A jersey number off a form. `null` is a real answer — no number — and so is a
- * refusal, so the three outcomes are kept apart rather than collapsed into
- * `Number(x) || null`, which turns 0 into "no number" and "abc" into it too.
- */
+// A jersey number off a form: `null` (no number) and `"invalid"` stay apart, unlike
+// `Number(x) || null`, which turns 0 and "abc" into no number.
 function parseJersey(
   raw: FormDataEntryValue | null,
 ): number | null | "invalid" {
@@ -52,32 +49,20 @@ export async function addRosterPlayer(
 
   const season_id = String(formData.get("season_id"));
   const team_id = String(formData.get("team_id"));
-  // These forms carry ids, never a league — the league is in the URL of the
-  // page that rendered them. Every guard below therefore derives it from the
-  // rows being written, which is what makes a hand-made request naming another
-  // league's ids fail rather than pass.
-  //
-  // BOTH ids, because both are written. Guarding the season alone let a foreign
-  // `team_id` through, and `is_captain` rides in the same payload.
+  // These forms carry ids, never a league, so the guard derives it from every id written: guarding
+  // the season alone let a foreign `team_id` through.
   const manager = await requireLeagueManagerOf(
     () => leagueOfSeason(season_id, admin),
     () => leagueOfTeam(team_id, admin),
   );
-  // Resolved again rather than asserted from the guard: the archive check and
-  // the audit entry below both need a real league, and a null one fails open in
-  // the first and invisible in the second.
+  // Resolved again, not assumed from the guard: a null league fails open in the archive check and
+  // hides the audit entry.
   const league_id = await leagueOfSeason(season_id, admin);
   if (!league_id)
     return { ok: false, message: "That season no longer exists." };
 
-  // ⛔ THE TEAM HAS TO BE PLAYING THIS SEASON — the same check
-  // `movePlayerToTeam` makes, and for the same reason: the guard above proves
-  // the ids agree on one league, which is a different question, because a team
-  // can belong to the league and not be enrolled. Without it this action was
-  // the one write path that would create a `team_players` row for a team the
-  // season does not have. The season switcher made that reachable by clicking
-  // (it keeps the `teamId` in the path), and the page now shows an empty state
-  // instead — but a page that omits a form is a list, not a restriction.
+  // ⛔ The team must be enrolled this season: same-league ids do not prove it, and a page omitting
+  // the form is not a restriction.
   const { data: seasonTeam } = await admin
     .from("season_teams")
     .select("team_id")
@@ -132,11 +117,8 @@ export async function addRosterPlayer(
     if (!person) return { ok: false, message: "That person no longer exists." };
     label = `${person.first_name} ${person.last_name}`;
 
-    // ⛔ Checked on the SERVER, not left to the picker. The picker filters
-    // archived people out of its list, but a list is not a restriction: the
-    // form carries a player id, and a hand-made POST names whichever one it
-    // likes. Restoring is a click away in the picker, so say that rather than
-    // just refusing.
+    // ⛔ Checked here, not only by the picker: a hand-made POST names any player id. Say how to
+    // restore rather than just refusing.
     if (await isPlayerArchivedIn(player_id, league_id, admin)) {
       return {
         ok: false,
@@ -147,29 +129,8 @@ export async function addRosterPlayer(
     }
   }
 
-  // ⛔ ALREADY PLAYING FOR SOMEONE ELSE THIS SEASON — checked BEFORE the
-  // returning-player branch below, and routed through the one move path.
-  //
-  // Adding a person who is already on another team is the same event as
-  // transferring them, and it has to leave the old team's record intact for the
-  // same reason (0036: `v_goalie_stats` inner-joins the roster row). Two things
-  // would otherwise go wrong here and neither reports an error: an insert is
-  // rejected by `team_players_one_active_team` with a bare 23505, and clearing
-  // a departed row on THIS team while they are active elsewhere would violate
-  // the same index. `movePlayerToTeam` handles both, and it is the only
-  // implementation of the move there is.
-  // `limit(1)` rather than `maybeSingle()`, which treats two rows as an error
-  // and hands back null data — a player who held two active rows would then
-  // look like a player with none, and this would add a THIRD.
-  //
-  // ⚠️ THAT STATE IS UNREACHABLE, and the index says so:
-  // `team_players_one_active_team` is UNIQUE on `(season_id, player_id) WHERE
-  // left_on IS NULL`, so one season cannot hold two active rows for one person.
-  // This is belt-and-braces over a database guarantee, which is also why there
-  // is NO `.order()` here: there is never more than one row to order, and an
-  // earlier attempt to add one ordered by a `created_at` this table does not
-  // have — PostgREST rejected the query, `data` came back null, and the whole
-  // move-on-add path silently stopped moving anyone.
+  // ⛔ Active on another team this season means a transfer: `movePlayerToTeam` is the one move path.
+  // `limit(1)` and no `.order()`: the index allows one active row, and `team_players` has no `created_at`.
   const { data: activeRows } = await admin
     .from("team_players")
     .select("*")
@@ -181,11 +142,8 @@ export async function addRosterPlayer(
   const activeElsewhere = activeRows?.[0] ?? null;
 
   if (activeElsewhere) {
-    // ⛔ The guard at the top of this action covers the season and the
-    // DESTINATION team. This move also writes the SOURCE team's row, which
-    // `transferPlayer` names in its own three-way guard. The season constrains
-    // it — a season only enrols its own league's teams — so this should never
-    // fire, which is exactly what makes it cheap to assert instead of assume.
+    // ⛔ The guard covered the season and destination; this move also writes the source team's
+    // row, so assert it is this league's rather than assume it.
     if ((await leagueOfTeam(activeElsewhere.team_id, admin)) !== league_id) {
       return {
         ok: false,
@@ -208,14 +166,8 @@ export async function addRosterPlayer(
     });
   }
 
-  // A row for this person may already be here, departed. `unique (season_id,
-  // team_id, player_id)` from 0003 is deliberately non-partial (see 0036), so
-  // the insert below would be rejected with a bare 23505 — and coming back is
-  // not an edge case: the picker offers departed players, because the roster it
-  // subtracts is filtered to active rows. Clear the departure on the row that is
-  // already there, exactly as `transferPlayer` does for a return to a former
-  // team, and for the same reason: a second row for one player and team is what
-  // that constraint exists to prevent.
+  // A departed row for this player and team may exist: `unique (season_id, team_id, player_id)` is
+  // non-partial (0036), so clear its departure rather than insert a second row.
   const { data: prior } = await admin
     .from("team_players")
     .select("id, left_on")
@@ -236,11 +188,8 @@ export async function addRosterPlayer(
           jersey_number: jersey,
           position,
           is_captain,
-          // ⛔ WRITTEN, NOT INHERITED. This revives a row that departed at some
-          // point in the past, possibly before the clear above existed — and an
-          // unwritten column keeps whatever it held then. The add form does not
-          // ask for a night, so a returning player starts without one, which is
-          // what "nobody has said which night they play" means.
+          // ⛔ Written, not inherited: a revived row keeps whatever night it held when it
+          // departed, and the add form asks for none.
           night_of_week: null,
         })
         .eq("id", prior.id)
@@ -265,9 +214,7 @@ export async function addRosterPlayer(
     action: "add_player",
     entity_type: "team_player",
     entity_id: inserted.id,
-    // Whether this was a fresh row or a return. The revert path reads the row
-    // rather than this field, but a reader asking why an "added" player already
-    // has games behind them needs the answer to be written down.
+    // Fresh row or return: the revert reads the row, but a reader of this entry needs the answer.
     new_data: { player_id, team_id, season_id, position, returned: !!prior },
   });
 
@@ -284,15 +231,8 @@ export async function removeRosterPlayer(formData: FormData) {
   const admin = createAdminClient();
   const id = String(formData.get("id"));
   const team_id = String(formData.get("team_id"));
-  // Resolved BEFORE the delete and reused twice. Afterwards the roster row is
-  // gone and `leagueOfTeamPlayer` has nothing to answer from, so an audit entry
-  // that resolves its own league lands with a null one — hidden by RLS and by
-  // every league-scoped view, which also puts it out of reach of the revert
-  // that `old_data` below exists to serve.
-  //
-  // Eager rather than the lazy `() => …` form, so an unauthenticated POST costs
-  // one lookup on its way to /login. `setActiveSeason` already trades the same
-  // way for the same reason.
+  // Resolved before the delete: afterwards `leagueOfTeamPlayer` finds nothing, and a null-league
+  // entry is hidden, out of reach of the revert (`RUNBOOK.md` → Access control → Traps).
   const league_id = await leagueOfTeamPlayer(id, admin);
   const manager = await requireLeagueManager(league_id);
 
@@ -303,21 +243,8 @@ export async function removeRosterPlayer(formData: FormData) {
     .eq("id", id)
     .maybeSingle();
 
-  // A roster row is history after 0036, so removal is only safe when there is
-  // no history to lose — and this button reaches the exact destruction that
-  // transfers were redesigned to avoid. Delete a row that has games behind it
-  // and `v_goalie_stats`' inner join loses the old team's whole goalie record
-  // (GP, W/L, GAA, shutouts) while the games stay on the schedule, and
-  // `v_skater_stats`' left join loses the jersey and position. Nothing reports
-  // an error.
-  //
-  // So: a player who never dressed was an add to undo — delete it. A player who
-  // has dressed is marked departed, exactly as a transfer would mark them.
-  // Scoped to THIS season through `games`. `game_rosters` has no `season_id` of
-  // its own, so player+team alone counts games from every season this team has
-  // ever played — and a player who dressed for them in 2025 but not this year
-  // would be marked departed rather than deleted, leaving a row that then blocks
-  // re-adding them.
+  // A row with games behind it is history (0036): mark it departed, or `v_goalie_stats` loses the
+  // team's goalie record. Scoped to this season through `games`, which carries `season_id`.
   const played = existing
     ? ((
         await admin
@@ -334,15 +261,8 @@ export async function removeRosterPlayer(formData: FormData) {
       .from("team_players")
       .update({
         left_on: new Date().toISOString().slice(0, 10),
-        // Both are statements about the PRESENT that a departure ends, and both
-        // have to go. 0038 makes RLS agree about the captaincy independently;
-        // the night is what makes a goalie this team's starter on it.
-        //
-        // ⛔ `night_of_week` WAS MISSED WHEN `is_default_goalie` WAS REMOVED
-        // HERE (0049), leaving one field under a comment that said "both". A
-        // departed row kept its night, and the re-join paths below write only
-        // the fields they set — so removing a goalie and adding them back
-        // silently restored them as that night's starter with nobody saying so.
+        // ⛔ Both end with a departure: a kept captaincy keeps RLS write access (0038), and a kept
+        // night silently restores a re-added goalie as that night's starter.
         is_captain: false,
         night_of_week: null,
       })
@@ -358,39 +278,14 @@ export async function removeRosterPlayer(formData: FormData) {
     entity_id: id,
     league_id,
     old_data: existing ?? { team_id },
-    // Which branch ran. Someone asking why a name is still on a stats page has
-    // to be able to tell a departure from a deletion, and the revert path below
-    // has to know which one it is undoing.
+    // Which branch ran: a reader and the revert must tell a departure from a deletion.
     new_data: { removal: played ? "departed" : "deleted" },
   });
   revalidatePath("/[league]/teams/[slug]", "page");
 }
 
-/**
- * Move a player from one team to another, mid-season, without losing what they
- * did for the first one.
- *
- * The old roster row is kept and marked departed rather than deleted, because
- * that row IS the record: `v_goalie_stats` inner-joins it to credit a goalie's
- * games to the team they played them for, and `v_skater_stats` left-joins it
- * for jersey and position. Deleting it erases the old team's goalie record
- * entirely and blanks the skater lines, with no error anywhere.
- *
- * ⛔ THIS IS THE ONLY IMPLEMENTATION OF THAT MOVE, AND IT MUST STAY THE ONLY
- * ONE. Two callers reach it: the Transfer control, and `addRosterPlayer` when
- * the person it names is already active on another team this season. The naive
- * second version — delete the old row, insert a new one — is what 0036 exists
- * to prevent, and it reports no error while it does it. A second copy of this
- * function is a second chance to write that version, and nothing would fail
- * until someone opened a team page months later and found a goalie missing.
- *
- * Everything here runs AFTER the caller's guards, on the admin client: it
- * assumes the caller has already proved that the manager works this league and
- * that every id names it. It does not re-derive the league, and it must not be
- * exported.
- *
- * The order below is load-bearing and each step says why.
- */
+// ⛔ The only implementation of a move, and never exported: it trusts the caller's guards, and a
+// second copy invites the delete-and-insert that erases the old team's record (0036).
 async function movePlayerToTeam(opts: {
   admin: Admin;
   manager_id: string;
@@ -422,11 +317,8 @@ async function movePlayerToTeam(opts: {
   } = opts;
   const { id, season_id, team_id: from_team_id, player_id } = existing;
 
-  // The destination has to be playing this season. The caller's guard proves
-  // every id agrees on one league, which is not the same question — a team can
-  // belong to the league and not be enrolled — and the page only offers
-  // enrolled teams, so nothing else would stop a hand-made POST creating a
-  // roster row for a team that is not in the season.
+  // The destination must be enrolled this season: same-league ids do not prove it, and the page's
+  // list is not a restriction.
   const { data: enrolled } = await admin
     .from("season_teams")
     .select("team_id, teams!season_teams_team_id_fkey(name)")
@@ -438,11 +330,8 @@ async function movePlayerToTeam(opts: {
   }
   const toName = enrolled.teams?.name ?? "the new team";
 
-  // Checked before anything is written, and reported rather than worked around.
-  // The bulk importer silently writes null on a clash, which is right for a
-  // hundred rows nobody is watching and wrong for one deliberate move: a number
-  // is how a scorekeeper identifies a player, and quietly removing it turns
-  // into a scoresheet nobody can fill in.
+  // A clash is refused before any write, never nulled as the importer does: a number is how a
+  // scorekeeper identifies a player.
   if (wanted != null) {
     const { data: clash } = await admin
       .from("team_players")
@@ -466,16 +355,8 @@ async function movePlayerToTeam(opts: {
     }
   }
 
-  // 1. Depart the old row FIRST. `team_players_one_active_team` (0036) is a
-  //    unique index on (season_id, player_id) where left_on is null, so the
-  //    insert below is rejected while this row is still active.
-  //
-  //    is_captain and night_of_week go with it: both are claims about the
-  //    present that the move ends. A captain who kept the flag kept write
-  //    access to their former team's scoresheet for the rest of the season
-  //    (0038 makes RLS agree independently), and a night is a standing
-  //    instruction about when this player turns out for THIS team — which for a
-  //    goalie is what makes them its starter. Neither survives the departure.
+  // 1. Depart the old row first: `team_players_one_active_team` (0036) rejects the insert below
+  //    while it is active. Captaincy (RLS write access, 0038) and night end with it.
   const left_on = new Date().toISOString().slice(0, 10);
   const { error: dErr } = await admin
     .from("team_players")
@@ -487,20 +368,8 @@ async function movePlayerToTeam(opts: {
       message: `Could not release the player: ${dErr.message}`,
     };
 
-  // 2. ⛔ THE `team_goalie_days` DELETE THAT USED TO BE HERE IS GONE WITH THE
-  //    TABLE (0049), not dropped by accident. It said "who starts on Tuesdays
-  //    for the team they are leaving", and that instruction now lives in
-  //    `night_of_week` on the row itself — which step 1 above just cleared, in
-  //    the same UPDATE, for the same reason.
-
-  // 3. Lineups already set for games the old team has NOT played.
-  //
-  //    Captains set lineups in advance, so game_rosters rows exist before a game
-  //    is played. Left alone, a transferred player stays dressed for the old
-  //    team in games they will not play — and that becomes a real GP and a real
-  //    stat line the moment the game is finalized.
-  //
-  //    Final games are untouched. That history is the whole point of the design.
+  // 2. Undress them from the old team's unplayed games: a pre-set lineup becomes a real GP when
+  //    the game is finalized. Final games stay untouched.
   const { data: upcoming } = await admin
     .from("games")
     .select("id")
@@ -522,18 +391,8 @@ async function movePlayerToTeam(opts: {
     undressed = (removed ?? []).map((r) => r.game_id);
   }
 
-  // 4. Join the new team — or come back to a former one. `unique (season_id,
-  //    team_id, player_id)` from 0003 is deliberately NOT partial (see 0036),
-  //    so a return cannot insert a second row for that team: the row already
-  //    there has its departure cleared instead.
-  //
-  //    ⚠️ `is_captain` is written EXPLICITLY on both branches, and on the update
-  //    branch that is a change from what `transferPlayer` used to do. The row
-  //    being un-departed carries whatever flags it held when the player left,
-  //    and a row departed by a path predating the clear in step 1 can still hold
-  //    `is_captain`. Left unset, returning to a former team silently restored
-  //    the captaincy — and with it, through `is_captain_of` (0038), RLS write
-  //    access to that team's scoresheet.
+  // 3. Join, or clear the departure on a former row (the unique key is non-partial). ⚠️ `is_captain`
+  //    is written on both branches: a stale flag on a revived row restores RLS write access (0038).
   const { data: former } = await admin
     .from("team_players")
     .select("id")
@@ -551,9 +410,7 @@ async function movePlayerToTeam(opts: {
             jersey_number: wanted,
             position,
             is_captain,
-            // Same reason as `is_captain` directly above: a row departed by a
-            // path that predates the clear in step 1 can still hold a night,
-            // and returning to a former team would silently restore it.
+            // Same reason as `is_captain`: a revived row's stale night would come back.
             night_of_week: null,
           })
           .eq("id", former.id)
@@ -570,12 +427,8 @@ async function movePlayerToTeam(opts: {
       ).error;
 
   if (joinErr) {
-    // Steps 1–3 have already landed: the player is released, their goalie days
-    // are gone and their upcoming lineups are deleted. There is no transaction
-    // here — supabase-js has none — so a half-finished transfer is a real
-    // outcome, and the only way anyone finds out what reached the database is
-    // this entry. `logAudit` swallows its own errors, so it cannot turn a failed
-    // transfer into a thrown one.
+    // Steps 1–2 have landed with no transaction to undo them, so this entry is the only record of a
+    // half-finished transfer.
     await logAudit({
       user_id: manager_id,
       action: "transfer_player_partial",
@@ -606,9 +459,7 @@ async function movePlayerToTeam(opts: {
       // and "why is he not dressed for Thursday" needs an answer.
       undressed_games: undressed,
     },
-    // `via` separates the two doors onto one action. Both are a transfer, and
-    // the log should not claim otherwise, but "I only meant to add them" is a
-    // real question a reader will bring to this entry.
+    // `via` separates the two doors onto one action, for the reader asking "I only meant to add them".
     new_data: {
       to_team_id,
       jersey_number: wanted,
@@ -618,10 +469,8 @@ async function movePlayerToTeam(opts: {
     },
   });
 
-  // A transfer changes two rosters plus the public team and stats pages, so it
-  // needs more revalidation than an add, not the same. Without this the player
-  // shows on BOTH rosters until something unrelated invalidates the cache —
-  // which looks exactly like the bug this feature exists to prevent.
+  // Two rosters and the public pages change: without all three, the player shows on both rosters
+  // until something else invalidates the cache.
   revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/stats", "page");
   revalidatePath("/[league]", "layout");
@@ -646,10 +495,8 @@ export async function transferPlayer(
   if (!id || !to_team_id)
     return { ok: false, message: "Pick a team to transfer to." };
 
-  // The row first, and the season and old team come FROM it, not from the form.
-  // A form that names its own `from_team_id` is a form that can lie about which
-  // row it is moving. One indexed read before the guard is the same trade
-  // `removeRosterPlayer` makes, and for the same reason.
+  // The row first: season and old team come from it, never the form, which could lie about which
+  // row it moves.
   const { data: existing } = await admin
     .from("team_players")
     .select("*")
@@ -665,28 +512,20 @@ export async function transferPlayer(
     return { ok: false, message: "That player has already left this team." };
   }
 
-  // All three ids, because all three are written or read against. Guarding the
-  // season alone lets a foreign `to_team_id` through, and `requireLeagueManagerOf`
-  // additionally refuses when the three do not agree on ONE league — which is
-  // what stops a manager of two leagues binding one league's team into the
-  // other's season.
+  // All three ids: guarding the season alone lets a foreign `to_team_id` through, and the three must
+  // agree on one league.
   const manager = await requireLeagueManagerOf(
     () => leagueOfSeason(season_id, admin),
     () => leagueOfTeam(from_team_id, admin),
     () => leagueOfTeam(to_team_id, admin),
   );
 
-  // Resolved BEFORE any write. An audit entry that resolves its own league
-  // afterwards can land with a null one, which RLS and every league-scoped view
-  // then hide — correct and invisible.
+  // Resolved before any write: an entry resolving its own league afterwards can land null and hidden.
   const league_id = await leagueOfSeason(season_id, admin);
   if (!league_id)
     return { ok: false, message: "That season no longer exists." };
 
-  // Present-but-empty and absent mean different things. The form prefills the
-  // number they wear now, so clearing it is the operator saying "no number on
-  // the new team" — while a form that carries no field at all has expressed no
-  // opinion and keeps what they had.
+  // Empty means "no number on the new team"; an absent field keeps the current one.
   const jerseyRaw = formData.get("jersey_number");
   const wanted =
     jerseyRaw === null ? existing.jersey_number : parseJersey(jerseyRaw);
@@ -713,13 +552,7 @@ export async function transferPlayer(
   });
 }
 
-/**
- * ⚠️ RETURNS A STATE RATHER THAN `void` SINCE 2026-09-11, and the reason is not
- * tidiness. It ignored `.error` on its own UPDATE, so an RLS refusal or a
- * constraint violation looked exactly like success — the page revalidated, the
- * badge did not change, and nothing said why. Its one caller is the player
- * dialog, which now has somewhere to put the message.
- */
+// ⚠️ Returns a state, so a refused UPDATE is reported rather than shown as success.
 export async function toggleCaptain(
   _prev: RosterActionState,
   formData: FormData,
@@ -751,24 +584,10 @@ export async function toggleCaptain(
   return { ok: true, message: make ? "Made captain." : "No longer captain." };
 }
 
-/*
- * ⛔ `setDefaultGoalie` AND `setGoalieDay` LIVED HERE AND ARE GONE (2026-09-11).
- * They wrote `team_players.is_default_goalie` and the `team_goalie_days` table,
- * both dropped by `0049`. A team no longer names a fallback goalie at all:
- * `src/lib/goalie/suggest.ts` takes the team's only goalie when it has one, and
- * otherwise the goalie whose `night_of_week` matches the game — which is set
- * through `updateRosterPlayer` like any other roster field.
- *
- * ⚠️ Do not reintroduce a goalie-specific write path. That is what `0036`'s
- * damage came from, and the whole point of the replacement is that a night is
- * an ordinary property of a roster row rather than machinery of its own.
- */
+// ⚠️ No goalie-specific write path: a night is an ordinary roster field (`updateRosterPlayer`), and
+// `src/lib/goalie/suggest.ts` picks the goalie from it.
 
-/**
- * ⚠️ RETURNS A STATE RATHER THAN `void` SINCE 2026-09-11 — see `toggleCaptain`.
- * All three of its UPDATEs discarded `.error`, so a refused write was
- * indistinguishable from a successful one.
- */
+// ⚠️ Returns a state: its UPDATEs' errors are reported, not discarded.
 export async function updatePlayerStatus(
   _prev: RosterActionState,
   formData: FormData,
@@ -812,8 +631,7 @@ export async function updatePlayerStatus(
           .eq("id", id)
       ).error?.message ?? null;
   } else {
-    // ⚠️ Named now rather than returning silently. An unrecognised field is a
-    // caller bug, and it used to produce no write, no audit entry and no word.
+    // ⚠️ An unknown field is a caller bug: say so rather than write nothing silently.
     return { ok: false, message: `Not a status field: ${field}.` };
   }
   if (writeError) {
@@ -839,15 +657,8 @@ export async function updatePlayerStatus(
   return { ok: true, message: "Updated." };
 }
 
-/**
- * Jersey number and position, on ONE roster row.
- *
- * Scoped to `team_players` on purpose: both columns are facts about this
- * player on this team in this season, not about the person. Nothing here
- * reaches `players`, and nothing here reaches history — `game_rosters` records
- * who dressed, and carries no number of its own, so a corrected number does not
- * rewrite a scoresheet that has already been filled in.
- */
+// Jersey, position and night on one roster row: never `players`, and never `game_rosters`, so a
+// corrected number does not rewrite a filled-in scoresheet.
 export async function updateRosterPlayer(
   _prev: RosterActionState,
   formData: FormData,
@@ -856,10 +667,7 @@ export async function updateRosterPlayer(
   const id = String(formData.get("id") ?? "");
   if (!id) return { ok: false, message: "Nothing to update." };
 
-  // The row first, and the season and team come FROM it. A form that names its
-  // own season is a form that can lie about which league it belongs to. Same
-  // trade as `removeRosterPlayer` and `transferPlayer`: one indexed read before
-  // the guard.
+  // The row first, and the season and team come from it: a form naming its own season can lie.
   const { data: existing } = await admin
     .from("team_players")
     .select("*")
@@ -886,16 +694,8 @@ export async function updateRosterPlayer(
   }
   const position = positionRaw;
 
-  /**
-   * The night this player turns out — one more field on the UPDATE that is
-   * already happening, not an action of its own.
-   *
-   * ⚠️ ABSENT AND EMPTY MEAN DIFFERENT THINGS. A form that does not carry the
-   * field at all (a one-night league, where the control is not rendered) must
-   * leave the stored value alone; an empty string is the manager choosing "no
-   * fixed night" and must clear it. Collapsing the two would silently wipe
-   * every assignment the moment a season dropped to one night.
-   */
+  // ⚠️ Absent and empty differ: an absent field (a one-night league renders no control) keeps the
+  // stored night; empty clears it. Collapsing them wipes every night when a season drops to one.
   const rawNight = formData.get("night_of_week");
   let night: number | null | undefined = undefined;
   if (rawNight !== null) {
@@ -910,10 +710,7 @@ export async function updateRosterPlayer(
     }
   }
 
-  // Named rather than left to a bare 23505 from `team_players_active_jersey`
-  // (0036), for the reason `movePlayerToTeam` gives: a number is how a
-  // scorekeeper identifies a player, and "duplicate key value violates unique
-  // constraint" is not something to hand an operator.
+  // Named rather than a bare 23505 from `team_players_active_jersey` (0036): see `movePlayerToTeam`.
   if (jersey != null && jersey !== existing.jersey_number) {
     const { data: clash } = await admin
       .from("team_players")
@@ -935,12 +732,8 @@ export async function updateRosterPlayer(
     }
   }
 
-  // ⛔ MOVING OFF GOAL NO LONGER CLEARS ANYTHING, AND THAT IS A DECISION.
-  // This used to drop `is_default_goalie` and the player's `team_goalie_days`
-  // rows, because both were goalie machinery that made no sense on a skater.
-  // `night_of_week` is not that: it is a claim about WHEN this player turns
-  // out, not about what they play, and it stays true when a goalie moves to
-  // defence. Only leaving the team clears it — see `movePlayerToTeam`.
+  // ⛔ Moving off goal clears nothing: `night_of_week` is when a player turns out, not what they
+  // play. Only leaving the team clears it.
   const { error } = await admin
     .from("team_players")
     .update({
@@ -983,21 +776,8 @@ export async function updateRosterPlayer(
   return { ok: true, message: `Updated ${name ?? "the player"}.` };
 }
 
-/**
- * Correct a person's NAME — the global `players` row.
- *
- * ⚠️ THIS IS NOT A LEAGUE-SCOPED WRITE, AND THE UI SAYS SO. `players` has no
- * `league_id` (0002_core.sql:43): one human is one row, shared by every league
- * they play in, which is what lets a person carry their identity between
- * leagues. So a correction here lands on their name in every one of those
- * leagues' standings, stats and scoresheets at once.
- *
- * Which is why it is gated by containment (`mayWritePlayer`) rather than by
- * membership of the league the form was submitted from. Renaming somebody in a
- * league you do not work is not a smaller version of renaming them in one you
- * do — it is the same single write, reaching further than the person making it
- * can see.
- */
+// ⚠️ Not a league-scoped write: `players` has no `league_id`, so a rename reaches every league the
+// person plays in, which is why `mayWritePlayer` checks containment, not membership.
 export async function updatePlayerName(
   _prev: RosterActionState,
   formData: FormData,
@@ -1011,9 +791,7 @@ export async function updatePlayerName(
     return { ok: false, message: "A first and last name are both required." };
   }
 
-  // The player comes from the ROSTER ROW, not from the form. A form carrying a
-  // `player_id` of its own is a form that can name anybody in the instance and
-  // have this action rename them under this league's guard.
+  // The player comes from the roster row, never the form, which could name anyone in the instance.
   const { data: row } = await admin
     .from("team_players")
     .select("season_id, team_id, player_id")
@@ -1038,13 +816,8 @@ export async function updatePlayerName(
   const wasName = `${before.first_name} ${before.last_name}`;
 
   if (!(await mayWritePlayer(manager.id, row.player_id))) {
-    // ⛔ REFUSED OUT LOUD, NAMING THE LEAGUES AND THE ROUTE. This refusal is the
-    // accepted cost of a global `players` row, not a bug — but a manager who is
-    // simply told "no" will assume the feature is broken and try again. Say
-    // which leagues put the player out of reach, say why one row means one
-    // name, and name the League Office, which CAN make the change: its members
-    // reach every league (0034), and `memberLeagueIds` answers for them with
-    // every league, so containment passes there by construction.
+    // ⛔ Refused out loud, naming the leagues and the League Office, which reaches every league
+    // (0034): a bare "no" reads as a broken feature.
     const theirs = await leaguesOfPlayer(row.player_id, admin);
     const mine = new Set(await memberLeagueIds(manager.id));
     const outside = theirs.filter((l) => !mine.has(l));
@@ -1071,9 +844,8 @@ export async function updatePlayerName(
   void logAudit({
     user_id: manager.id,
     action: "update_player_name",
-    // `leagueOfEntity` returns null for "player" BY DECISION — a player belongs
-    // to no single league — so the league is passed here, or the entry lands
-    // correct and invisible behind RLS and every league-scoped view.
+    // `leagueOfEntity` returns null for "player" by decision, so the league is passed or the entry
+    // is hidden (`RUNBOOK.md` → Access control → Traps).
     entity_type: "player",
     entity_id: row.player_id,
     league_id,
@@ -1081,10 +853,7 @@ export async function updatePlayerName(
     new_data: { first_name: first, last_name: last, name: `${first} ${last}` },
   });
 
-  // The dynamic segments are deliberate. A rename reaches every league this
-  // person plays in, and `revalidatePath` with a route pattern plus a type
-  // invalidates every URL matching it — so this clears the other leagues' pages
-  // too, which naming one league's concrete paths would not.
+  // Route patterns, deliberately: a rename reaches every league, and a pattern invalidates them all.
   revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]/stats", "page");
   revalidatePath("/[league]/players/[playerId]", "page");
@@ -1092,23 +861,8 @@ export async function updatePlayerName(
   return { ok: true, message: `Renamed ${wasName} to ${first} ${last}.` };
 }
 
-/**
- * Remove a person from ONE LEAGUE's pickers (0040).
- *
- * ⛔ NOT A DELETE, AND NOT GLOBAL. It writes one `player_league_archive` row.
- * The person keeps their `players` row, every roster row they ever had, every
- * game they dressed for and every stat those produced; their player page still
- * renders and both stats views still credit them. And every OTHER league that
- * this person plays in is untouched — its picker still offers them, because the
- * archive row names this league and only this league. A global
- * `players.archived_at` would have hidden them from leagues that never asked.
- *
- * Plain arguments rather than FormData: the picker calls this straight from the
- * client in a transition, so there is no form to serialise. The league id is
- * therefore attacker-controlled like any other, and `leagueIdIfExists` plus
- * `requireLeagueManager` is what makes that safe — an id naming no league
- * resolves to null and the guard refuses.
- */
+// ⛔ One `player_league_archive` row, never a delete and never global. The league id comes straight
+// from the client, so `leagueIdIfExists` resolves it before the guard.
 export async function archivePlayer(
   playerId: string,
   leagueId: string,
@@ -1126,16 +880,8 @@ export async function archivePlayer(
   if (!person) return { ok: false, message: "That person no longer exists." };
   const name = `${person.first_name} ${person.last_name}`;
 
-  // ⛔ THE INVARIANT THAT KEEPS ARCHIVING COHERENT: nobody is archived out of a
-  // league while they are still on one of its rosters. Without it an archived
-  // person keeps appearing in the roster table, with a Transfer button that
-  // would put them straight onto another of this league's teams — an "archived"
-  // player moving between teams, which is the state the whole feature is meant
-  // to make unreachable. Refused with the team named, so the operator knows
-  // what to do rather than being told no.
-  //
-  // Every season of this league, not just the current one: a person on next
-  // season's roster is just as much a member of the league.
+  // ⛔ Nobody is archived while on any of this league's rosters, in any season: an archived player
+  // with a Transfer button is the state this feature makes unreachable.
   const activeRosterTeams = async () => {
     const { data } = await admin
       .from("team_players")
@@ -1160,9 +906,7 @@ export async function archivePlayer(
   const before = await activeRosterTeams();
   if (before.length) return stillRostered(before);
 
-  // Upsert, not insert: archiving someone already archived is a no-op the
-  // operator should not see an error for. Two managers clicking at once is the
-  // realistic case, and 23505 is not the answer to it.
+  // Upsert: archiving someone already archived (two managers at once) is not an error.
   const { error } = await admin
     .from("player_league_archive")
     .upsert(
@@ -1171,23 +915,8 @@ export async function archivePlayer(
     );
   if (error) return { ok: false, message: error.message };
 
-  // ⚠️ ASKED AGAIN AFTER THE WRITE, because the check above is a read and
-  // `addRosterPlayer` is a second writer. Interleaved — two managers, or one
-  // with two tabs — `addRosterPlayer` reads the archive and finds nothing while
-  // this action reads the roster and finds nothing, and both then succeed: an
-  // archived person sitting on a roster, which is the state 0040's header calls
-  // an invariant and does not enforce in the schema.
-  //
-  // Re-reading closes the order where the add lands DURING this call. It does
-  // not close the reverse one, where this call finishes before the add's insert
-  // — that window belongs to `addRosterPlayer`, whose own archive check has the
-  // same shape, and closing it properly needs a trigger reading team_players.
-  // So this narrows the race rather than removing it, and 0040's comment now
-  // says that instead of claiming the rule always holds.
-  //
-  // The archive row goes whether or not this call created it: a person on a
-  // roster must not be archived, so removing it is the right repair in both
-  // cases rather than a rollback of our own insert.
+  // ⚠️ Re-checked after the write, since `addRosterPlayer` may insert concurrently. This narrows the
+  // race rather than closing it (that needs a trigger); the archive row goes either way.
   const after = await activeRosterTeams();
   if (after.length) {
     await admin
