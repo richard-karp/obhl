@@ -626,6 +626,7 @@ test.describe("Path 20 — League Office", () => {
   }) => {
     const db = admin();
     const commissionerId = await profileIdFor(COMMISSIONER);
+    const since = new Date(Date.now() - 5_000).toISOString();
 
     await signInAs(page, "Manager");
     await page.goto("/obhl/people");
@@ -642,20 +643,25 @@ test.describe("Path 20 — League Office", () => {
       removeForm.getByRole("button", { name: "Remove" }).click(),
     );
 
-    // Still in the office, and still a manager: `removeStaff` refused rather
-    // than reporting success having deleted nothing.
+    // Still in the office. The audit entry is what catches a broken guard: an
+    // office member holds no membership row, so a forged removal that got
+    // through deletes nothing and only files a `remove_staff` entry saying it did.
     const { data: tier } = await db
       .from("league_office")
       .select("tier")
       .eq("profile_id", commissionerId)
       .single();
     expect(tier?.tier).toBe("commissioner");
-    const { data: prof } = await db
-      .from("profiles")
-      .select("role")
-      .eq("id", commissionerId)
-      .single();
-    expect(prof?.role).toBe("league_manager");
+    const { data: entries } = await db
+      .from("audit_log")
+      .select("id")
+      .eq("action", "remove_staff")
+      .contains("old_data", { profile_id: commissionerId })
+      .gte("created_at", since);
+    expect(
+      entries ?? [],
+      "a refused removal must file no remove_staff entry",
+    ).toHaveLength(0);
   });
 
   test("a deputy sees the office roster and can change nothing", async ({
