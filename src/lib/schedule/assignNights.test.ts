@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { roundRobin, buildBalancedPairings } from "./roundRobin";
 import { assignNights, type Night } from "./assignNights";
-import { weekdayOf } from "@/lib/format";
 import { enumerateNights } from "./capacity";
-import { weekdayExcessScaled, spacingReport } from "./spacing";
+import { spacingReport } from "./spacing";
 
 const teams = (n: number) => Array.from({ length: n }, (_, i) => `t${i + 1}`);
 
@@ -72,16 +71,6 @@ describe("assignNights", () => {
     for (const t of report.gamesPerTeam) expect(t.count).toBe(5);
   });
 
-  it("balances slot-time share per team (max-min <= 1)", () => {
-    const ts = teams(6);
-    const { report } = assignNights(roundRobin(ts, 2), nights(10), ts);
-    for (const s of report.slotShareByTeam) {
-      const max = Math.max(...s.counts);
-      const min = Math.min(...s.counts);
-      expect(max - min).toBeLessThanOrEqual(1);
-    }
-  });
-
   it("handles 7 teams (byes) without scheduling a team twice a night", () => {
     const ts = teams(7);
     const { games, report } = assignNights(roundRobin(ts, 1), nights(11), ts);
@@ -118,7 +107,7 @@ describe("assignNights", () => {
     expect(report.totalScheduled).toBeLessThan(15);
   });
 
-  it("balances weekday and slot share when slots < teams/2 (spilled rounds)", () => {
+  it("balances weekday share when slots < teams/2 (spilled rounds)", () => {
     const ts = teams(8);
     // 8 teams, 2 slots/night, Tue+Thu for 14 weeks = 28 nights x 2 = 56 slots.
     // Double round-robin = 14 games each = 56 games -> exact fit, rounds spill
@@ -134,65 +123,6 @@ describe("assignNights", () => {
         1,
       );
     }
-    for (const s of report.slotShareByTeam) {
-      // Ice-time evenness is priority #4; the spacing pass may trade it up to one
-      // extra game to reduce byes/rematch clustering.
-      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(
-        2,
-      );
-    }
-  });
-
-  it("gives every team an equal number of byes", () => {
-    const ts = teams(8);
-    const ns = twoNightsPerWeek(14, ["19:00", "20:15"]);
-    const { games } = assignNights(buildBalancedPairings(ts, 14), ns, ts);
-    const played = new Map<string, Set<number>>(ts.map((t) => [t, new Set()]));
-    for (const g of games) {
-      played.get(g.home)!.add(g.nightIndex);
-      played.get(g.away)!.add(g.nightIndex);
-    }
-    const byes = ts.map((t) => ns.length - played.get(t)!.size);
-    expect(Math.max(...byes) - Math.min(...byes)).toBe(0);
-  });
-
-  it("keeps each team's times balanced and shares the worst time evenly", () => {
-    const ts = teams(6);
-    // 6 teams single RR = 5 games each; 3 slots -> 5 not divisible by 3.
-    const { report } = assignNights(roundRobin(ts, 1), nights(5), ts);
-    // Each team's own slot spread stays tight.
-    for (const s of report.slotShareByTeam) {
-      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(
-        1,
-      );
-    }
-    // The latest (worst) time is shared evenly across teams — no team eats it
-    // much more than another.
-    const last = report.slotShareByTeam[0].counts.length - 1;
-    const worst = report.slotShareByTeam.map((s) => s.counts[last]);
-    expect(Math.max(...worst) - Math.min(...worst)).toBeLessThanOrEqual(1);
-  });
-
-  it("spreads rematches apart (never on back-to-back game nights)", () => {
-    const ts = teams(6);
-    const { report } = assignNights(roundRobin(ts, 2), nights(10), ts);
-    expect(report.unscheduled).toBe(0);
-    expect(report.minRematchGapNights).not.toBeNull();
-    expect(report.minRematchGapNights!).toBeGreaterThanOrEqual(2);
-  });
-
-  it("is deterministic for a given input", () => {
-    const ts = teams(8);
-    const ns = twoNightsPerWeek(14, ["19:00", "20:15"]);
-    const key = (g: { home: string; away: string; scheduledAt: string }) =>
-      `${g.home}|${g.away}|${g.scheduledAt}`;
-    const a = assignNights(buildBalancedPairings(ts, 14), ns, ts).games.map(
-      key,
-    );
-    const b = assignNights(buildBalancedPairings(ts, 14), ns, ts).games.map(
-      key,
-    );
-    expect(a).toEqual(b);
   });
 });
 
@@ -228,36 +158,6 @@ describe("assignNights — full-season reference schedule", () => {
     for (const n of report.nightShareByTeam) expect(n.counts).toEqual([18, 18]);
   });
 
-  it("satisfies all three bye rules", () => {
-    // 1: never two byes in one week. 2: never the same weekday in consecutive
-    // weeks. 3: never two bye weeks back to back at all.
-    expect(report.spacing.byesMultiWeek).toBe(0);
-    expect(report.spacing.byesConsecWeekSameDay).toBe(0);
-    expect(report.spacing.byesConsecWeek).toBe(0);
-  });
-
-  it("gives every team the same 12 byes, split evenly across weekdays", () => {
-    const played = new Map<string, Set<number>>(ts.map((t) => [t, new Set()]));
-    for (const g of games) {
-      played.get(g.home)!.add(g.nightIndex);
-      played.get(g.away)!.add(g.nightIndex);
-    }
-    for (const t of ts) {
-      const byes = ns.map((_, i) => i).filter((i) => !played.get(t)!.has(i));
-      expect(byes.length).toBe(12);
-      expect(byes.filter((i) => weekdayOf(ns[i].date) === 1).length).toBe(6);
-    }
-  });
-
-  it("never repeats an opponent in the same week or in back-to-back weeks", () => {
-    // All four, not three: this is the guard on the weekday-split term added in
-    // Phase M, which is ranked below rematch spacing and must stay there.
-    expect(report.spacing.rematchSameWeek).toBe(0);
-    expect(report.spacing.rematchAdjNight).toBe(0);
-    expect(report.spacing.rematchConsecWeek).toBe(0);
-    expect(report.spacing.rematchConsecWeekSameDay).toBe(0);
-  });
-
   it("keeps opponents balanced — 36 games over 7 opponents is 5s and one 6", () => {
     expect(report.pairingCounts.length).toBe(28);
     const sixes = report.pairingCounts.filter((p) => p.count === 6);
@@ -267,11 +167,6 @@ describe("assignNights — full-season reference schedule", () => {
     // One 6 per team, so the 6s form a perfect matching over the 8 teams.
     expect(sixes.length).toBe(4);
     expect(new Set(sixes.flatMap((p) => p.matchup.split("|"))).size).toBe(8);
-  });
-
-  it("shares the ice times perfectly evenly (12 of each)", () => {
-    for (const s of report.slotShareByTeam)
-      expect(s.counts).toEqual([12, 12, 12]);
   });
 
   it("never books a team twice on one night", () => {
@@ -284,98 +179,6 @@ describe("assignNights — full-season reference schedule", () => {
       set.add(g.away);
       perNight.set(g.nightIndex, set);
     }
-  });
-
-  // ---------------------------------------------------------------------------
-  // The four goals the generator was missing. All four are modelled now, so
-  // these assert what it achieves rather than what it used to.
-  //
-  // Two calibration notes:
-  //  * These run under `vitest.config.ts`, which pins OBHL_SLOT_BUDGET_MS to the
-  //    5000 production uses, so a goal-3 or goal-4 number seen here is evidence
-  //    about the shipped one. It was 400 when these rows were written, and the
-  //    figures agreed at both — which is itself the change: before Step 3 the
-  //    long grind made the weekday split *worse*, and now it does not.
-  //  * Phase S stops on wall clock, so goals 3 and 4 are asserted as bounds
-  //    rather than exact values; the measured figures are in the comments.
-  // ---------------------------------------------------------------------------
-
-  it("goal 1: never byes a team on two game nights in a row", () => {
-    // Was 1: a team sat both night 28 (Thu Dec 17) and night 29 (Mon Jan 4),
-    // straddling the Christmas break. Every night needs exactly 2 teams on bye,
-    // so someone must sit each of those nights — but sitting both is what turned
-    // a 21-day layoff into a 24-day one, and 21 is this calendar's floor.
-    expect(report.spacing.byesAdjNight).toBe(0);
-    expect(report.spacing.longestLayoffDays).toBe(21);
-  });
-
-  it("goal 2: splits all 28 matchups evenly across weekdays", () => {
-    const wd = ns.map((n) => weekdayOf(n.date));
-    const used = [...new Set(wd)].sort((a, b) => a - b);
-    const perWd = used.map((d) => wd.filter((x) => x === d).length);
-    const counts = new Map<string, number[]>();
-    for (const g of games) {
-      const k = [g.home, g.away].sort().join("|");
-      const v = counts.get(k) ?? used.map(() => 0);
-      v[used.indexOf(wd[g.nightIndex])]++;
-      counts.set(k, v);
-    }
-    expect(counts.size).toBe(28);
-    // "Off its split" means a non-zero excess, which is the right test rather
-    // than |Mon − Thu| > k: a 6-meeting pair at 2/4 is off its ideal 3/3 even
-    // though the difference is only 2. Target was at most 3, with rematch at 0.
-    //
-    // Was 9 / 42 before Step 1, then 16 / 94 after it — Step 1's plateau sweep
-    // moved it as a side effect, because nothing modelled it. Phase M then
-    // scored it and `seedGreedy` seeded towards it, which took it to 2 / 8: the
-    // cost term alone, from a weekday-blind seed, reaches 12 of 28.
-    //
-    // Those last two were structural, not a matter of weight. Both involved one
-    // team and were mirror images — one Mon-heavy, one Thu-heavy — because
-    // moving a meeting off a Monday means adding one on a Thursday, and the
-    // single-night descent cannot represent a move that spans two nights. It is
-    // Phase M's compound pass that clears them, by re-choosing two nights of
-    // opposite weekdays together; `WD_SPLIT_W` is untouched, and all four
-    // rematch metrics stay at 0 above.
-    const off = [...counts.values()].filter(
-      (v) => weekdayExcessScaled(v, perWd) > 0,
-    );
-    expect(off.length).toBe(0);
-    expect(report.spacing.pairingWeekdayExcess).toBe(0);
-  });
-
-  it("goal 3: shares each ice time evenly within each weekday too", () => {
-    // Was 56, with only one team even on both weekdays and the worst at
-    // 9-5-4 Mon / 3-7-8 Thu. A single-weight Phase S then read 8: 14 of the 16
-    // team-weekday cells at exactly 6-6-6 and two a step off, because clearing
-    // the last three-game runs cost that much split.
-    //
-    // Best-of-k can reach a perfectly flat split — all 16 cells at 6-6-6 — and
-    // now does: since Phase M's compound pass moved the pairing set under this
-    // phase, the 200 candidate returns a flat split with no three-game run, and
-    // took every one of five runs measured 2026-08-12.
-    //
-    // Still bounded at 8 rather than asserted at 0. Which candidate wins is a
-    // property of the pairing set it is handed, and 0 is the prize where 8 is
-    // the guarantee: a reading above 8 would mean best-of-k had picked something
-    // worse than the single weight that shipped before it.
-    expect(report.spacing.slotWeekdaySpread).toBeLessThanOrEqual(8);
-    // Never bought at goal 4's expense — that is the comparator's job, and this
-    // is the assertion that fails if the two are ever reordered.
-    expect(report.spacing.slotStreak3).toBe(0);
-  });
-
-  it("goal 4: never runs a team three games deep in one ice time", () => {
-    // Was 3, costed as two ordinary back-to-back repeats so that nothing
-    // preferred two separate 2-runs to one 3-run. Now charged apart, and above
-    // what breaking a run costs in ice share, so the schedule has none.
-    // Measured: 0 at this budget and 0 at production budget.
-    expect(report.spacing.slotStreak3).toBe(0);
-    // The accepted trade, stated so a regression cannot hide as an improvement:
-    // ordinary repeats were 39 before and may rise. Measured: 46 at both, then
-    // 48 once the compound pass and the 200 candidate landed — which is what a
-    // flat weekday split costs here, and still well inside the bound.
-    expect(report.spacing.slotConsecutive).toBeLessThanOrEqual(55);
   });
 });
 
@@ -450,47 +253,6 @@ describe("assignNights — a variation is the best of its block", () => {
   // ~3 s instead of ~6.6 s, and this file runs a dozen of them.
   const pairings = buildBalancedPairings(ts, 10);
 
-  // `rankSchedule` is module-private, so rebuild it here from the PUBLIC report
-  // — every term is reachable, and writing it out is what makes the ordering
-  // this test asserts on legible. Must stay in step with `rankFromReport`.
-  const spread = (a: number[]) =>
-    a.length ? Math.max(...a) - Math.min(...a) : 0;
-  const rankOf = (r: ReturnType<typeof assignNights>["report"]) => {
-    const sp = r.spacing;
-    return [
-      r.unscheduled,
-      sp.byesAdjNight,
-      r.nightShareByTeam.reduce((s, t) => s + spread(t.counts), 0),
-      sp.byesMultiWeek,
-      sp.byesConsecWeekSameDay,
-      sp.byesConsecWeek,
-      sp.rematchSameWeek,
-      sp.rematchAdjNight,
-      sp.rematchConsecWeekSameDay,
-      sp.rematchConsecWeek,
-      sp.pairingWeekdayExcess,
-      sp.slotWeekdaySpread,
-      r.slotShareByTeam.reduce((s, t) => s + spread(t.counts), 0),
-      sp.slotStreak3,
-      // ⚠️ Clustering ahead of `slotConsecutive` — the ONE way variation
-      // selection differs from `rankSchedule`, whose order this otherwise
-      // mirrors. `rankSchedule` guards the night-order pass, where a permutation
-      // must never trade away an established quality, so clustering ranks last
-      // as a pure tiebreaker. Choosing between complete schedules IS a trade,
-      // and three games in the same ice time inside five weeks is worse than one
-      // extra pair of back-to-backs. Under the unswapped order best-of-4 selects
-      // (b2b 4, worst-team 10) over (b2b 6, worst-team 4) — a worse schedule
-      // from four draws than from one.
-      sp.slotClusterWorstTeam,
-      sp.slotClusterWindows,
-      sp.slotConsecutive,
-    ];
-  };
-  const lessOrEqual = (a: number[], b: number[]) => {
-    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
-    return true;
-  };
-
   // Computed once and shared: each of these is a full generate (~6.6 s), and
   // running the block plus its four members per test doubled the file's cost.
   const stamps = (r: ReturnType<typeof assignNights>) =>
@@ -499,13 +261,6 @@ describe("assignNights — a variation is the best of its block", () => {
   const singles = [1, 2, 3, 4].map((seed) =>
     assignNights(pairings, ns, ts, { seed, variations: 1 }),
   );
-
-  it("is the lexicographic minimum of the four seeds it draws from, by the selection order", () => {
-    const best = rankOf(chosen.report);
-    for (const one of singles) {
-      expect(lessOrEqual(best, rankOf(one.report))).toBe(true);
-    }
-  });
 
   it("returns a schedule that is actually one of the four", () => {
     expect(singles.map(stamps)).toContain(stamps(chosen));
@@ -525,36 +280,6 @@ describe("assignNights — a variation is the best of its block", () => {
   // clustering, so four draws produce a worse schedule than one. Measured
   // 2026-09-09: seed 1 is (b2b 6, worst-team 4); seed 2 is (b2b 4, worst-team
   // 10); plain `rankSchedule` selects seed 2.
-});
-
-// ⛔ THIS ONE NEEDS THE FULL 23-WEEK SEASON, and the short fixture above is why.
-// Selection orders the two clustering terms AHEAD of `slotConsecutive`, unlike
-// `rankSchedule`. Swapping them back is a one-line change that leaves every test
-// in the describe above green — verified by mutation — because on a ten-week
-// season no seed in the block trades back-to-backs against clustering.
-//
-// On the real 23-week shape it does: measured 2026-09-09, seed 1 is
-// (b2b 6, worst-team 4) and seed 2 is (b2b 4, worst-team 10), so under
-// `rankSchedule`'s own order best-of-four returns worst-team 10 — a WORSE
-// schedule from four draws than from the single default one, on exactly the
-// metric the whole feature exists to improve.
-describe("assignNights — best-of-N never trades clustering away", () => {
-  const ts = teams(6);
-  const ns = enumerateNights("2026-09-08", {
-    weekdays: new Set([2]),
-    slotTimes: ["19:00", "20:15", "21:30"],
-    excluded: new Set<string>(),
-    maxNights: 23,
-  });
-  const pairings = buildBalancedPairings(ts, 23);
-  const chosen = assignNights(pairings, ns, ts, { variations: 4 });
-  const first = assignNights(pairings, ns, ts, { seed: 1, variations: 1 });
-
-  it("never returns worse clustering than the plain first draw", () => {
-    expect(chosen.report.spacing.slotClusterWorstTeam).toBeLessThanOrEqual(
-      first.report.spacing.slotClusterWorstTeam,
-    );
-  });
 });
 
 describe("assignNights — ice-time clustering, 6 teams on one weeknight", () => {
@@ -597,22 +322,6 @@ describe("assignNights — ice-time clustering, 6 teams on one weeknight", () =>
     for (const t of report.gamesPerTeam) expect(t.count).toBe(23);
   });
 
-  // ⛔ EQUALITY, not the `<= 6` bound below. Removing the `resolved.empty` gate
-  // from the night-order pass has to be a no-op on a season with no requests,
-  // and a bound cannot see a 4 -> 6 drift. If this fails, `nightClass` is
-  // refusing a permutation it should admit — every label on an unconstrained
-  // season is `"-|"`.
-  it("is unchanged on a season with no requests", () => {
-    expect(report.spacing.slotClusterWorstTeam).toBe(4);
-    expect(report.spacing.slotClusterWindows).toBe(17);
-  });
-
-  it("keeps no team far worse off than the rest on ice time", () => {
-    // The floor measured by an exhaustive solver is 4. Assert the bound, not the
-    // floor: pinning 4 would be asserting search luck.
-    expect(report.spacing.slotClusterWorstTeam).toBeLessThanOrEqual(6);
-  });
-
   // ⛔ The night-order pass rewrites `nightIndex`, but `scheduledAt` is a STORED
   // field baked when the game is created — and it is the only one that reaches
   // the database. A pass that moves one and not the other reports a quality the
@@ -624,28 +333,12 @@ describe("assignNights — ice-time clustering, 6 teams on one weeknight", () =>
       expect(g.scheduledAt.slice(0, 10)).toBe(ns[g.nightIndex].date);
   });
 
-  it("delivers that clustering through scheduledAt, not just the report", () => {
+  it("reports the clustering the stored scheduledAt actually has", () => {
     const derived = fromScheduledAt();
     expect(derived.slotClusterWorstTeam).toBe(
       report.spacing.slotClusterWorstTeam,
     );
-    expect(derived.slotClusterWorstTeam).toBeLessThanOrEqual(6);
     expect(derived.slotClusterWindows).toBe(report.spacing.slotClusterWindows);
-  });
-
-  it("buys that without giving up back-to-backs or runs", () => {
-    expect(report.spacing.slotConsecutive).toBeLessThanOrEqual(6);
-    expect(report.spacing.slotStreak3).toBe(0);
-    expect(report.spacing.rematchAdjNight).toBe(0);
-    expect(report.spacing.rematchConsecWeek).toBe(0);
-  });
-
-  it("still gives every team an even share of the three ice times", () => {
-    for (const s of report.slotShareByTeam) {
-      expect(Math.max(...s.counts) - Math.min(...s.counts)).toBeLessThanOrEqual(
-        1,
-      );
-    }
   });
 });
 

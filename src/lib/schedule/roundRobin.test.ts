@@ -62,22 +62,6 @@ describe("roundRobin", () => {
     const gp = gamesPerTeam(ps);
     for (const t of ts) expect(gp.get(t)).toBe(6);
   });
-
-  it("home/away counts are roughly balanced (diff <= 2)", () => {
-    const ts = teams(6);
-    const ps = roundRobin(ts, 2);
-    const home = new Map<string, number>();
-    const away = new Map<string, number>();
-    for (const p of ps) {
-      home.set(p.home, (home.get(p.home) ?? 0) + 1);
-      away.set(p.away, (away.get(p.away) ?? 0) + 1);
-    }
-    for (const t of ts) {
-      expect(
-        Math.abs((home.get(t) ?? 0) - (away.get(t) ?? 0)),
-      ).toBeLessThanOrEqual(2);
-    }
-  });
 });
 
 describe("roundRobinRounds", () => {

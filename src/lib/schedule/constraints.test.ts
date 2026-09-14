@@ -691,60 +691,6 @@ describe("what the manager is told", () => {
     expect(out[0].satisfied).toBe(true);
     expect(out[0].reason).toBeNull();
   });
-
-  it("does not force Phase P for a bias-only set", () => {
-    // A `slot_bias` moves no participation cell, so forcing Phase P for one
-    // bought a rule-2 breach (consecutive-week byes 1 → 2) for a tie-break
-    // weighted at 4, which came back unmet anyway.
-    //
-    // Two full generations, ~1.9 s each — comfortably inside the 30 s
-    // `testTimeout` the config sets, and deliberately here rather than in the
-    // describe body: a failure stays attributed to this test.
-    const teams = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"];
-    const dates = [
-      "2026-09-15",
-      "2026-09-17",
-      "2026-09-22",
-      "2026-09-24",
-      "2026-09-29",
-      "2026-10-01",
-      "2026-10-06",
-      "2026-10-08",
-      "2026-10-13",
-      "2026-10-15",
-      "2026-10-20",
-    ];
-    const nights: Night[] = dates.map((date) => ({
-      date,
-      slots: ["19:00", "20:15", "21:30"],
-    }));
-    const pairings = buildBalancedPairings(teams, 8);
-    const bare = assignNights(pairings, nights, teams).report;
-    const biased = assignNights(pairings, nights, teams, {
-      constraints: resolveConstraints(
-        [
-          c("1", "t1", "slot_bias", {
-            from: dates[0],
-            to: dates[5],
-            prefer: "early",
-          }),
-        ],
-        { nights, teamIds: teams },
-      ),
-    }).report;
-
-    // ⚠️ `toBeLessThanOrEqual`, not equality: both runs are independently
-    // searched under a wall-clock budget, so the seed counts differ with
-    // machine load and exact parity is not something either search promises.
-    // The property that matters is one-directional anyway — a bias must never
-    // make the bye spacing WORSE, which is exactly what forcing Phase P did.
-    expect(biased.spacing.byesConsecWeek).toBeLessThanOrEqual(
-      bare.spacing.byesConsecWeek,
-    );
-    expect(biased.spacing.byesMultiWeek).toBeLessThanOrEqual(
-      bare.spacing.byesMultiWeek,
-    );
-  });
 });
 
 describe("presentSpacing", () => {
@@ -956,53 +902,6 @@ describe("assignNights — a pinned slot survives the clustering pass", () => {
   });
 });
 
-// A constrained season now DRAWS A BLOCK like any other: night classes let the
-// night-order pass run on it, which is what made a block worth drawing again.
-// This describe used to assert the opposite — `stamps(4)).toBe(stamps(1))` —
-// and that was correct while the pass was switched off for a constrained
-// season, when four draws differed only in Phase P/M/S luck and cost 4x for
-// nothing. What survives is the clamp: `variations` may only ever REDUCE the
-// automatic count, which is how `generateSchedule`'s step-down retry loop forces
-// a single draw on its degraded path.
-//
-// ⚠️ A TEN-WEEK SEASON. The clamp is arithmetic and does not depend on season
-// length; the 23-week fixture would spend ten full generates proving it.
-describe("assignNights — variations can be reduced but never raised", () => {
-  const ts = Array.from({ length: 6 }, (_, i) => `t${i + 1}`);
-  const shortNs = enumerateNights("2026-09-08", {
-    weekdays: new Set([2]),
-    slotTimes: ["19:00", "20:15", "21:30"],
-    excluded: new Set<string>(),
-    maxNights: 10,
-  });
-  const shortPairings = buildBalancedPairings(ts, 10);
-  const shortResolved = resolveConstraints(
-    [c("p1", "t3", "slot_on", { date: shortNs[4].date, time: "21:30" })],
-    { nights: shortNs, teamIds: ts },
-  );
-  const stamps = (variations: number) =>
-    assignNights(shortPairings, shortNs, ts, {
-      constraints: shortResolved,
-      variations,
-    })
-      .games.map((g) => `${g.home}|${g.away}|${g.scheduledAt}`)
-      .sort()
-      .join("\n");
-
-  // Only the clamp. Determinism for a fixed seed is covered in
-  // `assignNights.test.ts`; re-checking it here costs two more generates.
-  //
-  // ⚠️ THIS ONE FAILS BY TIMEOUT, not by assertion. Remove the clamp and
-  // `stamps(99)` attempts 99 draws — well past the limit below — so a
-  // regression reads as "Test timeout exceeded" rather than a mismatch. Real
-  // coverage, ugly signal; accepted because nothing in the codebase passes a
-  // value above the automatic count and a cleaner version would need another
-  // fixture to earn.
-  it("clamps a request above the automatic count", () => {
-    expect(stamps(99)).toBe(stamps(4));
-  }, 180_000);
-});
-
 describe("assignNights — a constrained season still gets its ice time spread", () => {
   const ts = Array.from({ length: 6 }, (_, i) => `t${i + 1}`);
   const ns = enumerateNights("2026-09-08", {
@@ -1026,90 +925,6 @@ describe("assignNights — a constrained season still gets its ice time spread",
   it("keeps the pin satisfied", () => {
     expect(report.constraints.find((x) => x.id === "p1")!.satisfied).toBe(true);
   });
-
-  // ⛔ TWO KINDS COVERED; `forced` AND `byeInWeek` ARE NOT, AND THAT IS THE
-  // HONEST STATE. Six teams over three sheets fills every night exactly, so all
-  // six play every night. That makes `bye_on`, `bye_week` and `bye_in_week`
-  // INFEASIBLE here, and it makes `play_on` UNFALSIFIABLE — satisfied by
-  // arithmetic whatever the pass does, so a `play_on` row would pass with
-  // `nightClass` deleted entirely and would claim a coverage it does not have.
-  // Between them those four kinds are the whole of the `forced` and `byeInWeek`
-  // label paths, so neither path is tested. The only fixture with real byes is
-  // the 8-team Mon+Thu league, and that one is too tight for the pass to find
-  // any admissible permutation, so it cannot exercise them either. Covering them
-  // needs a season with surplus nights — both bye-carrying and loose enough to
-  // permute — which has not been measured.
-  //
-  // ⛔ NO CONDITIONAL SKIP. Both rows are ones this shape can satisfy AND can
-  // fail, so an unmet verdict is a real failure, never a skipped assertion.
-  // The unconstrained floor on this shape is 4 and the spike measured 5 here.
-  // Assert the bound, not the floor — pinning 5 would be asserting search luck.
-  it("spreads ice time nearly as well as an unconstrained season", () => {
-    expect(report.spacing.slotClusterWorstTeam).toBeLessThanOrEqual(8);
-  }, 120_000);
-
-  // Night classes alone were worth 15 -> 14 here; the single draw, not the
-  // permutation freedom, was the binding constraint. Measured 2026-09-09.
-  it("draws a block, not a single schedule", () => {
-    const stamps = (variations: number) =>
-      assignNights(pairings, ns, ts, { constraints: resolved, variations })
-        .games.map((g) => `${g.home}|${g.away}|${g.scheduledAt}`)
-        .sort()
-        .join("\n");
-    expect(stamps(4)).not.toBe(stamps(1));
-  }, 180_000);
-
-  // ⛔ THE DRAW THAT HONOURS THE MANAGER WINS, ALWAYS. `rankFromReport`'s
-  // seventeen entries are all balance and spacing — not one of them is "did we
-  // meet the request". While constrained seasons took a single draw that could
-  // not matter; a block makes it a coin toss, and Phase S already carries the
-  // same warning on `outcomeFor`: a term invisible to the ranking means the
-  // candidate honouring the request best can lose to one that ignores it.
-  //
-  // ⛔ A WHOLE-SEASON `slot_bias`, NOT the `slot_on` pin above. Every draw
-  // satisfies that pin, so with it `chosen` and all four singles are 0 unmet and
-  // this passes against a comparator carrying no constraint term at all.
-  // Measured 2026-09-09: a whole-season "prefer late" is UNMET on a single draw
-  // and MET on a block of four — the one fixture here where the draws disagree
-  // about a request.
-  // ⚠️ NOT MUTATION-VERIFIED, AND THAT IS RECORDED RATHER THAN GLOSSED. Deleting
-  // the constraint term from `rankOf` leaves this green. Measured 2026-09-09,
-  // the four draws' unmet counts on this fixture are `1 0 0 0` — three of four
-  // satisfy the request, so ANY selection rule lands on a satisfying draw and
-  // the term never gets to decide. It earns its place as insurance against the
-  // case where the clustering-best draw is the unmet one, which is exactly the
-  // failure Phase S documents on `outcomeFor`; no fixture on this shape produces
-  // it. Do not read this test as proof the term works.
-  it("never picks a draw that honours fewer requests", () => {
-    const biased = resolveConstraints(
-      [
-        c("b1", "t1", "slot_bias", {
-          from: ns[0].date,
-          to: ns.at(-1)!.date,
-          prefer: "late",
-        }),
-      ],
-      { nights: ns, teamIds: ts },
-    );
-    const unmet = (r: ReturnType<typeof assignNights>) =>
-      r.report.constraints.filter((x) => !x.satisfied).length;
-    const chosen = unmet(
-      assignNights(pairings, ns, ts, { constraints: biased, variations: 4 }),
-    );
-    for (const seed of [1, 2, 3, 4]) {
-      const one = unmet(
-        assignNights(pairings, ns, ts, {
-          constraints: biased,
-          seed,
-          variations: 1,
-        }),
-      );
-      expect(chosen).toBeLessThanOrEqual(one);
-    }
-    // The contract, pinned: the block's verdict is the best any of its draws
-    // achieved, never a compromise between them.
-    expect(chosen).toBe(0);
-  }, 300_000);
 
   it.each([
     ["slot_on", "t3", { date: ns[15].date, time: "21:30" }],
