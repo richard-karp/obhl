@@ -28,41 +28,28 @@ schedule building and rules. One instance serves several leagues. Production is
 
 ## Standing gates
 
-- ⛔ **A test config may raise a timeout, never set a constant that shapes a
-  search, a budget or a result.** `vitest.config.ts` pinned
-  `OBHL_SLOT_RESTARTS=2000` while production ran 20,000: the clustering tests
-  passed at 2,000 and failed at 20,000, and the league got 14 -> 13 instead of
-  14 -> 4. Never delete `runs Phase S at the production default, not a test-only
-  one` in `assignNights.test.ts`.
-- ⛔ **e2e resets the one shared local database, so always run
-  `PORT=<port> scripts/e2e-locked.sh <files>`.** Every worktree shares one
-  Supabase and `e2e/global-setup.ts` resets it, so overlapping runs wipe each
-  other's fixtures; the script takes a lock. Give each worktree its own `PORT`,
-  or `reuseExistingServer` drives another branch's server (`lsof -ti:$PORT`
-  before trusting a red run). Name full files, never a glob.
-- ⛔ **CI runs the full e2e suite split across two machines; the spec lists are
-  the `e2e` matrix in `.github/workflows/ci.yml`.** A new spec must go in exactly
-  one list, or it silently stops running. `14-schedule-changes` must not run
-  before `05-scoring-night` on one database, and a spec that reads another's data
-  goes on that spec's machine.
-- CI tests the merge with `main`, not the branch: a green run on a stale base
-  proves nothing.
+- ⛔ **A test config may raise a timeout, never set a search constant:** the suite
+  then tests a search production never runs (evidence in `AGENTS.md`).
+- ⛔ **e2e resets the one shared local database:** always run
+  `PORT=<port> scripts/e2e-locked.sh <files>`, with a distinct `PORT` per worktree.
+- ⛔ **CI runs the full e2e split across two machines; every spec must be in
+  exactly one list in `.github/workflows/ci.yml`,** or it silently stops running.
+- `14-schedule-changes` stays off `05-scoring-night`'s machine. CI tests the merge
+  with `main`, so a green run on a stale base proves nothing.
 
 ## Access control
 
 **Model.** `profiles.role` (`app_role`) says what someone is; `profile_leagues`
 says where. Every guard takes the league from the URL or from the entity being
-written and checks membership, not only the role. Captains reach only their
-team's games. ⛔ Don't change the `app_role` enum or the JWT hook (`0010`): the
-model is membership-only so both stay untouched, and a changed hook must be
-re-enabled by hand in the dashboard.
+written and checks membership, not only the role. ⛔ Don't change the `app_role`
+enum or the JWT hook (`0010`): a changed hook must be re-enabled by hand.
 
-**League Office (`0034`).** `league_office` holds `commissioner` and `deputy`
-tiers, which widen reach across leagues and add no powers; none outranks another.
-Only a `league_manager` may hold one, and the tier comes off before the role can
-change. The table is granted to nobody, so the first commissioner is inserted in
-SQL. An Office member can change a manager's role in `/<league>/people`; another
-manager cannot. `setStaffPassword` requires `requireCommissioner`.
+**League Office (`0034`).** Tiers rank commissioner > deputy > manager, and a
+profile is writable only by a strictly higher tier. Commissioners are peer-flat
+and appointed in SQL (`league_office` is granted to nobody); a deputy cannot touch
+the office. Only a `league_manager` may hold a tier, and it comes off before the
+role can change. Managing deputies and `setStaffPassword` need
+`requireCommissioner`.
 
 **Guards** (`src/lib/auth/guards.ts`). `requireLeagueManager` and
 `requireLeagueRole` guard league actions and pages; `requireLeagueManagerOf`
@@ -75,37 +62,22 @@ role-only page guard because that page has no league; `/manage/office` uses
 `src/app/manage/`.
 - ⛔ **`canManageLeague` and `canScoreLeague` are questions, not guards.** They
   decide what a page draws; the server action must still refuse.
-- A shared public/staff page renders every branch on the server: gate staff data
-  on the entitlement, not a tab. Header staff links guard nothing.
-- Every export of a `"use server"` file is a callable endpoint; helpers go in
-  plain modules such as `src/lib/games/finalize.ts`.
 
 **The RLS half.** `0008` public reads, `0009` role writes, `0032` membership,
 `0033` profile-write containment, `0042`/`0043` staff reads of a staged league.
 ⛔ Don't widen the `_is_public` helpers instead: they decide what anonymous
-visitors see. `0046` and `0050` are triggers (_Traps_). Decided, don't re-file:
-the password actions take no league (the caller's session is the authorisation),
-and `previewEsportsdeskImport` is not an SSRF (it fetches a hardcoded host).
+visitors see. `0046` and `0050` are triggers (_Traps_).
 
 ### Traps
 
 - ⛔ **An RLS-refused `UPDATE` reports no error.** It matches zero rows with
   `error: null`, so read the row back. Refused inserts and upserts do raise 42501.
-- ⛔ **An audit entry filed under a null league is hidden from every view.**
-  `leagueOfEntity` (`src/lib/audit.ts`) returns null for an `entity_type` with no
-  case, and league views and RLS both drop the entry. Add the case in the same
-  change and prove it by removing it. An action that deletes what it logs passes
-  `league_id`, resolved before the delete.
-- `logAudit` writes on the admin client with any id it is handed: guard every id
-  an action names, or the entry lands in another league's log.
-- ⛔ **`0050` refuses privileged `profiles` columns.** A browser session
-  (`authenticated`, `anon`) cannot set `id`, `role` or `player_id`; without it any
-  account could make itself a manager. `SECURITY INVOKER` keeps `current_user` the
-  caller. Server writes use the service role; `display_name` stays owner-writable.
-- ⛔ **RLS cannot restrict columns, so `0046` is a trigger** (a policy sees only
-  `NEW`). It refuses a non-manager changing `scheduled_at`, a team, `is_draft`,
-  `season_id`, `postponed_from`, `label` or `division_id`, or moving `status`
-  into or out of the scoring lifecycle. A new schedule column goes in it too.
+- ⛔ **An audit entry filed under a null league is hidden from every view:** give
+  `leagueOfEntity` (`src/lib/audit.ts`) a case for every new `entity_type`.
+- ⛔ **`0050` refuses privileged `profiles` columns:** a browser session cannot set
+  `id`, `role` or `player_id`, or any account could make itself a manager.
+- ⛔ **RLS cannot restrict columns, so `0046` is a trigger:** it refuses a
+  non-manager moving a game's schedule columns, or its status in or out of scoring.
 
 ### Scorekeeper day rule
 
@@ -114,48 +86,34 @@ in `src/app/[league]/(manage)/games/[gameId]/score/page.tsx` and listed at
 `/tonight`. The check (`isOnLeagueDate`, `leagueToday` in `src/lib/format.ts`)
 must stay in the league zone: the 9:40pm Eastern slot is tomorrow in UTC.
 
-⛔ **It has no RLS half, on purpose.** `0032`'s `"scorekeeper update games"` is
-date-blind, `0046` limits columns rather than games, and `scorekeeper@` is a
-shared login. All accepted; tightening it takes a policy on `games` and
-`game_rosters`, not a guard.
+⛔ **It has no RLS half, on purpose:** `0032` is date-blind and `0046` limits
+columns, not games. Accepted; closing it takes a policy on `games`, not a guard.
 
-⛔ **Only the page checks the date.** `finalizeGame`, `bumpStat` and `setLineup`
-don't, so a submit at 00:01 succeeds and the re-render refuses the game. Sign-out
-at day rollover and _Closing the night_ cover that; don't add a grace period
-without deciding what both should then do.
+⛔ **Only the page checks the date;** `finalizeGame`, `bumpStat` and `setLineup`
+don't. Day-rollover sign-out and _Closing the night_ cover it; add no grace period.
 
 ### Closing the night
 
-`vercel.json` calls `/api/cron/close-night` at `0 6 * * *` UTC (1am EST, 2am
-EDT; Hobby fires within that hour, never early). It finalizes every game still
-`in_progress` after its day through `finalizeGameById`, the one definition of
-"complete", with a `null` audit actor. ⛔ Never `scheduled` games: finalizing one
-nobody scored invents a 0-0 result.
+`vercel.json` calls `/api/cron/close-night` at `0 6 * * *` UTC, past league
+midnight in both DST states. It finalizes games still `in_progress` after their
+day through `finalizeGameById`, with a `null` audit actor. ⛔ Never `scheduled`
+games: finalizing one nobody scored invents a 0-0 result.
 
-⛔ **The route must pass the admin client to `finalizeGameById`.** A cron request
-has no cookie, so the default client is `anon`: the `UPDATE` matches nothing with
-no error, `logAudit` still files `finalize_game`, and `game_rosters` reads empty
-for a non-final game, so the score recomputes as 0-0. Fixing only the `UPDATE`
-turns a no-op into data loss.
+⛔ **Pass the admin client to `finalizeGameById`:** as `anon`, the UPDATE silently
+matches nothing, a false audit entry lands, and the empty roster read writes 0-0.
 
-⚠️ **`CRON_SECRET` gates the route and fails closed:** unset means a silent daily
-401 and games that never close. Set it in Vercel (`.env*` is gitignored, so an
-example file reaches nobody). Locally `playwright.config.ts` gives the dev server
-`e2e-cron-secret`; a server started without it answers 401. Test:
+⚠️ **`CRON_SECRET` gates the route and fails closed:** unset, games never close.
+Locally `playwright.config.ts` sets it for the dev server. Test:
 `PORT=<port> scripts/e2e-locked.sh e2e/05-scoring-night.spec.ts -g "Closing the night"`.
 
 A night that failed to close appears in one place: the manager dashboard's
-**Games still open** card (`openPastGames`), listing past games still `scheduled`
-or `in_progress`.
+**Games still open** card (`openPastGames`), listing past `scheduled` or
+`in_progress` games.
 
 ### Legacy redirects
 
-⛔ **Check a new `/manage/<x>` page's second segment against `next.config.ts`.**
-Redirects run before the filesystem and `:league` matches any first segment,
-`manage` included, so `/:league/score`, `/:league/rosters` and `/:league/import`
-capture `/manage/score`, `/manage/rosters` and `/manage/import` (the last would
-loop). A new top-level route also needs its name reserved as a league slug: a
-migration plus `src/lib/league/reserved-slugs.ts`, as `0047` and `0048` did.
+⛔ **Check a new `/manage/<x>` page against `next.config.ts`:** redirects run first
+and `:league` matches `manage`: `score`, `rosters`, `import` (the last would loop).
 
 ## Schedule generator
 
@@ -209,13 +167,11 @@ move.
 
 **Changing it.**
 - ⛔ Never ship a bigger weight that wins by overpowering opponent balance
-  (`WD_SPLIT_W`, anti-periodicity); build a compound pass that holds meeting
-  counts. Add or drop Phase S candidates rather than re-tune one weight.
+  (`WD_SPLIT_W`, anti-periodicity); build a compound pass that holds meeting counts.
 - ⛔ **Assert a schedule claim from the persisted `scheduledAt`, not the report.**
   A pass that rewrote only `nightIndex` kept 364 tests green and shipped nothing.
-- A Phase M change re-rolls Phase S's input: check `SLOT_CANDIDATES` covers it
-  before calling an ice-time regression a defect.
-- `MULT_W` and `SPACING_W` are coupled, untested, to `oneOff.ts`'s `nightPenalty`.
+- `MULT_W`, `SPACING_W` and `oneOff.ts`'s `CHURN_W` move together;
+  `weightCoupling.test.ts` pins their ratios.
 
 ## Schedule edits and exports
 
@@ -247,9 +203,8 @@ nulls it; `restore_game` reverses that. The date is kept because
 `groupIntoNights` places the game by it (so its night stays locked), status
 changes aren't audited, and restore needs it.
 - **The trap:** `SeasonNightGame.scheduledAt` is the game's own `scheduled_at`
-  (null when postponed), not its night's date. `Slot.at` places a game;
-  `game.scheduledAt` is written. Conflate them and a cleared date comes back,
-  leaving a row both scheduled and postponed.
+  (null when postponed), not its night's date; `Slot.at` places, `scheduledAt` is
+  written. Conflate them and a row ends up both scheduled and postponed.
 - ⛔ `expectScheduledAt: r.scheduledAt!` holds only through a chain: placed by
   `postponed_from`, so the night locks, so `checkOneOffWrite` refuses it. Clear
   `postponed_from` and a null reaches a `WHERE`.
@@ -260,10 +215,6 @@ changes aren't audited, and restore needs it.
 and `.../schedule.csv`, take `?team=<slug>`, resolved by `getEnrolledTeamBySlug`.
 - ⛔ **An unresolved slug is a 404, never "no filter"**, or a caller who asked for
   one team silently gets all. Test `=== null` (a bare `?team=` is `""`).
-- A filtered file names its team (`exportFilename`, the calendar name); without
-  that it is indistinguishable from the full file.
-- CSV fields opening with a formula character get a `'` prefix (`escapeField`):
-  team names come from a scraped page.
 
 **The one-off planner and repair** (`planOneOff`, `planRepair`,
 `checkOneOffWrite` in `src/lib/schedule/oneOff.ts`; `/<league>/schedule/one-off`
@@ -285,20 +236,16 @@ time, and ignores bye and play requests.
   2026 is started (locked builder); Fall 2026 must stay future-dated for generate.
 - **Past rounds.** Oceanview 4–5 and Harbor 3 are `scheduled` in the past, which
   lets the scoring specs open a game that isn't today.
-- ⛔ **The tonight rounds are a shared, consumable fixture:** the only games ever
-  today, so the only ones a scorekeeper can open. Finalizing, cancelling or
-  postponing one removes it for every later spec. Find a scoresheet by
-  `a[href$="/score"]`, not the "Score" label; never assert a count of tonight's
-  games; restore anything you cancel or postpone in a `finally`.
-- ⛔ **The Sharks are 5–0 at home**, and a team filter is an OR over home and
-  away, so a Sharks test exercises one branch. Use `ducks` (2/3) or `wolves`
-  (3/2) and assert the team as both home and away, for standings, stats and
-  feeds too.
+- ⛔ **The tonight rounds are a shared, consumable fixture** (the only games a
+  scorekeeper can open): never assert their count; restore what you cancel or postpone.
+- ⛔ **The Sharks are 5–0 at home, so a team-filter test on them checks one branch
+  of the home/away OR.** Use `ducks` or `wolves` and assert both positions.
 - **Accounts** (password `hockey123`, committed). `manager@` is in every league,
   so a membership check needs `single-league-lead@` or `single-league-scorer@`;
-  `commissioner@`/`deputy@` hold Office tiers; `no-league-mgr@` has no role. No
-  address may contain another. ⛔ Count `grep -n "email:" scripts/seed-users.mjs`
-  rather than trusting a list, and never run `seed:users` against production.
+  `commissioner@`/`deputy@` hold Office tiers; `no-league-mgr@` is a manager with
+  no league. No address may contain another.
+- ⛔ **Count `grep -n "email:" scripts/seed-users.mjs`; a written list goes stale.**
+  Never run `seed:users` against production.
 
 ## Testing
 
@@ -321,18 +268,12 @@ integrity trap nothing else covers.
 Loosen a policy or trigger through a temporary
 `supabase/migrations/0052_tmp_red_proof.sql`, delete it before the green run, and
 never commit it (`git status --short supabase/migrations` prints nothing after).
-Dropping a trigger in the database proves nothing: the next e2e reset restores it.
 
 **RLS refusals are asserted on the row read back through the admin client
 (`admin()`)**, never on `error`: a refused UPDATE returns none.
 
-**Cross-league attacks** rewrite a hidden input through `tamper()` (settle, set,
-assert `toHaveValue`): a pre-hydration write is undone, and a permitted original
-value passes with no attack made. Wait for the POST, assert the refusal
-(`toHaveURL("/")`), and keep an own-league positive control.
-
-Keep Playwright's `expect` at 15 s: above the 5 s generator budget, below the
-60 s test timeout. On a red CI run, `gh run download` and read `error-context.md`.
+Pair every refusal test with a positive control that succeeds, so an empty result
+cannot pass vacuously.
 
 ## Deploy and operations
 
@@ -341,19 +282,15 @@ Keep Playwright's `expect` at 15 s: above the 5 s generator budget, below the
 - ⛔ **`supabase db reset --linked` wipes production** and re-seeds demo data.
   Use `db push`; `npm run db:reset` is the local one.
 - ⛔ **A published season locks when its first game's time passes:**
-  `season_is_started` refuses generate, replace and remove for good, and no UI
-  undoes it. No UI deletes a league or season either; slugs are permanent URLs.
-- ⛔ **Push a migration before merging code that reads it.** A merge deploys in
-  seconds; `0049` went up after its merge and every team page and scoresheet
-  errored for over 1h40m. Run `migration list --linked`, `db push`, `migration
-  list --linked`, then merge; add `--include-all` when a number sorts below the
-  latest applied. Code ahead of its migration also makes `getPublishState` lock
-  the builder. CI never checks production's schema.
+  `season_is_started` refuses generate, replace and remove for good; no UI undoes it.
+- ⛔ **Push a migration before merging code that reads it:** a merge deploys in
+  seconds, and `0049` merged first broke every team page for over 1h40m.
+- `db push` skips a migration numbered below the latest applied one; pass
+  `--include-all`. No UI deletes a league or season; slugs are permanent URLs.
 - **Migrations are pushed only by the owner, or by an agent at the owner's
   explicit request.**
-- ⛔ **Worktrees lack the Supabase link** (`supabase/.temp/` is gitignored): copy
-  `project-ref` and `linked-project.json` in, or re-run `supabase link`. Never
-  `--workdir <main checkout>`: it pushes `main`'s migrations and skips yours.
+- ⛔ **Worktrees lack the Supabase link** (`supabase/.temp/` is gitignored): copy it
+  in; never `--workdir <main checkout>`, which pushes `main`'s migrations instead.
 - ⛔ A Remote migration with no Local file: look for an uncommitted migration
   before running `migration repair --status reverted`.
 
@@ -412,17 +349,15 @@ on in every non-production build; `ENABLE_DEV_LOGIN=true` turns it on in a
 production build too.
 
 ⚠️ **While it is set, anyone with the URL can sign in as any role.** Staging only,
-shared with people you trust; never production, never CI. It has been absent from
-every Vercel environment since 2026-09-04. Seeded accounts on a hosted database
-are a way in regardless: their password is in git and the password grant takes
-the anon key.
+never production or CI; absent from every Vercel environment since 2026-09-04.
+Seeded accounts on a hosted database are a way in regardless: their password is
+in git.
 
 ### Production reads
 
 `npx supabase db query --linked "<sql>"` answers read-only questions and
 `npx supabase migration list --linked` shows schema state; re-run rather than
-quote. `public.season_is_started(<season id>)` says whether a season is locked;
-`audit_log` rows with a null `league_id` are the null-league trap firing.
+quote. `public.season_is_started(<season id>)` says whether a season is locked.
 
 ### Open ops items
 
@@ -434,13 +369,10 @@ From the owner's ops list, 2026-09-13; none is verified from a checkout.
 - **Backups:** the Supabase plan and its backups are unknown.
 - **Node 22 end of life:** 2027-04-30 (`.nvmrc`, `engines`).
 - **`CRON_SECRET`:** whether it is set in Vercel production is unverified.
-- **Password hardening:** `secure_password_change` and the password-changed email
-  are off (read 2026-09-07); turning them on is untested and may refuse old
-  sessions at `/set-password`. Password sign-in has no per-account throttle.
-- **Also:** no playoff-creation UI; rosters don't carry forward; no confirm on
-  announcement delete or player merge; close PRs #51 and #74; prune ~20 stale
-  branches. Public pages return 200 for `notFound()` by decision (issue #30);
-  ⛔ don't re-run that issue's experiments.
+- `secure_password_change` is off locally and in production; turning it on is
+  untested and may refuse old sessions at `/set-password`.
+- Public pages return 200 for `notFound()` by decision (issue #30); ⛔ don't
+  re-run that issue's experiments.
 
 ## Importer
 
@@ -448,12 +380,6 @@ From the owner's ops list, 2026-09-13; none is verified from a checkout.
 players) into a new **public** league, first season inactive
 (`src/lib/actions/import.ts`, parser `src/lib/import/esportsdesk.ts`).
 
-- ⚠️ **Its unit tests stub the network and the database, so they cannot see
-  esportsdesk change its markup.** `import.test.ts` covers the clean redirect, a
-  `teams.insert` failure reported as a shortfall, and a failed membership grant;
-  other failure branches are untested. `esportsdesk.test.ts` checks the parser
-  against saved HTML. The one real run found loss the stubs missed (unnumbered
-  players printed `-` matched nothing): a green suite says nothing about the
-  live source.
+- ⚠️ **Its unit tests stub the network and the database, so they cannot see a
+  markup change;** a green suite says nothing about the live source.
 - ⚠️ **A bad run leaves a public league with no delete UI**; cleanup is SQL.
-- The `import_league` audit entry has no test: nothing local can drive the fetch.
