@@ -811,7 +811,7 @@ test.describe("The scorekeeper's night", () => {
  * against real RLS can tell you.
  *
  * ⛔ AND BECAUSE THE SCRIPT THAT USED TO BE THE ONLY CHECK WENT BLIND UNNOTICED.
- * `scripts/verify-close-night.mjs` covers exactly this, but nothing ran it — so
+ * A script, since deleted, covered exactly this, but nothing ran it — so
  * when the sweep gained its lower bound, the script's over-48h fixture fell out
  * of range, the sweep matched nothing, and its failure text blamed the
  * anon-client bug that was not there. It stayed broken until someone ran it by

@@ -77,15 +77,15 @@ front which section matters for which kind of change.
 ⚠️ **The esportsdesk importer is rosters-only, and its unit tests stub the
 network and the database.** `import.test.ts` covers three outcomes — the clean
 redirect, a `teams.insert` failure reported as a shortfall, and a failed
-membership grant — and the importer's other failure branches are untested (part 2
-of the 2026-09-13 audit follow-through addresses them). `esportsdesk.test.ts`
-proves the roster parser against saved HTML. Neither can see a change in
-esportsdesk's markup. The one real run (2026-09-09) found a silent data loss the
-stubs could not — unnumbered players printed as `-` matched nothing (fixed in
-PR #60). Treat a green suite here as saying nothing about a live source, and
-remember what a bad run leaves behind: the import creates a **public league with
-no delete UI**. The full migration (schedule, results, stats) was removed on
-2026-09-13; it had never run against a real source.
+membership grant — and the importer's other failure branches are untested.
+`esportsdesk.test.ts` proves the roster parser against saved HTML. Neither can
+see a change in esportsdesk's markup. The one real run (2026-09-09) found a
+silent data loss the stubs could not — unnumbered players printed as `-`
+matched nothing (fixed in PR #60). Treat a green suite here as saying nothing
+about a live source, and remember what a bad run leaves behind: the import
+creates a **public league with no delete UI**. The full migration (schedule,
+results, stats) was removed on 2026-09-13; it had never run against a real
+source.
 
 `docs/superpowers/specs/` holds the per-change design docs these summarise,
 including the alternatives that were considered and rejected. Reach for a spec
