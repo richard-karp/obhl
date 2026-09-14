@@ -2,7 +2,10 @@ import Link from "next/link";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { discardSchedule } from "@/lib/actions/schedule";
 import { setActiveSeason } from "@/lib/actions/seasons";
-import { needsActivation } from "@/lib/schedule/activationNotice";
+import {
+  needsActivation,
+  type SeasonStamp,
+} from "@/lib/schedule/activationNotice";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import {
   getPublishState,
@@ -85,7 +88,8 @@ export async function ScheduleBuilderPanel({
   seasonId,
   league,
   isActive,
-  leagueHasAnotherActiveSeason,
+  thisSeason,
+  activeSeason,
 }: {
   seasonId: string;
   league: string;
@@ -103,15 +107,22 @@ export async function ScheduleBuilderPanel({
    * proven it non-null and league-owned.
    */
   isActive: boolean;
+  /** Where this season sits in the league's ordering. See `needsActivation`. */
+  thisSeason: SeasonStamp;
   /**
-   * Whether the league already has a DIFFERENT season set active. Suppresses
-   * the activation notice — see `needsActivation`'s archive guard for why, and
-   * for the case that deliberately goes unwarned as a result.
+   * The league's active season, `null` when it has none, `"unreadable"` when
+   * that read failed.
    *
-   * ⚠️ Resolved by the page, which treats a failed read as `true`. Same reason
-   * `isActive` is a prop: a read failure must not become a confident claim.
+   * ⛔ COMPARED AGAINST `thisSeason`, not merely tested for existence — the
+   * notice has to tell a RETIRED season (active one is newer: stay quiet) from
+   * one built and never flipped on (active one is older: warn). See
+   * `needsActivation`, which carries the full argument.
+   *
+   * ⚠️ Resolved by the page, same reason `isActive` is. A read failure must not
+   * become a confident claim, and here it must not become `null` either — `null`
+   * is a state that WARNS.
    */
-  leagueHasAnotherActiveSeason: boolean;
+  activeSeason: SeasonStamp | null | "unreadable";
 }) {
   const admin = createAdminClient();
 
@@ -451,7 +462,8 @@ export async function ScheduleBuilderPanel({
         // this season's published games — `liveCount` is still accurate, so
         // suppressing on it hides a true banner for an unrelated reason.
         readFailed: publish.readFailed,
-        leagueHasAnotherActiveSeason,
+        thisSeason,
+        activeSeason,
       }) ? (
         <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
           <p className="font-semibold">

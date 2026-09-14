@@ -11,6 +11,7 @@ import {
 import { AddTeamForm } from "@/components/manage/add-team-form";
 import { TeamBrandingForm } from "@/components/manage/team-branding-form";
 import { ScheduleBuilderPanel } from "@/components/manage/schedule-builder-panel";
+import type { SeasonStamp } from "@/lib/schedule/activationNotice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -71,7 +72,9 @@ export default async function SeasonSetupPage({
 
   const { data: season } = await admin
     .from("seasons")
-    .select("id, name, league_id, is_active, starts_on, ends_on, ai_summary")
+    .select(
+      "id, name, league_id, is_active, starts_on, ends_on, ai_summary, created_at",
+    )
     .eq("id", seasonId)
     .maybeSingle();
   // The id says nothing about which league it belongs to, so the slug in the
@@ -103,31 +106,38 @@ export default async function SeasonSetupPage({
       .select("*", { count: "exact", head: true })
       .eq("season_id", seasonId)
       .eq("is_draft", false),
-    // Which season this league currently shows the public, if any. Feeds the
-    // builder's activation notice: the banner means "nothing is live and this
-    // should be", so a league that already has an active season must not get
-    // it — see `needsActivation`'s archive guard.
+    // Which season this league currently shows the public, if any, and where it
+    // sits in the league's ordering. Feeds the builder's activation notice,
+    // which has to tell a RETIRED season from one that was built and never
+    // flipped on — see `needsActivation`. The two sort columns come along
+    // because the comparison has to match `getLeagueSeasons`.
     admin
       .from("seasons")
-      .select("id")
+      .select("id, starts_on, created_at")
       .eq("league_id", league.id)
       .eq("is_active", true)
       .maybeSingle(),
   ]);
 
-  // ⛔ A FAILED READ COUNTS AS "another season is active", i.e. suppress. We
-  // cannot know otherwise, and the banner carries a one-click button that
-  // changes what the whole public site shows — offering that on information
-  // nobody has is the bad way to be wrong. A missing banner is the harmless one.
+  // ⛔ "unreadable", NOT null. Null means "this league has nothing live", which
+  // makes the notice FIRE — it is the case the notice was built for. Reporting a
+  // failed read as null would therefore raise a banner carrying a one-click
+  // button that changes what the whole public site shows, on information nobody
+  // has. A missing banner is the harmless way to be wrong.
   if (leagueActiveError) {
     console.error(
       "league active season read failed:",
       leagueActiveError.message,
     );
   }
-  const leagueHasAnotherActiveSeason = leagueActiveError
-    ? true
-    : !!leagueActive?.id && leagueActive.id !== seasonId;
+  const activeSeason: SeasonStamp | null | "unreadable" = leagueActiveError
+    ? "unreadable"
+    : leagueActive
+      ? {
+          startsOn: leagueActive.starts_on,
+          createdAt: leagueActive.created_at,
+        }
+      : null;
 
   const captainOf = new Map<string, string>();
   for (const c of (captains ?? []) as any[]) {
@@ -315,7 +325,11 @@ export default async function SeasonSetupPage({
               // `is_active` there would turn a failed read into a false "nobody
               // can see these games" — see the prop's note.
               isActive={season.is_active}
-              leagueHasAnotherActiveSeason={leagueHasAnotherActiveSeason}
+              thisSeason={{
+                startsOn: season.starts_on,
+                createdAt: season.created_at,
+              }}
+              activeSeason={activeSeason}
             />
           )}
         </CardContent>

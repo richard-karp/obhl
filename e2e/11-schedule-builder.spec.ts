@@ -741,21 +741,10 @@ test.describe("Path 17 — Schedule Builder", () => {
     // started, so `needsActivation` returns false either way and this control
     // passes under both placements.
     //
-    // ⚠️ AND NO OTHER SPEC CAN SEPARATE THEM EITHER, for a reason worth writing
-    // down before someone spends an afternoon on it. The state that would —
-    // inactive AND started, with published games — also has to sit in a league
-    // with NO active season, because `needsActivation`'s archive guard suppresses
-    // the notice whenever a different season is already live.
-    //
-    // `31-stale-draft.spec.ts` builds an inactive, started, published season and
-    // looks like the answer, but it seeds into `obhl`, whose Spring 2026 is
-    // active — so the guard correctly silences the notice there. Both seeded
-    // leagues have an active season, so proving placement needs a league built
-    // from scratch (the `21-season-gating.spec.ts` pattern), which is a fixture,
-    // not a line.
-    //
-    // Until then: `activationNotice.test.ts` pins the logic exhaustively, and
-    // the placement is held by the panel's own comment and by review.
+    // ✅ `31-stale-draft.spec.ts` is where that separation lives. Its fixture
+    // season is inactive, started and published — the one state that tells the
+    // two placements apart — and the notice assertion sits beside its own
+    // "The season is under way" check.
     await expect(page.getByText("The season is under way")).toBeVisible();
     await expect(
       page.getByText("These games aren't on the public site yet"),

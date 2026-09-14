@@ -453,6 +453,27 @@ test.describe
     // season is started and the builder locks on the spot.
     await expect(page.getByText("The season is under way")).toBeVisible();
 
+    // ⛔ THE ONLY PLACE THE ACTIVATION NOTICE'S PLACEMENT IS PROVEN, and it is
+    // here by accident of fixtures rather than by design — so do not "tidy" it
+    // away as unrelated to stale drafts.
+    //
+    // This season is the only one any spec puts in the state that separates the
+    // notice's two possible placements: inactive AND started, with published
+    // games the public site does not show. The notice renders ABOVE the
+    // `mode === "locked"` fork, so it must survive the lock the assertion above
+    // just confirmed. Move it inside that fork and every assertion in
+    // `11-schedule-builder.spec.ts` still passes — only this line goes red.
+    //
+    // ⚠️ IT DEPENDS ON THE SEED'S DATES, and would flip silently if they moved.
+    // `needsActivation` warns only when this season sorts NEWER than the
+    // league's active one. This fixture starts at today-30 and obhl's active
+    // Spring 2026 at v_l1_anchor (today-120), so this one is newer and the
+    // notice fires. If the seed ever moves Spring 2026 forward past this
+    // fixture's start, this assertion becomes wrong rather than merely broken.
+    await expect(
+      page.getByText("These games aren't on the public site yet"),
+    ).toBeVisible();
+
     const live = await publishedGames(season);
     expect(live).toHaveLength(asGenerated.length);
     expect(dateKey(live[0].scheduled_at!) < today()).toBe(true);

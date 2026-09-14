@@ -1,6 +1,34 @@
 /**
- * Whether a season's published games are missing from the public site because
- * nothing is active — and whether saying so would actually help.
+ * Enough of a season to place it in the league's ordering.
+ *
+ * ⚠️ THE FIELDS ARE THE ONES `getLeagueSeasons` SORTS ON, and that is the whole
+ * reason both are here. It orders `starts_on` descending with nulls LAST, then
+ * `created_at` descending — so "newer" below has to mean the same thing the
+ * season switcher means by "first in the list", or this notice and the UI around
+ * it would disagree about which season is the current one.
+ */
+export type SeasonStamp = {
+  /** `seasons.starts_on`. Null sorts as the OLDEST, per `nullsFirst: false`. */
+  startsOn: string | null;
+  /** `seasons.created_at`. Breaks a tie on `startsOn`, same as the query. */
+  createdAt: string;
+};
+
+/** Whether `a` sorts ahead of `b` in the league's newest-first ordering. */
+function isNewer(a: SeasonStamp, b: SeasonStamp): boolean {
+  if (a.startsOn !== b.startsOn) {
+    // Null is the oldest, so a dated season beats an undated one either way
+    // round. Plain string comparison is correct for ISO dates.
+    if (a.startsOn === null) return false;
+    if (b.startsOn === null) return true;
+    return a.startsOn > b.startsOn;
+  }
+  return a.createdAt > b.createdAt;
+}
+
+/**
+ * Whether a season's published games are missing from the public site in a way
+ * worth telling the manager about.
  *
  * Publishing does not make a schedule public. `replace_published_schedule`
  * promotes the draft games and stops there; visibility comes from
@@ -40,34 +68,40 @@ export function needsActivation(state: {
    * `hasDraft` and the "Move a game night" card are both gated the same way.
    */
   readFailed: boolean;
+  /** This season's place in the league's ordering. */
+  thisSeason: SeasonStamp;
   /**
-   * Whether the league already has a DIFFERENT season set active.
+   * The league's active season — `null` when it has none, `"unreadable"` when
+   * the query errored.
    *
-   * ⛔ THE ARCHIVE GUARD, and the reason this predicate is not simply
-   * "published and not active". Every row of `/<league>/seasons` links to a
-   * setup page, so without this the notice appears on every season a league has
-   * ever retired — offering a one-click, unconfirmed "Make this season active"
-   * that would deactivate the league's CURRENT season and swap the public site
-   * back to a finished one. The notice means "nothing is live and this should
-   * be", not "this particular season isn't live".
+   * ⛔ THREE VALUES, AND THE THIRD IS NOT `null`. `null` means "nothing is
+   * live", which WARNS — it is the original case this notice was built for, a
+   * league's first season published and never flipped on. Folding a failed read
+   * into it would fire a banner carrying a destructive button on information
+   * nobody has. Same discipline as `staleDraftFor`'s `"unreadable"`.
    *
-   * ⚠️ THE TRADE THIS MAKES, stated so it is not rediscovered as a bug. A
-   * manager who builds next season, publishes it and forgets to activate it
-   * gets NO warning, because last season is still active and the public site
-   * still shows something coherent. That case is given up deliberately in
-   * exchange for killing the archive false-positive; the alternative rule
-   * considered was `ends_on < today`, which catches the forgotten activation
-   * but not a retired season with no end date.
+   * ⛔ AND IT IS COMPARED, NOT MERELY TESTED FOR EXISTENCE. "Some other season
+   * is active" conflates two opposite situations:
    *
-   * ⚠️ A FAILED READ MUST ARRIVE HERE AS `true`. The caller cannot know whether
-   * another season is active if the query errored, and suppressing a banner is
-   * the harmless way to be wrong — the alternative offers a destructive button
-   * on information nobody has.
+   *   - active is OLDER than this one → next season is built, published, and
+   *     nobody flipped it live. Warn: the site still looks coherent, which is
+   *     exactly why this goes unnoticed.
+   *   - active is NEWER than this one → this season is retired. Stay quiet; the
+   *     banner's one-click button would drag the public site back onto it.
+   *
+   * A bare boolean suppressed BOTH, which made the notice unreachable for any
+   * league that had ever activated anything. CI caught it, because the e2e
+   * asserting the banner could no longer see it.
    */
-  leagueHasAnotherActiveSeason: boolean;
+  activeSeason: SeasonStamp | null | "unreadable";
 }): boolean {
   if (state.readFailed) return false;
   if (state.isActive) return false;
-  if (state.leagueHasAnotherActiveSeason) return false;
-  return state.liveCount > 0;
+  if (state.activeSeason === "unreadable") return false;
+  if (state.liveCount === 0) return false;
+  // Nothing live at all — a league's first season, published and never flipped
+  // on, so every public page reads "No active season".
+  if (state.activeSeason === null) return true;
+  // Something IS live. Warn only if this season comes after it.
+  return isNewer(state.thisSeason, state.activeSeason);
 }
