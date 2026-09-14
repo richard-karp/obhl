@@ -22,10 +22,8 @@ export type PlayerBio = {
   team_color: string | null;
   team_logo_path: string | null;
   /**
-   * The ink for the monogram chip. Read beside `team_logo_path` because the two
-   * are one decision: the crest wins when it is set, and the ink is what the
-   * chip falls back to — so a caller that plumbs only one of them still shows
-   * the wrong thing for half the teams.
+   * Read beside `team_logo_path`: the crest wins and the ink is the fallback, so a caller
+   * plumbing only one shows the wrong thing for half the teams.
    */
   team_logo_text_color: string | null;
 };
@@ -74,9 +72,8 @@ export async function getPlayerBio(
     )
     .eq("player_id", playerId)
     .eq("season_id", seasonId)
-    // The team they are on now. Not optional after 0036: a transferred player
-    // has a row per team, and `maybeSingle()` over two rows returns an error
-    // and no data, dropping the whole bio into the fallback below.
+    // The team they are on now: a transferred player has a row per team, and `maybeSingle()`
+    // over two rows errors, dropping the bio into the fallback below.
     .is("left_on", null)
     .maybeSingle();
 
@@ -104,9 +101,8 @@ export async function getPlayerBio(
     };
   }
 
-  // Fallback: player appeared in game_rosters (e.g. as a substitute) but has
-  // no team_players row for this season. Pull name from players table and
-  // team/position from v_skater_stats; status flags default to safe values.
+  // Fallback for a player in `game_rosters` (e.g. a substitute) with no `team_players` row this
+  // season: name from `players`, team and position from `v_skater_stats`.
   const [{ data: player, error: playerErr }, { data: stat, error: statErr }] =
     await Promise.all([
       supabase
@@ -114,27 +110,13 @@ export async function getPlayerBio(
         .select("first_name, last_name")
         .eq("id", playerId)
         .maybeSingle(),
-      // Still the PER-TEAM view, deliberately. This fallback runs for a player
-      // with no `team_players` row at all, and the totals view gets its team
-      // from exactly that row — so it would hand back nulls for every player who
-      // reaches here, which is all of them.
-      //
-      // Ordered and limited rather than `maybeSingle()`: a player who moved
-      // teams has a row per team, and `maybeSingle()` treats two rows as an
-      // error and returns nothing — the whole bio would fall back to blanks. The
-      // team they played most for is the best single answer this shape can give.
+      // The per-team view on purpose: the totals view takes its team from the `team_players` row
+      // this player lacks. Limited, not `maybeSingle()`, which errors for a player who moved teams.
       supabase
         .from("v_skater_stats")
         .select(
-          // ⛔ THIS SELECT IS A DEPLOY GATE ON MIGRATION 0044. It is the only
-          // place in the app that names `team_logo_path` / `team_logo_text_color`
-          // EXPLICITLY — everywhere else reads `select("*")` or a `teams` column
-          // that has existed since 0002. Against a database where 0044 has not
-          // run, PostgREST answers 42703 ("column does not exist") for the whole
-          // request, `stat` is null, and this bio degrades to blank team, blank
-          // position and no number for every substitute player. Ship 0044 with or
-          // before this code; the `console.error` below is what makes the
-          // mismatch say so instead of looking like a player with no history.
+          // ⛔ The only explicit read of the `team_logo_*` view columns: without `0044` the whole
+          // request fails with 42703 and every substitute's bio blanks. The log below says so.
           "team_id, team_name, team_slug, team_color, team_logo_path, team_logo_text_color, position, jersey_number",
         )
         .eq("player_id", playerId)
@@ -144,14 +126,8 @@ export async function getPlayerBio(
         .maybeSingle(),
     ]);
 
-  // Logged the way the read above this one already logs, and for a stronger
-  // reason: both of these degrade to a *plausible* bio rather than to an error,
-  // so a failure here is invisible in the page it produces.
-  //
-  // ⛔ BOTH, not `playerErr ?? statErr`. These are independent requests and can
-  // fail independently, and the one this logging exists for is the SECOND: a
-  // missing-migration 42703 on `v_skater_stats`. Coalescing would let an
-  // unrelated `players` error mask exactly the failure being watched for.
+  // ⛔ Log both, never `playerErr ?? statErr`: each degrades to a plausible bio, and a `players`
+  // error would mask the `v_skater_stats` 42703 this watches for.
   if (playerErr)
     console.error("getPlayerBio fallback players read:", playerErr.message);
   if (statErr)
@@ -182,12 +158,8 @@ export async function getPlayerBio(
 }
 
 /**
- * The player's season, as one line.
- *
- * Reads the totals view, which has at most one row per (player, season) — the
- * per-team view has one per team, and `maybeSingle()` over two rows returns an
- * error and no data, so a transferred player's stats card would simply have
- * stopped rendering.
+ * The totals view, one row per player and season: `maybeSingle()` over the per-team view
+ * errors for a transferred player, and the stats card stops rendering.
  */
 export async function getPlayerSkaterTotals(
   playerId: string,
@@ -203,13 +175,7 @@ export async function getPlayerSkaterTotals(
   return data ?? null;
 }
 
-/**
- * The same season split by team — one row per team they played for.
- *
- * Shown beneath the total when there is more than one, because "12 goals for
- * the Sharks, 4 for the Bears" is the part a transfer makes interesting and the
- * total alone hides.
- */
+/** The same season, one row per team played for. */
 export async function getPlayerSkaterStatsByTeam(
   playerId: string,
   seasonId: string,
@@ -352,7 +318,6 @@ export async function getPlayerStatsByOpponent(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const gameMap = new Map<string, any>(oppGames.map((g) => [g.id, g]));
 
-  // Aggregate per opponent
   const byOpponent = new Map<string, PlayerVsOpponent>();
 
   for (const r of rosterEntries) {

@@ -27,17 +27,7 @@ const getActiveSeason = cache(async function getActiveSeason(
   return data ?? null;
 });
 
-/**
- * The league named in the URL and its active season. Both lookups are memoized,
- * so a page calling this after its layouts already have is one cache hit, not
- * another round trip — see lib/league/current.ts.
- *
- * The league is non-null: `[league]/layout.tsx` has already 404'd an unknown
- * slug, and `(public)/layout.tsx` one this viewer may not see — which since the
- * pages became shared means unpublished AND not theirs, not unpublished alone.
- * `notFound()` here is the guard that lets callers say `ctx.league` without a
- * null check.
- */
+/** `notFound()` here lets callers use `ctx.league` without a null check. Both lookups are memoized. */
 export async function getActiveContext(slug: string): Promise<ActiveContext> {
   const league = await resolveLeagueBySlug(slug);
   if (!league) notFound();
@@ -45,12 +35,8 @@ export async function getActiveContext(slug: string): Promise<ActiveContext> {
 }
 
 /**
- * A manage page's season, plus every season it could be switched to.
- *
- * `is_active` means "what the public site shows" and nothing else. Both
- * importers create seasons with `is_active: false`, so a manage surface keyed
- * on the active season could not edit the season it had just imported — which
- * is what this replaces. The public pages keep `getActiveContext` above.
+ * `is_active` means only what the public site shows: the importer creates seasons inactive,
+ * so a manage page keyed on it could not edit a season it just imported.
  */
 export type ManageContext = {
   league: League;
@@ -60,26 +46,14 @@ export type ManageContext = {
   seasons: Season[];
 };
 
-/**
- * Per-league on purpose. A single `obhl_season` cookie would follow a manager
- * from one league into another, where the id it holds names nothing — and the
- * resolution below would then have to decide between 404 and a silent fallback
- * on every page load. Keyed by league, an id from elsewhere simply isn't read.
- */
+/** Per league: a single cookie would follow a manager into a league where its id names nothing. */
 export function seasonCookieName(leagueId: string): string {
   return `obhl_season_${leagueId}`;
 }
 
 /**
- * Every season of one league, newest first.
- *
- * Read past RLS, like every other manage-side read here. `manages_league`
- * (0032) resolves through `auth_role()`, so a manager whose JWT is missing its
- * role claim reads back nothing — and the switcher would offer an empty list on
- * a page they are otherwise entitled to. Each caller applies its own guard
- * before rendering any of this; nothing is exposed by the query alone.
- *
- * Memoized: several segments ask per render, same as `getActiveSeason`.
+ * Admin client: `manages_league` resolves through `auth_role()`, so a JWT missing its role claim
+ * would read nothing. Each caller applies its own guard first.
  */
 const getLeagueSeasons = cache(async function getLeagueSeasons(
   leagueId: string,
@@ -88,9 +62,8 @@ const getLeagueSeasons = cache(async function getLeagueSeasons(
     .from("seasons")
     .select("*")
     .eq("league_id", leagueId)
-    // `nullsFirst: false` so a season with no start date sorts last rather than
-    // becoming the league's default. `created_at` breaks a tie, so the fallback
-    // is deterministic when two seasons share a start date.
+    // A season with no start date sorts last rather than becoming the default; `created_at`
+    // breaks a tie so the fallback is deterministic.
     .order("starts_on", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
   if (error) console.error("getManageContext (seasons) failed:", error.message);
@@ -98,20 +71,8 @@ const getLeagueSeasons = cache(async function getLeagueSeasons(
 });
 
 /**
- * The league named in the URL and the season the manage tools are scoped to.
- *
- * Resolution order: an explicit `?season=` → the league's season cookie → the
- * active season → the newest by `starts_on`. The first three are *candidates*,
- * not answers: each is looked up in this league's own season list, so an id
- * from another league — a stale cookie, a link pasted across leagues — falls
- * through to the next candidate, and in the end to this league's own default,
- * instead of 404ing. That validation is the whole reason the list is fetched
- * before the choice is made rather than the id being queried directly.
- *
- * ⚠️ THIS FUNCTION ONLY EVER *READS* THE COOKIE. A Server Component cannot set
- * one — HTTP does not allow a `Set-Cookie` after streaming starts, so
- * `cookies().set()` here throws at runtime. The switcher posts to `selectSeason`
- * (`lib/actions/season-context.ts`), which is a Server Action and may write.
+ * `?season=` → cookie → active → newest, each checked against this league's seasons. ⚠️ Only reads
+ * the cookie: setting one here throws, so `selectSeason` (a Server Action) writes it.
  */
 export async function getManageContext(
   slug: string,
@@ -141,38 +102,15 @@ export async function getManageContext(
 }
 
 /**
- * The weekdays a season plays, 0=Sun..6=Sat.
- *
- * ⛔ THE ONLY PLACE THE FALLBACK IS APPLIED, and the reason it is a function
- * rather than a field read. `resolveSeasonNights` needs the weekdays of the
- * season's PUBLISHED games when nothing was declared — and the obvious source
- * on a team page, `detail.games`, is only THAT TEAM'S games. A team that does
- * not play every night would report the league's nights wrongly, and the
- * mistake would be invisible: a plausible shorter list, on a page nobody
- * cross-checks. Ask here, where the query is scoped to the season.
- *
- * ⚠️ HOW OFTEN THE QUERY RUNS, STATED HONESTLY. `0049` backfilled every season
- * that existed, and `generateSchedule` writes the value from then on — but the
- * early return fires only when `game_nights` is NON-EMPTY, and a season is
- * created empty. So it runs on every public team-page render for: a season
- * created and not yet scheduled, and any season whose games arrived by import.
- * For those it is a full games read per anonymous request, returning `[]` for a
- * season with no games, with no caching beyond the request.
- *
- * That is a small indexed read and the set of such seasons is small, so it is
- * accepted rather than solved — but an earlier version of this note claimed the
- * query "almost never runs", which is not true of a league between creating a
- * season and building its schedule. If it ever matters, the fix is to write
- * `game_nights` at season creation from the league's usual nights, not to widen
- * the early return.
- *
- * Memoized like the other lookups here, so the team page and the roster editor
- * beneath it ask once between them.
+ * ⛔ The only place the published-games fallback applies: a team page's `detail.games` holds only
+ * that team's games, and would silently report the season's nights short.
  */
 export const seasonNightsFor = cache(async function seasonNightsFor(
   season: Pick<Season, "id" | "game_nights">,
 ): Promise<number[]> {
   const declared = resolveSeasonNights(season.game_nights, []);
+  // ⚠️ An unscheduled or imported season queries on every render. If that matters, write
+  // `game_nights` at season creation rather than widening this early return.
   if (declared.length > 0) return declared;
 
   const supabase = await createClient();
@@ -183,9 +121,8 @@ export const seasonNightsFor = cache(async function seasonNightsFor(
     .eq("is_draft", false)
     .not("scheduled_at", "is", null);
   if (error) {
-    // An empty list hides every night control, which is the safe way to be
-    // wrong: a manager sees no picker rather than a picker offering nights the
-    // season does not play.
+    // Empty hides every night control, the safe way to be wrong: no picker, rather than one
+    // offering nights the season does not play.
     console.error("season nights query failed:", error.message);
     return [];
   }

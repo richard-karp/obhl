@@ -3,7 +3,6 @@ import type { Tables } from "@/lib/db/helpers";
 
 export type Announcement = Tables<"announcements">;
 
-/** Published announcements for a league, newest first. */
 export async function getAnnouncements(
   leagueId: string,
   limit?: number,
