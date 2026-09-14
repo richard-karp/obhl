@@ -379,11 +379,10 @@ export async function generateSchedule(
    * Which of the equally-valid schedules to build. "Try a different schedule"
    * advances it; "Generate schedule" resets it to 1.
    *
-   * Generation is deterministic for a given input — deliberately, see
-   * `PLATEAU_SEEDS` in `assignNights.ts` — so before this existed a manager who
-   * disliked a schedule and pressed Generate again got the byte-identical one
-   * back, forever. Reaching for a manager request instead made it worse: any
-   * stored request switches the night-order clustering pass off entirely.
+   * Generation repeats for a given input (while the search finishes inside its
+   * time budget) — deliberately, see `PLATEAU_SEEDS` in `assignNights.ts` — so
+   * before this existed a manager who disliked a schedule and pressed Generate
+   * again got the byte-identical one back, forever.
    *
    * ⚠️ NOT PERSISTED, deliberately. `seasons` has no column for it and a counter
    * does not earn a migration. The cost is that after a page reload the form

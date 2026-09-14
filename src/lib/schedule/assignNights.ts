@@ -1833,12 +1833,11 @@ function variationsFor(gameCount: number): number {
 /**
  * One schedule, best of a block of seeds.
  *
- * Generation is deterministic for a given input — deliberately, see
- * `PLATEAU_SEEDS` — which left a manager who disliked a schedule with no way to
- * ask for another: regenerating returned the byte-identical one, and reaching
- * for a manager request instead switched the night-order clustering pass off
- * entirely. `AssignOptions.seed` selects a variation; this picks the best draw
- * within it.
+ * Generation repeats for a given input (while the search finishes inside its
+ * time budget) — deliberately, see `PLATEAU_SEEDS` — which left a manager who
+ * disliked a schedule with no way to ask for another: regenerating returned the
+ * byte-identical one. `AssignOptions.seed` selects a variation; this picks the
+ * best draw within it.
  *
  * ⛔ Blind rerolling would be the WRONG product. Measured over six seeds on
  * 6 teams / one weeknight / 3 sheets, worst-team clustering ran 4, 10, 13, 11,
