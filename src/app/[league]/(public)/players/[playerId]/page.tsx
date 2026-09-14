@@ -45,9 +45,8 @@ export default async function PlayerProfilePage({
 
   const isGoalie = bio.position === "G";
 
-  // The season total and the per-team split. The total is the headline; the
-  // split only renders when there is more than one team in it, which is the
-  // case a transfer creates and the total on its own hides.
+  // The season total, and a per-team split that renders only for more than one team: the case a transfer
+  // creates and the total alone hides.
   const [
     skaterStats,
     goalieStats,

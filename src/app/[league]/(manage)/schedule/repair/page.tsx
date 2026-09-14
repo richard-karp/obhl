@@ -13,17 +13,8 @@ import { Button } from "@/components/ui/button";
 import { SeasonSwitcher } from "@/components/manage/season-switcher";
 import { leagueTimeKey } from "@/lib/format";
 
-/**
- * Repair a published schedule — with a team pinned to a night (item 3) or with
- * no pin at all (item 4).
- *
- * ⛔ Deliberately not part of the schedule builder's generate flow. Generate,
- * replace and remove all refuse permanently once `season_is_started` trips, and
- * this page is the one that has to keep working afterwards: it plans over the
- * unlocked nights and applies the plan as an in-place UPDATE of the rows that
- * change — never an upsert, which would re-create a deleted game as a live
- * fixture. See `applyGameWrites`.
- */
+// ⛔ Not part of generate, which refuses once `season_is_started`: repair must keep working, as an UPDATE
+// by id through `writeGames`, never an upsert (`RUNBOOK.md` → Schedule edits and exports).
 export default async function ScheduleRepairPage({
   params,
   searchParams,
@@ -56,9 +47,8 @@ export default async function ScheduleRepairPage({
     );
   }
 
-  // Read past RLS, matching the actions this page submits to — otherwise a
-  // season the public-read policies don't cover renders "no published schedule"
-  // here while `previewScheduleRepair` sees the schedule fine.
+  // Read past RLS, matching the actions: otherwise a season public reads don't cover shows "no published
+  // schedule" here while `previewScheduleRepair` sees it fine.
   const admin = createAdminClient();
   const [teams, nights] = await Promise.all([
     getEnrolledTeams(ctx.season.id, { client: admin }),
@@ -95,10 +85,8 @@ export default async function ScheduleRepairPage({
           teams={teams.map((t) => ({ id: t.id, name: t.name }))}
           nights={openNights.map((n) => ({
             date: n.date,
-            // The ice times this night ACTUALLY runs, read off the published
-            // games — the list the pin resolves against server-side. A
-            // postponed game has no time of its own and shows the same
-            // placeholder the planner uses, so the slot indexes line up.
+            // The ice times this night actually runs, which the pin resolves against server-side. A postponed
+            // game has no time, so it shows the planner's placeholder and the slot indexes line up.
             times: n.games.map((g) =>
               g.scheduledAt ? leagueTimeKey(g.scheduledAt) : "--:--",
             ),

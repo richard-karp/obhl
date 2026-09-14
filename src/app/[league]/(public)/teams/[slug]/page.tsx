@@ -18,42 +18,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/shared/empty-state";
 import { NoSeason } from "@/components/public/no-season";
 
-/**
- * A team — one URL, one page, for everybody.
- *
- * This absorbed `/manage/rosters/<uuid>`, which showed the same team to its
- * manager behind an id nobody could read or share. The public content is
- * unchanged and unconditional; a manager of THIS league sees that same page with
- * the roster editable underneath it.
- *
- * ⚠️ THERE IS NO MANAGE TAB AND NO `?tab=manage`, AND THAT IS THE POINT. Both
- * existed briefly and were removed on the product decision that a manager should
- * simply see their page and be able to edit it — not navigate to a second view
- * of the team they are already looking at. Anything that reintroduces a mode
- * here (a tab, a query parameter, an "edit" toggle) is reintroducing what was
- * deliberately taken out.
- *
- * ⚠️ The cost that mode was buying is real and is now paid: `RosterEditor` runs
- * four admin queries — one of them the whole `players` table, for the "add
- * someone who already plays elsewhere" picker — on every manager's view of any
- * team page in their league. It is bounded by the number of people in the
- * instance, not by the league, so it is the query to watch if that table grows.
- * Nobody else pays it: the block is behind `canManageLeague`, so an anonymous
- * visitor triggers none of it.
- *
- * ⚠️ The team is resolved by SLUG WITHIN THE LEAGUE, which is what makes the old
- * page's ownership check unnecessary rather than merely absent — see the note on
- * `RosterEditor`.
- *
- * ⚠️ TWO SEASONS, ONE PAGE. `is_active` means "what the public site shows" and
- * nothing else, and both importers create seasons inactive — so a manage surface
- * keyed on the active season cannot edit the season it just imported. That is why
- * the staff pages take `?season=`. This page serves both audiences, so it
- * resolves BOTH ways: `getManageContext` for a manager (their picked season, plus
- * the list the switcher offers), `getActiveContext` for everyone else. A visitor
- * therefore cannot reach a non-public season by guessing the query parameter —
- * the parameter is only read after `canManageLeague` says yes.
- */
+// ⚠️ No manage tab, `?tab=manage` or edit toggle: by product decision a manager edits the page everyone
+// sees. ⚠️ `?season=` is read only after `canManageLeague`, so a visitor can't reach a non-public season.
 export default async function TeamPage({
   params,
   searchParams,
@@ -63,10 +29,8 @@ export default async function TeamPage({
 }) {
   const { league: leagueParam, slug } = await params;
   const { season: seasonParam } = await searchParams;
-  // League, then the entitlement, then the context — the order the manage pages
-  // use. `getManageContext` reads every season on the ADMIN client, so it must
-  // not run for a viewer who is not entitled to it. `resolveLeagueBySlug` is
-  // cache()-wrapped, so asking here costs the context below nothing.
+  // League, then entitlement, then context: `getManageContext` reads every season on the admin client,
+  // so it must not run for a viewer not entitled to it.
   const resolved = await resolveLeagueBySlug(leagueParam);
   if (!resolved) notFound();
   const canEdit = await canManageLeague(resolved.id);
@@ -93,14 +57,8 @@ export default async function TeamPage({
     else t++;
   }
 
-  // ── The roster, in three sections ─────────────────────────────────────────
-  //
-  // ⛔ BUILT FROM THE ROSTER AND LEFT-JOINED TO THE STATS, NOT THE OTHER WAY
-  // ROUND. Both stats views are built only from FINAL games, so a player who
-  // has not been scored yet is absent from them entirely — and on the day this
-  // shipped that was every goalie in both live leagues, 19 of 19, because no
-  // game had been played. A section driven by the view would have been empty
-  // on every team page in the app.
+  // ⛔ Built from the roster, left-joined to the stats: the stats views hold only final games, so a
+  // section driven by them is empty for anyone not yet scored.
   const statByPlayer = new Map(detail.skaters.map((s) => [s.player_id, s]));
   const goalieByPlayer = new Map(detail.goalies.map((g) => [g.player_id, g]));
   const inRoster = new Set(detail.roster.map((r) => r.player_id));
@@ -154,9 +112,7 @@ export default async function TeamPage({
     }
   }
 
-  // Anyone with stats who is no longer on the roster — a transfer, or someone
-  // removed mid-season. Their points were earned here and stay visible; they
-  // have no roster row, so no night and no captaincy.
+  // Anyone with stats no longer on the roster: their points stay visible, with no night or captaincy.
   for (const st of detail.skaters) {
     if (!st.player_id || inRoster.has(st.player_id)) continue;
     const row: SectionSkater = {
@@ -210,9 +166,7 @@ export default async function TeamPage({
       </div>
 
       {/*
-        Uncontrolled: both tabs are public content that switches instantly on the
-        client, with no server work behind either. Nothing here reads the URL,
-        which is what removing the Manage tab bought back.
+        Uncontrolled: both tabs are public content with no server work behind either; nothing reads the URL.
       */}
       <Tabs defaultValue="roster" className="space-y-4">
         <TabsList>
@@ -232,27 +186,17 @@ export default async function TeamPage({
             />
           )}
           {/*
-            ⛔ THE STANDALONE "Goaltending" BLOCK STOOD HERE AND IS GONE. It
-            listed each goalie a second time, below a skater table that had
-            already listed them with 0 points. The Goalies section above
-            carries both sets of columns, so nothing was lost by merging them
-            — and `GoalieStatsTable` itself is untouched, because `/stats`
-            still uses it for the league-wide sortable table.
+            ⛔ No separate goaltending block: the Goalies section above carries both column sets, and
+            `GoalieStatsTable` stays for `/stats`.
           */}
 
           {/*
-            The same tab, below the same tables a visitor sees — a manager reads
-            their team's stats and then edits the roster without going anywhere.
-            The roster appears twice on purpose: the table above is the season's
-            scoring, the one below is who is on the team and what can be done to
-            them, and they answer different questions.
+            The roster appears twice on purpose: the season's scoring above, who is on the team and what
+            can be done to them below.
           */}
           {canEdit ? (
-            // A named landmark, not a bare div: it is the only thing separating
-            // the editor's roster table from the public one directly above it,
-            // for a screen-reader user and for the e2e suite alike — several
-            // specs scope `table tbody tr` to this region, which they got for
-            // free while the editor had a tab to itself.
+            // A named landmark: it separates the editor's table from the public one above, and several e2e
+            // specs scope `table tbody tr` to this region.
             <section
               aria-labelledby="manage-roster"
               className="space-y-4 border-t pt-6"
@@ -265,10 +209,8 @@ export default async function TeamPage({
                   Manage roster
                 </h2>
                 {/*
-                  Beside the editor's own heading, not in the page header: the
-                  season it switches is the one this section edits, and the
-                  public tables above are the active season's. Only a manager
-                  sees it at all, so nothing changes for a visitor.
+                  Beside the editor's heading, not the page header: it switches the season this section
+                  edits, while the public tables above show the active one.
                 */}
                 {manageCtx ? <SeasonSwitcher ctx={manageCtx} /> : null}
               </div>
