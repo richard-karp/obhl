@@ -65,9 +65,9 @@ jobs:
       matrix:
         include:
           - part: 1
-            specs: e2e/02-auth.spec.ts e2e/11-schedule-build.spec.ts e2e/14-schedule-changes.spec.ts
+            specs: e2e/02-auth.spec.ts e2e/07-staff.spec.ts e2e/11-schedule-build.spec.ts e2e/14-schedule-changes.spec.ts
           - part: 2
-            specs: e2e/01-public.spec.ts e2e/03-season-setup.spec.ts e2e/04-rosters.spec.ts e2e/05-scoring-night.spec.ts e2e/07-staff.spec.ts e2e/09-access.spec.ts e2e/10-roster-changes.spec.ts
+            specs: e2e/01-public.spec.ts e2e/03-season-setup.spec.ts e2e/04-rosters.spec.ts e2e/05-scoring-night.spec.ts e2e/09-access.spec.ts e2e/10-roster-changes.spec.ts
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
