@@ -8,6 +8,7 @@ import { requireLeagueRole } from "@/lib/auth/guards";
 import { resolveLeagueBySlug } from "@/lib/league/current";
 import { isUuid } from "@/lib/db/uuid";
 import { seasonCookieName } from "@/lib/queries/season";
+import { safeNextPath } from "@/lib/safe-next-path";
 
 /** Six months. Long enough to outlive a season's worth of visits. */
 const SEASON_COOKIE_MAX_AGE = 60 * 60 * 24 * 180;
@@ -38,31 +39,12 @@ const SEASON_COOKIE_MAX_AGE = 60 * 60 * 24 * 180;
 export async function selectSeason(formData: FormData): Promise<void> {
   const slug = String(formData.get("league") ?? "");
   const seasonId = String(formData.get("season_id") ?? "");
-  const raw = String(formData.get("next") ?? "");
-  // Same rule as the magic-link handler: same-origin relative paths only, so a
-  // hand-made form cannot turn the switcher into an open redirect.
-  // ⛔ DECIDED BY THE PARSER, NOT BY INSPECTING CHARACTERS. Every hand-written
-  // version of this check has been exactly one normalisation short: `//` alone
-  // missed the backslash, and adding `raw[1] !== "\\"` missed that the WHATWG
-  // parser strips ASCII tab/CR/LF BEFORE parsing — so "/<TAB>\\evil.com" walks
-  // past a positional test and still resolves off-origin. Resolving against a
-  // throwaway origin and demanding the result stay on it is the only test that
-  // sees what the browser will see.
-  //
-  // Not reachable cross-site today — Next verifies Origin on Server Actions —
-  // and the real caller passes `usePathname()`. This is depth, not a hole.
-  let next = `/${slug}/dashboard`;
-  if (raw.startsWith("/")) {
-    try {
-      const probe = new URL(raw, "http://a.invalid");
-      // `pathname + search` rather than `raw`: it is what the parser made of
-      // it, with the normalisation already applied rather than still pending.
-      if (probe.origin === "http://a.invalid")
-        next = probe.pathname + probe.search;
-    } catch {
-      // Unparseable — keep the dashboard default.
-    }
-  }
+  // Same-origin relative paths only, so a hand-made form cannot turn the
+  // switcher into an open redirect. Not reachable cross-site today.
+  const next = safeNextPath(
+    String(formData.get("next") ?? ""),
+    `/${slug}/dashboard`,
+  );
 
   const league = await resolveLeagueBySlug(slug);
   if (!league) redirect("/");
