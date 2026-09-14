@@ -287,6 +287,33 @@ test.describe("Path 22 — one-off games", () => {
     ).toBeVisible({
       timeout: 30000,
     });
+
+    // The success is audited, under this league. An entry filed under a null
+    // league is hidden from every view that would show it.
+    const db = admin();
+    const { data: league } = await db
+      .from("leagues")
+      .select("id")
+      .eq("slug", "obhl")
+      .single();
+    const { data: season } = await db
+      .from("seasons")
+      .select("id")
+      .eq("league_id", league!.id)
+      .eq("name", SEASON)
+      .single();
+    const { data: entries } = await db
+      .from("audit_log")
+      .select("league_id")
+      .eq("action", "schedule_one_off")
+      .eq("entity_id", season!.id);
+    expect(entries, "a one-off that landed wrote no audit entry").toHaveLength(1);
+    expect(entries![0].league_id).toBe(league!.id);
+
+    await page.goto("/obhl/audit");
+    await expect(
+      page.getByText(/Scheduled a one-off game on \d{4}-\d{2}-\d{2}/).first(),
+    ).toBeVisible();
   });
 
   test("scorekeeper cannot reach the one-off page", async ({ page }) => {

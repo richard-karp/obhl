@@ -290,6 +290,10 @@ export default async function AuditLogPage({
             : "status";
         return `Updated ${field} for ${name ?? "player"}`;
       }
+      case "schedule_one_off": {
+        const on = typeof nd?.date === "string" ? ` on ${nd.date}` : "";
+        return `Scheduled a one-off game${on}`;
+      }
       default:
         if (r.action.startsWith("revert_")) {
           return `Reverted: ${r.action.replace(/^revert_/, "").replace(/_/g, " ")}`;

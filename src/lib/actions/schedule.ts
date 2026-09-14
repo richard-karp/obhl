@@ -1823,9 +1823,23 @@ export async function applyOneOffGame(
   );
   if (problem) return { ok: false, message: problem };
 
+  // Filed under the season, which `logAudit` resolves to its league — the same
+  // shape as `repair_schedule`. `writeGames` audits only the failures.
+  await logAudit({
+    user_id: manager.id,
+    action: "schedule_one_off",
+    entity_type: "season",
+    entity_id: seasonId,
+    old_data: { nights: input.changes.map((c) => c.date) },
+    new_data: {
+      date: input.date,
+      label: input.label,
+      games_rewritten: rows.length,
+    },
+  });
+
   revalidatePath("/[league]/schedule/one-off", "page");
   revalidatePath("/[league]/seasons/[seasonId]", "page");
-  revalidatePath("/[league]/schedule", "page");
   revalidatePath("/[league]/schedule", "page");
   revalidatePath("/[league]", "page");
 
