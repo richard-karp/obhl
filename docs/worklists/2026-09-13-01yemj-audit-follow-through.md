@@ -18,22 +18,23 @@
      the local stack. **Production NOT confirmed**: the owner checks with
      `! npx supabase db query --linked "select has_column_privilege('authenticated','public.profiles','role','UPDATE')"`
      (`true` = exposed). Part 1 Task 1 fixes it.
-   - **Commit only with the owner's explicit OK — not given yet.** Push/PR only when asked.
+   - **Commit only with the owner's explicit OK.** Given once, for part 1's seven
+     commits; ask again for any new work. Push/PR only when asked — declined so far.
    - The work lives in worktree
      `/Users/richardkarp/dev/obhl/.claude/worktrees/audit-security-and-removals`,
-     branch `worktree-audit-security-and-removals`, cut from `95c7699`. **Both plans
-     and this file are UNCOMMITTED there.** ⛔ Do not remove the worktree until the
-     docs commit below exists.
+     branch `worktree-audit-security-and-removals`, cut from `95c7699`. **Part 1, both
+     plans and this file are committed there but NOT pushed.** ⛔ Do not remove the
+     worktree until the branch is pushed: it is the only copy.
    - e2e resets the ONE local database all worktrees share: run only
      `PORT=3101 scripts/e2e-locked.sh <specs>`. Nothing `--linked` or `db push` from
-     an agent; the owner pushes `0050`.
+     an agent; the owner pushes `0050` and `0051`.
 3. Every number was **watched appear** unless marked _(reading)_. Line numbers drift:
    find code by the symbol or test name given, not the line.
 4. Verify with `npm test`. Baseline in the worktree, 2026-09-13: **51 files, 643
    passed + 1 todo, 250.7 s**.
 
-**Status: part 1 is implemented, verified and reviewed — UNCOMMITTED, waiting on the
-owner's review.** The final review added `0051` (logo bucket types + name check) and
+**Status: part 1 is implemented, verified, reviewed and committed on this branch
+(`3a7d198`..`ce7c62d`, on `95c7699`) — NOT pushed; no PR yet.** The final review added `0051` (logo bucket types + name check) and
 hardened `0050`; the owner's push is now `0050` AND `0051`. Before pushing, run
 `npx supabase db query --linked "select name, metadata->>'mimetype' from storage.objects where bucket_id = 'logos' and name !~ '\.(png|jpe?g|webp)$'"`
 — `0051` blocks new non-image logos but does not remove existing ones. Progress and every ruling live in the SDD ledger,
@@ -94,7 +95,7 @@ runs. Part 3 is designed; its executable plan is written after part 2 merges.
 
 | Part | State | Where |
 |---|---|---|
-| 1 — security fixes + the two removals | done, uncommitted — awaiting owner review | `docs/superpowers/plans/2026-09-13-audit-security-and-removals.md` |
+| 1 — security fixes + the two removals | done, committed locally — not pushed | `docs/superpowers/plans/2026-09-13-audit-security-and-removals.md` |
 | 2 — test rebuild (B) | plan written, not started | `docs/superpowers/plans/2026-09-13-part2-test-rebuild.md` |
 | 3 — code, comment and doc trims | design written; executable plan after part 2 merges | _Part 3_ below |
 | Ops — owner only | not started | _Ops_ below |
