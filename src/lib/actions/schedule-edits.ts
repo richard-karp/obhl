@@ -29,8 +29,8 @@ type SeasonRow = GuardRow & {
   label: string | null;
 };
 
-// The statuses an edit may rewrite, passed to `writeGames` (the `apply_game_writes` RPC). Named so
-// that widening to games with no result has one place to change.
+// Statuses `writeGames` may rewrite. ⛔ `editable()` (editGuards.ts) refuses
+// every other status first: widen both together, or this change does nothing.
 const EDITABLE_STATUSES = ["scheduled"] as const;
 
 /** Manager of the league this game belongs to, or the request dies here. */
