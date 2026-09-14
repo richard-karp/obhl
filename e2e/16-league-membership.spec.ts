@@ -180,7 +180,7 @@ test.describe("Path 17 — Per-league membership", () => {
     // `/manage/leagues/new`, where the guard is `requireManager()` and a manager
     // of another league is ADMITTED. Asserting a refusal here would now be
     // asserting the opposite of the intended behaviour; the admission is tested
-    // in `32-create-league.spec.ts` instead.
+    // in `03-season-setup.spec.ts` instead.
     "/audit",
   ];
 
