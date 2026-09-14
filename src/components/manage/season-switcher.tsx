@@ -1,22 +1,8 @@
 import { SeasonSelect } from "./season-select";
 import type { ManageContext } from "@/lib/queries/season";
 
-/**
- * The season switcher, as a manage page drops it into its header row.
- *
- * ⚠️ THE HEADER ROW, NOT THE BRAND BAR. This used to cite `MAX_INLINE_LINKS` in
- * `manage-nav.tsx`; that constant and that file went with the second header, and
- * the bar the argument is about is now `site-header.tsx`'s — which carries its
- * own measured width budget, re-measured 2026-09-06, with no slack for another
- * control. Putting the season beside the page title sidesteps that measurement
- * entirely, and keeps the season visible next to the content it scopes.
- *
- * A server component so the client bundle gets three fields per season rather
- * than the whole row.
- *
- * Renders nothing for a league with no seasons: there is nothing to switch
- * between, and the page beneath already says so in its own empty state.
- */
+// ⚠️ In the page's header row, not the brand bar, which has no width left for another control. A server
+// component, so the client gets three fields per season.
 export function SeasonSwitcher({ ctx }: { ctx: ManageContext }) {
   if (ctx.seasons.length === 0) return null;
   return (

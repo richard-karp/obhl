@@ -23,24 +23,8 @@ export type PersonOption = {
 /** Rendering every person in the instance is a scroll nobody reads. */
 const MAX_VISIBLE = 40;
 
-/**
- * The "existing person" field: a filtered combobox over every person in the
- * database, plus the archive controls for this league.
- *
- * ⛔ REPLACES A `<select>`, AND DOES NOT KEEP ONE. `players` is global and
- * unfiltered here on purpose — reusing a person who plays in another league is
- * the whole point of the field — so the list grows with the instance and a
- * native select becomes a scroll through hundreds of names. A hidden `<select>`
- * kept alongside this to satisfy an old test would be two fields that can
- * disagree about who is selected, and the one the operator cannot see would win.
- *
- * Built on `Input` + `Popover` rather than a combobox dependency: `cmdk` is not
- * installed and one field does not justify adding it.
- *
- * ⚠️ THE ARCHIVE CONTROLS LIVE HERE, not on an admin screen of their own. This
- * is the one surface where somebody looking for a person who has gone missing
- * will actually be, and restoring them is then one click from adding them.
- */
+// ⛔ A combobox, with no hidden `<select>` kept beside it: two fields could disagree on who is selected.
+// On `Input` + `Popover`, not `cmdk`. ⚠️ Archive controls live here, where a missing person is looked for.
 export function PersonPicker({
   people,
   leagueId,
@@ -53,8 +37,7 @@ export function PersonPicker({
   disabled?: boolean;
   onSelectedChange?: (id: string | null) => void;
 }) {
-  // Fixed rather than `useId()`: there is one picker on the page, and a stable
-  // id keeps the label association readable in the DOM and in a test failure.
+  // Fixed, not `useId()`: one picker per page, with an id readable in the DOM and a test failure.
   const inputId = "existing_person";
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -68,9 +51,7 @@ export function PersonPicker({
   );
   const [active, setActive] = useState(0);
   const [, startTransition] = useTransition();
-  // ⚠️ WHICH person is in flight, not a boolean — the same correction
-  // `ConstraintsCard` carries. One shared flag disables every Archive and
-  // Restore button in the list while any one of them is running.
+  // ⚠️ Which person is in flight, not a boolean, or every Archive and Restore disables while one runs.
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const matches = useMemo(() => {
@@ -102,12 +83,8 @@ export function PersonPicker({
         const result = await action();
         setNotice(result ?? null);
       } catch (err) {
-        // ⛔ Same shape as the constraints card: `redirect()` and `notFound()`
-        // work BY THROWING, and both archive actions reach `redirect("/")`
-        // through `requireLeagueManager`, so swallowing a "NEXT_" digest would
-        // turn a refusal into a notice and strand the manager on the page they
-        // were being sent away from. Everything else is reported, because a
-        // bare await left a failed archive looking exactly like a dead button.
+        // ⛔ Rethrow a "NEXT_" digest: `redirect()` throws (via `requireLeagueManager`), and swallowing it strands
+        // a refused manager on the page. Anything else is reported.
         const digest = (err as { digest?: unknown } | null)?.digest;
         if (typeof digest === "string" && digest.startsWith("NEXT_")) throw err;
         setNotice({
@@ -125,10 +102,8 @@ export function PersonPicker({
     <div className="space-y-1">
       <Label htmlFor={inputId}>Existing person (optional)</Label>
 
-      {/* The id the server reads. The visible field carries a NAME; this
-          carries the identity, and it is cleared whenever the text stops
-          matching the person it was chosen for — two fields that can disagree
-          is the failure a combobox invites. */}
+      {/* The identity the server reads, cleared whenever the text stops matching the
+          person chosen: two fields must not disagree. */}
       <input type="hidden" name="player_id" value={selected?.id ?? ""} />
 
       <Popover open={open && !disabled} onOpenChange={setOpen}>
@@ -172,10 +147,7 @@ export function PersonPicker({
                   );
                   return;
                 }
-                // ⛔ Enter inside an open combobox must not submit the add form.
-                // The operator is picking from the list, and the form's own
-                // submit would fire with no player selected — an accidental
-                // "new person" with a half-typed name.
+                // ⛔ Enter in an open combobox picks; it must not submit the add form as a half-typed new person.
                 if (e.key === "Enter" && open) {
                   e.preventDefault();
                   if (visible[active]) choose(visible[active]);
@@ -200,8 +172,7 @@ export function PersonPicker({
         <PopoverContent
           align="start"
           className="w-(--radix-popover-trigger-width) min-w-72 p-0"
-          // Focus stays in the field: this is a list to look at while typing,
-          // not a dialog to move into.
+          // Focus stays in the field: a list to look at while typing, not a dialog.
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
@@ -231,10 +202,7 @@ export function PersonPicker({
               </p>
             ) : (
               visible.map((p, i) => (
-                // The whole row picks, not just the text. `flex-1` on the name
-                // is what makes that true for a click landing anywhere in the
-                // middle of the row, which is where a pointer usually lands and
-                // where a test driver aims.
+                // The whole row picks: `flex-1` on the name catches a click mid-row, where pointers and tests aim.
                 <div
                   key={p.id}
                   role="option"
@@ -256,9 +224,8 @@ export function PersonPicker({
                       </Badge>
                     ) : null}
                   </span>
-                  {/* ⛔ `stopPropagation`, or archiving also selects the person
-                      the row is about — the click would bubble to the row above
-                      and close the list on the way. */}
+                  {/* ⛔ `stopPropagation`, or archiving also selects the person and
+                      closes the list on the way. */}
                   {p.archived ? (
                     <button
                       type="button"

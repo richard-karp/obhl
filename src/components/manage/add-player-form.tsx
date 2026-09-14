@@ -28,9 +28,8 @@ export function AddPlayerForm({
     addRosterPlayer,
     null,
   );
-  // Mirrors the picker's selection so the name fields can say they are unused.
-  // The server already ignores them once a `player_id` arrives; this is so the
-  // operator is not typing into a box that will be thrown away.
+  // Mirrors the picker's selection so the name fields can say they are unused: the server ignores them
+  // once a `player_id` arrives.
   const [picked, setPicked] = useState<string | null>(null);
 
   return (

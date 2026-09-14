@@ -4,19 +4,8 @@ import { useState } from "react";
 import { ICE_METRIC_LABEL, type OneOffPlan } from "@/lib/schedule/oneOff";
 import { formatLongDate } from "@/lib/format";
 
-/**
- * One ranked repair plan, with its scorecard and its per-night diff.
- *
- * Shared by the one-off planner and the schedule repair, because they are the
- * same plans from the same engine — `planRepair` is `planOneOff` with no
- * one-off game on it. Two copies of this card would drift, and the thing they
- * would drift on is the ⛔ below.
- *
- * ⛔ THE DIFF IS SHOWN BEFORE THE APPLY, NEVER AFTER. This is the screen that
- * stops a manager wrecking a live schedule, and it is the reason the whole flow
- * is state-the-change → see-a-plan → apply rather than a button that just does
- * it.
- */
+// Shared by the one-off planner and repair (`planRepair` is `planOneOff` with no game), so it cannot drift.
+// ⛔ The diff is shown before the apply, never after: this screen stops a manager wrecking a live schedule.
 export function PlanCard({
   plan,
   selected,
@@ -94,9 +83,8 @@ export function PlanCard({
             />
           </div>
           {/*
-            Measured against leaving the season alone, not against the numbers
-            above — those read from the pre-edit schedule. A repair can improve
-            on the incumbent and still be the worse of the two ways forward.
+            Against leaving the season alone, not the numbers above: a repair can beat the pre-edit schedule
+            and still be the worse way forward.
           */}
           {plan.worseThan.length > 0 ? (
             <div className="text-xs text-amber-600 dark:text-amber-400">

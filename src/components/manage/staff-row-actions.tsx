@@ -15,27 +15,12 @@ export function StaffRowActions({
   role: string;
   /** Both actions are scoped to this league; the server checks it, not trusts it. */
   leagueId: string;
-  /**
-   * Whether Remove would actually be honoured. The server refuses silently —
-   * a form action returning void has nowhere to put a message — so the page
-   * works out the answer and this renders the reason instead of a button that
-   * appears to do nothing.
-   */
+  /** Whether Remove would be honoured: the server refuses silently (a void form action), so the page decides. */
   canRemove: boolean;
-  /**
-   * Whether ANY role change on this row would be honoured. A role is
-   * instance-wide, so it lands in every league this person belongs to — and
-   * `updateStaffRole` refuses every change that would reach a league the viewer
-   * is not in, not only a promotion to manager. Refused silently, like Remove,
-   * so the control is replaced by the reason rather than offered and ignored.
-   */
+  // Whether any role change would be honoured: a role reaches every league the person is in, and
+  // `updateStaffRole` silently refuses a change reaching one the viewer is not in.
   canChangeRole: boolean;
-  /**
-   * The League Office tier this person holds, or null. An office row is
-   * read-only here for everyone — the tier is managed in League Office, and a
-   * row offering to change a deputy's underlying role while their tier lives on
-   * another page invites the wrong mental model of what the row controls.
-   */
+  /** The League Office tier, or null. An office row is read-only here: its tier is managed in League Office. */
   officeTier: "commissioner" | "deputy" | null;
 }) {
   const remove = canRemove ? (
@@ -55,10 +40,8 @@ export function StaffRowActions({
     </form>
   ) : null;
 
-  // The office first, because an office member is a `league_manager` too and
-  // would otherwise fall into the branch below and be offered a Remove that
-  // `removeStaff` refuses. Their membership is a rule rather than a row, so
-  // there is nothing here to revoke.
+  // The office first: an office member is a `league_manager` too, and would be offered a Remove that
+  // `removeStaff` refuses. Their membership is a rule, not a row.
   if (officeTier) {
     return (
       <div className="flex items-center justify-end gap-2">
@@ -72,19 +55,8 @@ export function StaffRowActions({
     );
   }
 
-  // ⛔ ONE condition decides whether the control renders, and it is the same one
-  // the server applies. A manager's role is not editable by a PEER — every
-  // manager can open this page, so offering it would let any manager unmake any
-  // other — but the League Office outranks them, and `canChangeRole` already
-  // knows both facts.
-  //
-  // Testing `role === "league_manager"` ahead of it is what made a commissioner's
-  // row render nothing while `updateStaffRole` was willing to act: the page
-  // refused what the server permitted, which is the disagreement this component
-  // exists to prevent.
-  //
-  // Only the REASON differs, so only the reason branches. Remove is offered in
-  // both: revoking this league is a different question from changing a role.
+  // ⛔ One condition, the server's: `canChangeRole` knows a peer can't unmake a manager but the office can.
+  // Testing `role === "league_manager"` first hid a change the server permitted. Only the reason branches.
   if (!canChangeRole) {
     const managerPeer = role === "league_manager";
     return (

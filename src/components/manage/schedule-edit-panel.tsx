@@ -12,21 +12,8 @@ import {
   retimeGame,
 } from "@/lib/actions/schedule-edits";
 
-/**
- * The manager's manual edits to a schedule that already exists.
- *
- * ⛔ EVERY OPERATION HERE IS A TRADE, and that is not a UI choice — it follows
- * from the user's constraint that total games per team and games per night are
- * non-negotiable. Replacing a team on its own leaves one side a game short
- * forever; moving a game to another night robs the night it left. So "replace a
- * team" asks a second question (who gives the place back) and writes two rows,
- * and a night change is a trade with a game already on the target night.
- *
- * ⚠️ Rendered ONLY where `canManageLeague` is true. This panel sits on the
- * public schedule page, which scorekeepers also read — see that page's own note
- * about `canScore` admitting two of three roles. Gate on management, never on
- * scoring.
- */
+// ⛔ Every operation is a trade: games per team and per night never move, so a replacement writes two rows.
+// ⚠️ Render only where `canManageLeague` is true: this panel sits on a page scorekeepers also read.
 export type EditableGame = {
   id: string;
   label: string;
@@ -90,15 +77,9 @@ function useEdit() {
         );
         if (r.ok) onOk?.();
       } catch (e) {
-        // Log before swallowing: the message below is deliberately vague
-        // because the cause is unknown to the user, but it should not be
-        // unknown to us as well.
+        // ⛔ An action can throw instead of returning `{ok, message}`; without this a failed edit shows nothing.
+        // Logged first, because the message below is deliberately vague.
         console.error("schedule edit failed", e);
-        // ⛔ WITHOUT THIS THE PANEL SHOWS NOTHING AT ALL. Every caller assumes
-        // the `{ok, message}` shape, but an action can THROW instead —
-        // a season read that fails, a guard that redirects, a dropped
-        // connection. The rejection escapes the transition, `setMsg` never
-        // runs, and the only symptom of a failed edit is the absence of one.
         setMsg({
           ok: false,
           text: "That didn't go through. Reload the page and try again.",
@@ -189,11 +170,8 @@ function TeamPicker({
   );
 }
 
-/**
- * Replace a team — a wizard, because a replacement on its own is not a legal
- * schedule. Step 2 lists the games where the arriving team can hand its place
- * back; an empty list is a refusal with the reason, never a one-sided write.
- */
+// A wizard: a replacement alone is not legal. Step 2 lists where the arriving team hands its place back;
+// an empty list is a refusal with the reason, never a one-sided write.
 function ReplaceTeam({
   games,
   teams,
@@ -286,10 +264,8 @@ function ReplaceTeam({
                         teamOutY: teamIn,
                       }),
                     "Swapped.",
-                    // The list was computed against the schedule as it was a
-                    // moment ago; the trade it described has now happened. A
-                    // second click is refused server-side, so leaving the
-                    // buttons up is safe but reads as though nothing landed.
+                    // The trade happened: a second click is refused server-side, but stale buttons read as
+                    // though nothing landed.
                     () => setOptions(null),
                   )
                 }

@@ -53,22 +53,9 @@ import {
 const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/**
- * Schedule builder scoped to a specific season — the forms carry a hidden
- * season_id so they target this season, not whatever is currently active.
- *
- * ⚠️ ONE CALL SITE NOW: the season setup hub, `/<league>/seasons/<id>`. It was
- * also drawn by a standalone `/<league>/schedule-builder`, which stopped being
- * a place on 2026-09-11 — building a schedule is a step of creating a season —
- * and that URL is now a redirect to the setup page. The hidden `season_id` is
- * therefore no longer the thing distinguishing two callers; keep it anyway,
- * because it is what stops these forms targeting whatever season is active.
- */
-/**
- * The draft columns `editableDrafts` reads. PostgREST types the embedded
- * `home:`/`away:` joins loosely enough that the mapping below was written with
- * `any`, which is what let a missing `status` column go unnoticed.
- */
+// ⚠️ Keep the hidden `season_id` on these forms: it stops them targeting whatever season is active.
+
+/** Typed, not `any`: the loose join types are what let a missing `status` column go unnoticed. */
 type DraftRow = {
   id: string;
   scheduled_at: string | null;
@@ -109,42 +96,27 @@ export async function ScheduleBuilderPanel({
 
   const publish = await getPublishState(seasonId, { client: admin });
 
-  // ⚠️ In parallel, not one after the other. This panel already serialises five
-  // round-trips before these two, and neither depends on the other — adding the
-  // nights read as a sixth sequential await put another full query on the
-  // critical path of a page that is already the slowest in the manage area.
-  //
-  // The nights are read even when there is no live schedule: they come back
-  // empty, and a conditional await is a second thing to keep in step with the
-  // render below.
+  // ⚠️ In parallel: neither depends on the other, on the slowest page in the manage area. The nights are
+  // read even with no live schedule, since they come back empty.
   const [storedConstraints, seasonNights] = await Promise.all([
     getScheduleConstraints(seasonId, { client: admin }),
     getSeasonNights(seasonId, { client: admin }),
   ]);
   const openNights = seasonNights.filter((n) => !n.locked);
 
-  // This panel's own draft read is part of the same fail-closed contract as
-  // getPublishState's six. It errors independently and PostgREST hands back
-  // null data with the error, which coerces to an empty list — indistinguishable
-  // from "this season has no draft", which is the answer that offers the manager
-  // a generate form and throws away a draft they can't see.
+  // The draft read fails closed like getPublishState's: an errored read coerces to [], which reads as "no
+  // draft" and offers a generate that throws away a draft the manager can't see.
   const readFailed = publish.readFailed || !!draftsError;
   if (draftsError) console.error("draft read failed:", draftsError.message);
 
-  // `!!draftsError`, not `readFailed`: getPublishState already forces its own
-  // `started` true when its reads fail, so the only thing this term adds is the
-  // draft read above. Passing `readFailed` here would imply both halves are
-  // load-bearing when one is already folded in.
+  // `!!draftsError`, not `readFailed`: getPublishState already forces `started` when its own reads fail.
   const mode = publishMode({
     ...publish,
     started: publish.started || !!draftsError,
   });
 
-  // One source for "is there a draft to act on": getPublishState's exact server
-  // count, not the length of the row list rendered below it. They are separate
-  // requests that can disagree, and only the count fails closed — deciding the
-  // section from the list meant a failed read rendered the section's header,
-  // its Discard button and a "0 games" summary over rows nobody had read.
+  // getPublishState's exact count, not the row list: only the count fails closed, and a failed list read
+  // drew Discard over rows nobody had read.
   const hasDraft = !readFailed && publish.draftCount > 0;
 
   // Group by night + build a balance report.
@@ -220,17 +192,8 @@ export async function ScheduleBuilderPanel({
   const overrunsSeason =
     !!season?.ends_on && !!lastDate && lastDate > season.ends_on;
 
-  // ⛔ THE DRAFT AGED. Generate refuses a first night that has already passed
-  // (`isPastGameNight`), but it checks the date at the moment the draft is
-  // MADE. A draft built for a good future date and left standing — review early
-  // in the week, publish later, which is the rebuild workflow — arrives at the
-  // publish button with its first game already played over, and publishing it
-  // starts the season in the past and locks it permanently. Nothing checked
-  // that until this: see `staleDraft`.
-  //
-  // ⚠️ The GAMES, not the nights: the lock fires on `scheduled_at < now()`, so
-  // a night that is still today but whose face-off has gone is exactly as
-  // dangerous as one from last week, and a date-only check cannot see it.
+  // ⛔ A draft ages: generate checks the first night only when the draft is made, so a later publish can start
+  // the season in the past and lock it. ⚠️ Games, not nights: the lock fires on `scheduled_at < now()`.
   const today = leagueDateKey(new Date().toISOString());
   const stale = staleDraft({
     games: (drafts ?? []).flatMap((g) =>
@@ -238,8 +201,7 @@ export async function ScheduleBuilderPanel({
     ),
     now: new Date().toISOString(),
   });
-  // One object for both consumers. They rendered two near-identical literals
-  // and one of them was already a field behind.
+  // One object for both consumers, so the banner and the dialog cannot drift.
   const staleView: StaleNotice | null = stale && {
     firstNight: stale.firstNight,
     firstNightLabel: formatLongDate(stale.firstNight),
@@ -270,31 +232,15 @@ export async function ScheduleBuilderPanel({
   const rawSpacing =
     placed.length > 0 ? spacingReport(placed, spacingNights, teamRows) : null;
 
-  // Ice times this draft actually uses. Below three, a five-game window must
-  // hold three of one by pigeonhole, so `slotClusterWorstTeam` cannot reach zero
-  // however the games are arranged — and it grows with games per team. The
-  // caption says so rather than presenting an unreachable target next to advice
-  // ("add game nights") that would make the number worse.
+  // Below three ice times a five-game window must hold three of one, so `slotClusterWorstTeam` cannot reach
+  // zero; the caption says so rather than suggest more game nights, which would raise it.
   const slotCount = placed.reduce((m, g) => Math.max(m, g.slotIndex + 1), 0);
 
-  // ── Manager requests, checked against the draft on this page ───────────────
-  //
-  // Re-derived here rather than carried out of the generator, and that is
-  // deliberate twice over. It survives a reload, which a returned report does
-  // not; and it is decided by READING THE PLACED GAMES, which is the only
-  // evidence that a pin actually shipped — later steps can move things, and
-  // asking a phase whether it did what it was told would report a pin as
-  // honoured whether or not it survived.
-  //
-  // Scope, stated so it cannot be misread: this card answers "does the draft
-  // below satisfy this request?" — not "did the generator apply it?". Those come
-  // apart in exactly one case, when the fallback planner wins the rank-off and
-  // no constraint was ever applied; the generate action says so in its own
-  // message, which is the moment that fact exists.
+  // Requests are judged by reading the placed games, never from what a phase was asked to do
+  // (`RUNBOOK.md` → Schedule generator); it also survives a reload.
   const constraintNights = draftDates.map((d) => ({
     date: d,
-    // Games are already in ice-time order within the night, so this index IS
-    // the slot index the constraint resolves to.
+    // Games are in ice-time order within the night, so this index is the slot index.
     slots: (byDate.get(d) ?? []).map((g) =>
       g.scheduled_at ? leagueTimeKey(g.scheduled_at) : "--:--",
     ),
@@ -319,12 +265,8 @@ export async function ScheduleBuilderPanel({
       teamSlot.set(`${ti}:${g.nightIndex}`, g.slotIndex);
     }
   }
-  // ⛔ `items.length`, NOT `empty` — the same distinction `assignNights` makes,
-  // and this is the surface where it matters most. An all-unresolved set is
-  // `empty === true` with items in it, so gating here meant the transient
-  // "couldn't be met" toast was right while THIS card — the one a manager sees
-  // on every later page load — silently vanished, leaving the request listed
-  // in the form above with no verdict against it.
+  // ⛔ `items.length`, not `empty`: an all-unresolved set is `empty` with items in it, and gating on `empty`
+  // hid this card, leaving a listed request with no verdict.
   const constraintOutcomes =
     resolvedConstraints.items.length === 0 || placed.length === 0
       ? []
@@ -333,10 +275,8 @@ export async function ScheduleBuilderPanel({
           slotOf: (t, n) => teamSlot.get(`${t}:${n}`) ?? null,
           plannerHonours: true,
         });
-  // Breaches the manager's own forced byes made unavoidable, subtracted from
-  // what is shown. ⛔ Presentation only — the solver's `byeRuleCost` still counts
-  // every one of them, because it is also the basis of Phase P's admissible
-  // lower bound and re-deriving that is not worth an even-looking table.
+  // Breaches the manager's forced byes made unavoidable, subtracted for display. ⛔ Presentation only:
+  // `byeRuleCost` still counts them, as Phase P's admissible bound (`RUNBOOK.md` → Schedule generator).
   const credits =
     placed.length > 0
       ? forcedByeCredits(resolvedConstraints, {
@@ -350,13 +290,8 @@ export async function ScheduleBuilderPanel({
   const constraintNameOf = (id: string) =>
     enrolledTeams.find((t) => t.id === id)?.name ?? "A removed team";
 
-  // Nights that run fewer games than the fullest one. Those nights drop their
-  // latest slot, so it gets used on fewer nights than the earlier ones and equal
-  // per-team ice-time counts stop being arithmetically reachable — no amount of
-  // shuffling fixes it, so say so rather than let it read as a bug. Scoped to
-  // dated nights (not `maxSlots`, which counts undated games too), and stated
-  // only in terms of what the placed games show: the season's configured ice
-  // slots aren't stored, so a slot left unused all season is invisible here.
+  // A night short of the fullest drops its latest slot, so equal ice-time counts become unreachable: say so.
+  // Dated nights only; configured slots aren't stored, so one unused all season is invisible here.
   const fullestNight = Math.max(
     0,
     ...draftDates.map((d) => byDate.get(d)?.length ?? 0),
@@ -366,24 +301,8 @@ export async function ScheduleBuilderPanel({
   ).length;
   const spareIceSlots = fullestNight * draftDates.length - placed.length;
 
-  /*
-    The same edit panel the Games page draws, over the DRAFT rows.
-
-    ⛔ A DRAFT NEEDS THESE AS MUCH AS A PUBLISHED SCHEDULE DOES — the user asked
-    for both explicitly. The actions do not care which they are working on (they
-    read a season's rows, published or not), so this is the same component with a
-    different source. Letting a draft drift unbalanced would only move the
-    problem to publish time.
-  */
-  /*
-    ⚠️ THE STATUS FILTER IS NOT REDUNDANT, EVEN THOUGH A DRAFT ROW IS ALWAYS
-    `scheduled` TODAY. This list feeds the same panel the published page feeds,
-    and that page filters `status === "scheduled"` because the write path
-    refuses anything else — a row offered here but refused there fails with
-    "the schedule changed while this was on screen", for a reason the message
-    never gives. The invariant is real but nothing enforces it, so assert it
-    where it is relied on rather than trusting a comment to stay true.
-  */
+  // ⛔ A draft needs the edit panel as much as a published schedule. ⚠️ The status filter is not redundant:
+  // the write path refuses anything but `scheduled`, so assert it where it is relied on.
   const editableDrafts: EditableGame[] = (
     (drafts ?? []) as unknown as DraftRow[]
   )
@@ -412,10 +331,7 @@ export async function ScheduleBuilderPanel({
           </CardHeader>
           <CardContent className="text-muted-foreground space-y-2 text-sm">
             {readFailed ? (
-              // Locked for a different reason, so it says a different thing. The
-              // counts are unknown here, not zero, and this card is the one place
-              // they were being stated as fact — "0 games are published" about a
-              // season that may hold hundreds, on a season that hasn't started.
+              // Locked for a different reason: the counts are unknown here, not zero.
               <p>
                 Something went wrong reading this season&apos;s games, so the
                 builder is locked rather than acting on counts it doesn&apos;t
@@ -445,12 +361,7 @@ export async function ScheduleBuilderPanel({
                   .
                 </p>
                 {/*
-                  ⛔ THIS IS THE MODE REPAIR EXISTS FOR. A started season can no
-                  longer be regenerated, so rearranging the nights still to come
-                  — pinning a team to an ice time, or putting the ice-time share
-                  back after a run of manual reschedules — is the only lever
-                  left. The card used to offer per-game edits and the one-off
-                  planner and stop there.
+                  ⛔ The mode repair exists for: a started season can't be regenerated, so this is the lever left.
                 */}
                 <p>
                   To put a team on a particular night or ice time, or to even
@@ -477,31 +388,15 @@ export async function ScheduleBuilderPanel({
             </CardHeader>
             <CardContent>
               <ScheduleGenerateForm
-                /*
-                  ⛔ PUBLISH IS THE OTHER HALF OF "generate keeps my fields".
-                  The form now holds everything it was given across a generate
-                  (see its `onSubmit`), which is right while the manager is still
-                  iterating and wrong the moment they publish: publishing ends
-                  the setup, and the next thing done here is a different season's
-                  schedule. Remounting on a new key is what returns the inputs to
-                  their `defaultValue`s and empties the skip chips — the same
-                  trick RemoveControls and PublishControls below already use.
-
-                  ⚠️ Keyed on the LIVE schedule, never on `draftCount`.
-                  `draftCount` also moves on a generate (0 → N), so keying on it
-                  would remount on exactly the submit this whole change exists to
-                  survive. `liveScheduleKey` moves only when the published games
-                  are replaced — see its note in queries/schedule.ts.
-                */
+                /* ⛔ Remounting on a new key after a publish is what resets the form's kept fields. ⚠️ Keyed on
+                   the live schedule, never `draftCount`, which also moves on a generate. */
                 key={publish.liveScheduleKey}
                 seasonId={seasonId}
                 seasonStart={season?.starts_on ?? null}
                 seasonEnd={season?.ends_on ?? null}
                 teams={enrolledTeams.map((t) => ({ id: t.id, name: t.name }))}
                 constraints={storedConstraints}
-                // Read here rather than in the form: the generator's budget
-                // constants are server-side, and the form is a client
-                // component.
+                // Read here: the budget constants are server-side, and the form is a client component.
                 expectedMs={estimatedGenerateMs()}
               />
             </CardContent>
@@ -521,12 +416,7 @@ export async function ScheduleBuilderPanel({
           </p>
 
           {/*
-            Rendered in replace mode too, not just published. A manager about to
-            replace a schedule needs the schedule they are replacing on the page;
-            suppressing it here left the button label as the only evidence it
-            existed. A container rather than a bare paragraph because this block
-            holds everything about the live schedule — the count, the guidance,
-            and the control that removes it.
+            In replace mode too: a manager about to replace a schedule needs it on the page.
           */}
           {mode === "published" || mode === "replace" ? (
             <div className="text-muted-foreground space-y-2 text-sm">
@@ -539,9 +429,7 @@ export async function ScheduleBuilderPanel({
                   : ""}
               </p>
               {/*
-                Only in published mode. In replace mode a draft already exists
-                and the Replace button is on screen, so telling the manager to
-                generate one would describe a step they have already taken.
+                Published mode only: in replace mode a draft and its Replace button already exist.
               */}
               {mode === "published" ? (
                 <>
@@ -550,15 +438,8 @@ export async function ScheduleBuilderPanel({
                     you&apos;ll be asked to confirm before it replaces this one.
                   </p>
                   {/*
-                    Published mode only, sharing the guidance's branch: both
-                    speak to a season holding a live schedule and no draft. In
-                    replace mode the manager already has a replacement, and the
-                    remove dialog's wording would be wrong there — see the
-                    component's own comment.
-
-                    Keyed on liveCount so the derived dialog-open state in
-                    RemoveControls stays correct by construction: a successful
-                    removal takes liveCount to 0, remounting under a fresh key.
+                    Published mode only: the remove dialog's wording is wrong beside a draft. Keyed on
+                    liveCount, so a successful removal remounts it and its derived dialog state holds.
                   */}
                   <RemoveControls
                     key={publish.liveCount}
@@ -573,13 +454,8 @@ export async function ScheduleBuilderPanel({
       )}
 
       {/*
-        The live-schedule tools. Rendered in EVERY mode that has published games
-        — `locked` above all, since that is the mode they exist for: once
-        `season_is_started` trips, generate, replace and remove are gone for
-        good and this is the only way left to change a night. `readFailed` hides
-        them because the night list behind them would be empty for the same
-        reason the counts are unknown, and an empty picker reads as "nothing to
-        move" rather than "we couldn't look".
+        In every mode with published games, `locked` above all. Hidden on `readFailed`: an empty picker would
+        read as "nothing to move" rather than "we couldn't look".
       */}
       {publish.liveCount > 0 && !readFailed ? (
         <Card>
@@ -593,17 +469,12 @@ export async function ScheduleBuilderPanel({
                 date: n.date,
                 games: n.games.length,
               }))}
-              // Computed here, on the server, in the league's zone — see the
-              // prop's own note for why the browser's clock will not do.
+              // Server-side in the league's zone: the browser's clock is a day off for anyone travelling.
               minDate={today}
               maxDate={season?.ends_on ?? null}
             />
             {/*
-              ⚠️ Suppressed in locked mode, where the card above already carries
-              this link inside the sentence that explains what a started season
-              can still be changed. Two identical links a few elements apart read
-              as a seam rather than as emphasis — the same call the "generate a
-              new one above" guidance makes below.
+              ⚠️ Not in locked mode, whose card already carries this link: two identical links read as a seam.
             */}
             {mode === "locked" ? null : (
               <p className="text-muted-foreground text-sm">
@@ -623,20 +494,11 @@ export async function ScheduleBuilderPanel({
       ) : null}
 
       {!hasDraft ? (
-        // Not on a locked season. This section keys off the draft count alone,
-        // which is independent of `mode`, so a started season with no draft
-        // rendered "Generate one above" directly beneath a locked card that has
-        // no generate form in it — pointing the manager at something that isn't
-        // on the page. Same leak as the publish-control gate below, in the
-        // other branch. The locked card already says what can be done instead.
+        // Not on a locked season: its card has no generate form for "Generate one above" to point at.
         mode === "locked" ? null : (
           <EmptyState
             title="No draft schedule"
-            // Suppressed in published mode, where the block above already says
-            // "generate a new one above" as part of explaining how to replace.
-            // Two copies of the same instruction, a few elements apart, read as
-            // a seam rather than as emphasis. The card itself stays: it still
-            // tells the manager there is nothing staged to preview.
+            // Not in published mode, where the block above already says it.
             description={
               mode === "published"
                 ? undefined
@@ -649,36 +511,13 @@ export async function ScheduleBuilderPanel({
           <div className="flex flex-wrap items-center gap-3">
             {mode === "locked" ? null : (
               <PublishControls
-                // A successful publish/replace flips every draft to live, so
-                // draftCount drops to 0 and this remounts under a fresh key —
-                // that's what lets `dialogOpen` below be derived from `state`
-                // instead of reset by hand. Without the key, a future caller
-                // that keeps this component mounted across a success (e.g. by
-                // rendering it in "published" mode too) would find the trigger
-                // permanently inert: see the comment on `dialogOpen` in
-                // publish-controls.tsx.
-                //
-                // ⛔ THE STALE NIGHT IS NOT IN THIS KEY, AND MUST NOT BE. It was
-                // for one revision, to close a dialog left open over a warning
-                // that had stopped being true — and it silently broke the
-                // refusal message: `publishSchedule` refusing an unacknowledged
-                // stale publish revalidates, `stale` goes from null to a night,
-                // the key changes, and the component remounts before the
-                // `useEffect` that toasts the refusal ever runs. The manager
-                // saw the page change and no sentence saying why. The
-                // non-destructive dialog closes anyway (the render forks back
-                // to a plain button once `stale` is null); a replace dialog
-                // stays open showing its ordinary replace copy, which is
-                // correct, just not closed.
+                // Keyed on draftCount: a success remounts this, which its derived `dialogOpen` relies on.
+                // ⛔ Never add the stale night to the key: the remount swallows the refusal toast.
                 key={publish.draftCount}
                 seasonId={seasonId}
                 draftCount={publish.draftCount}
                 liveCount={publish.liveCount}
-                // Formatted here rather than in the dialog. The confirm dialog
-                // is how a manager checks *which* schedule is about to be
-                // deleted, and it was the only place in this panel still
-                // showing a raw ISO date — the format nothing else in the app
-                // uses, on the one screen that destroys data.
+                // Formatted here: the dialog is where a manager checks which schedule is about to be deleted.
                 liveRange={
                   publish.firstLiveDate && publish.lastLiveDate
                     ? `${formatLongDate(publish.firstLiveDate)} – ${formatLongDate(publish.lastLiveDate)}`
@@ -707,23 +546,11 @@ export async function ScheduleBuilderPanel({
           </p>
 
           {/*
-            ⚠️ RENDERED WHETHER OR NOT THE DRAFT IS STALE, and gated only on the
-            mode. `StaleDraftNotice` returns null when there is nothing to warn
-            about, and it has to be the one deciding that: a component mounted
-            only while stale unmounts in the same commit its own success lands
-            in, and the toast confirming the move is lost with it — the race
-            `11-schedule-build.spec.ts` records for the publish toast.
-
-            The mode gate is safe to leave here because moving a draft cannot
-            change the mode. Not on a locked season, for the reason the publish
-            controls are not: a started season can neither publish this draft
-            nor move it, so the warning would be about a decision nobody can
-            take and the button under it would refuse every click.
+            ⚠️ Rendered whether or not stale: it decides itself, or it unmounts before its success toast. Not on
+            a locked season, where nobody can publish or move the draft.
           */}
           {mode === "locked" ? null : (
-            // Formatted by the panel for the same reason `liveRange` is: the
-            // dates a manager checks a decision against are the panel's to
-            // render, and neither component does date work of its own.
+            // Formatted by the panel, like `liveRange`.
             <StaleDraftNotice seasonId={seasonId} stale={staleView} />
           )}
 
@@ -903,10 +730,7 @@ export async function ScheduleBuilderPanel({
                         "Same opponents in consecutive weeks",
                         spacing.rematchConsecWeek,
                       ],
-                      // The count, not `pairingWeekdayExcess` — that one is a
-                      // squared-deviation score for the search to rank on, reads
-                      // 8 where 2 matchups are off, and is not always a whole
-                      // number. Every other row here is a count of things.
+                      // The count, not `pairingWeekdayExcess`, a squared-deviation score: every row here is a count.
                       [
                         "Matchups off an even weekday split",
                         spacing.pairingsOffWeekdaySplit,
@@ -1043,9 +867,7 @@ export async function ScheduleBuilderPanel({
           </div>
 
           {/*
-            Adjust the draft before it goes live. Same component, same rules as
-            the Games page — a draft that drifts unbalanced would just carry the
-            problem across the publish.
+            Adjust the draft before it goes live, with the same component and rules as the Games page.
           */}
           <ScheduleEditPanel
             games={editableDrafts}

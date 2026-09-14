@@ -22,13 +22,7 @@ export type Appearance = {
   leftOn: string | null;
 };
 
-/**
- * One `players` record inside a cluster.
- *
- * De-duplicated on the record id by the page, because `findDuplicateClusters`
- * returns one entry per matching ROW — a record on two teams comes back twice,
- * and the merge form has to offer it once.
- */
+/** One record, de-duplicated by the page: `findDuplicateClusters` returns one entry per matching row. */
 export type ClusterPlayer = {
   id: string;
   name: string;
@@ -64,13 +58,8 @@ function AppearanceLine({ a }: { a: Appearance }) {
   );
 }
 
-/**
- * One cluster of same-name records: which to keep, which to fold in, and the
- * per-pair escape hatch for the case where they are simply two people.
- *
- * Its own component so each cluster carries its own action state. A single hook
- * over the whole page would put one cluster's refusal under every other one.
- */
+// Its own component so each cluster carries its own action state: one hook for the page would show a
+// cluster's refusal under every other one.
 function ClusterCard({
   leagueId,
   cluster,
@@ -89,10 +78,7 @@ function ClusterCard({
     FormData
   >(dismissDuplicatePair, null);
 
-  // Default to folding in everything that is not the keeper: the common case is
-  // one person imported twice, and asking the operator to tick the box they
-  // just implied by picking a keeper is noise. `absorb` only records the
-  // exceptions.
+  // Default to folding in everything but the keeper (one person imported twice); `absorb` records exceptions.
   const willAbsorb = (id: string) => id !== keepId && absorb[id] !== false;
   const absorbIds = cluster.players.map((p) => p.id).filter(willAbsorb);
 
@@ -207,18 +193,8 @@ function ClusterCard({
   );
 }
 
-/**
- * One row's Undo, pending on ITS OWN form.
- *
- * ⚠️ `useActionState`'s `pending` is per HOOK, and one hook serves every row
- * here — so clicking one Undo greyed out the entire list. `useFormStatus` reads
- * the enclosing form instead, which is what makes this per-row without tracking
- * an id by hand. It must be a child of the form to see it, which is the whole
- * reason this is a separate component (`season-select.tsx` splits for the same
- * reason). Third place this shape has appeared — `ConstraintsCard` and
- * `PersonPicker` were the others, and both had to track an id because their
- * controls are click handlers rather than forms.
- */
+// ⚠️ `useActionState`'s `pending` is per hook, shared by every row; `useFormStatus` reads the enclosing form,
+// so this must stay a separate child of each form.
 function UndoButton() {
   const { pending } = useFormStatus();
   return (

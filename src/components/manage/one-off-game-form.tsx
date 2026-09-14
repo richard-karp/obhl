@@ -7,8 +7,7 @@ import {
   type OneOffPreview,
 } from "@/lib/actions/schedule";
 import { type OneOffRound } from "@/lib/schedule/oneOff";
-// The plan card is shared with the schedule repair — same engine, same plans.
-// See its header for why there is only one of it.
+// Shared with the schedule repair: one engine, one plan card.
 import { PlanCard } from "@/components/manage/repair-plan-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,12 +59,7 @@ export function OneOffGameForm({
   const complete = picked.length === slotKeys.length;
   const distinct = new Set(picked).size === picked.length;
 
-  /**
-   * Only nights where *every* chosen team is already scheduled. Forcing the
-   * matchup onto any other night would take a game off whoever it displaced,
-   * so an ineligible night is never offered rather than validated after the
-   * fact.
-   */
+  /** Only nights where every chosen team already plays: any other night takes a game off someone. */
   const eligible =
     complete && distinct
       ? nights.filter(
@@ -120,15 +114,11 @@ export function OneOffGameForm({
         matchups: matchups(),
         label,
         date,
-        // Send dates, not the planner's night indices: apply re-reads the
-        // schedule, and an index would silently point at a different night if
-        // anything shifted in between.
+        // Dates, not night indices: apply re-reads the schedule, and an index could point at another night.
         changes: plan.changes.map((c) => ({
           date: preview.nights[c.night].date,
           to: c.to,
-          // ⛔ The ids this plan was computed against, in slot order. Apply
-          // re-reads the schedule and refuses if they have moved — see
-          // `PlannedNight.gameIds`.
+          // ⛔ The ids this plan was computed against, in slot order: apply refuses if they have moved.
           gameIds: preview.nights[c.night].gameIds,
         })),
       });
