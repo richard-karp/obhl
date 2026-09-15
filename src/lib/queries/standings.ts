@@ -1,5 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { rankStandings } from "@/lib/standings/tiebreakers";
+import { readWithOneRetry } from "@/lib/queries/schedule";
 import type { DbClient, Views } from "@/lib/db/helpers";
 
 export type StandingRow = Views<"v_standings_raw">;
@@ -15,25 +16,37 @@ export type RankedStanding = StandingRow & {
   team_logo_path: string | null;
 };
 
+/** ⛔ Empty `rows` means "nobody has played yet" only when `readFailed` is false. */
+export type StandingsRead = { rows: RankedStanding[]; readFailed: boolean };
+
 export async function getStandings(
   seasonId: string,
   opts: { client?: DbClient } = {},
-): Promise<RankedStanding[]> {
+): Promise<StandingsRead> {
   const supabase = opts.client ?? (await createClient());
   const [
     { data: raw, error: rawErr },
     { data: finals, error: finErr },
     { data: branding },
   ] = await Promise.all([
-    supabase.from("v_standings_raw").select("*").eq("season_id", seasonId),
-    supabase
-      .from("games")
-      .select("home_team_id, away_team_id, home_goals, away_goals")
-      // Explicit rather than relying on `public read games` to exclude drafts:
-      // an admin client bypasses that policy.
-      .eq("is_draft", false)
-      .eq("season_id", seasonId)
-      .eq("status", "final"),
+    // ⚠️ Only the reads the failure check needs are retried: a failed branding read degrades to a plain chip.
+    readWithOneRetry(
+      () =>
+        supabase.from("v_standings_raw").select("*").eq("season_id", seasonId),
+      "standings read",
+    ),
+    readWithOneRetry(
+      () =>
+        supabase
+          .from("games")
+          .select("home_team_id, away_team_id, home_goals, away_goals")
+          // Explicit rather than relying on `public read games` to exclude drafts:
+          // an admin client bypasses that policy.
+          .eq("is_draft", false)
+          .eq("season_id", seasonId)
+          .eq("status", "final"),
+      "standings finals read",
+    ),
     // Through `season_teams`, so it runs in parallel rather than waiting on `raw` for team ids.
     supabase
       .from("season_teams")
@@ -43,7 +56,8 @@ export async function getStandings(
       .eq("season_id", seasonId),
   ]);
   if (rawErr || finErr) {
-    console.error("getStandings failed:", (rawErr ?? finErr)?.message);
+    console.error("standings read failed:", (rawErr ?? finErr)?.message);
+    return { rows: [], readFailed: true };
   }
 
   // Missing, not defaulted: `TeamLogo` treats anything but "dark" as white letters, so a failed
@@ -79,5 +93,5 @@ export async function getStandings(
     awayGoals: g.away_goals,
   }));
 
-  return rankStandings(enriched, games);
+  return { rows: rankStandings(enriched, games), readFailed: false };
 }

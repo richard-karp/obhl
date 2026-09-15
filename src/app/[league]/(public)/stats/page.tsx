@@ -17,7 +17,7 @@ export default async function StatsPage({
 }) {
   const { league: leagueParam } = await params;
   const ctx = await getActiveContext(leagueParam);
-  if (!ctx.season) return <NoSeason />;
+  if (!ctx.season) return <NoSeason readFailed={ctx.seasonReadFailed} />;
   const slug = ctx.league.slug;
 
   const [skaters, goalies] = await Promise.all([
@@ -34,17 +34,21 @@ export default async function StatsPage({
           <TabsTrigger value="goalies">Goalies</TabsTrigger>
         </TabsList>
         <TabsContent value="skaters">
-          {skaters.length === 0 ? (
+          {skaters.readFailed ? (
+            <EmptyState title="Couldn't load skater stats" />
+          ) : skaters.rows.length === 0 ? (
             <EmptyState title="No skater stats yet" />
           ) : (
-            <SkaterStatsTable rows={skaters} league={slug} />
+            <SkaterStatsTable rows={skaters.rows} league={slug} />
           )}
         </TabsContent>
         <TabsContent value="goalies">
-          {goalies.length === 0 ? (
+          {goalies.readFailed ? (
+            <EmptyState title="Couldn't load goalie stats" />
+          ) : goalies.rows.length === 0 ? (
             <EmptyState title="No goalie stats yet" />
           ) : (
-            <GoalieStatsTable rows={goalies} league={slug} />
+            <GoalieStatsTable rows={goalies.rows} league={slug} />
           )}
         </TabsContent>
       </Tabs>

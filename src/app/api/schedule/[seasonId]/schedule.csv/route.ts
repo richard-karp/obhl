@@ -24,15 +24,22 @@ export async function GET(
   if (teamSlug !== null && !team)
     return new Response("Not found", { status: 404 });
 
-  const [games, league] = await Promise.all([
+  const [schedule, league] = await Promise.all([
     getSchedule(seasonId, { teamId: team?.id }),
     publicLeagueOfSeason(seasonId),
   ]);
+  // ⛔ BEFORE the `!league` check, and `no-store` on the failure: see the sibling `.ics` route.
+  if (schedule.readFailed) {
+    return new Response("Schedule temporarily unavailable", {
+      status: 503,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
   // ⚠️ A well-formed unknown id is a 404 too. A null league covers both "no such season" and "not
   // yours to read"; see the sibling `.ics` route.
   if (!league) return new Response("Not found", { status: 404 });
   const csv = buildScheduleCsv(
-    games
+    schedule.games
       .filter((g) => isExportableFixture(g.status))
       .map((g): CsvGame => ({
         scheduled_at: g.scheduled_at,

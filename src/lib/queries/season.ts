@@ -4,34 +4,50 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { resolveLeagueBySlug } from "@/lib/league/current";
+import { readWithOneRetry } from "@/lib/queries/schedule";
 import type { Tables } from "@/lib/db/helpers";
 import { resolveSeasonNights } from "@/lib/season/nights";
 import { leagueWeekday } from "@/lib/format";
 
 export type League = Tables<"leagues">;
 export type Season = Tables<"seasons">;
-export type ActiveContext = { league: League; season: Season | null };
+export type ActiveContext = {
+  league: League;
+  season: Season | null;
+  /** ⛔ `season` is null for no active season and for a failed read; this tells `NoSeason` which. */
+  seasonReadFailed: boolean;
+};
 
 /** The league's active season. Memoized: several segments ask per render. */
 const getActiveSeason = cache(async function getActiveSeason(
   leagueId: string,
-): Promise<Season | null> {
+): Promise<{ season: Season | null; readFailed: boolean }> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("seasons")
-    .select("*")
-    .eq("league_id", leagueId)
-    .eq("is_active", true)
-    .maybeSingle();
-  if (error) console.error("getActiveContext (season) failed:", error.message);
-  return data ?? null;
+  const { data, error } = await readWithOneRetry(
+    () =>
+      supabase
+        .from("seasons")
+        .select("*")
+        .eq("league_id", leagueId)
+        .eq("is_active", true)
+        .maybeSingle(),
+    "active season read",
+  );
+  if (error) {
+    console.error("active season read failed:", error.message);
+    return { season: null, readFailed: true };
+  }
+  // ⚠️ `maybeSingle()` reports no rows as `data: null` with no error, so this arm really is
+  // "the league has no active season".
+  return { season: data ?? null, readFailed: false };
 });
 
 /** `notFound()` here lets callers use `ctx.league` without a null check. Both lookups are memoized. */
 export async function getActiveContext(slug: string): Promise<ActiveContext> {
   const league = await resolveLeagueBySlug(slug);
   if (!league) notFound();
-  return { league, season: await getActiveSeason(league.id) };
+  const { season, readFailed } = await getActiveSeason(league.id);
+  return { league, season, seasonReadFailed: readFailed };
 }
 
 /**
@@ -58,15 +74,24 @@ export function seasonCookieName(leagueId: string): string {
 const getLeagueSeasons = cache(async function getLeagueSeasons(
   leagueId: string,
 ): Promise<Season[]> {
-  const { data, error } = await createAdminClient()
-    .from("seasons")
-    .select("*")
-    .eq("league_id", leagueId)
-    // A season with no start date sorts last rather than becoming the default; `created_at`
-    // breaks a tie so the fallback is deterministic.
-    .order("starts_on", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
-  if (error) console.error("getManageContext (seasons) failed:", error.message);
+  // ⚠️ Hoisted out of the factory: only the QUERY has to be rebuilt on a retry, and constructing
+  // a second service-role client per attempt is pure waste.
+  const admin = createAdminClient();
+  const { data, error } = await readWithOneRetry(
+    () =>
+      admin
+        .from("seasons")
+        .select("*")
+        .eq("league_id", leagueId)
+        // A season with no start date sorts last rather than becoming the default; `created_at`
+        // breaks a tie so the fallback is deterministic.
+        .order("starts_on", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false }),
+    "league seasons read",
+  );
+  // ⚠️ Still flattens a failed read to "no seasons": `ManageContext.season` has 23 call sites that read
+  // null that way. Staff-only, and the season switcher is the way back out.
+  if (error) console.error("league seasons read failed:", error.message);
   return data ?? [];
 });
 
@@ -123,7 +148,7 @@ export const seasonNightsFor = cache(async function seasonNightsFor(
   if (error) {
     // Empty hides every night control, the safe way to be wrong: no picker, rather than one
     // offering nights the season does not play.
-    console.error("season nights query failed:", error.message);
+    console.error("season weekdays read failed:", error.message);
     return [];
   }
   return resolveSeasonNights(

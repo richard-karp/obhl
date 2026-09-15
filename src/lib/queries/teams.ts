@@ -1,5 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { getSchedule, readWithOneRetry } from "./schedule";
+import type { GameWithTeams } from "./schedule";
 import type { DbClient, Tables, Views } from "@/lib/db/helpers";
 
 export type TeamRow = Tables<"teams">;
@@ -25,14 +26,16 @@ export type RosterEntry = {
   night_of_week: number | null;
 };
 
+export type EnrolledTeamsRead = { teams: TeamSummary[]; readFailed: boolean };
+
 /**
- * ⚠️ A failed read looks like no teams enrolled, and the exports answer it with a 404 for a
- * team that exists: hence the retry (a GET) and the log.
+ * ⚠️ A failed read looks like no teams enrolled, and the exports 404 a team that exists: hence the retry
+ * and the log. The pair is for the public schedule's `?team=` filter, which must not silently show all.
  */
-export async function getEnrolledTeams(
+export async function getEnrolledTeamsRead(
   seasonId: string,
   opts: { client?: DbClient } = {},
-): Promise<TeamSummary[]> {
+): Promise<EnrolledTeamsRead> {
   const supabase = opts.client ?? (await createClient());
   // ⛔ A factory, not a builder: an awaited PostgREST builder is spent, so the retry builds anew.
   const { data, error } = await readWithOneRetry(
@@ -45,11 +48,25 @@ export async function getEnrolledTeams(
         .eq("season_id", seasonId),
     "enrolled teams read",
   );
-  if (error) console.error("enrolled teams query failed:", error.message);
+  if (error) {
+    console.error("enrolled teams read failed:", error.message);
+    return { teams: [], readFailed: true };
+  }
   const teams = (data ?? [])
     .map((r) => r.team)
     .filter(Boolean) as unknown as TeamSummary[];
-  return teams.sort((a, b) => a.name.localeCompare(b.name));
+  return {
+    teams: teams.sort((a, b) => a.name.localeCompare(b.name)),
+    readFailed: false,
+  };
+}
+
+/** The list alone, for callers an empty one already serves correctly. */
+export async function getEnrolledTeams(
+  seasonId: string,
+  opts: { client?: DbClient } = {},
+): Promise<TeamSummary[]> {
+  return (await getEnrolledTeamsRead(seasonId, opts)).teams;
 }
 
 /**
@@ -74,7 +91,10 @@ export type TeamDetail = {
   roster: RosterEntry[];
   skaters: Views<"v_skater_stats">[];
   goalies: Views<"v_goalie_stats">[];
-  games: Awaited<ReturnType<typeof getSchedule>>;
+  /** ⛔ Named, not derived from `getSchedule`: a helper's change must not silently reshape this public type. */
+  games: GameWithTeams[];
+  /** ⚠️ Scopes the schedule tab and the W-L-T record only: the roster and stats are separate reads. */
+  gamesReadFailed: boolean;
 };
 
 /**
@@ -140,6 +160,7 @@ export async function getTeamBySlug(
     roster: rosterEntries,
     skaters: skaters ?? [],
     goalies: goalies ?? [],
-    games,
+    games: games.games,
+    gamesReadFailed: games.readFailed,
   };
 }

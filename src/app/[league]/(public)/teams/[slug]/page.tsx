@@ -38,7 +38,13 @@ export default async function TeamPage({
     ? await getManageContext(leagueParam, seasonParam)
     : null;
   const ctx = manageCtx ?? (await getActiveContext(leagueParam));
-  if (!ctx.season) return <NoSeason />;
+  // ⚠️ Only the public context reports a failed read; `getManageContext` gets the plain message.
+  if (!ctx.season)
+    return (
+      <NoSeason
+        readFailed={"seasonReadFailed" in ctx && ctx.seasonReadFailed}
+      />
+    );
   const league = ctx.league.slug;
 
   const detail = await getTeamBySlug(ctx.league.id, ctx.season.id, slug);
@@ -160,7 +166,9 @@ export default async function TeamPage({
             {detail.team.name}
           </h1>
           <p className="text-muted-foreground text-sm">
-            {w}-{l}-{t} · {ctx.season.name}
+            {/* ⚠️ Derived from the games read: a failed read would show 0-0-0, a real record. */}
+            {detail.gamesReadFailed ? "Record unavailable" : `${w}-${l}-${t}`} ·{" "}
+            {ctx.season.name}
           </p>
         </div>
       </div>
@@ -230,7 +238,9 @@ export default async function TeamPage({
           >
             Add to calendar (.ics) →
           </a>
-          {detail.games.length === 0 ? (
+          {detail.gamesReadFailed ? (
+            <EmptyState title="Couldn't load this team's schedule" />
+          ) : detail.games.length === 0 ? (
             <EmptyState title="No games scheduled" />
           ) : (
             detail.games.map((g) => (

@@ -55,7 +55,7 @@ export default async function OneOffGamePage({
     getSeasonNights(ctx.season.id, { client: admin }),
   ]);
 
-  const openNights = nights.filter((n) => !n.locked);
+  const openNights = nights.nights.filter((n) => !n.locked);
 
   return (
     <div className="space-y-6">
@@ -69,7 +69,13 @@ export default async function OneOffGamePage({
         </Button>
       </PageHeader>
 
-      {nights.length === 0 ? (
+      {/* ⛔ Before the "No published schedule" arm, which a failed read would otherwise render. */}
+      {nights.readFailed ? (
+        <EmptyState
+          title="Couldn't load this season's schedule"
+          description="Something went wrong reading its game nights — this is not the same as there being none. Reload, and try again."
+        />
+      ) : nights.nights.length === 0 ? (
         <EmptyState
           title="No published schedule"
           description="Generate and publish a schedule first — a one-off game takes over a game on a night that's already scheduled."

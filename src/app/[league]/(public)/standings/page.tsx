@@ -15,20 +15,25 @@ export default async function StandingsPage({
 }) {
   const { league: leagueParam } = await params;
   const ctx = await getActiveContext(leagueParam);
-  if (!ctx.season) return <NoSeason />;
+  if (!ctx.season) return <NoSeason readFailed={ctx.seasonReadFailed} />;
   const slug = ctx.league.slug;
-  const rows = await getStandings(ctx.season.id);
+  const standings = await getStandings(ctx.season.id);
 
   return (
     <div className="space-y-6">
       <PageHeader title="Standings" description={ctx.season.name} />
-      {rows.length === 0 ? (
+      {standings.readFailed ? (
+        <EmptyState
+          title="Couldn't load the standings"
+          description="Something went wrong reading them — this is not the same as no teams being enrolled. Reload, and tell a manager if it keeps happening."
+        />
+      ) : standings.rows.length === 0 ? (
         <EmptyState
           title="No teams enrolled yet"
           description="Teams will appear here once they're enrolled in the season."
         />
       ) : (
-        <StandingsTable rows={rows} league={slug} />
+        <StandingsTable rows={standings.rows} league={slug} />
       )}
     </div>
   );

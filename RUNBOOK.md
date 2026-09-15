@@ -36,6 +36,8 @@ schedule building and rules. One instance serves several leagues. Production is
   exactly one list in `.github/workflows/ci.yml`,** or it silently stops running.
 - `14-schedule-changes` stays off `05-scoring-night`'s machine. CI tests the merge
   with `main`, so a green run on a stale base proves nothing.
+- ⛔ **A code comment is at most 2 lines:** the rule and its reason, or a pointer to
+  the RUNBOOK section that holds the reasoning. History and narrative go in the commit.
 
 ## Access control
 
@@ -215,6 +217,13 @@ changes aren't audited, and restore needs it.
 and `.../schedule.csv`, take `?team=<slug>`, resolved by `getEnrolledTeamBySlug`.
 - ⛔ **An unresolved slug is a 404, never "no filter"**, or a caller who asked for
   one team silently gets all. Test `=== null` (a bare `?team=` is `""`).
+
+**404 or 503.** The export routes answer 404 when the league or team lookup is
+null (that null already covers "not yours": 0042/0043), and 503 with
+`Cache-Control: no-store` when the games read failed: an empty file looks like a
+season with no games, and `feed.ics` caches success for an hour.
+- ⛔ **Check `readFailed` before `!league`:** when both reads fail, league-first
+  reports a 404. A team with no games is still a 200.
 
 **The one-off planner and repair** (`planOneOff`, `planRepair`,
 `checkOneOffWrite` in `src/lib/schedule/oneOff.ts`; `/<league>/schedule/one-off`

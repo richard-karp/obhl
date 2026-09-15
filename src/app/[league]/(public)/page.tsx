@@ -36,7 +36,7 @@ export default async function HomePage({
 }) {
   const { league: leagueParam } = await params;
   const ctx = await getActiveContext(leagueParam);
-  if (!ctx.season) return <NoSeason />;
+  if (!ctx.season) return <NoSeason readFailed={ctx.seasonReadFailed} />;
   const { league, season } = ctx;
   // The resolved slug, not the URL's — `/OBHL` resolves, and links built from
   // it should still be the canonical `/obhl`.
@@ -65,13 +65,26 @@ export default async function HomePage({
         </p>
       </section>
 
-      {announcements.length > 0 ? (
+      {announcements.readFailed ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>League Announcements</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground text-sm">
+              Couldn&apos;t load announcements — this isn&apos;t the same as
+              there being none. Reload, and tell a manager if it keeps
+              happening.
+            </p>
+          </CardContent>
+        </Card>
+      ) : announcements.rows.length > 0 ? (
         <Card>
           <CardHeader>
             <CardTitle>League Announcements</CardTitle>
           </CardHeader>
           <CardContent className="divide-y">
-            {announcements.map((a) => (
+            {announcements.rows.map((a) => (
               <div key={a.id} className="py-3 first:pt-0 last:pb-0">
                 <div className="flex items-baseline justify-between gap-3">
                   <h3 className="font-semibold">{a.title}</h3>
@@ -97,7 +110,11 @@ export default async function HomePage({
             </div>
           </CardHeader>
           <CardContent>
-            <StandingsTable rows={standings} league={slug} />
+            {standings.readFailed ? (
+              <EmptyState title="Couldn't load the standings" />
+            ) : (
+              <StandingsTable rows={standings.rows} league={slug} />
+            )}
           </CardContent>
         </Card>
 
@@ -109,10 +126,12 @@ export default async function HomePage({
             </div>
           </CardHeader>
           <CardContent className="space-y-0.5">
-            {leaders.length === 0 ? (
+            {leaders.readFailed ? (
+              <EmptyState title="Couldn't load stats" />
+            ) : leaders.rows.length === 0 ? (
               <EmptyState title="No stats yet" />
             ) : (
-              leaders.map((p, i) => (
+              leaders.rows.map((p, i) => (
                 <div
                   key={`${p.player_id}-${p.team_id}`}
                   className="hover:bg-muted/40 flex items-center gap-3 rounded-md px-2 py-1.5 text-sm"
@@ -147,10 +166,16 @@ export default async function HomePage({
             </div>
           </CardHeader>
           <CardContent className="space-y-2">
-            {recent.length === 0 ? (
+            {/* ⚠️ Title-only, matching the empty state beside it: a failed read must not suddenly
+                render a paragraph where a two-word card used to be. */}
+            {recent.readFailed ? (
+              <EmptyState title="Couldn't load results" />
+            ) : recent.games.length === 0 ? (
               <EmptyState title="No games played yet" />
             ) : (
-              recent.map((g) => <GameRow key={g.id} game={g} league={slug} />)
+              recent.games.map((g) => (
+                <GameRow key={g.id} game={g} league={slug} />
+              ))
             )}
           </CardContent>
         </Card>
@@ -159,10 +184,14 @@ export default async function HomePage({
             <CardTitle>Upcoming</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {upcoming.length === 0 ? (
+            {upcoming.readFailed ? (
+              <EmptyState title="Couldn't load upcoming games" />
+            ) : upcoming.games.length === 0 ? (
               <EmptyState title="No upcoming games" />
             ) : (
-              upcoming.map((g) => <GameRow key={g.id} game={g} league={slug} />)
+              upcoming.games.map((g) => (
+                <GameRow key={g.id} game={g} league={slug} />
+              ))
             )}
           </CardContent>
         </Card>
