@@ -48,8 +48,8 @@ export async function GET(request: NextRequest) {
   // Serial, not `Promise.all`: each finalize writes an audit row and could contend on the same rows.
   for (const id of ids) {
     try {
-      // ⛔ The admin client: as `anon` the UPDATE silently matches nothing and a false audit entry
-      // lands (`RUNBOOK.md` → Closing the night). The actor is null: a sweep is not a person.
+      // ⛔ The admin client: as `anon` the UPDATE matches nothing and the finalize throws, so no game
+      // closes (`RUNBOOK.md` → Closing the night). The actor is null: a sweep is not a person.
       await finalizeGameById(id, null, admin);
       closed.push(id);
     } catch (e) {

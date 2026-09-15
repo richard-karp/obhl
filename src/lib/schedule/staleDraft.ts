@@ -2,7 +2,7 @@ import { leagueDateKey, leagueOffset, leagueTimeKey } from "@/lib/format";
 
 // ⛔ A draft whose first game passed between generate and publish locks the season for good
 // once published. Face-off instants, not days. RUNBOOK.md, _Schedule edits and exports_.
-// ⚠️ It warns, never refuses: publishing already-played games before scoring is legitimate.
+// ⚠️ It warns and publish needs `stale_ok`; never a flat refusal: publishing already-played games before scoring is legitimate.
 
 const DAY_MS = 86_400_000;
 

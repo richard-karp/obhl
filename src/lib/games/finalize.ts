@@ -13,8 +13,8 @@ export async function finalizeGameById(
   /** ⚠️ `null` for the nightly sweep: never attribute a system close to a scorekeeper. */
   actorId: string | null,
   /**
-   * ⛔ The nightly sweep must pass the admin client, for all four statements (`RUNBOOK.md` →
-   * Closing the night): as `anon` the UPDATE matches nothing and the empty roster read writes 0-0.
+   * ⛔ The nightly sweep must pass the admin client, for all three statements (`RUNBOOK.md` →
+   * Closing the night): as `anon` the UPDATE throws; privilege only it and the roster read writes 0-0.
    */
   client?: DbClient,
 ) {

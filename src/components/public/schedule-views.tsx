@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 export const SCHEDULE_VIEWS = ["pending", "upcoming", "results"] as const;
 export type ScheduleView = (typeof SCHEDULE_VIEWS)[number];
 
-/** An unknown or absent `?view=` reads as Upcoming rather than 404ing. */
+/** An unknown or absent `?view=` reads as Upcoming rather than 404ing. ⛔ Not Pending: a scorekeeper's
+ *  games are tonight's, and Pending would land them on older rows their day guard refuses. */
 export function resolveScheduleView(raw: string | string[] | undefined) {
   const v = Array.isArray(raw) ? raw[0] : raw;
   return (SCHEDULE_VIEWS as readonly string[]).includes(v ?? "")
@@ -23,8 +24,8 @@ export function ScheduleViews({
 }: {
   league: string;
   current: ScheduleView;
-  // Played and unscored; Pending is offered only when there are some. ⚠️ The count on its label carries the
-  // urgency, since unscored games out of sight get forgotten: don't drop it as clutter.
+  // Played and unscored; Pending is offered only when there are some. ⚠️ Pending is not the default, so the
+  // count on its label carries the urgency: unscored games out of sight get forgotten. Don't drop it as clutter.
   awaitingCount: number;
   /** The rest of the query string (`team`, `season`, …), already encoded. */
   query: string;

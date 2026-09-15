@@ -1457,8 +1457,8 @@ export function assignNights(
   if (n === 1) return assignNightsOnce(pairings, nights, teamIds, options);
 
   const meta = buildMeta(nights);
-  // ⛔ Don't "simplify" to plain `rankFromReport`: clustering must outrank `slotConsecutive`
-  // here, or best-of-4 can pick worse clustering than the single default draw.
+  // ⛔ Not plain `rankFromReport`: here clustering must outrank `slotConsecutive`, or best-of-4 can pick
+  // worse clustering. There it stays last, a tiebreak that never buys a back-to-back; night order needs that.
   const rankOf = (r: ReturnType<typeof assignNightsOnce>) => {
     const v = rankFromReport(
       { games: r.games, unscheduled: r.report.unscheduled },

@@ -22,7 +22,7 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       // `/rosters` is now `/teams`. Only the index is a path rewrite: `/rosters/<uuid>` names a team
-      // by id and needs a lookup, and this one-segment source cannot match it.
+      // by id and needs a lookup, and this two-segment source cannot match it.
       {
         source: "/:league/rosters",
         destination: "/:league/teams",

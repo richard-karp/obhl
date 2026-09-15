@@ -651,8 +651,8 @@ function revalidateAfterPublish() {
   revalidatePath("/[league]", "page");
 }
 
-// Warns, never refuses: a draft made with a good date can age past it before publish. ⛔ `"unreadable"`
-// is its own answer: publishing is a one-way door, and a failed read is not "not stale".
+// A draft made with a good date can age past it; publish refuses it until `stale_ok` confirms. ⛔
+// `"unreadable"` is its own answer: publishing is a one-way door, and a failed read is not "not stale".
 async function staleDraftFor(
   admin: Admin,
   seasonId: string,

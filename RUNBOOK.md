@@ -87,7 +87,7 @@ in `src/app/[league]/(manage)/games/[gameId]/score/page.tsx` and listed at
 must stay in the league zone: the 9:40pm Eastern slot is tomorrow in UTC.
 
 ⛔ **It has no RLS half, on purpose:** `0032` is date-blind and `0046` limits
-columns, not games. Accepted; closing it takes a policy on `games`, not a guard.
+columns, not games. Accepted; closing it takes policies on `games` and `game_rosters`, not a guard.
 
 ⛔ **Only the page checks the date;** `finalizeGame`, `bumpStat` and `setLineup`
 don't. Day-rollover sign-out and _Closing the night_ cover it; add no grace period.
@@ -99,8 +99,8 @@ midnight in both DST states. It finalizes games still `in_progress` after their
 day through `finalizeGameById`, with a `null` audit actor. ⛔ Never `scheduled`
 games: finalizing one nobody scored invents a 0-0 result.
 
-⛔ **Pass the admin client to `finalizeGameById`:** as `anon`, the UPDATE silently
-matches nothing, a false audit entry lands, and the empty roster read writes 0-0.
+⛔ **Pass the admin client to `finalizeGameById`, for every statement:** as `anon` the UPDATE
+matches nothing and it throws; privilege only the UPDATE and the empty roster read writes 0-0.
 
 ⚠️ **`CRON_SECRET` gates the route and fails closed:** unset, games never close.
 Locally `playwright.config.ts` sets it for the dev server. Test:
@@ -113,7 +113,7 @@ A night that failed to close appears in one place: the manager dashboard's
 ### Legacy redirects
 
 ⛔ **Check a new `/manage/<x>` page against `next.config.ts`:** redirects run first
-and `:league` matches `manage`: `score`, `rosters`, `import` (the last would loop).
+and `:league` matches `manage`: `score`, `rosters`, `import` (a new page there is silently redirected away).
 
 ## Schedule generator
 
@@ -138,7 +138,7 @@ clustering (a constrained season swaps only nights sharing a `nightClass`).
 night: keep it. `compareIceOutcome` ranks season share ▸ `slotStreak3` ▸
 `slotWeekdaySpread` ▸ `slotConsecutive`; don't swap the middle two.
 
-**Restarts and budget.** Phase S runs `SLOT_CANDIDATES` (five weights; 160 must
+**Restarts and budget.** Phase S runs `SLOT_CANDIDATES` (five candidates; 160 must
 stay), each until `OBHL_SLOT_RESTARTS` restarts (default 1,000) or
 `OBHL_SLOT_BUDGET_MS` (default 5,000) is spent, whichever comes first.
 - ⛔ **More restarts can return a worse schedule.** On the 6-team reference,
