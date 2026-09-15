@@ -1,10 +1,5 @@
-/**
- * Which of the builder's five states a season is in.
- *
- * `started` outranks everything: a season under way offers no publish path at
- * all, which is what keeps the delete in `replace_published_schedule` from ever
- * reaching a played game.
- */
+/** ⚠️ `started` outranks everything: a season under way offers no publish path, which keeps
+ *  `replace_published_schedule`'s delete away from played games. */
 export type PublishMode =
   | "empty" // nothing live, nothing drafted
   | "draft-only" // first publish — one click, not destructive

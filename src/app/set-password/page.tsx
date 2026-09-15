@@ -5,25 +5,8 @@ import { RequestResetForm, SetPasswordForm } from "./set-password-form";
 
 export const metadata: Metadata = { title: "Set your password" };
 
-/**
- * Where a recovery link lands.
- *
- * `sendPasswordReset` asks for `?next=/set-password`, and `/auth/confirm`
- * verifies the `token_hash` and establishes the session before redirecting here
- * — so by the time this renders, the session IS the proof the email was
- * received. There is nothing else to check and no role to require: any staff
- * account may set its own password.
- *
- * ⚠️ Claims are read directly rather than through `getSessionUser`, which also
- * resolves a role from `profiles`. A session with no `profiles` row is exactly
- * the state that needs to be able to set a password, so a null role must not
- * read as "not signed in" here.
- *
- * Arriving with no session is the ordinary case — a bookmark, a link used
- * twice, an expired one — so it answers with the form that sends a fresh link
- * rather than a redirect or a dead end. One URL covers both halves of the flow:
- * ask for the link, and finish with it.
- */
+// ⚠️ Claims, not `getSessionUser`: a session with no `profiles` row must still set a password, so a
+// null role must not read as signed out. The session from `/auth/confirm` is the proof; no role needed.
 export default async function SetPasswordPage() {
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getClaims();

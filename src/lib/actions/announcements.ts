@@ -8,17 +8,14 @@ import { leagueOfAnnouncement } from "@/lib/league/of-entity";
 
 export type AnnouncementActionState = { ok: boolean; message: string } | null;
 
-/** Post an announcement to the current league. */
 export async function createAnnouncement(
   _prev: AnnouncementActionState,
   formData: FormData,
 ): Promise<AnnouncementActionState> {
-  // From the form, not a cookie: this posts to the league whose page it was
-  // submitted from. Resolved from the cookie it always picked the oldest
-  // league, so an announcement written in one league appeared in another.
+  // The posting page's league, from the form rather than a cookie, and guarded
+  // rather than trusted: it is a hidden field.
   const league_id = String(formData.get("league_id") ?? "");
   if (!league_id) return { ok: false, message: "No league selected." };
-  // …and the form's league is checked, not trusted: it is a hidden field.
   const user = await requireLeagueManager(league_id);
   const admin = createAdminClient();
 
@@ -40,19 +37,14 @@ export async function createAnnouncement(
     .single();
   if (error) return { ok: false, message: error.message };
 
-  // Awaited, not voided, like `people.ts`: a void promise can be left unfinished
-  // when the runtime freezes the function after the response. `logAudit`
-  // swallows its own errors, so awaiting cannot turn a successful post into a
-  // reported failure.
+  // Awaited, not voided: a voided write can be dropped when the runtime freezes
+  // after the response, and `logAudit` swallows its own errors.
   await logAudit({
     user_id: user.id,
     action: "create_announcement",
     entity_type: "announcement",
     entity_id: posted.id,
-    // No explicit `league_id`: the row exists, so `leagueOfEntity` resolves it
-    // through `leagueOfAnnouncement`, which is the file's normal path and the
-    // only thing that keeps that switch case exercised. The delete below is the
-    // documented exception — its row is gone by then.
+    // No `league_id`: the row exists, so `leagueOfEntity` resolves it (the delete below cannot).
     new_data: { title },
   });
 
@@ -64,16 +56,8 @@ export async function createAnnouncement(
 export async function deleteAnnouncement(formData: FormData) {
   const admin = createAdminClient();
   const id = String(formData.get("id"));
-  // Resolved eagerly rather than through the lazy `() => …` guard form, because
-  // the audit entry below needs the same answer and the row is about to be gone.
-  //
-  // The cost, which `LeagueRef` in `guards.ts` exists to avoid: the lookup now
-  // runs before the role check, so an unauthenticated POST pays one admin query
-  // on its way to /login. `removeRosterPlayer` in `rosters.ts` trades the same
-  // way for the same reason. Both would stop paying it if `leagueOfAnnouncement`
-  // were memoized per request the way `memberLeagueIds` is — which needs it to
-  // build its own client rather than take one, since an argument that is an
-  // object makes every call a cache miss.
+  // Resolved eagerly, not through the lazy guard form: the audit entry below needs the
+  // league and the row is about to be gone. The cost is one admin query before the role check.
   const league_id = await leagueOfAnnouncement(id, admin);
   const manager = await requireLeagueManager(league_id);
 
@@ -86,10 +70,8 @@ export async function deleteAnnouncement(formData: FormData) {
     .maybeSingle();
 
   await admin.from("announcements").delete().eq("id", id);
-  // ⛔ `league_id` passed explicitly. `leagueOfEntity` would resolve it from the
-  // announcement row, which no longer exists — and an entry with a null league
-  // is hidden by RLS and filtered out of every league-scoped view, so it would
-  // be written correctly and never appear.
+  // ⛔ `league_id` passed explicitly: the row is gone, and a null-league entry is hidden
+  // from every view (`RUNBOOK.md` → Access control → Traps).
   await logAudit({
     user_id: manager.id,
     action: "delete_announcement",

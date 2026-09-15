@@ -1,8 +1,3 @@
-/** Building a season's schedule: generate, publish, replace and remove, a manager request, and a draft that aged. */
-/**
- * Path 17: Schedule Builder — page structure, the balanced generator, and
- * manager-only access.
- */
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
@@ -15,14 +10,8 @@ function admin() {
   );
 }
 
-/**
- * The seeded Fall season's first night, read from the database.
- *
- * ⛔ NEVER RESTATE THIS DATE. It used to be `const FIRST_NIGHT = "2026-09-15"`,
- * which was the seed's own literal — and on 2026-09-16 that season would have
- * STARTED, locking the builder and falsifying this spec's premise. The seed owns
- * the date; a spec that repeats it can disagree with the fixture it runs against.
- */
+// ⛔ Never restate the seeded Fall date: the seed owns it, and a spec repeating it disagrees with its
+// fixture once that date passes and the season starts.
 async function fallStart(): Promise<string> {
   const db = admin();
   const { data: league, error: le } = await db
@@ -30,11 +19,8 @@ async function fallStart(): Promise<string> {
     .select("id")
     .eq("slug", "obhl")
     .single();
-  // ⛔ FAIL BY NAME, LIKE `expectGenerateFormUsable`. `data!.starts_on` on an
-  // empty read threw "Cannot read properties of null", which then surfaced as
-  // the failure of EVERY test in this file with nothing pointing at the fixture.
-  // And scoped to the league: both leagues carry a "Spring 2026", so an
-  // unscoped `.single()` breaks the moment a second one reuses "Fall 2026".
+  // ⛔ Fail by name: an empty read otherwise fails every test in this file with nothing pointing at
+  // the fixture. Scoped to obhl, since both leagues carry a "Spring 2026".
   if (le || !league) {
     throw new Error(`Seed has no 'obhl' league: ${le?.message ?? "not found"}`);
   }
@@ -74,11 +60,7 @@ async function signInAs(page: Page, role: Role, then?: string) {
   if (then) await page.goto(then);
 }
 
-/**
- * The builder's generate/publish flow only exists on a season that hasn't
- * started. The active season is in the past, so these tests drive Fall 2026
- * through its setup page, which renders the same ScheduleBuilderPanel.
- */
+// Generate exists only on a season that hasn't started, and the active one has: drive Fall 2026.
 async function goToFallSeasonSetup(page: Page) {
   await page.goto("/obhl/seasons");
   await page
@@ -88,41 +70,11 @@ async function goToFallSeasonSetup(page: Page) {
   await page.waitForURL(/\/seasons\//);
 }
 
-/**
- * Wait for the generate form, and fail IMMEDIATELY and by name if the builder
- * came up in either state that has no form on the page.
- *
- * ⛔ NOT A RETRY, AND NOT A LOOSENED ASSERTION. `publishMode` returns `locked`
- * for TWO reasons, and neither renders a generate form:
- *
- *   - `readFailed` — `getPublishState` fails closed, so any of its six reads
- *     erroring locks the panel and renders "This season's games couldn't be
- *     read". Each read is retried once, so this means two consecutive failures.
- *   - `started` — the season is legitimately under way. Permanent, and it means
- *     this spec is pointed at the wrong season, not that anything broke.
- *
- * A plain `fill()` in either state waits on a locator that can never resolve
- * and reports only "waiting for getByLabel('First game night')" — on CI (run
- * 34055032836) that was a 12-minute `Test timeout of 720000ms exceeded`, which
- * tells the next person nothing about what actually happened.
- *
- * Racing the three locators is what makes the message honest: whichever the
- * page settled on is the one reported, in seconds. Both failures still fail the
- * run — they are real conditions and must not be swallowed — they just say so.
- *
- * ⛔ CALL IT BEFORE ANY GATE THAT READS THE PANEL, not inside the branch the
- * gate picks. Both locked cards make a `count()` probe answer wrongly, so a
- * guard behind one either never runs or runs too late to help.
- *
- * ⚠️ COPIED INTO EACH SPEC THAT NEEDS IT, AND IT HAS TO BE. A shared
- * `e2e/schedule-helpers.ts` was built and measured on 2026-09-06: every
- * relative TypeScript import dies at load with `context.conditions?.includes is
- * not a function`, sibling or not, with or without a `.js` specifier
- * (Playwright 1.61.0, Node 22.18.0). It is not "no module exists yet" and not
- * "only `src` is out of reach" — relative TS imports do not work here at all.
- * Change one copy, change them all; there are five.
- */
+// ⛔ Not a retry: fails by name if the builder came up locked (`readFailed` or `started`), where a bare
+// `fill()` times out naming only the locator. Call it before any gate that reads the panel.
 async function expectGenerateFormUsable(page: Page) {
+  // ⚠️ Copied on purpose: a relative TS import dies at load in this suite (`context.conditions
+  // ?.includes is not a function`). Change one copy, change both; there are two, here and in 14.
   const firstNight = page.getByLabel("First game night");
   const readFailed = page.getByText("This season's games couldn't be read");
   const started = page.getByText("The season is under way");
@@ -156,23 +108,8 @@ test("scorekeeper cannot reach /schedule-builder", async ({ page }) => {
   await expect(page).toHaveURL("/");
 });
 
-/**
- * How long an assertion may wait on a generate.
- *
- * `playwright.config.ts` sets a 15s assertion timeout and reasons it from the
- * generator's `OBHL_SLOT_BUDGET_MS` (5s). That is one budget short of what a
- * generate actually spends: `assignNights` runs Phase S at FIVE candidates —
- * 160, 140 on three seeds, then 200 — each on its own budget, so the search
- * alone can reach ~25s before anything renders (SCHEDULE_HANDOFF §5).
- *
- * The gap hid because generate time is hardware-bound: this file's spacing test
- * takes ~3s on a laptop, ~10s on a quiet CI runner, and blew the 15s ceiling on
- * a loaded one. Raising the global timeout instead would slow every genuine
- * failure in the suite by 30s, which the config comment explicitly warns off.
- *
- * Applies ONLY to assertions waiting on a generate. Anything else that needs
- * this long is a bug, not a slow search.
- */
+// Only for assertions waiting on a generate: Phase S runs five candidates on their own 5 s budgets,
+// so one can take ~25 s (`RUNBOOK.md` → Schedule generator). Anything else this slow is a bug.
 const AFTER_GENERATE = { timeout: 45_000 };
 
 test.describe("Path 17 — Schedule Builder", () => {
@@ -188,10 +125,8 @@ test.describe("Path 17 — Schedule Builder", () => {
   test("generates a balanced draft with equal games per team", async ({
     page,
   }) => {
-    // These tests drive the Fall season, not the active one — start on its
-    // first night, which `fallStart()` reads from the seed rather than restating. A date outside the window still
-    // generates (drafts aren't bounded by the season start), so this reads as
-    // passing while drafting a schedule months before the season it belongs to.
+    // Start on Fall's first night: a date outside the window still generates (drafts aren't bounded
+    // by the season start), so a wrong one passes while drafting the wrong months.
 
     await expectGenerateFormUsable(page);
     await page.getByLabel("First game night").fill(await fallStart());
@@ -208,9 +143,7 @@ test.describe("Path 17 — Schedule Builder", () => {
       page.getByRole("button", { name: /Publish \d+ games/ }),
     ).toBeVisible();
 
-    // Every team's GP cell should read 4 (equal games per team). Scoped to the
-    // Balance report card: the season setup page also has a team roster table
-    // above it, and an unscoped `tbody tr` selector would match both.
+    // Scoped to the Balance report card: the setup page's team roster table would match too.
     const balanceReportCard = page
       .locator('[data-slot="card"]')
       .filter({ hasText: "Balance report" });
@@ -229,16 +162,8 @@ test.describe("Path 17 — Schedule Builder", () => {
   test("a past first game night is refused by the server, not just the browser", async ({
     page,
   }) => {
-    // ⛔ THE IRREVERSIBLE ONE. `season_is_started` counts only published games,
-    // so a past-dated DRAFT is invisible to the lock and looks completely fine
-    // — until it is published, at which point generate, replace and remove all
-    // refuse permanently. There is no undo, which is why this is refused at
-    // GENERATE rather than at publish.
-    //
-    // The `min` attribute above is stripped first, deliberately: it is
-    // browser-side and a client can drop it, so what is under test here is the
-    // half that cannot be bypassed. Without the server check this generates a
-    // draft and reports success.
+    // ⛔ Refused at GENERATE: `season_is_started` ignores drafts, so a past-dated one looks fine until
+    // publishing locks the season for good. `min` is stripped: only the server half can't be bypassed.
 
     await expectGenerateFormUsable(page);
     await page
@@ -264,8 +189,6 @@ test.describe("Path 17 — Schedule Builder", () => {
   test("republishing replaces the schedule instead of stacking a second one", async ({
     page,
   }) => {
-    // The reported bug: generate + publish twice left the season holding two
-    // complete overlapping schedules, both live in the exports and standings.
     const generate = async () => {
       await expectGenerateFormUsable(page);
       await page.getByLabel("First game night").fill(await fallStart());
@@ -292,10 +215,7 @@ test.describe("Path 17 — Schedule Builder", () => {
     // Rendered state, not the toast — the toast auto-dismisses.
     await expect(page.getByText(`Published: ${published} games`)).toBeVisible();
 
-    // The published state has to say how to change the schedule. Without this
-    // line the page is a count plus an empty state that says "Generate one
-    // above to preview it here before publishing" — neither of which tells a
-    // manager that generating a draft is the precondition for replacing.
+    // The published state must say that generating a new draft is how to replace it.
     await expect(
       page.getByText(/To change the schedule, generate a new one above/),
     ).toBeVisible();
@@ -309,9 +229,7 @@ test.describe("Path 17 — Schedule Builder", () => {
       page.getByRole("button", { name: /Publish \d+ games/ }),
     ).toHaveCount(0);
 
-    // The live schedule stays visible in replace mode. It used to be suppressed
-    // here, leaving the button label as the only evidence on the page that a
-    // published schedule existed at all — on the screen that deletes it.
+    // The live schedule stays visible in replace mode, on the screen that deletes it.
     await expect(page.getByText(`Published: ${published} games`)).toBeVisible();
 
     await page
@@ -323,13 +241,8 @@ test.describe("Path 17 — Schedule Builder", () => {
     await expect(
       page.getByText(`This deletes ${published} live games`),
     ).toBeVisible();
-    // The range is how a manager verifies *which* schedule is about to go, so
-    // it's in the same long form as the rest of the panel rather than the raw
-    // ISO dates this dialog used to show. Asserted by shape, and always
-    // together with the sentence around it — a bare date also appears in the
-    // page header and on every night heading behind the dialog. Matching the
-    // literal formatted date instead would pin this test to both the fixture's
-    // start date and formatLongDate's exact output.
+    // Asserted by shape and with its sentence: a bare date also appears in the header and night
+    // headings, and a literal would pin the fixture's date and `formatLongDate`'s output.
     await expect(
       page.getByText(/This deletes \d+ live games \(.+ – .+\)/),
     ).toBeVisible();
@@ -361,19 +274,8 @@ test.describe("Path 17 — Schedule Builder", () => {
   test("removing a published schedule leaves the season with no games", async ({
     page,
   }) => {
-    // Order-independent on purpose. Playwright runs this file with workers: 1,
-    // so the republish test above normally leaves Fall 2026 already published
-    // and this branch does not run — but the test then still works under `-g`
-    // in isolation, or if the tests above are reordered.
-    // Wait for the panel to have rendered before probing. `count()` resolves
-    // immediately, so probing first can read 0 on a season that *is* published
-    // and send this down the publish branch — where the button reads "Replace
-    // published schedule" and the publish click times out instead.
-    // ⛔ Before the probe below, not inside the branch it picks. Neither of
-    // those two texts renders in the read-failed state, so a read failure
-    // would fail on the probe naming only the locator — and if it got past,
-    // `count()` of 0 sends this down the publish branch on a season that may
-    // well be published. Fail here, by name, instead.
+    // Order-independent, so it works under `-g`. ⛔ Guard and wait before the `count()` probe, which
+    // doesn't wait: reading 0 on a published or read-failed season sends it down the publish branch.
     await expectGenerateFormUsable(page);
     await expect(
       page.getByText(/Published: \d+ games|No draft schedule/).first(),
@@ -392,13 +294,8 @@ test.describe("Path 17 — Schedule Builder", () => {
         .locator('label:has-text("Thu") input[name="weekdays"]')
         .check();
       await page.getByRole("button", { name: "Generate schedule" }).click();
-      // ⛔ The generate has to LAND before this button can be clicked — it does
-      // not exist until the draft renders. Without this wait the click's own
-      // actionability wait covers the whole search, which `actionTimeout`
-      // (playwright.config.ts) now caps at 20s — under the ~25s Phase S can
-      // spend on a loaded runner, and the only reason it never fired is that
-      // this branch is skipped whenever the test above it ran first. Every
-      // other generate site in the suite waits like this; this one didn't.
+      // ⛔ Wait for the generate to LAND: otherwise the click's actionability wait covers the whole
+      // search, capped by `actionTimeout` at 20 s, under the ~25 s Phase S can take.
       const publish = page.getByRole("button", { name: /Publish \d+ games/ });
       await expect(publish).toBeVisible(AFTER_GENERATE);
       await publish.click();
@@ -410,9 +307,8 @@ test.describe("Path 17 — Schedule Builder", () => {
     await expect(
       page.getByText("Remove the published schedule?"),
     ).toBeVisible();
-    // Asserted by shape. The dialog deliberately carries no game count — a
-    // pre-start removal destroys nothing that can't be regenerated — so there
-    // is no number here to pin the test to.
+    // Asserted by shape: the dialog carries no game count, since a pre-start removal destroys
+    // nothing that can't be regenerated.
     await expect(
       page.getByText(/The season will have no games until you generate/),
     ).toBeVisible();
@@ -420,44 +316,22 @@ test.describe("Path 17 — Schedule Builder", () => {
     // schedule" trigger behind the dialog.
     await page.getByRole("button", { name: "Remove", exact: true }).click();
 
-    // Back to zero. All three assertions are needed: the count going away shows
-    // the games are gone, the control going away shows the mode moved, and the
-    // empty state shows the panel recovered rather than rendering nothing.
+    // All three: the count gone shows the games went, the control gone shows the mode moved, and
+    // the empty state shows the panel recovered.
     await expect(page.getByText(/Published: \d+ games/)).toHaveCount(0);
     await expect(removeButton).toHaveCount(0);
     await expect(page.getByText("No draft schedule")).toBeVisible();
   });
 });
 
-/**
- * Path 24: Manager schedule constraints — telling the generator what to do,
- * and being told what it could not do.
- *
- * Driven through Fall 2026's setup page for the same reason `11-schedule-build`
- * is: the generate flow only exists on a season that has not started, and the
- * active season is in the past. Both pages render the same
- * `ScheduleBuilderPanel`, so the card under test is identical either way.
- */
-
-/**
- * The second Tuesday of the generated window — the first night's date plus
- * seven days.
- *
- * ⛔ COMPUTED, NOT PINNED. This used to be the literal `"2026-09-22"`, which
- * only worked because the old `FIRST_NIGHT` was the literal `"2026-09-15"` —
- * exactly a week earlier and also a Tuesday. `fallStart()` is guaranteed a
- * Tuesday (SCHEDULE_HANDOFF), so a week after it is always a Tuesday too, but
- * the calendar date itself moves with the clock. A test that names a slot_on
- * request by an absolute date has to derive that date from the same anchor
- * the generate form uses, or the request lands outside the generated season.
- */
+// ⛔ Computed, never pinned: a `slot_on` date not derived from `fallStart()` lands outside the
+// generated season once the clock moves.
 async function secondTuesday(): Promise<string> {
   const d = new Date(`${await fallStart()}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + 7);
   return d.toISOString().slice(0, 10);
 }
 
-/** Pick the first real team in the constraints card's picker, and return its name. */
 async function firstTeamName(page: Page): Promise<string> {
   const select = page.getByLabel("Team", { exact: true });
   const value = await select.locator("option").nth(1).getAttribute("value");
@@ -466,35 +340,19 @@ async function firstTeamName(page: Page): Promise<string> {
   return name;
 }
 
-/**
- * The listed requests, and ONLY those.
- *
- * ⛔ Never assert a request's description against the whole page. The card
- * lists it AND sonner toasts it ("Added: <description>."), so a bare
- * `getByText(description)` is a strict-mode violation the moment an add
- * succeeds — the assertion fails precisely when the thing it checks worked.
- */
+// ⛔ Never assert a request's description against the whole page: sonner toasts it too, so a bare
+// `getByText` is a strict-mode violation exactly when the add worked.
 function requestList(page: Page) {
   return page
     .locator("li")
     .filter({ has: page.getByRole("button", { name: /^Remove request:/ }) });
 }
 
-/**
- * The preview's "Manager requests" card — the one that reports whether each
- * request landed.
- *
- * ⛔ NOT `[data-slot="card"]` filtered on the text "Manager requests". The
- * constraints card inside the generate form is headed "Manager requests
- * (optional)", and it lives inside a Card of its own, so that filter always
- * matches TWO elements: the outcome card can never be asserted absent, and
- * asserting it present is a strict-mode violation. Match the card TITLE
- * exactly, which only the outcome card has.
- */
+// ⛔ Match the card TITLE exactly, not a card filtered on "Manager requests": the constraints card is
+// titled "Manager requests (optional)", so that filter always matches two.
 function outcomeCard(page: Page) {
-  // `:scope >` pins the card whose OWN header carries the title. Without it the
-  // filter also matches every enclosing Card — the builder panel nests them —
-  // and a 2-element match makes `toBeVisible` a strict-mode violation.
+  // `:scope >` pins the card whose OWN header has the title; otherwise every enclosing Card matches
+  // too, and a 2-element match is a strict-mode violation.
   return page.locator('[data-slot="card"]').filter({
     has: page.locator(':scope > [data-slot="card-header"]', {
       hasText: /^Manager requests$/,
@@ -502,17 +360,8 @@ function outcomeCard(page: Page) {
   });
 }
 
-/**
- * Remove every request currently listed, so the suite can re-run from clean.
- *
- * ⛔ THE LIST SHRINKING IS THE SIGNAL, NOT THE TOAST. Waiting on
- * "Removed that request." looks right and is a trap: sonner stacks and lingers,
- * so on the second pass the toast from the FIRST removal is still on screen and
- * the assertion returns instantly. The loop then clicks the next ✕ while the
- * previous transition still has every remove button disabled and the re-render
- * is detaching them — "element is not enabled", "element was detached", and a
- * 150 s timeout inside afterEach that reads as if the page had hung.
- */
+// ⛔ Wait on the list shrinking, not the toast: sonner lingers, so the first removal's toast satisfies
+// the second wait and the loop clicks a still-disabled, detaching button.
 async function clearRequests(page: Page) {
   for (;;) {
     const rows = requestList(page);
@@ -533,11 +382,8 @@ test.describe("Path 24 — schedule constraints", () => {
   test.beforeEach(async ({ page }) => {
     await signInAs(page, "Manager", "/obhl/dashboard");
     await goToFallSeasonSetup(page);
-    // ⛔ HERE, not before each `fill` further down. The constraints card and
-    // its team select are INSIDE the generate form, so `firstTeamName` touches
-    // the panel too — a guard placed after it never runs, because the select is
-    // the locator that has already timed out. Guarding from one place also
-    // covers the tests that only read the card.
+    // ⛔ Here, not before each `fill`: the constraints card is inside the generate form, so
+    // `firstTeamName` would time out on it before a later guard ran.
     await expectGenerateFormUsable(page);
   });
 
@@ -545,33 +391,15 @@ test.describe("Path 24 — schedule constraints", () => {
     await clearRequests(page);
   });
 
-  /**
-   * ⛔ `slot_on`, NOT `bye_on`, AND THE SEEDED LEAGUE IS WHY.
-   *
-   * Six teams over the default three sheets is three games a night, so all six
-   * play every night and the season has NO BYE BUDGET AT ALL — every bye
-   * request is correctly refused by `refuteConstraints` on arithmetic, and no
-   * assertion here can make one land. Dropping to two sheets creates byes but
-   * walks into the other wall: `planByParticipation` returns null at six teams
-   * on two sheets even with nothing constrained, so the fallback planner ships
-   * and every request is reported unmet. Both limits are measured on the
-   * rank-off note in `assignNights.ts`.
-   *
-   * `play_on`, `slot_on` and `slot_bias` all work on this shape. `slot_on` is
-   * the one worth driving: it is the kind that has to survive BOTH phases —
-   * Phase P forcing the play night, Phase S pinning the ice time — and it is
-   * read back off the placed games rather than off what either was asked to do.
-   */
+  // ⛔ `slot_on`, not `bye_on`: six teams on three sheets all play every night, so the season has no
+  // bye budget and every bye request is correctly refused. `slot_on` must survive Phases P and S.
   test("a honoured request shows as met on the preview", async ({ page }) => {
     const name = await firstTeamName(page);
     const requestDate = await secondTuesday();
     await page.getByLabel("Request", { exact: true }).selectOption("slot_on");
     await page.getByLabel("Date", { exact: true }).fill(requestDate);
-    // ⚠️ THE LATEST DEFAULT SLOT, and it must stay in step with the form's
-    // `slot_times` default — this test does not fill that field, so it inherits
-    // it. Pinned to 21:30 until 2026-09-11, when the default became
-    // 19:00 / 20:20 / 21:40; a request naming a time the season does not run is
-    // unsatisfiable, so the row came back ✗ and the tick assertion below failed.
+    // ⚠️ The latest DEFAULT slot: this test inherits the form's `slot_times` default, and a time the
+    // season does not run is unsatisfiable. Change them together.
     await page.getByLabel("Ice time").fill("21:40");
     await page.getByRole("button", { name: "Add request" }).click();
     const description = `${name} plays at 21:40 on ${requestDate}`;
@@ -587,9 +415,7 @@ test.describe("Path 24 — schedule constraints", () => {
 
     await expect(page.getByText("Balance report")).toBeVisible(AFTER_GENERATE);
 
-    // ⛔ ASSERT THE TICK, not merely that the request is listed. Listing it
-    // proves nothing — an unmet request is listed too, with a ✗ — and this test
-    // spent its whole life passing over one.
+    // ⛔ Assert the TICK, not the listing: an unmet request is listed too, with a ✗.
     const row = outcomeCard(page)
       .locator("li")
       .filter({ hasText: description });
@@ -608,30 +434,11 @@ test.describe("Path 24 — schedule constraints", () => {
   });
 });
 
-/**
- * Path 26: what the generate form does with what it was told.
- *
- * Two opposite requirements, which is why they share a spec: **generate is
- * iterative** — a manager regenerates repeatedly, changing one field — so it
- * must keep every field it was given; **publish is terminal**, so it returns the
- * form to defaults and clears the season's stored manager requests.
- *
- * Driven through Fall 2026's setup page for the same reason `11-schedule-build`
- * is: the generate flow only exists on a season that has not started, and the
- * active season is in the past. Both pages render the same
- * `ScheduleBuilderPanel`.
- */
-
-/** Non-default ice times, so "still what I typed" cannot pass by accident. */
+// Generate keeps every field (a manager iterates); publish resets the form and clears the requests.
+// Non-default ice times, so "still what I typed" cannot pass by accident.
 const SLOT_TIMES = "18:45, 20:00";
 
-/**
- * A Thursday inside the season, skipped — far enough out not to starve it.
- *
- * ⛔ COMPUTED, BECAUSE "24" WAS ONLY A THURSDAY IN 2026. This is a day-of-month
- * typed into a date picker, and the test's meaning depends on the weekday it
- * lands on, not on the number.
- */
+// ⛔ Computed: a typed day-of-month is a Thursday in only one year, and the test needs the weekday.
 async function skipDate(): Promise<Date> {
   const start = new Date(`${await fallStart()}T12:00:00Z`);
   const d = new Date(start);
@@ -659,30 +466,15 @@ const MONTH_ABBR = [
   "Dec",
 ];
 
-/**
- * The "Month Day" chip the calendar renders for `skipDate()` (e.g. "Oct 8") —
- * matches `shortLabel()` in `schedule-generate-form.tsx`, which formats with
- * `{ month: "short", day: "numeric" }`.
- *
- * ⛔ COMPUTED FOR THE SAME REASON `skipDay` IS. The old literal "Sep 24" baked
- * in both the day AND the month; walking 14+ days to the next Thursday from a
- * moving anchor can land in a different month than the season's first night.
- */
+// Matches `shortLabel()` in `schedule-generate-form.tsx`. ⛔ Computed, like `skipDay`: the walk to
+// Thursday can cross into another month.
 async function skipChip(): Promise<string> {
   const d = await skipDate();
   return `${MONTH_ABBR[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
-/**
- * How many months after the season's first night `skipDate()` falls.
- *
- * ⛔ NEEDED BECAUSE THE PICKER OPENS ON THE FIRST NIGHT'S MONTH. The "Pick
- * dates" popover's calendar (`schedule-generate-form.tsx`) sets
- * `defaultMonth={parseKey(seasonStart)}` and shows one month at a time. If
- * `skipDate()` crosses into a later month, its day-of-month number belongs to
- * a day that ISN'T rendered yet — the calendar has to be advanced first, or a
- * same-numbered day in the wrong (visible) month gets clicked instead.
- */
+// ⛔ The picker opens on the first night's month (`defaultMonth`) and shows one month, so a later
+// month must be advanced to, or a same-numbered day in the visible month gets clicked.
 async function skipMonthsAhead(): Promise<number> {
   const start = new Date(`${await fallStart()}T12:00:00Z`);
   const target = await skipDate();
@@ -692,15 +484,7 @@ async function skipMonthsAhead(): Promise<number> {
   );
 }
 
-/**
- * A date inside the season, a week after its first night — used only to give
- * a `slot_on` request a valid date; nothing here checks which weekday it
- * lands on.
- *
- * ⛔ COMPUTED FOR THE SAME REASON `secondTuesday()` is, above. This used to be
- * the literal `"2026-09-22"`, a week after the old fixed `FIRST_NIGHT`. With a
- * moving anchor that literal can land before the season even starts.
- */
+// ⛔ Computed, like `secondTuesday()`: a pinned date can land before the season starts.
 async function aWeekIntoSeason(): Promise<string> {
   const d = new Date(`${await fallStart()}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + 7);
@@ -709,9 +493,6 @@ async function aWeekIntoSeason(): Promise<string> {
 
 /** Fill every field on the generate form with something that is not its default. */
 async function fillEverything(page: Page) {
-  // Same hazard as `14-schedule-changes`'s repair seeding: with the builder
-  // locked by a failed read there is no form here at all, and a bare `fill`
-  // waits out the whole test budget saying only "waiting for getByLabel".
   await expectGenerateFormUsable(page);
   await page.getByLabel("First game night").fill(await fallStart());
   await page.getByLabel("Games per team").fill("4");
@@ -719,9 +500,8 @@ async function fillEverything(page: Page) {
   await page.locator('label:has-text("Tue") input[name="weekdays"]').check();
   await page.locator('label:has-text("Thu") input[name="weekdays"]').check();
 
-  // The skip chips are React state, not an input — the discriminator the
-  // reproduction turns on. If these survive a generate and the inputs above do
-  // not, the cause is React's form reset rather than a remount.
+  // The skip chips are React state, not an input: if they survive a generate and the inputs don't,
+  // the cause is React's form reset, not a remount.
   await page.getByRole("button", { name: "Pick dates" }).click();
   const popover = page.locator('[data-slot="popover-content"]');
   // The popover opens on the first night's month — advance it if the skipped
@@ -730,16 +510,8 @@ async function fillEverything(page: Page) {
   for (let i = 0; i < monthsAhead; i++) {
     await popover.getByRole("button", { name: "Go to the Next Month" }).click();
   }
-  // ⛔ EXCLUDE THE OUTSIDE DAYS, OR `.first()` CLICKS THE WRONG MONTH. The
-  // calendar renders with `showOutsideDays` (the default in
-  // `components/ui/calendar.tsx`), so the previous month's tail days appear as
-  // gridcells BEFORE this month's own — and they carry day numbers in the high
-  // twenties, exactly where a skipped Thursday can land. When the numbers
-  // coincide, `.first()` picks the previous month's cell, which is `disabled`
-  // (it is before the season start) and the click times out. Measured
-  // 2026-09-07 against a fixture anchored to 2026-10-13: 3 tests failed with
-  // "element is not enabled". It would have started happening on its own on
-  // 2026-09-28, and on 105 of the following 800 days.
+  // ⛔ Exclude outside days: `showOutsideDays` renders the previous month's tail first, and when its
+  // day number matches, `.first()` clicks a disabled cell and times out.
   await popover
     .locator('[role="gridcell"]:not([data-outside]) button')
     .filter({ hasText: new RegExp(`^${await skipDay()}$`) })
@@ -762,8 +534,7 @@ test.describe("Path 26 — the generate form's state", () => {
   test("a publish returns the form to defaults and clears the stored requests", async ({
     page,
   }) => {
-    // A request to be cleared. `slot_on` for the reason above: this seeded
-    // league has no bye budget at all.
+    // A request to be cleared; `slot_on` because this league has no bye budget.
     const teamSelect = page.getByLabel("Team", { exact: true });
     const teamValue = await teamSelect
       .locator("option")
@@ -783,10 +554,8 @@ test.describe("Path 26 — the generate form's state", () => {
     await expect(page.getByText("Balance report")).toBeVisible(AFTER_GENERATE);
 
     await page.getByRole("button", { name: /^Publish/ }).click();
-    // ⛔ The page, not the toast. A successful publish takes `draftCount` to 0,
-    // and PublishControls is keyed on it — so it remounts, and its success toast
-    // races that remount and often never renders at all. The live count is the
-    // durable evidence.
+    // ⛔ The page, not the toast: a publish zeroes `draftCount`, which keys PublishControls, so it
+    // remounts and its success toast often never renders.
     await expect(page.getByText(/^Published: \d+ games$/)).toBeVisible(
       AFTER_GENERATE,
     );
@@ -806,10 +575,8 @@ test.describe("Path 26 — the generate form's state", () => {
     await page.reload();
     await expect(requestList(page)).toHaveCount(0);
 
-    // ⛔ Put the fixture back. Fall 2026 is the season every schedule spec
-    // generates against, and leaving it with a live schedule turns the builder's
-    // mode from `published` to `replace` for the next run of `11` and `23`.
-    // Removed through the app, not SQL — the seed's guards are the point.
+    // ⛔ Put the fixture back: a live schedule on Fall 2026 turns the builder's mode to `replace` for
+    // the next run of `11`. Removed through the app, not SQL.
     await page
       .getByRole("button", { name: "Remove published schedule" })
       .click();
@@ -824,48 +591,16 @@ test.describe("Path 26 — the generate form's state", () => {
   });
 });
 
-/**
- * Path 29: a draft that AGED between generate and publish.
- *
- * ⛔ WHAT THIS SPEC IS REALLY GUARDING. `isPastGameNight` refuses a past first
- * night at GENERATE, and `season_is_started` (`0026`) locks a season the moment
- * a published game is in the past. Between them sits the case neither one sees:
- * a draft generated against a perfectly good FUTURE date, reviewed, and
- * published a week later — by which time its first night has passed. Publishing
- * it locks the season instantly and permanently. That window is the schedule
- * rebuild workflow (generate early in the week, publish later), not a mistake.
- *
- * ⚠️ THE DRAFT IS AGED BY MOVING IT BACKWARDS IN THE DATABASE, and it has to be:
- * the generate form refuses to produce a past-dated draft, so there is no route
- * through the UI to the state under test. What is generated is a REAL draft —
- * the generator's own matchups, nights and ice times — and only its dates are
- * moved, which is exactly what the passage of time would have done to it.
- *
- * Seeds its own season, the shape `14-schedule-changes`'s repair and manual-edit
- * seasons use, so every mutation stays inside it. That season is deleted afterwards
- * rather than left behind: the last test publishes a past-dated schedule on
- * purpose, which locks it for good, and a locked season is not something to
- * hand to the next run.
- */
-
-/**
- * ⛔ COMPUTED, NEVER PINNED — the rule `14-schedule-changes` sets out. Every date
- * here is relative to the clock, because this spec is *about* the clock: a
- * fixed "stale" date stops being stale the moment it is compared against a
- * later today, and a fixed future one eventually is not future.
- */
+// ⛔ A draft published after its first night passed locks the season for good. Aged in the database
+// (the form refuses a past date), in its own season. ⛔ Every date is relative to the clock, never fixed.
 const YEAR = new Date().getUTCFullYear() + 2;
 const STALE_SEASON = `Stale Draft ${YEAR}`;
 
 /** The league plays on US Eastern, and so does every date the app renders. */
 const TZ = "America/New_York";
 
-/**
- * ⚠️ THE SPEC DOES ITS OWN ZONE ARITHMETIC RATHER THAN IMPORTING THE APP'S.
- * Copied deliberately: a relative TypeScript import dies at load in this suite
- * (see `14-schedule-changes`), and reusing `@/lib/format` would in any case let a
- * bug in the app's own date handling agree with itself and pass.
- */
+// ⚠️ Own zone arithmetic, not `@/lib/format`: a relative import dies at load here, and reusing the
+// app's would let a bug in its date handling agree with itself.
 const dateKey = (iso: string) =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: TZ,
@@ -905,17 +640,8 @@ const today = () => dateKey(new Date().toISOString());
 
 const WEEKDAY_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/**
- * How far back the draft is dragged, and how far forward the app should then
- * move it — the same number, and that is the point of the arithmetic below.
- *
- * The generated draft starts `FIRST_NIGHT_IN` days from today. Dragged back
- * three weeks, its first night lands 21 − 4 = 17 days behind us, and the
- * smallest whole number of weeks that puts it back on or after today is 3 —
- * which restores every game to the exact timestamp the generator gave it. So
- * "the schedule the manager reviewed, just later" can be asserted as equality
- * rather than described.
- */
+// Dragged back three weeks from 4 days out, the first night is 17 days past, so the app moves it
+// forward exactly three weeks: every game returns to its generated timestamp, asserted as equality.
 const AGE_WEEKS = 3;
 const FIRST_NIGHT_IN = 4;
 
@@ -933,10 +659,8 @@ async function seedStaleSeason(): Promise<string> {
   const db = admin();
   const league = await leagueId();
 
-  // Cascades to its games and enrolments. Scoped to this spec's own season name
-  // — nothing else in the fixture is named this — and it runs first so a run
-  // that died mid-way (leaving a locked, published season behind) cannot make
-  // the next one fail for a reason that has nothing to do with the feature.
+  // Cascades to its games and enrolments. Scoped to this spec's season name, and run first so a run
+  // that died mid-way, leaving a locked season, cannot fail the next.
   await db
     .from("seasons")
     .delete()
@@ -948,9 +672,8 @@ async function seedStaleSeason(): Promise<string> {
     .insert({
       league_id: league,
       name: STALE_SEASON,
-      // Wide enough that nothing here is refused for running past the season's
-      // end, and never active: this spec drives the per-season setup page, so
-      // the fixture's active season is left exactly as it was found.
+      // Wide, so nothing is refused for running past the end; never active, so the fixture's active
+      // season is left as found.
       starts_on: plusDays(today(), -30),
       ends_on: plusDays(today(), 300),
     })
@@ -995,16 +718,8 @@ async function publishedGames(season: string) {
   return data ?? [];
 }
 
-/**
- * Drag every draft game back `weeks` whole weeks — what waiting would have done
- * to it.
- *
- * ⛔ WALL CLOCK, NOT INSTANT, for the same reason `moveNightTo` is: a game on
- * the ice at 19:00 must still be on the ice at 19:00 on the earlier date. Only
- * then is this the exact inverse of the move the app performs, and only then
- * does "the games came back to where the generator put them" mean anything
- * across a DST boundary.
- */
+// ⛔ Wall clock, not instant: a 19:00 game must stay at 19:00 on the earlier date, or this is not the
+// inverse of the app's move across a DST boundary.
 async function ageDraftBy(season: string, weeks: number) {
   const db = admin();
   for (const g of await draftGames(season)) {
@@ -1073,15 +788,8 @@ test.describe
   test("the server refuses a stale publish that arrives without the acknowledgement", async ({
     page,
   }) => {
-    // ⛔ THE ONE PATH THE SERVER GUARD EXISTS FOR, and nothing else here touches
-    // it. Every other test in this file publishes through the dialog, which
-    // supplies `stale_ok` correctly — so the whole check in `publishSchedule`
-    // could be deleted and this spec would stay green without this test.
-    //
-    // What it stands in for: a manager whose tab was rendered while the draft
-    // was still healthy. Their `PublishControls` has `stale === null`, renders
-    // a plain one-click form, and posts no acknowledgement at all. Removing the
-    // hidden input reproduces exactly that payload.
+    // ⛔ The one path the server guard exists for: every other publish here posts `stale_ok` from the
+    // dialog. A tab rendered while the draft was healthy posts none; removing the input reproduces it.
     await signInAs(page, "Manager", "/obhl/dashboard");
     await page.goto(`/obhl/seasons/${season}`);
 
@@ -1096,9 +804,8 @@ test.describe
 
     await dialog.getByRole("button", { name: "Publish anyway" }).click();
 
-    // The refusal is a toast, and it survives because PublishControls is keyed
-    // on the draft count alone — see the note on that key. If the stale night
-    // ever goes back into the key, this is the assertion that catches it.
+    // The refusal toast survives because PublishControls is keyed on the draft count alone; if the
+    // stale night goes into the key, this fails.
     await expect(
       page.getByText("publishing it would start the season in the past"),
     ).toBeVisible();
@@ -1113,20 +820,14 @@ test.describe
     await page.goto(`/obhl/seasons/${season}`);
 
     await page.getByRole("button", { name: /^Move draft to / }).click();
-    // ⚠️ ASSERTING A SUCCESS TOAST IS ONLY SAFE BECAUSE OF HOW THE BANNER IS
-    // BUILT. `StaleDraftNotice` stays mounted when the draft stops being stale
-    // and renders null instead, precisely so this message is not lost to the
-    // remount race `11-schedule-build.spec.ts` documents. Move the action
-    // state back inside something conditional and this is the assertion that
-    // will start flapping.
+    // ⚠️ A success toast is safe only because `StaleDraftNotice` stays mounted and renders null once
+    // the draft stops being stale; make its action state conditional and this flaps.
     await expect(
       page.getByText(`Moved the draft forward ${AGE_WEEKS} weeks`),
     ).toBeVisible();
 
-    // ⛔ EQUALITY, NOT "SOMETHING IN THE FUTURE". The promise the button makes
-    // is that the schedule the manager reviewed survives the move — same
-    // matchups, same nights, same ice times — and three weeks back then three
-    // weeks on is exactly the schedule the generator produced.
+    // ⛔ EQUALITY, not "in the future": the reviewed schedule must survive the move, and three weeks
+    // back then forward is exactly what the generator produced.
     const after = await draftGames(season);
     expect(after.map((g) => g.id).sort()).toEqual(
       asGenerated.map((g) => g.id).sort(),
@@ -1138,9 +839,8 @@ test.describe
     }
     expect(dateKey(after[0].scheduled_at!) >= today()).toBe(true);
 
-    // And the warning is gone with it. ⚠️ Assert the string the banner ACTUALLY
-    // renders: this read "has already passed" for one revision, which the
-    // banner had stopped saying, so it passed against a banner still on screen.
+    // And the warning is gone. ⚠️ Assert the string the banner ACTUALLY renders, or this passes
+    // against a banner still on screen.
     await expect(
       page.getByText("has already been played over", { exact: false }),
     ).toHaveCount(0);
@@ -1149,9 +849,8 @@ test.describe
   test("publishing a stale draft anyway is still possible, and locks the season", async ({
     page,
   }) => {
-    // Back to a staged, aged draft — the state a manager who really did play
-    // those games arrives in. Done through the service role because no UI can
-    // produce it, as at the top of this file.
+    // Back to a staged, aged draft, as a manager who really played those games has it. Service
+    // role, because no UI can produce it.
     const db = admin();
     await db
       .from("games")
@@ -1173,11 +872,8 @@ test.describe
     // manager whose games were genuinely played must be able to publish them.
     await dialog.getByRole("button", { name: "Publish anyway" }).click();
 
-    // ⛔ THE PAGE, NOT THE TOAST. A successful publish empties the draft, so
-    // PublishControls unmounts and its success toast races that — see the same
-    // note in `11-schedule-build.spec.ts`. What lands here instead is the
-    // one-way door itself: the published games are now in the past, so the
-    // season is started and the builder locks on the spot.
+    // ⛔ The page, not the toast (the draft empties and PublishControls remounts): the builder locks,
+    // because the published games are in the past.
     await expect(page.getByText("The season is under way")).toBeVisible();
 
     const live = await publishedGames(season);

@@ -348,8 +348,8 @@ begin
   -- scorekeeper can open, so every spec that finalizes one takes it out of
   -- circulation for the specs that run after — and `scoreLabel` renders a final
   -- game as "Edit", so a locator matching the literal "Score" then finds
-  -- nothing. That is measured, not predicted: `30-schedule-edits` failed exactly
-  -- this way once `05-scoring` and `33-scorekeeper-day` had each finalized one.
+  -- nothing. That is measured, not predicted: `14-schedule-changes` failed exactly
+  -- this way once `05-scoring-night`'s tests had finalized two of them.
   -- **Locate a scoresheet by `a[href$="/score"]`, never by the button label**,
   -- and if you need a game that is still unscored, count how many of these three
   -- the specs before yours have already used.
@@ -366,7 +366,7 @@ begin
   -- today, and that the leagues shown are the ones the viewer scores. Those do
   -- not weaken as the fixture is used up.
   --
-  -- ⚠️ FINALIZING IS NOT THE ONLY WAY TO CONSUME ONE. `05-scoring` reaches these
+  -- ⚠️ FINALIZING IS NOT THE ONLY WAY TO CONSUME ONE. `05-scoring-night` reaches these
   -- games with `.last()` on the manager's schedule, and POSTPONING nulls
   -- `scheduled_at` (`0025`) — which removes the game from this night entirely,
   -- not just from one label. Any spec that cancels or postpones one of these must

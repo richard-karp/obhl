@@ -46,15 +46,8 @@ export async function previewEsportsdeskImport(
   }
 }
 
-/**
- * What `runRosterOnlyImport` reports back.
- *
- * ⚠️ `ok: true` IS A PARTIAL SUCCESS. A clean run never returns — it redirects
- * into the league it just made — so this arm means the run finished with
- * something to report: teams or rosters that did not land, or a membership grant
- * that failed. In that last case `canOpen` is false and the page must not offer
- * a link into a league the manager cannot open.
- */
+// ⚠️ `ok: true` is a partial success: a clean run redirects instead. With `canOpen` false the
+// page must not link into a league the manager cannot open.
 export type ImportRunState =
   | { ok: true; slug: string; canOpen: boolean; message: string }
   | { ok: false; message: string }

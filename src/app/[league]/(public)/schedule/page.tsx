@@ -9,6 +9,7 @@ import {
 } from "@/lib/queries/schedule";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import { canManageLeague, canScoreLeague } from "@/lib/auth/guards";
+import { isPastGame } from "@/lib/games/open-past";
 import Link from "next/link";
 import { ScheduleFilter } from "@/components/public/schedule-filter";
 import {
@@ -54,27 +55,8 @@ function groupByDate(games: GameWithTeams[]) {
   return groups;
 }
 
-/**
- * Whether this game's button should be withheld because it has not happened.
- *
- * ⛔ ONLY GAMES WHOSE BUTTON WOULD SAY "SCORE". `scoreLabel()` gives a
- * cancelled or postponed game "Manage" — the route to `restoreGame` — and a
- * final game "Edit". Those are not offers to record a result, and gating them
- * on the date is wrong in the one direction that matters: a game is normally
- * cancelled IN ADVANCE, so a blanket future check takes the restore button off
- * exactly the games that have it.
- *
- * ⚠️ THAT IS NOT HYPOTHETICAL. `7fda0e3` ("put cancelled games back on the list
- * that absorbed them") fixed this once already, from the other direction — the
- * page stopped listing cancelled games and `restoreGame` became unreachable
- * while the ability remained. The comment above the `cancelled` group below
- * still records it. A future-dated `final` cannot occur, so this reduces to
- * scheduled and in_progress.
- *
- * ⚠️ Date keys, not timestamps — see `isPast` in the page below, which is the
- * same comparison the other way round. Shared with the grouping so the two
- * cannot disagree about what "today" means.
- */
+// ⛔ Only games whose button says "Score": a game is cancelled in advance, so a blanket future check takes
+// its "Manage" (restore) button away. ⚠️ League date keys, not timestamps, like `isPast` below.
 function isUnplayedFutureFixture(
   game: Pick<GameWithTeams, "status" | "scheduled_at">,
   today: string,
@@ -96,13 +78,7 @@ function GroupedGames({
   league: string;
   /** Draw a Score button per game. See `canScoreLeague` — it is not a guard. */
   canScore: boolean;
-  /**
-   * Whether the viewer is a MANAGER, which decides whether the button appears
-   * on games that are not today. A manager gets today AND the past — entering
-   * a result, or correcting one; a scorekeeper gets tonight alone, because the
-   * scoresheet refuses them any other date. ⛔ NEITHER gets a game that has
-   * not been played: see the note on `scoreHref` below.
-   */
+  /** A manager's button covers today and the past; a scorekeeper's, today. ⛔ Neither gets an unplayed game. */
   canManage: boolean;
   /** Tonight, in the league zone, resolved once per render. */
   today: string;
@@ -120,21 +96,8 @@ function GroupedGames({
                 key={g.id}
                 game={g}
                 league={league}
-                // ⛔ NOT JUST `canScore`. The scoresheet refuses a scorekeeper
-                // any game that is not today, so drawing the button on a game
-                // 120 days old would offer a control whose only outcome is a
-                // bounce back to `/tonight`. A button that cannot work is
-                // worse than no button: it reads as a broken page rather than as
-                // a boundary.
-                //
-                // ⛔ AND NOT ON A GAME THAT HAS NOT BEEN PLAYED. A manager has
-                // no day limit in the guard, so this used to draw "Score" on
-                // fixtures months away — offering to record the result of a
-                // game nobody has played. Managers get today AND the past,
-                // which is edit-a-result as well as enter-one; scorekeepers
-                // still get today alone. ⚠️ Cancelled and postponed games are
-                // exempt: their button is "Manage", not "Score" — see
-                // `isUnplayedFutureFixture`.
+                // ⛔ Not just `canScore`: the scoresheet bounces a scorekeeper from any game not today.
+                // ⛔ Never an unplayed fixture, for anyone; "Manage" is exempt (`isUnplayedFutureFixture`).
                 scoreHref={
                   canScore && !isUnplayedFutureFixture(g, today)
                     ? canManage || isOnLeagueDate(g.scheduled_at, today)
@@ -162,17 +125,8 @@ export default async function SchedulePage({
   const { team, season: seasonParam, view: viewParam } = await searchParams;
   const view = resolveScheduleView(viewParam);
 
-  // This page absorbed `/manage/score`, which was the same games in a table
-  // with a button on each row. The games are the same games; the button is the
-  // only thing that was ever different.
-  //
-  // ⚠️ TWO SEASONS, ONE PAGE, the same split as the team page. `/manage/score`
-  // gained a season switcher — `is_active` means "what the public site shows",
-  // and both importers create seasons inactive, so a scorekeeper pinned to the
-  // active season cannot work an imported one. That has to survive the merge:
-  // staff resolve through `getManageContext` and may name a season, everyone
-  // else gets the active one. The parameter is read only after `canScoreLeague`
-  // says yes, so a visitor cannot reach an unpublished season by guessing it.
+  // ⚠️ Staff may name a season through `getManageContext` (imported seasons start inactive). `?season=`
+  // is read only after `canScoreLeague`, so a visitor cannot reach an unpublished season by guessing.
   const resolved = await resolveLeagueBySlug(leagueParam);
   if (!resolved) notFound();
   const canScore = await canScoreLeague(resolved.id);
@@ -186,60 +140,31 @@ export default async function SchedulePage({
   const selected = team ? teams.find((t) => t.slug === team) : undefined;
   const games = await getSchedule(ctx.season.id, { teamId: selected?.id });
 
-  // The same filter the list above is built from, handed to the export routes.
-  // Derived from `selected` rather than the raw `team` param so an unknown slug
-  // — which leaves the list unfiltered — cannot make the buttons ask for a team
-  // the season does not hold and turn a download into a 404.
+  // Built from `selected`, not the raw `team` param: an unknown slug leaves the list unfiltered, and must
+  // not make the export buttons ask for a team the season lacks and turn a download into a 404.
   const exportQuery = selected
     ? `?team=${encodeURIComponent(selected.slug)}`
     : "";
 
-  // What the view links carry with them: everything in the URL except the view
-  // itself. ⛔ Rebuilt from `selected` for the same reason `exportQuery` is —
-  // an unknown slug leaves the list unfiltered, and a link that kept passing it
-  // would say the page is narrowed when it is not. `season` is copied straight
-  // through because staff may be pinned to a season the switcher set.
+  // ⛔ Rebuilt from `selected` too: a view link passing an unknown slug would claim a filter the list
+  // lacks. `season` is copied through for staff pinned to a season by the switcher.
   const viewQuery = new URLSearchParams();
   if (selected) viewQuery.set("team", selected.slug);
   if (manageCtx && seasonParam) viewQuery.set("season", seasonParam);
 
-  // Resolved once for the whole render — the groups below and three
-  // `GroupedGames` all ask, and the answer cannot change mid-render.
   const today = leagueToday();
 
-  /**
-   * A game whose night has passed, in the league's zone.
-   *
-   * ⚠️ THE LEAGUE'S CALENDAR DATE, NOT `Date.parse(...) < Date.now()`. A game
-   * at 21:40 is not "past" at 22:00 the same evening — it is tonight's, and
-   * the scoresheet is being filled in. Comparing date keys is what makes
-   * "yesterday" mean yesterday.
-   */
-  const isPast = (g: GameWithTeams) =>
-    !!g.scheduled_at && leagueDateKey(g.scheduled_at) < today;
+  // ⚠️ The league's calendar date, not `Date.parse(...) < Date.now()`: a 21:40 game is still tonight's at
+  // 22:00, while its scoresheet is being filled in.
+  const isPast = (g: GameWithTeams) => isPastGame(g, today);
 
-  // Anchor on "now": what still needs a score, then what is coming, then what
-  // has been played — instead of opening at the season's start.
-  //
-  // ⛔ UPCOMING IS FUTURE-OR-TODAY, NOT MERELY "NOT FINAL". It used to be
-  // everything that was neither final nor cancelled, so a game nobody had
-  // scored sat under "Upcoming" for the rest of the season, getting further
-  // into the past. OBHL had three of them the day this changed.
+  // ⛔ Upcoming is future-or-today, not merely "not final", or an unscored game sits under Upcoming for
+  // the rest of the season.
   const upcoming = games.filter(
     (g) => g.status !== "final" && g.status !== "cancelled" && !isPast(g),
   );
-  /**
-   * Played, or at least due, and still without a result.
-   *
-   * ⛔ SHOWN TO EVERYONE, AND FIRST. It is the only part of this page anybody
-   * has to act on, and it is honest to a visitor about a game having happened
-   * — which "it quietly left Upcoming" is not. Scorekeepers and managers get
-   * the button on each row that clears it; for everyone else it reads as "no
-   * result yet", which is the truth.
-   *
-   * ⚠️ Cancelled is excluded: a cancelled game is not awaiting anything, and
-   * it has its own section below for the people who can restore it.
-   */
+  // ⛔ Played and still without a result, shown to everyone and first: the only part anyone must act on.
+  // Cancelled is excluded; it has its own section.
   const awaitingScore = games.filter(
     (g) => g.status !== "final" && g.status !== "cancelled" && isPast(g),
   );
@@ -248,39 +173,23 @@ export default async function SchedulePage({
   const upcomingGroups = groupByDate(upcoming);
   const resultGroups = groupByDate(results);
 
-  // ⛔ Cancelled games are in NEITHER group above — not upcoming, not final —
-  // which is right for a visitor and was a regression for everyone else.
-  // `/manage/score` listed `getSchedule()` unfiltered, so a manager found a
-  // cancelled game there and clicked through to restore it. Absorbing that list
-  // into this page removed the only route to `restoreGame` while leaving the
-  // ability in place, and `game-row.tsx`'s `cancelled → "Manage"` label became
-  // unreachable — the tell that the button had nothing left to sit on.
-  //
-  // Shown only to someone who can act on them: to a visitor a cancelled game is
-  // noise, and acting on it is the whole reason this section exists.
+  // ⛔ Cancelled games are in neither group above, and this list is the only route to `restoreGame`.
+  // Shown only to someone who can act on them.
   const cancelled = canScore
     ? groupByDate(games.filter((g) => g.status === "cancelled"))
     : [];
 
-  // ⛔ `canManageLeague`, NOT `canScore`. This page is shared — see the note in
-  // the header about the one-off button that was deliberately kept off it,
-  // because `canScore` admits scorekeepers, who cannot reach the builder. The
-  // edit panel is the same trap: drawing it on `canScore` would offer two of
-  // three entitled roles a control their own guard refuses.
+  // ⛔ `canManageLeague`, not `canScore`: `canScore` admits scorekeepers, so an edit panel drawn on it
+  // would offer them a control their own guard refuses.
   const canManage = await canManageLeague(resolved.id);
-  // ⛔ THE AWAIT IS GATED, NOT JUST THE JSX. This page is public and most of its
-  // traffic is anonymous; an unconditional read here would bill every visitor
-  // for a query only a manager can act on. `(public)/teams/[slug]/page.tsx`
-  // makes the same point about the roster editor's four reads.
+  // ⛔ The await is gated, not just the JSX: most traffic is anonymous and must not pay for this read.
   const openNights = canManage
     ? (await getSeasonNights(ctx.season.id)).filter((n) => !n.locked)
     : [];
   const editable: EditableGame[] = canManage
     ? games
-        // ⛔ `=== "scheduled"`, not `!== "final"`. Cancelled games keep their date,
-        // so the looser test offered them here while the write path refused
-        // them — a picker full of choices that always failed. Postponed games
-        // have no date and were already excluded.
+        // ⛔ `=== "scheduled"`, not `!== "final"`: cancelled games keep their date, and the write path
+        // refuses them. Postponed games have no date.
         .filter((g) => g.status === "scheduled" && g.scheduled_at)
         .map((g) => ({
           id: g.id,
@@ -301,27 +210,11 @@ export default async function SchedulePage({
         {manageCtx ? <SeasonSwitcher ctx={manageCtx} /> : null}
         <ScheduleFilter teams={teams} value={selected?.slug} />
         {/*
-          `/manage/score`'s header also held a "Schedule a one-off game" button,
-          and it is deliberately NOT carried here. `canScore` admits
-          scorekeepers, who cannot reach the builder at all, so drawing it on
-          this shared page would offer two of the three entitled roles a control
-          their own guard refuses. It stays where it belongs and is still
-          reachable: the Schedule Builder page links to it twice.
+          No one-off button here: `canScore` admits scorekeepers, who cannot reach the builder.
         */}
         {/*
-          ⚠️ BOTH DOWNLOADS CARRY THE TEAM FILTER, and they must keep carrying
-          it. Until they did, the list narrowed to the selected team and the two
-          buttons kept pointing at the bare season, so "pick a team, download"
-          returned all six teams' games — and the .ics dropped a whole season
-          into a calendar someone had filtered a single team out of.
-
-          The rule these replaced said the export was "always the full season"
-          because a filtered file could not show which state produced it. That
-          objection is answered rather than ignored: the routes put the team in
-          the filename and in the calendar's name, so the file says whose
-          schedule it is without the page being present to explain it. Restoring
-          the unfiltered link would reopen the bug; dropping the naming would
-          reopen the objection.
+          ⚠️ Both downloads must carry the team filter, or "pick a team, download" returns every team's
+          games; the routes name the team in the file (`RUNBOOK.md` → Schedule edits and exports).
         */}
         <Button asChild variant="outline" size="sm">
           <Link href={`/api/schedule/${ctx.season.id}${exportQuery}`}>
@@ -355,17 +248,8 @@ export default async function SchedulePage({
                 teams={teams.map((t) => ({ id: t.id, name: t.name }))}
               />
               {/*
-                ⛔ THE ONE CONTROL A STARTED SEASON HAD ONLY IN THE BUILDER.
-                Once `season_is_started` trips, generate / replace / remove are
-                gone for good and this page is the whole surface — but moving a
-                night lived on the builder alone until 2026-09-11, so the tool
-                a locked season most needs was the one furthest from the games.
-
-                ⚠️ GATED ON THE SEASON HAVING GAMES, NOT ON HAVING MOVABLE ONES.
-                `RescheduleNightForm` says so itself when every night is behind
-                us; hiding the card instead would take the explanation away at
-                the moment it is the answer. Same call the builder makes with
-                `liveCount > 0`.
+                ⛔ Moving a night belongs here: once `season_is_started`, this page is a manager's whole surface.
+                ⚠️ Gated on the season having games, not movable ones: the form explains when none are left.
               */}
               <div className="space-y-2 rounded-lg border p-3">
                 <h3 className="text-sm font-semibold">Move a game night</h3>
@@ -375,20 +259,14 @@ export default async function SchedulePage({
                     date: n.date,
                     games: n.games.length,
                   }))}
-                  // Computed on the SERVER in the league's zone — see the
-                  // prop's own note for why the browser's clock will not do.
+                  // Server-side in the league's zone: the browser's clock is a day off for anyone travelling.
                   minDate={today}
                   maxDate={ctx.season.ends_on ?? null}
                 />
               </div>
 
               {/*
-                The other two in-season tools, reachable from where a manager
-                actually looks at games. ⚠️ They are NOT removed from the
-                builder: its locked card names them as the things still
-                possible once generate/replace/remove are gone, which is the
-                one place that message belongs. Reachable from both, hidden in
-                neither.
+                ⚠️ Also linked from the builder's locked card, which names them as what is still possible.
               */}
               <p className="text-muted-foreground text-sm">
                 Bigger changes:{" "}
@@ -411,11 +289,8 @@ export default async function SchedulePage({
           ) : null}
 
           {/*
-            ⛔ THE VIEW ROW IS BELOW THE MANAGER BLOCK, NOT ABOVE IT. Those
-            tools — the edit panel, moving a night, repair and one-off — act on
-            the season, not on whichever list is showing, so putting them
-            inside a view would hide two thirds of a manager's controls behind
-            a link and make them appear to move when the list changed.
+            ⛔ The view row stays below the manager block: those tools act on the season, not on the list
+            showing, and inside a view they would hide behind a link.
           */}
           <ScheduleViews
             league={slug}
@@ -425,12 +300,8 @@ export default async function SchedulePage({
           />
 
           {/*
-            ⛔ `resolveScheduleView` CANNOT RETURN `pending` WHEN THE LIST IS
-            EMPTY — it does not know the count — so this view has to survive
-            being asked for with nothing in it. A stale link, or a bookmark
-            made while games were outstanding, lands here after somebody
-            scored them; an empty state says so, where an absent section would
-            read as a broken page.
+            ⛔ `resolveScheduleView` does not know the count, so `pending` must survive being empty (a stale
+            link): an empty state, where an absent section would read as a broken page.
           */}
           {view === "pending" ? (
             <section className="space-y-4">
@@ -444,9 +315,8 @@ export default async function SchedulePage({
                     {awaitingScore.length === 1 ? "" : "s"} played with no
                     result recorded yet.
                   </p>
-                  {/* Most recent first: the night just gone is the one being
-                      chased, and an older one is a bigger problem the further
-                      down it sits. */}
+                  {/* Most recent first: the night just gone is the one being chased,
+                      and an older one is a bigger problem the further down it sits. */}
                   <GroupedGames
                     groups={awaitingGroups}
                     league={slug}
@@ -477,11 +347,8 @@ export default async function SchedulePage({
               </section>
 
               {/*
-                ⛔ CANCELLED BELONGS WITH UPCOMING, NOT WITH RESULTS. A
-                cancelled game is a fixture that is not happening — it has no
-                result to file under — and this section is the only route to
-                `restoreGame` (`7fda0e3`, and `05-scoring-night` reaches it through
-                here). Filing it under Results would lose that a second time.
+                ⛔ Cancelled belongs with Upcoming, not Results: it has no result, and this section is the
+                only route to `restoreGame`.
               */}
               {cancelled.length > 0 ? (
                 <section className="space-y-4">

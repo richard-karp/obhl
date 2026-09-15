@@ -2,47 +2,20 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-/**
- * Convention guard, not a bug detector — a sibling of `revalidate-paths.test.ts`.
- *
- * Access control is now two questions: the role says what an account may do,
- * membership (`profile_leagues`) says which leagues it may do it in. The second
- * one is easy to forget, and forgetting it fails *open*: the page renders, the
- * action writes, and every existing test still passes, because the suite signs
- * in as a manager who belongs to every league.
- *
- * The e2e suite proves the guards that a browser can reach. It cannot reach a
- * server action with an id from another league — that needs a hand-made POST —
- * so this is what stands behind those: a new action wired to the role-only
- * guards is a test failure rather than a silent hole.
- */
+// Every action and manage page must ask the membership question: forgetting it fails open, and
+// e2e cannot send the hand-made cross-league POST that would show it.
 const ACTIONS_DIR = join(process.cwd(), "src/lib/actions");
 const MANAGE_DIR = join(process.cwd(), "src/app/[league]/(manage)");
 
-/**
- * Files allowed to use the role-only guards, with the count they may use, so
- * adding one more still fails. Only league *creation* qualifies: it is the
- * single act with no league to be a member of yet. The importer grants the
- * creating manager membership as its first write instead, and
- * `previewEsportsdeskImport` only fetches an external URL and writes nothing.
- */
+// Files allowed role-only guards, with a count so one more still fails. Only league creation
+// qualifies: there is no league to be a member of yet.
 const ROLE_ONLY_ALLOWED: Record<string, number> = {
   "import.ts": 1,
-  // runRosterOnlyImport creates the league it would otherwise be guarded
-  // against, so there is no membership to check yet; it grants the creating
-  // manager membership itself, as its first write after the league exists.
   "import-rosters.ts": 1,
 };
 
-/**
- * What counts as reaching a guard.
- *
- * Not every action calls one directly: six of them go through a wrapper that
- * resolves the league first and then guards, so the wrappers are listed too.
- * **A new wrapper must be added here**, or the actions behind it read as
- * unguarded — and the fix for that failure is to check the wrapper actually
- * guards, not to add the name reflexively.
- */
+// Guards, plus the wrappers that resolve a league and then guard. Check that a new wrapper
+// really guards before listing it: a listed name is trusted.
 const GUARD_CALLS = [
   "requireLeagueManager(",
   "requireLeagueManagerOf(",
@@ -51,33 +24,17 @@ const GUARD_CALLS = [
   "requireGameRole(",
   // schedule.ts — resolves the season's league, then requireLeagueManager.
   "targetSeasonForManager(",
-  // schedule-edits.ts — resolves the game's league, then requireLeagueRole with
-  // "league_manager" alone. Same shape as `requireGameRole` above; these edits
-  // are manager-only by design, so the helper hard-codes the role rather than
-  // taking it from the caller.
+  // schedule-edits.ts — resolves the game's league, then requireLeagueRole("league_manager").
   "managerOfGame(",
 ];
 
-/**
- * Actions with no league to be guarded against, and why. Anything not listed
- * here has to reach a guard.
- */
+// Actions with no league to be guarded against, and why. Anything not listed must reach a guard.
 const NO_LEAGUE_ACTIONS: Record<string, string> = {
   "auth.ts:sendMagicLink": "sign-in happens before any league is known",
   "auth.ts:sendPasswordReset": "sign-in happens before any league is known",
   "auth.ts:signInWithPassword": "sign-in happens before any league is known",
-  // Writes through the caller's OWN session via `auth.updateUser`, so the
-  // session is the authorisation. No league is known at this point, and there
-  // is no role to check: a captain resetting their own password is the case.
   "auth.ts:updateOwnPassword":
     "sets the caller's own password; touches no league data",
-  // Ends the caller's OWN session, so the session is the authorisation and
-  // there is nothing to be a member of. It does now read `leagues` — one
-  // `resolveLeagueBySlug` to turn the posted sign-out slug into a redirect
-  // target. That read is through RLS on a request whose session has just been
-  // ended, and its whole purpose is to REFUSE a slug the viewer cannot resolve.
-  // ⚠️ It selects `*` and gets the whole row; only `.slug` is read from it, and
-  // nothing is rendered. A guard here would have nothing left to guard.
   "auth.ts:signOut":
     "ends the caller's own session; its one league read goes through RLS and only its slug is used, to validate the redirect target",
   "auth.ts:devSignIn": "sign-in happens before any league is known",
@@ -85,29 +42,17 @@ const NO_LEAGUE_ACTIONS: Record<string, string> = {
     "fetches an external URL and writes nothing",
   "import-rosters.ts:runRosterOnlyImport":
     "creates the league it would be guarded against",
-  // The office is instance-wide and belongs to no league, so there is no league
-  // to be a member of. These are NOT unguarded: both call `requireCommissioner`,
-  // and the test below insists on it, so this allowlist cannot become a way in.
+  // No league, but not unguarded: the test below requires `requireCommissioner` in each, so
+  // this list cannot become a way in.
   "office.ts:appointDeputy": "no league; guarded by requireCommissioner",
   "office.ts:removeDeputy": "no league; guarded by requireCommissioner",
   "office.ts:setStaffPassword": "no league; guarded by requireCommissioner",
 };
 
-/**
- * The office's own guard, since the league one does not apply to it.
- *
- * Without this, listing an action in `NO_LEAGUE_ACTIONS` would exempt it from
- * every check in this file — and the next office action added would only have to
- * be named there to pass with no guard at all. "Has no league" must not be
- * allowed to mean "needs no guard".
- */
+// The office's own guard check, so that "has no league" cannot mean "needs no guard".
 const OFFICE_ACTIONS_FILE = "office.ts";
 
-/**
- * Any of these means the file asked the league question. Anchored on `await`
- * so an import left behind by a deleted guard cannot satisfy the check — it is
- * still a text match, not a call graph, but it has to be a call.
- */
+// Anchored on `await`, so an import left behind by a deleted guard cannot satisfy it.
 const LEAGUE_GUARDS =
   /await require(LeagueManager|LeagueManagerOf|LeagueRole)\(|await isLeagueMember\(/;
 
@@ -129,14 +74,8 @@ function managePages(dir = MANAGE_DIR, out: string[] = []): string[] {
 const countRoleOnly = (src: string) =>
   (src.match(/requireManager\(\)|requireRole\(/g) ?? []).length;
 
-/**
- * Every `export async function` in an actions file, with its body.
- *
- * Split on the next export, so a non-exported helper defined between two
- * actions is attributed to the one above it. That can only ever make an
- * unguarded action look guarded, never the reverse — worth knowing, and worth
- * not putting a guard call in such a helper.
- */
+// Split on the next export, so a helper between two actions counts toward the one above: never
+// put a guard call in such a helper, or an unguarded action reads as guarded.
 function exportedActions(file: string): { id: string; body: string }[] {
   const src = readFileSync(join(ACTIONS_DIR, file), "utf8");
   return src
@@ -161,9 +100,6 @@ describe("league-scoped guards", () => {
   });
 
   it("reaches a league guard from every action that has a league", () => {
-    // The check the two roster bugs needed. Its predecessor only asked whether
-    // a file used the OLD guards, so an action added with no guard at all —
-    // the likelier mistake now that the old ones are nearly gone — passed.
     const unguarded = actionFiles()
       .flatMap(exportedActions)
       .filter(({ id, body }) => {

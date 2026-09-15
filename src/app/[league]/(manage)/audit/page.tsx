@@ -26,10 +26,8 @@ export default async function AuditLogPage({
   const cookieStore = await cookies();
   const currentSessionId = cookieStore.get("audit_session")?.value ?? null;
 
-  // League Office changes, as a band rather than rows in this log. They carry no
-  // league — one act reaches all of them — so the query below cannot see them
-  // and should not: a manager would get N rows about people who never worked
-  // here, none of which they can act on.
+  // League Office changes carry no league, so the query below cannot see them and should not: they show
+  // as a band, not as rows about people who never worked here.
   const officeLog = await recentOfficeAudit(5);
 
   const { data: rows } = await admin
@@ -56,7 +54,6 @@ export default async function AuditLogPage({
     );
   }
 
-  // --- Resolve user display names ---
   const userIds = [
     ...new Set(
       rows.map((r) => r.user_id).filter((id): id is string => id != null),
@@ -73,10 +70,7 @@ export default async function AuditLogPage({
     );
   }
 
-  // --- Resolve player names for team_player entries ---
-
-  // Step 1: for toggle_captain / update_player_status, entity_id is a team_player row —
-  // look up the player_id from team_players (rows still exist; we're only updating).
+  // For toggle_captain / update_player_status, entity_id is a team_player row: look up its player_id.
   const lookupByTeamPlayer = [
     ...new Set(
       rows
@@ -94,9 +88,7 @@ export default async function AuditLogPage({
 
   const tpToPlayerMap = new Map<string, string>(); // team_player_id → player_id
   if (lookupByTeamPlayer.length) {
-    // No `left_on` filter: the log is history, and this only turns a row id
-    // recorded in an old entry into a name. A departed row is precisely the
-    // kind the log is most likely to be asking about.
+    // No `left_on` filter: the log is history, and a departed row is what it most likely asks about.
     const { data: tps } = await admin
       .from("team_players")
       .select("id, player_id")
@@ -104,7 +96,7 @@ export default async function AuditLogPage({
     for (const tp of tps ?? []) tpToPlayerMap.set(tp.id, tp.player_id);
   }
 
-  // Step 2: collect player_ids embedded in new_data/old_data (add_player, remove_player)
+  // Player ids in new_data/old_data, from every action (add_player, remove_player, transfer_player).
   const directPlayerIds: string[] = [];
   for (const r of rows) {
     const nd = r.new_data as Record<string, unknown> | null;
@@ -113,7 +105,6 @@ export default async function AuditLogPage({
     if (typeof od?.player_id === "string") directPlayerIds.push(od.player_id);
   }
 
-  // Step 3: batch query players
   const allPlayerIds = [
     ...new Set([...directPlayerIds, ...tpToPlayerMap.values()]),
   ];
@@ -128,7 +119,6 @@ export default async function AuditLogPage({
     );
   }
 
-  // Combined: team_player_id → display name
   const tpNameMap = new Map<string, string>();
   for (const [tpId, playerId] of tpToPlayerMap) {
     const name = playerNameMap.get(playerId);
@@ -137,7 +127,6 @@ export default async function AuditLogPage({
 
   type AuditRow = NonNullable<typeof rows>[0];
 
-  // --- Compute display label per entry ---
   function entryLabel(r: AuditRow): string {
     const nd = r.new_data as Record<string, unknown> | null;
     const od = r.old_data as Record<string, unknown> | null;
@@ -148,10 +137,8 @@ export default async function AuditLogPage({
         return "Reopened game";
       case "save_rules":
         return "Updated league rules";
-      // Season, announcement, logo and import entries name their subject from
-      // their own payload for the same reason the staff ones do: the entity id
-      // is a season or a league, not the thing that changed, and for the
-      // destructive ones the row it would name is gone.
+      // Named from their own payload: the entity id is a season or league, not the thing that changed,
+      // and a destructive entry's row is gone.
       case "create_season":
         return `Created season ${typeof nd?.name === "string" ? nd.name : ""}`.trim();
       case "set_active_season": {
@@ -228,11 +215,8 @@ export default async function AuditLogPage({
           ? `Made ${name ?? "player"} captain`
           : `Removed captain from ${name ?? "player"}`;
       }
-      // The four roster/player entries added with the editing tools. Each names
-      // its subject from its OWN payload, like the staff entries above and for
-      // the same reason: `update_player_name` and the archive pair carry a
-      // PLAYER id, which the two lookups above (team_player ids, and player ids
-      // read out of add/remove payloads) do not resolve.
+      // Named from their own payload: `update_player_name` and the archive pair carry a player id, which
+      // the lookups above do not resolve.
       case "update_roster_player": {
         const who = typeof nd?.name === "string" ? nd.name : "a player";
         const num =
@@ -252,28 +236,15 @@ export default async function AuditLogPage({
         const who = typeof nd?.name === "string" ? nd.name : "a player";
         return `Restored ${who} to this league`;
       }
-      // ⚠️ The half-failed transfer, and the entry `movePlayerToTeam` calls "the
-      // only way anyone finds out what reached the database". It fell through to
-      // `default` and rendered as the bare string "transfer player partial".
+      // ⚠️ The half-failed transfer: the only record of what reached the database, so it must say so.
       case "transfer_player_partial": {
         const pid = typeof od?.player_id === "string" ? od.player_id : null;
         const who = (pid ? playerNameMap.get(pid) : undefined) ?? "a player";
         return `Transfer of ${who} FAILED part-way — they were released from their old team but not added to the new one`;
       }
       case "transfer_player": {
-        // `new_data.name` is only written on the add-form path; `transferPlayer`
-        // passes no label.
-        //
-        // ⛔ `playerNameMap` VIA `old_data`, NOT `tpNameMap`. `tpNameMap` is
-        // built from `lookupByTeamPlayer`, which filters to four actions —
-        // toggle_captain, update_player_status and their two reverts — and
-        // `transfer_player` is not one of them. Reading it here resolved a name
-        // only when the same roster row happened to appear under one of those
-        // four inside the same 500-row window, which is to say almost never.
-        // `movePlayerToTeam` writes the whole `team_players` row into
-        // `old_data`, and step 2 above harvests `old_data.player_id` from every
-        // row regardless of action — so the name is already in `playerNameMap`,
-        // which is the map `remove_player` reads for exactly this reason.
+        // ⛔ `playerNameMap` via `old_data`, not `tpNameMap`, which covers four other actions only.
+        // `new_data.name` is written only on the add-form path.
         const pid = typeof od?.player_id === "string" ? od.player_id : null;
         const who =
           (typeof nd?.name === "string" ? nd.name : null) ??
@@ -302,7 +273,6 @@ export default async function AuditLogPage({
     }
   }
 
-  // --- Determine if an entry can be reverted ---
   function isRevertible(r: AuditRow): boolean {
     const nd = r.new_data as Record<string, unknown> | null;
     const od = r.old_data as Record<string, unknown> | null;
@@ -323,7 +293,6 @@ export default async function AuditLogPage({
     }
   }
 
-  // --- Group entries by session_id ---
   const sessionMap = new Map<string, typeof rows>();
   for (const row of rows) {
     const key = row.session_id ?? "__none__";

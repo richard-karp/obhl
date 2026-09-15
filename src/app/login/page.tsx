@@ -7,31 +7,16 @@ import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "Staff sign in" };
 
-// Manager/Scorekeeper/Captain belong to every seeded league. The two One-league
-// accounts are confined to one, and that is the point of them — without an
-// account that cannot reach every league, a guard that checks membership and a
-// guard that checks nothing behave identically. Commissioner and Deputy hold an
-// office tier instead, which reaches every league WITHOUT a membership row, and
-// No-league mgr holds neither, so it is the only one every league-scoped guard
-// turns away. WHICH league each is confined to is the seed script's business,
-// not this file's: nothing here should know what leagues exist.
-//
-// ⚠️ Counting phrases go stale here — this said "the first three… the last two"
-// while there were seven accounts. Name the roles, not the positions.
+// ⚠️ Each account drives a different guard path (`RUNBOOK.md` → Seed and fixtures). Name roles, not
+// positions or counts, and never which league: that is the seed script's business.
 const DEV_ACCOUNTS = [
   { label: "Manager", email: "manager@obhl.test" },
   { label: "Scorekeeper", email: "scorekeeper@obhl.test" },
   { label: "Captain", email: "captain@obhl.test" },
   { label: "One-league mgr", email: "single-league-lead@obhl.test" },
   { label: "One-league scorer", email: "single-league-scorer@obhl.test" },
-  // Commissioner and Deputy: the League Office. Neither belongs to any league —
-  // the tier reaches every league without a membership row — so they are the
-  // only way to drive implicit membership from a browser.
   { label: "Commissioner", email: "commissioner@obhl.test" },
   { label: "Deputy", email: "deputy@obhl.test" },
-  // No-league mgr: the role and no league at all — no membership row and no
-  // office tier, so every league-scoped guard turns them away. The account that
-  // can only create a league, which is what it is here to drive.
   { label: "No-league mgr", email: "no-league-mgr@obhl.test" },
 ];
 
@@ -79,12 +64,7 @@ export default async function LoginPage({
               Quick sign-in (test mode)
             </p>
             {/*
-              `flex-wrap`: eight accounts of `flex-1` buttons no longer fit one
-              row inside this card, and without it the row overflows its border
-              rather than wrapping. Dev-only, and no spec measures this page's
-              width — but horizontal overflow is treated as a real defect
-              elsewhere in this repo, so it is not left for the ninth account to
-              make worse.
+              `flex-wrap`: the `flex-1` account buttons no longer fit one row, and would overflow the card.
             */}
             <div className="flex flex-wrap gap-2">
               {DEV_ACCOUNTS.map((a) => (

@@ -1,10 +1,6 @@
 /**
- * Same-name player detection for the merge review.
- *
- * esportsdesk carries only names, so a roster-only import creates a fresh
- * `players` row per team appearance: one person on two teams arrives as two
- * records. Two real people also genuinely share a name, which is why this
- * reports candidates for a human to judge rather than merging anything.
+ * Candidates for a human to judge, never merged here: an import creates a `players` row per team
+ * appearance, and two real people can share a name.
  */
 
 export type DuplicateCandidate = {
@@ -17,48 +13,29 @@ export type DuplicateCandidate = {
   jerseyNumber: number | null;
   position: "F" | "D" | "G";
   /**
-   * `team_players.left_on`, when the caller has it. Display only — nothing here
-   * reads it, and a departed appearance still counts toward a cluster, because
-   * a person who left a team is exactly as likely to be someone's duplicate as
-   * one who stayed. Optional so the pure tests need not carry it; the review
-   * page passes it so the operator can tell a transfer from two people.
+   * Display only: a departed appearance still counts toward a cluster, since it is as likely to be
+   * a duplicate. The review page passes it so a transfer can be told from two people.
    */
   leftOn?: string | null;
 };
 
 export type DuplicateCluster = { key: string; members: DuplicateCandidate[] };
 
-/**
- * The importer's matching rule, so a name that matched there matches here.
- * Mirrored rather than imported: it lives in `src/lib/actions/import.ts`, a
- * "use server" module, where every export has to be an async function.
- */
 const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 /** `a|b` with the ids ordered, matching `0035`'s `check (player_a < player_b)`. */
 const pairKey = (x: string, y: string) => (x < y ? `${x}|${y}` : `${y}|${x}`);
 
 /**
- * Group roster rows into clusters of records that may be the same person.
- *
- * A cluster needs two or more *distinct* player ids: one player listed on two
- * teams is one player, not a duplicate. A cluster disappears only when every
- * pair inside it has been dismissed — dismissing a–b out of {a,b,c} leaves a–c
- * and b–c unjudged, so the cluster stays.
- *
- * `members` holds every matching ROW, not one per player, so a record rostered
- * on two teams appears twice in its cluster. That is deliberate: the review UI
- * shows each appearance with its team, jersey and position, which is most of
- * what the operator judges "same person or not" on. Anything counting players
- * rather than appearances has to de-duplicate on `playerId` first.
+ * A cluster needs two distinct player ids and stays until every pair in it is dismissed. `members`
+ * holds every matching ROW: to count players, de-duplicate on `playerId` first.
  */
 export function findDuplicateClusters(
   rows: DuplicateCandidate[],
   dismissed: ReadonlyArray<readonly [string, string]> = [],
 ): DuplicateCluster[] {
-  // Normalized here, not at the call site: a caller passing a pair in the other
-  // order would otherwise match nothing, and every cluster would reappear with
-  // the dismissal table quietly filling up behind it.
+  // Normalized here: a pair passed in the other order would match nothing, and dismissed
+  // clusters would reappear.
   const dismissedPairs = new Set(dismissed.map(([x, y]) => pairKey(x, y)));
 
   const byName = new Map<string, DuplicateCandidate[]>();

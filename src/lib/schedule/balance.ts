@@ -1,22 +1,7 @@
 import { leagueDateKey } from "@/lib/format";
 
-/**
- * The two numbers a manual schedule edit may never change.
- *
- * ⛔ THE USER'S CONSTRAINT, AND THE REASON THIS MODULE EXISTS: "Total games
- * played and games per night are non-negotiable. Those numbers always have to
- * be even" — even meaning EQUAL, confirmed before the design was written. Follow
- * it through and most edits cannot exist as stated: replacing team B with C
- * leaves B a game short forever; moving a game to another night robs the night
- * it left. Only trades preserve both counts, which is why every operation in
- * `schedule-edits.ts` is a trade.
- *
- * ⚠️ WHAT IS ENFORCED IS PRESERVATION, NOT GLOBAL EQUALITY. A season may
- * legitimately hold an uneven night — a short final week, a rink that gave up
- * two sheets instead of three. An edit must not be refused for an imbalance it
- * did not cause, so the rule is "these counts are what they were", never "these
- * counts are all the same". See the design doc, 2026-09-07.
- */
+/** ⛔ The user's rule: games per team and per night never change, so every edit is a trade.
+ *  ⚠️ Enforced as preservation, not equality: a season may already hold an uneven night. */
 export type BalanceRow = {
   id: string;
   home_team_id: string;
@@ -32,14 +17,8 @@ export type Counts = {
   perNight: Map<string, number>;
 };
 
-/**
- * A game still on the ice.
- *
- * ⛔ POSTPONED AND CANCELLED GAMES ARE NOT ON A NIGHT. Postponing a game takes
- * it off its night — that is what postponing IS — so counting it would make
- * restoring one read as an edit that unbalanced the schedule, and the invariant
- * would refuse the single operation that recovers from a rink closure.
- */
+/** ⛔ Postponed and cancelled games are not on a night: counting them makes restoring one read
+ *  as an unbalancing edit, refusing the one recovery from a rink closure. */
 const onIce = (r: BalanceRow) => r.status === "scheduled";
 
 export function countsFor(rows: BalanceRow[]): Counts {
@@ -47,10 +26,8 @@ export function countsFor(rows: BalanceRow[]): Counts {
   const perNight = new Map<string, number>();
 
   for (const r of rows) {
-    // ⚠️ ASYMMETRY, AND IT IS DELIBERATE. A postponed game still counts toward
-    // a team's TOTAL, because it is still a game they owe. Dropping it here
-    // would let a manager postpone a game, trade it away, and finish the season
-    // a game short with every check green.
+    // ⚠️ Deliberate asymmetry: a postponed game still counts toward a team's total, or a manager
+    // could postpone it, trade it away, and end a game short with every check green.
     bump(perTeam, r.home_team_id);
     bump(perTeam, r.away_team_id);
 
@@ -65,13 +42,7 @@ function bump(m: Map<string, number>, k: string) {
   m.set(k, (m.get(k) ?? 0) + 1);
 }
 
-/**
- * `null` when the edit changed neither number, otherwise the first difference in
- * words a manager can act on.
- *
- * The message names the thing that moved and both numbers, because "that would
- * unbalance the schedule" tells a manager nothing about what to do instead.
- */
+/** `null` when neither count moved, else the first difference, with both numbers. */
 export function preserved(
   before: Counts,
   after: Counts,

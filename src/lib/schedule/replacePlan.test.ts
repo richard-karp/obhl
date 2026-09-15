@@ -23,11 +23,7 @@ const at = (day: number, hour = 19) =>
   `2027-01-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:00:00-05:00`;
 
 describe("candidatesFor", () => {
-  /**
-   * The shape of the whole feature: "replace B with C in g1" is only legal if C
-   * gives B its place somewhere else. Anything else leaves B a game short and C
-   * a game long, forever.
-   */
+  /** "Replace B with C in g1" is legal only if C gives B its place somewhere else. */
   it("offers the games where the arriving team can hand its place back", () => {
     const rows = [
       row("g1", "A", "B", at(5)),
@@ -79,11 +75,6 @@ describe("candidatesFor", () => {
     expect(candidatesFor(rows, "g1", "B", "C")).toEqual([]);
   });
 
-  /**
-   * A manager fixing one week's matchup wants the nearest trade, not one in
-   * April — the further the partner game, the more of the season the change
-   * ripples through.
-   */
   it("orders candidates by closeness to the game being edited", () => {
     const rows = [
       row("g1", "A", "B", at(15)),

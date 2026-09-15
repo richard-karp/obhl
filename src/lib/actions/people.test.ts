@@ -1,11 +1,5 @@
-/**
- * `createStaffAccount` refuses a linked player before it creates any login
- * unless every league that player is rostered in is one the manager works.
- * `is_captain_of` (0038) authorizes from `profiles.player_id` alone, so a player
- * shared with another league would hand that league's lineup writes to the new
- * account. The database and auth API are stubbed; this pins the check and its
- * order, not the writes.
- */
+// `createStaffAccount` refuses, before creating any login, a player also rostered in a league the
+// manager does not work: `is_captain_of` (0038) trusts `profiles.player_id` alone.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const createUser = vi.fn();

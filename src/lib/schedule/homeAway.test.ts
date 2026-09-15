@@ -37,11 +37,8 @@ describe("assignHomeAway", () => {
   });
 
   it("escapes the local optimum a strict descent gets stuck in", () => {
-    // Team 0 at +2 and team 2 at −2, reconciled only through team 1, which sits
-    // at 0. Flipping game i changes Σ diff² by 4·(diff[away] − diff[home] + 2),
-    // so a flip only pays when diff[home] − diff[away] > 2. Here both edges sit
-    // at exactly 2: every single flip is cost-neutral and strict descent stops.
-    // The fix is two flips — 0→1 then 1→2 — and only the kick finds it.
+    // Team 0 at +2 and team 2 at −2, reconciled only through team 1: every single flip is
+    // cost-neutral, so strict descent stops and only the kick finds the two-flip fix.
     const games: OrientableGame[] = [
       { pair: [0, 1], locked: false, current: [0, 1] },
       { pair: [0, 1], locked: false, current: [0, 1] },

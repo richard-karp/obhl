@@ -1,7 +1,3 @@
-/** Who may reach what: page guards, league scoping, and the refusals the database makes itself. */
-/**
- * Path 15: Role-based access — scorekeepers and captains blocked from manager-only routes.
- */
 import { test, expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
@@ -16,7 +12,6 @@ function admin() {
 
 type Db = ReturnType<typeof admin>;
 
-/** An anonymous visitor's client: the publishable key and no session. */
 function anonClient(): Db {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,11 +22,8 @@ function anonClient(): Db {
 
 const TOTALS_VIEWS = ["v_skater_season_totals", "v_goalie_season_totals"] as const;
 
-/**
- * The seeded captain's team, one of its scheduled games with nobody dressed
- * yet, and a skater from each side. An empty scoresheet, so a count after the
- * attempt means the attempt and nothing else.
- */
+// A scheduled game of the captain's team with an empty scoresheet, so a count after the attempt
+// means the attempt and nothing else.
 async function captainFixture(db: Db) {
   const { data: users } = await db.auth.admin.listUsers();
   const captainId = users!.users.find((u) => u.email === "captain@obhl.test")!.id;
@@ -135,7 +127,6 @@ async function leagueId(slug: string) {
   return data!.id as string;
 }
 
-/** The leagues a seeded account was actually confined to. */
 async function leaguesOf(displayName: string): Promise<string[]> {
   const db = admin();
   const { data: prof } = await db
@@ -151,14 +142,12 @@ async function leaguesOf(displayName: string): Promise<string[]> {
   return (data ?? []).map((r: any) => r.leagues.slug as string);
 }
 
-/** The single-league manager's league, and one they are not in. */
+// IN: the league the single-league manager (LEAD) or scorekeeper (SCORER) belongs to; OUT: another.
 let LEAD_IN = "";
 let LEAD_OUT = "";
-/** The same pair for the single-league scorekeeper. */
 let SCORER_IN = "";
 let SCORER_OUT = "";
 
-/** The one league an account is confined to — or a failure that names why. */
 function theOneLeague(slugs: string[], who: string): string {
   if (slugs.length !== 1) {
     throw new Error(
@@ -170,38 +159,16 @@ function theOneLeague(slugs: string[], who: string): string {
   return slugs[0];
 }
 
-/**
- * Submit and wait for the action to actually finish.
- *
- * Every assertion below is about something NOT being written, and a DB read
- * fired straight after `click()` races the action — it reads "nothing yet"
- * and the test passes whether the guard is there or not. That is how the
- * first version of these tests passed against a deliberately broken guard.
- */
+// Wait for the POST: every assertion here is about something NOT written, and a read fired straight
+// after `click()` reads "nothing yet" and passes with the guard deleted.
 async function submitAndSettle(page: Page, click: Promise<unknown>) {
   const posted = page.waitForResponse((r) => r.request().method() === "POST");
   await click;
   await posted;
 }
 
-/**
- * Point a hidden form field at something the server must refuse, and prove it
- * took before anyone submits.
- *
- * Setting `.value` on a React-rendered input before hydration lands is undone
- * when React takes over, and the form then posts its ORIGINAL value. Both ways
- * that can go have now been seen on CI and neither on a laptop, where
- * hydration always wins the race:
- *
- *  - where the original value is forbidden too, the action is refused for the
- *    wrong reason, or not at all, and the test fails somewhere confusing;
- *  - where the original value is PERMITTED — a co-manager's own Remove — the
- *    action quietly succeeds and the test passes without the attack ever
- *    happening. That one is the dangerous half: it proves nothing and says so
- *    nowhere.
- *
- * So settle, set, and assert. Never submit an unverified tamper.
- */
+// A `.value` set before hydration is undone and the form posts its ORIGINAL value; where that value
+// is permitted, the attack never happens and the test passes. So settle, set, and assert.
 async function tamper(page: Page, field: Locator, value: string) {
   await page.waitForLoadState("networkidle");
   await field.evaluate(
@@ -224,7 +191,6 @@ async function crossLeagueRosterRows(db: ReturnType<typeof admin>) {
   ).length;
 }
 
-/** A team page in the league whose form the test will tamper with. */
 async function teamRosterUrl(page: Page, slug: string) {
   await page.goto(`/${slug}/teams`);
   const href = await page
@@ -234,11 +200,7 @@ async function teamRosterUrl(page: Page, slug: string) {
   return href!;
 }
 
-/**
- * ...which for a manager IS the editor: the forms are on the page, with no
- * tab to open. Waits for the region so the tampering below cannot race the
- * server render.
- */
+// A manager's team page is the editor. Waits for the region so a tamper cannot race the render.
 async function openRosterEditor(page: Page, slug: string) {
   await page.goto(await teamRosterUrl(page, slug));
   await expect(
@@ -246,14 +208,6 @@ async function openRosterEditor(page: Page, slug: string) {
   ).toBeVisible();
 }
 
-/**
- * Path 16: per-league routing — the league lives in the URL, so a link to one
- * league is a link to that league for whoever opens it.
- *
- * Assumes both seeded leagues: `obhl` (Oceanview, 6 teams) and `harbor`
- * (Harbor Rec, 4 teams). They share no team names, which is what makes the
- * bleed test meaningful.
- */
 async function setHarborPublic(is_public: boolean) {
   const { error } = await admin()
     .from("leagues")
@@ -267,19 +221,8 @@ test.describe("Path 16 — Per-league routing", () => {
   test("a game cannot be viewed under another league's URL", async ({
     page,
   }) => {
-    // Games are addressed by id alone, so the URL's league is the only thing
-    // asserting ownership — and nothing about the id enforces it.
-    //
-    // Sourced from Harbor, not Oceanview: the manage specs all run against the
-    // cookie-default league (obhl) and 11-schedule-build regenerates its
-    // schedule, so by the time this file runs Oceanview may have no finalized
-    // game left to link to. Nothing touches Harbor.
-    //
-    // ⚠️ THE RESULTS VIEW, because only a FINAL game's row is wrapped in a
-    // `/harbor/games/<id>` link (`game-row.tsx`) and the schedule's default
-    // view is Upcoming. Harbor's four finals are all in the past, so the bare
-    // URL now offers nothing to click — it used to work only because every
-    // section was stacked on one page.
+    // Sourced from Harbor, not Oceanview: the manage specs drive obhl, and nothing touches Harbor.
+    // ⚠️ The results view: only a final game's row links (`game-row.tsx`); the default is Upcoming.
     await page.goto("/harbor/schedule?view=results");
     const href = await page
       .locator('a[href^="/harbor/games/"]')
@@ -290,11 +233,8 @@ test.describe("Path 16 — Per-league routing", () => {
     await page.goto(`/harbor/games/${gameId}`);
     await expect(page.getByRole("heading", { name: /@/ })).toBeVisible();
 
-    // Asserted on the body, not the status: `(public)/loading.tsx` puts pages
-    // inside a Suspense boundary, so the shell has already flushed as 200 by the
-    // time a page-level `notFound()` runs and only the body swaps. That is
-    // long-standing behaviour for every page-level notFound here — an unknown
-    // league slug, caught in the layout above the boundary, does return a 404.
+    // The body, not the status: `(public)/loading.tsx` flushes a 200 shell before a page-level
+    // `notFound()` runs, so only the body swaps.
     await page.goto(`/obhl/games/${gameId}`);
     await expect(page.getByText("That page couldn't be found.")).toBeVisible();
     await expect(page.getByRole("heading", { name: /@/ })).toHaveCount(0);
@@ -303,18 +243,11 @@ test.describe("Path 16 — Per-league routing", () => {
   test("a staged league is invisible to the public and open to its own people", async ({
     page,
   }) => {
-    // Private staging: a league is built before it launches. The public must
-    // see nothing; the people building it must see everything, including the
-    // public side, because those pages are becoming shared — one URL that shows
-    // the visitor a team and its manager the same team with editing on it.
-    //
-    // Both directions are asserted here because both are ways to be wrong, and
-    // they fail in opposite directions: leaking an unpublished league, or
-    // locking out the people staging one. See `lib/league/visibility.ts`.
+    // Both directions: leaking an unpublished league, or locking out the people staging it.
     await setHarborPublic(false);
     try {
-      // Anonymous: indistinguishable from a slug nobody ever took. A redirect
-      // would confirm the league exists, so this must be a 404.
+      // Anonymous: indistinguishable from a slug nobody took. A redirect would confirm the league
+      // exists, so this must be a 404.
       const anon = await page.goto("/harbor");
       expect(anon?.status()).toBe(404);
       const anonStandings = await page.goto("/harbor/standings");
@@ -322,50 +255,34 @@ test.describe("Path 16 — Per-league routing", () => {
 
       await signInAs(page, "Manager");
 
-      // A member of the league, on the public side of it: renders, chrome and
-      // all. This is the half that used to 404.
+      // A member, on the public side: renders, chrome and all.
       const asMember = await page.goto("/harbor");
       expect(asMember?.status()).toBe(200);
-      // The staff row, which is what a member's chrome is now — there is no
-      // "Manage" cross-link because there is nothing to cross to.
       await expect(
         page.getByRole("navigation", { name: "Staff tools" }),
       ).toBeVisible();
 
-      // ...including Teams, which absorbed `/manage/rosters`. That page read
-      // past RLS on purpose, and losing it in the merge would have shown a
-      // manager staging a league an empty Teams page with nothing to explain
-      // it. The public-read policies cover neither a staged league's seasons
-      // nor its teams.
+      // Teams must read past RLS: the public-read policies cover neither a staged league's seasons
+      // nor its teams, so its manager would see an empty page.
       await page.goto("/harbor/teams");
       await expect(page.getByText("No teams enrolled yet")).toHaveCount(0);
       await expect(
         page.locator('a[href^="/harbor/teams/"]').first(),
       ).toBeVisible();
 
-      // ...and the staff pages, which never depended on this rule.
       await page.goto("/harbor/dashboard");
       await expect(page).toHaveURL("/harbor/dashboard");
       await expect(page.getByRole("heading", { name: "Manage" })).toBeVisible();
 
-      // ⛔ AND THE PICKER LISTS IT, BADGED. This is the half that has no other
-      // route: `getPublicLeagues` filters `is_public`, so before the picker
-      // learned about membership a staged league appeared NOWHERE on `/` — and
-      // for a single-league manager the "Manage" cross-link this change removed
-      // pointed at exactly that league, with `LeagueSwitcher` rendering null
-      // below two leagues. Typing the URL was all that was left.
-      //
-      // The badge is asserted, not just the link: a manager who cannot tell
-      // which of their leagues the public can already see has lost the one fact
-      // staging exists to control.
+      // ⛔ The picker must list a staged league to its members, badged: `getPublicLeagues` alone hides
+      // it, and the badge is the one fact staging exists to control.
       await page.goto("/");
       const staged = page.getByRole("link", {
         name: /Harbor Rec Hockey League/,
       });
       await expect(staged).toBeVisible();
       await expect(staged).toContainText("Not yet public");
-      // Oceanview is published, so it carries no badge — the control that says
-      // the badge tracks visibility rather than merely marking every row.
+      // The control: published Oceanview carries no badge, so the badge tracks visibility.
       await expect(
         page.getByRole("link", { name: /Oceanview Beer Hockey League/ }),
       ).not.toContainText("Not yet public");
@@ -380,30 +297,16 @@ test.describe("Path 16 — Per-league routing", () => {
   test("a staged league opens for a member who is not a manager", async ({
     page,
   }) => {
-    // The case the other staged-league tests could not distinguish. Both of them
-    // use accounts that are NOT members of harbor, so they pin "non-member 404s"
-    // and would stay green if membership stopped counting at all.
-    //
-    // This scorekeeper IS a member of harbor. Before 0039 they got a 404 on the
-    // league they staff: `leagues` had no select policy covering a non-manager
-    // member, so the row never resolved and the app's own rule — which has always
-    // said yes to any member — was never reached. This is the assertion that
-    // keeps the app half and the RLS half saying the same thing.
+    // A non-manager MEMBER: without `leagues`' member read policy (0042) the row never resolves and
+    // the app's any-member rule is never reached. The other staged tests cannot tell.
     await setHarborPublic(false);
     try {
       await signInAs(page, "Scorekeeper");
 
       const res = await page.goto("/harbor");
       expect(res?.status()).toBe(200);
-      // ⚠️ THE 200 IS THE ASSERTION. This used to also check for an "All leagues"
-      // link, which lives in the site header's account cluster — and a
-      // SCOREKEEPER no longer gets that header at all: `[league]/layout` swaps it
-      // for `ScorekeeperChrome`, deliberately, because a shared account must not
-      // be offered a Password link. Keeping that check would pin chrome this role
-      // is specifically not meant to have.
-      //
-      // The page rendering rather than 404ing is what "opens for a member" means,
-      // and the staged-league guard is what this test is about.
+      // ⚠️ The 200 is the assertion. Don't check the header's account cluster: a scorekeeper gets
+      // `ScorekeeperChrome` instead, so a shared account is offered no Password link.
       await expect(page.getByRole("link", { name: /Tonight/ })).toBeVisible();
 
       // ...and they are still only a scorekeeper there: no manager affordances.
@@ -419,22 +322,14 @@ test.describe("Path 16 — Per-league routing", () => {
   test("a staged league stays 404 for a signed-in stranger to it", async ({
     page,
   }) => {
-    // Signed in is not the test — membership is. The one-league scorekeeper
-    // belongs to obhl and not to harbor, so staging harbor must look the same
-    // to them as it does to an anonymous visitor.
-    //
-    // The confinement is DERIVED, not assumed. `09-access.spec.ts`
-    // rejects hardcoding it, and if the seed ever moved this account into harbor
-    // the assertion below would fail for a reason that has nothing to do with the
-    // guard it is testing.
+    // Membership, not sign-in. The confinement is derived, not assumed: if the seed moved this
+    // account into harbor, the assertion would fail for a reason unrelated to the guard.
     expect(await leaguesOf("Single League Scorer")).not.toContain(
       "harbor",
     );
     await setHarborPublic(false);
     try {
-      // ⚠️ A SCOREKEEPER, so the landing is `/tonight`, not the picker.
-      // The label does not say "scorekeeper" anywhere, which is exactly how this
-      // one got missed when the landing changed.
+      // ⚠️ A scorekeeper (the label doesn't say so), so the landing is `/tonight`, not the picker.
       await signInAs(page, "One-league scorer");
       const res = await page.goto("/harbor");
       expect(res?.status()).toBe(404);
@@ -443,12 +338,8 @@ test.describe("Path 16 — Per-league routing", () => {
     }
   });
 
-  // ── Writes land in the league whose page issued them ──────────────────────
-  //
-  // These exist because the whole manage suite drives /obhl, which is also the
-  // league a broken resolver falls back to — so a write going to the wrong
-  // league looked identical to a correct one. Driving Harbor is what makes the
-  // difference observable.
+  // ── Writes land in the league whose page issued them. Driven on Harbor: obhl is also where a
+  // broken resolver falls back, so a wrong-league write there looks correct.
 
   test("an announcement posted in one league does not appear in the other", async ({
     page,
@@ -470,18 +361,8 @@ test.describe("Path 16 — Per-league routing", () => {
     await expect(page.getByText(title)).toHaveCount(0);
   });
 
-  // ── A manage URL's league is enforced, not decorative ─────────────────────
-  //
-  // All three of these pages look their entity up by id with the admin client,
-  // past RLS. The slug in the URL is the only thing asserting the entity belongs
-  // to the league whose nav is wrapped around it.
-
-  /** First id in the hrefs of a Harbor manage list page. */
-  /**
-   * A team slug that exists in BOTH leagues, created on demand. The seeded teams
-   * deliberately share no names, which is what makes a cross-league slug test
-   * vacuous without this.
-   */
+  // ── A manage URL's league is enforced: these pages look their entity up by id past RLS, so
+  // the slug is the only claim. A slug shared by BOTH leagues, since the seed shares no team names.
   async function sharedSlug() {
     const db = admin();
     const slug = "sharks";
@@ -536,10 +417,6 @@ test.describe("Path 16 — Per-league routing", () => {
   test("a team from another league is not reachable under this one", async ({
     page,
   }) => {
-    // The roster editor merged into the team page, so this is now a SLUG rather
-    // than a uuid — and the property is the same one: a team is addressable only
-    // under the league that owns it. `getTeamBySlug` is scoped to the league, so
-    // the foreign slug resolves to nothing rather than to somebody else's team.
     await signInAs(page, "Manager");
     const slug = await harborId(page, "/harbor/teams", "/harbor/teams/");
 
@@ -547,20 +424,14 @@ test.describe("Path 16 — Per-league routing", () => {
     expect(own?.status()).toBe(200);
     const ownName = await page.locator("h1").first().innerText();
 
-    // ⚠️ The foreign slug is not enough on its own. Harbor and Oceanview share no
-    // team names, so `/obhl/teams/anchors` resolves to nothing whether or not
-    // `getTeamBySlug` scopes by league — the test would pass with the
-    // `league_id` filter deleted. So it also uses a slug that EXISTS IN BOTH and
-    // asserts the page shows the LOCAL team, which is the property that actually
-    // needs holding: a slug names a team within its league, never across.
+    // ⚠️ Not enough alone: the leagues share no team names, so this 404s even with `getTeamBySlug`'s
+    // `league_id` filter deleted. The shared slug below catches that.
     await page.goto(`/obhl/teams/${slug}`);
     await expect(page.getByText("That page couldn't be found.")).toBeVisible();
     await expect(page.getByText(ownName, { exact: true })).toHaveCount(0);
 
-    // ⚠️ The NAMES, not merely that they differ. Two 404 headings also satisfy
-    // inequality-of-nothing, so `not.toBe` caught the dropped-`league_id`
-    // mutation only by accident: `.maybeSingle()` errors on two rows, making
-    // both sides 404 and compare EQUAL.
+    // ⚠️ Assert each page's NAME: an inequality check caught a dropped `league_id` only by accident
+    // (`.maybeSingle()` errored on two rows, and both 404s compared equal).
     const shared = await sharedSlug();
     await page.goto(`/harbor/teams/${shared}`);
     await expect(page.locator("h1").first()).toHaveText("Harbor Sharks");
@@ -572,10 +443,7 @@ test.describe("Path 16 — Per-league routing", () => {
     page,
     request,
   }) => {
-    // The one redirect in this change that has to read the database: the old URL
-    // names a team by id, the new one by slug. That lookup is also a place to
-    // leak — answering for another league's team would hand out its slug — so
-    // the id is checked against the league in the URL.
+    // The old URL names a team by id; answering for another league's team would leak its slug.
     await signInAs(page, "Manager");
     const slug = await harborId(page, "/harbor/teams", "/harbor/teams/");
     const { data: team } = await admin()
@@ -592,10 +460,8 @@ test.describe("Path 16 — Per-league routing", () => {
       new URL(moved.headers()["location"], "http://localhost").pathname,
     ).toBe(`/harbor/teams/${slug}`);
 
-    // `request.get` with no redirects, not `page.goto`: a page navigation FOLLOWS
-    // a 308, so a route that wrongly redirected to a URL that then 404s would
-    // look identical to one that refused — and a wrong redirect is exactly the
-    // leak this asserts against.
+    // `request.get` with no redirects, not `page.goto`: a navigation follows the 308, so a wrong
+    // redirect to a 404 would look like a refusal.
     const foreign = await request.get(`/obhl/rosters/${team!.id}`, {
       maxRedirects: 0,
     });
@@ -606,8 +472,6 @@ test.describe("Path 16 — Per-league routing", () => {
     page,
   }) => {
     await signInAs(page, "Manager");
-    // The list is the public schedule now, and the scoresheet nests under the
-    // game it scores.
     const id = await harborId(page, "/harbor/schedule", "/harbor/games/").then(
       (rest) => rest.replace(/\/score$/, ""),
     );
@@ -621,9 +485,7 @@ test.describe("Path 16 — Per-league routing", () => {
   });
 
   test("the audit log shows only this league's actions", async ({ page }) => {
-    // Reverting an audit entry is a write — it reopens games and restores
-    // player status — and until 0031 the log had no league at all, so every
-    // manager saw and could revert every league's entries.
+    // Reverting an audit entry is a write, so each league's log must hold only its own entries.
     const SUSPENSION = /Updated is suspended for/;
     await signInAs(page, "Manager");
 
@@ -634,17 +496,13 @@ test.describe("Path 16 — Per-league routing", () => {
     const since = new Date().toISOString();
     const teamSlug = await harborId(page, "/harbor/teams", "/harbor/teams/");
     await page.goto(`/harbor/teams/${teamSlug}`);
-    // No tab to open: the editor is on the page for a manager. Scoped to its
-    // region, because the public roster table sits above it with the same rows
-    // and none of the buttons.
+    // Scoped to the editor region: the public roster table above it has the same rows, no buttons.
     const row = page
       .getByRole("region", { name: "Manage roster" })
       .locator("table tbody tr")
       .nth(2);
-    // ⛔ THE CONTROL IS IN THE ROW'S DIALOG; THE BADGE IT SETS IS ON THE ROW.
-    // So the dialog has to be shut before the row is read — Radix marks
-    // everything behind a modal `aria-hidden`, and a badge assertion made over
-    // an open one matches nothing regardless of what the roster says.
+    // ⛔ Shut the dialog before reading the row's badge: Radix marks everything behind a modal
+    // `aria-hidden`, so the assertion would match nothing whatever the roster says.
     await row.getByRole("button", { name: "Edit" }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
@@ -683,22 +541,8 @@ test.describe("Path 16 — Per-league routing", () => {
   });
 });
 
-/**
- * One site, not two.
- *
- * There used to be two headers wearing different clothes: `SiteHeader` on the
- * public pages, offering a "Manage" cross-link, and `ManageNav` on the staff
- * pages, offering "View site". A manager therefore had a mode to be in or out
- * of, and two navigations that named the same URLs differently. Now there is one
- * header on every page under `/<league>`, with the staff link row beneath it for
- * anyone who belongs to the league.
- *
- * ⛔ THE CHROME IS NOT THE GUARD. Nothing here asserts that a page is
- * unreachable because a nav stopped pointing at it — a URL typed by hand still
- * reaches it, and the page's own `requireLeagueManager` is what refuses. The
- * last test in this file is that assertion, kept beside the chrome ones on
- * purpose: the chrome moving must not be mistaken for the guard moving.
- */
+// ⛔ The chrome is not the guard: a hand-typed URL still reaches the page, and its own guard refuses,
+// asserted by `PAGE_REFUSALS` below.
 const staffRow = (page: Page) =>
   page.getByRole("navigation", { name: "Staff tools" });
 const leagueNav = (page: Page) =>
@@ -708,17 +552,14 @@ test.describe("One chrome everywhere", () => {
   test("a manager of another league browsing this one gets no staff row", async ({
     page,
   }) => {
-    // ⚠️ MEMBERSHIP, NOT ROLE. `single-league-lead@` is a `league_manager` — the
-    // instance-wide role is the same one the Oceanview manager holds — but they
-    // belong to Harbor only. Gating the row on `user.role` would hand them
-    // Oceanview's tools, every one of which redirects them straight back out.
+    // ⚠️ Membership, not role: this account is a `league_manager` in Harbor only, so gating the row
+    // on `user.role` would hand them Oceanview's tools.
     await signInAs(page, "One-league mgr");
 
     await page.goto("/obhl");
     await expect(leagueNav(page).first()).toBeVisible();
     await expect(staffRow(page)).toHaveCount(0);
-    // Still signed in, though — the account half of the cluster is theirs
-    // wherever they are.
+    // Still signed in: the account cluster is theirs in any league.
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 
     // And the league they DO belong to still offers the row.
@@ -727,22 +568,8 @@ test.describe("One chrome everywhere", () => {
   });
 });
 
-/**
- * Path 17: per-league access control — a staff account belongs to leagues
- * (`profile_leagues`), and a role is only usable inside them.
- *
- * The rest of the suite cannot catch this class of bug. It signs in as
- * `manager@obhl.test`, who is a member of every seeded league, so a guard that
- * checks membership and a guard that checks nothing behave identically. Every
- * test here drives an account that belongs to exactly ONE seeded league.
- *
- * Which league that is, this file does not say. Its subject is "a league you
- * belong to" versus "one you do not", and those are roles in the scenario, not
- * particular leagues — so they are derived from the seeded memberships below.
- * Naming them would mean that flipping the seed's confinement leaves every test
- * here navigating to a league the account IS in and expecting a refusal, which
- * then fails for a reason that has nothing to do with the guard under test.
- */
+// Drives accounts in exactly ONE league; `manager@` is in all (`RUNBOOK.md` → Seed and fixtures).
+// Which league is derived, never named: a flipped seed would fail these for the wrong reason.
 test.describe("Path 17 — Per-league membership", () => {
   test.beforeAll(async () => {
     const { data: all } = await admin().from("leagues").select("slug");
@@ -757,7 +584,6 @@ test.describe("Path 17 — Per-league membership", () => {
     );
     LEAD_OUT = slugs.find((slug) => slug !== LEAD_IN) ?? "";
     SCORER_OUT = slugs.find((slug) => slug !== SCORER_IN) ?? "";
-    // Was the test "the fixture still has the shape these tests need".
     expect(LEAD_OUT, "need a second league to be refused from").toBeTruthy();
     expect(SCORER_OUT).toBeTruthy();
     // People & Roles compares two leagues' staff lists, which says nothing
@@ -775,36 +601,8 @@ test.describe("Path 17 — Per-league membership", () => {
     path: string;
     lands: string | RegExp;
   }[] = [
-    // A manager of another league: the role is right, the membership is not.
-    //
-    // NOT "/teams": the roster editor merged into the public team page, so a
-    // manager of another league SEES it, like `/rules`. What they must not get
-    // is the Manage tab — asserted on its own below.
-    //
-    // ⚠️ NOT the bare "/schedule", even though its own CHILDREN are listed just
-    // above — and that is not an oversight. `/score` merged into it, so the
-    // games list is public: a scorekeeper or a manager of ANOTHER league sees it
-    // like any visitor, and what they must not get is a Score button or the
-    // edit panel, asserted below. The children are manager-only pages that
-    // happen to live under a public parent, which the two route groups make
-    // possible — see `(manage)/schedule/`.
-    //
-    // ⛔ NOT "/schedule-builder" any more either. It is a redirect page now, so
-    // a manager of another league is bounced by ITS guard before the redirect
-    // runs — a refusal, but to /login-or-home rather than from the page under
-    // test, which would make this assertion prove something else.
-    //
-    // NOT "/rules": it merged into the public page, so a manager of another
-    // league now SEES it like any visitor. What they must not get is the
-    // editor, and that is asserted on its own below — a redirect assertion here
-    // would have quietly become a test of nothing.
-    //
-    // NOT "/import": it is not under a league any more. It never imported INTO
-    // the league in its URL — it creates a new one — so it moved to
-    // `/manage/leagues/new`, where the guard is `requireManager()` and a manager
-    // of another league is ADMITTED. Asserting a refusal here would now be
-    // asserting the opposite of the intended behaviour; the admission is tested
-    // in `03-season-setup.spec.ts` instead.
+    // Another league's manager. Not `/teams`, `/rules` or `/schedule`: public, nothing to refuse;
+    // ⛔ nor `/schedule-builder`, a redirect page whose guard refuses before the page under test.
     { who: "One-league mgr", path: `/${OUT}/dashboard`, lands: "/" },
     { who: "One-league mgr", path: `/${OUT}/people`, lands: "/" },
     { who: "One-league mgr", path: `/${OUT}/seasons`, lands: "/" },
@@ -824,8 +622,7 @@ test.describe("Path 17 — Per-league membership", () => {
     test(`${r.who} is refused at ${r.path.replace(OUT, "<another league>")}`, async ({
       page,
     }) => {
-      // The picker, where a wrong role or a wrong league lands: the one page
-      // that needs no league.
+      // A wrong role or league lands on the picker, the one page that needs no league.
       if (r.who !== "anonymous") await signInAs(page, r.who);
       await page.goto(r.path.replace(OUT, LEAD_OUT));
       await expect(page).toHaveURL(r.lands);
@@ -835,9 +632,8 @@ test.describe("Path 17 — Per-league membership", () => {
   test("a manager of one league reaches their own league's tools", async ({
     page,
   }) => {
-    // The control for every refusal below: the same account, the same role, a
-    // league it belongs to. Without this a guard that refused everything would
-    // look like a guard that works.
+    // The control for these refusals: the same account and role, its own league. Without it a
+    // guard that refused everything would look like one that works.
     await signInAs(page, "One-league mgr");
     await page.goto(`/${LEAD_IN}/dashboard`);
     await expect(page).toHaveURL(`/${LEAD_IN}/dashboard`);
@@ -848,22 +644,13 @@ test.describe("Path 17 — Per-league membership", () => {
     await expect(page.getByRole("heading", { name: "Seasons" })).toBeVisible();
   });
 
-  // ⚠️ The SERVER path — a manager of another league reaching `saveRules` itself
-  // — is not tested here, and deliberately so. It is covered by
-  // `src/lib/actions/league-guards.test.ts`, which asserts every exported action
-  // reaches a league guard; removing `requireLeagueManager` from `saveRules`
-  // turns that test red (watched, 2026-09-05). A review read this file alone,
-  // saw the two tests above cover only the affordance and the RLS half, and
-  // concluded the guard was unprotected. It is not — but it is protected
-  // somewhere else, which is worth saying here rather than re-deriving.
+  // ⚠️ `saveRules`'s server guard is asserted in `src/lib/actions/league-guards.test.ts` (every
+  // action reaches a league guard), not here; its absence from this file is not a gap.
 
   test("a scorekeeper cannot score another league's games", async ({
     page,
   }) => {
-    // The first leak the handoff names: the role is instance-wide, so a
-    // scorekeeper for one league could open the other league's scoresheet and
-    // score its games. `/score` is one of only two guards that ever admitted a
-    // non-manager role, which is why it gets its own test.
+    // The role is instance-wide and `/score` admits a non-manager, so its league scoping gets a test.
     await signInAs(page, "One-league scorer");
     await page.goto(`/${SCORER_IN}/schedule`);
     await expect(page.getByRole("heading", { name: "Schedule" })).toBeVisible();
@@ -874,25 +661,19 @@ test.describe("Path 17 — Per-league membership", () => {
     await page.goto(href!);
     await expect(page).toHaveURL(new RegExp(`/${SCORER_IN}/games/.+/score`));
 
-    // The other league's schedule is PUBLIC now, so they see it — but with no
-    // Score button anywhere on it. That is the affordance half.
+    // The other league's schedule is public, so they see it, with no Score button.
     await page.goto(`/${SCORER_OUT}/schedule`);
     await expect(page).toHaveURL(`/${SCORER_OUT}/schedule`);
-    // Every scoresheet link, not just the ones labelled "Score": a finished game
-    // says "Edit" and a cancelled one says "Manage", so a name-based assertion
-    // would report zero on a schedule that was handing out both.
+    // Every scoresheet link, not just "Score": a final game says "Edit" and a cancelled one
+    // "Manage", so a name-based check would report zero on a schedule handing out both.
     await expect(page.locator('a[href$="/score"]')).toHaveCount(0);
 
-    // And the half that matters: the same game id under a league they are not
-    // in, which is what proves the refusal is about the league rather than
-    // about the page being broken.
+    // The same game id under a league they're not in: refused for the league, not a broken page.
     await page.goto(href!.replace(`/${SCORER_IN}/`, `/${SCORER_OUT}/`));
     await expect(page).toHaveURL("/");
   });
 
   test("a game in another league is not scoreable", async ({ page }) => {
-    // Detail pages take an id, and the id says nothing about its league; the
-    // slug in the URL is the claim, and the guard is what checks it.
     await signInAs(page, "Manager");
     await page.goto(`/${LEAD_OUT}/schedule`);
     const href = await page
@@ -910,9 +691,8 @@ test.describe("Path 17 — Per-league membership", () => {
   test("People & Roles lists this league's staff only", async ({ page }) => {
     await signInAs(page, "Manager");
 
-    // `exact` throughout. These assertions are about which addresses are
-    // ABSENT, and a substring match finds an address that is not there — which
-    // reads as exactly the leak this test exists to catch.
+    // `exact` throughout: these assert which addresses are ABSENT, and a substring match finds an
+    // address that is not there.
     const cell = (p: Page, email: string) =>
       p.getByRole("cell", { name: email, exact: true });
 
@@ -964,8 +744,7 @@ test.describe("Path 17 — Per-league membership", () => {
         .click();
       await expect(page.getByText(scorekeeper)).toHaveCount(0);
 
-      // Gone from THIS league only. Removing used to call
-      // auth.admin.deleteUser, which does not come back.
+      // Gone from THIS league only; the account stays.
       const after = await memberships();
       expect(after.id).toBe(before.id);
       expect(after.leagues).not.toContain(from);
@@ -986,19 +765,8 @@ test.describe("Path 17 — Per-league membership", () => {
   test("adding an existing account cannot rewrite the role it holds elsewhere", async ({
     page,
   }) => {
-    // "Add a staff account" reaches an account that already exists: createUser
-    // fails on a known address, the id is looked up, and the profile is then
-    // upserted. `profiles.role` is ONE instance-wide column (0009 reads it as
-    // the role source; 0010's hook copies it into the JWT), so that upsert
-    // rewrites the role the account uses in EVERY league it belongs to.
-    //
-    // The victim here belongs only to a league this manager is not in, and the
-    // fixture test above asserts those two leagues differ. Granting them
-    // `league_manager` therefore makes them a manager of a league the actor
-    // cannot reach — through the ordinary form, with no tampering.
-    //
-    // createStaffAccount is the one action in people.ts that never calls
-    // `isMemberOf`; updateStaffRole and removeStaff both do.
+    // `profiles.role` is one instance-wide column, so rewriting an existing account's profile changes
+    // its role in EVERY league. The victim is only in a league this manager is not (`beforeAll`).
     const victim = "single-league-scorer@obhl.test";
     const db = admin();
     const outsideLeague = await leagueId(LEAD_IN);
@@ -1008,9 +776,8 @@ test.describe("Path 17 — Per-league membership", () => {
       .select("id, role, display_name")
       .eq("display_name", "Single League Scorer")
       .single();
-    // State the precondition rather than assume it: if the seed ever makes this
-    // account a manager, the upsert below is a no-op and the test would pass
-    // while proving nothing.
+    // State the precondition: if the seed makes this account a manager, the upsert is a no-op and
+    // the test passes while proving nothing.
     expect(before!.role, "victim must start as a non-manager").toBe(
       "scorekeeper",
     );
@@ -1032,9 +799,8 @@ test.describe("Path 17 — Per-league membership", () => {
         .locator('[data-slot="card"]')
         .filter({ hasText: "Add a staff account" });
       await card.getByLabel("Email").fill(victim);
-      // Their own display name, so the blast radius of a passing-today run is
-      // the role alone. Left blank this field defaults to the email address and
-      // overwrites the column that `beforeAll` derives the fixture from.
+      // Their own display name: left blank it defaults to the email and overwrites the column
+      // `beforeAll` derives the fixture from.
       await card.getByLabel("Display name").fill(before!.display_name!);
       await card.getByRole("combobox").click();
       await page.getByRole("option", { name: "League manager" }).click();
@@ -1043,26 +809,13 @@ test.describe("Path 17 — Per-league membership", () => {
         card.getByRole("button", { name: "Add staff account" }).click(),
       );
 
-      // The refusal is VISIBLE, and asserted before the database checks. The
-      // two below can both hold on a form that never submitted at all, which
-      // would make this test pass while proving nothing once the guard lands —
-      // the inverse of the vacuous-pass trap described above.
-      //
-      // Which refusal: the victim holds `scorekeeper` and this form submits
-      // `league_manager`, so the role-mismatch branch answers first and the
-      // `mayWriteProfileOf` check below it never runs. That one is the narrower
-      // second layer — it decides only the case where an existing login has no
-      // role to compare against — so naming its message here asserted a guard
-      // this fixture cannot reach, while the escalation was in fact refused.
+      // The visible refusal first: the DB checks below also hold on a form that never submitted.
+      // The role-mismatch branch answers first, so `mayWriteProfileOf`'s message is unreachable.
       await expect(
         card.getByText(/already has an account as scorekeeper/),
       ).toBeVisible();
 
-      // The subject of the test: a manager of one league changed what an
-      // account is allowed to do in another.
-      //
-      // Soft, both of them, so a failing run reports the whole effect rather
-      // than stopping at the first half of it.
+      // Soft, both of them, so a failing run reports the whole effect.
       const { data: after } = await db
         .from("profiles")
         .select("role")
@@ -1095,29 +848,11 @@ test.describe("Path 17 — Per-league membership", () => {
   test("a manager cannot change the role of someone who works a league they don't share", async ({
     page,
   }) => {
-    // The SECOND step of the same escalation, and the reason refusing the
-    // profile write above does not close it.
-    //
-    // Step one is permitted on purpose: adding an existing account at the role
-    // it already holds grants membership and touches no profile — that is how
-    // one person works two leagues. But it also makes the actor share a league
-    // with them, so `isMemberOf` then passes in `updateStaffRole`, and
-    // `profiles.role` is instance-wide, so whatever that writes lands in the
-    // league the actor cannot see.
-    //
-    // BOTH directions are driven, because the column does not care which way it
-    // is pointed: `league_manager`, which hands the victim authority in their
-    // own league, and `captain`, which takes their scorekeeping there away.
-    // Neither is this manager's to decide, and a guard that only watches for
-    // promotions lets the second one through.
-    //
-    // `mayWriteProfileOf` tests CONTAINMENT for exactly this reason. An overlap
-    // test cannot catch it — step one creates the very sharing it looks for —
-    // and neither can RLS: 0032's `shares_league_with(id)` permits the
-    // identical sequence for the identical reason.
+    // Step one is permitted and makes the actor share a league, so only `mayWriteProfileOf`'s
+    // CONTAINMENT check refuses step two. Both directions: a promotion-only guard passes `captain`.
     const victim = "single-league-scorer@obhl.test";
-    // Its own address, sharing no substring with a seeded one — see
-    // `scripts/seed-users.mjs` on why that matters to a `hasText` row filter.
+    // Shares no substring with a seeded address, or a `hasText` row filter matches both
+    // (`RUNBOOK.md` → Seed and fixtures).
     const decoyEmail = `role-decoy-${Date.now()}@obhl.test`;
     const db = admin();
     const shared = await leagueId(LEAD_IN);
@@ -1132,7 +867,6 @@ test.describe("Path 17 — Per-league membership", () => {
       "scorekeeper",
     );
 
-    /** The add form, filled and submitted, on a page fresh enough to fill. */
     async function addStaff(email: string, name: string, roleLabel: string) {
       await page.goto(`/${LEAD_IN}/people`);
       const card = page
@@ -1153,11 +887,8 @@ test.describe("Path 17 — Per-league membership", () => {
     try {
       await signInAs(page, "One-league mgr");
 
-      // ── Step 1: the permitted grant ──────────────────────────────────────
-      //
-      // Their own display name: the add form writes no profile on this path,
-      // but leaving it blank would default the column to the email address that
-      // `beforeAll` derives the whole fixture from.
+      // ── Step 1: the permitted grant. Their own display name: left blank, it would overwrite the
+      // column `beforeAll` derives the fixture from.
       const card = await addStaff(victim, before!.display_name!, "Scorekeeper");
       // Asserted, not assumed. If step one were refused, step two would be
       // refused for THAT reason and this test would prove nothing.
@@ -1176,12 +907,8 @@ test.describe("Path 17 — Per-league membership", () => {
       ).toHaveCount(0);
       await expect(row.getByText("Also works another league")).toBeVisible();
 
-      // ── Step 3: and the server refuses it without the page's help ────────
-      //
-      // Withholding the control is a courtesy to the manager, not a control on
-      // the request. So the attack needs a row this manager may still edit, and
-      // the only kind left is one whose leagues are all theirs — an account
-      // created here and nowhere else. It exists to carry the tampered id.
+      // ── Step 3: the server refuses without the page's help. Withholding the control is a
+      // courtesy, so the attack needs a row this manager may edit: a decoy carrying the tampered id.
       await addStaff(decoyEmail, "Role Decoy", "Scorekeeper");
       const { data: decoy } = await db
         .from("profiles")
@@ -1200,9 +927,8 @@ test.describe("Path 17 — Per-league membership", () => {
         const form = decoyRow.locator("form").filter({
           has: page.locator('select[name="role"]'),
         });
-        // The decoy's own id would be a PERMITTED change, so an unapplied
-        // tamper rewrites the decoy, leaves the victim alone, and passes every
-        // check below without the attack ever happening. See `tamper`.
+        // The decoy's own id is a PERMITTED change, so an unapplied tamper passes every check below
+        // without the attack happening. See `tamper`.
         await tamper(page, form.locator('input[name="id"]'), before!.id);
         await submitAndSettle(
           page,
@@ -1249,8 +975,7 @@ test.describe("Path 17 — Per-league membership", () => {
         .delete()
         .eq("profile_id", before!.id)
         .eq("league_id", shared);
-      // The decoy is this test's own litter. Deleting the login takes the
-      // profile and its membership with it — both cascade.
+      // Deleting the decoy's login cascades to its profile and membership.
       if (decoyId) await db.auth.admin.deleteUser(decoyId);
     }
   });
@@ -1258,13 +983,8 @@ test.describe("Path 17 — Per-league membership", () => {
   test("a manager can still promote someone whose leagues they all share", async ({
     page,
   }) => {
-    // The control for the test above. `mayWriteProfileOf` refusing every role
-    // change would satisfy that one exactly as well as a correct guard does,
-    // and handing a second person a manager account is the flow the whole
-    // membership model exists to support — so it has to be shown working.
-    //
-    // Both accounts here are seeded into every league, so containment holds and
-    // the promotion reaches no league the actor is not already a manager of.
+    // The control for the test above: a `mayWriteProfileOf` refusing every change would pass it
+    // too. Both accounts are in every league, so containment holds.
     const subject = "scorekeeper@obhl.test";
     const db = admin();
 
@@ -1283,8 +1003,7 @@ test.describe("Path 17 — Per-league membership", () => {
 
       const row = page.locator("table tbody tr").filter({ hasText: subject });
       const select = row.getByLabel("Change role");
-      // Rendered at all here, unlike the row in the test above, and with the
-      // manager option on it.
+      // Rendered here, unlike the row in the test above, with the manager option on it.
       await expect(
         select.locator('option[value="league_manager"]'),
       ).toHaveCount(1);
@@ -1307,17 +1026,8 @@ test.describe("Path 17 — Per-league membership", () => {
     }
   });
 
-  // ── Server actions, reached with another league's id ──────────────────────
-  //
-  // The gap the first version of this file could not cover. A manage form
-  // carries its ids as hidden inputs, so rewriting one and submitting goes
-  // through the genuine action endpoint — no hand-made POST and no action id
-  // needed — which is the only way an action's guard gets exercised against an
-  // id the UI would never offer it.
-  //
-  // Both run as `Manager`, who belongs to BOTH leagues on purpose: that is the
-  // case a per-id membership check cannot catch, because each id passes on its
-  // own and only the requirement that they name the SAME league refuses it.
+  // ── Server actions, reached by tampering a hidden id. As `Manager`, in BOTH leagues: each id
+  // passes alone, and only requiring the SAME league refuses it.
 
   test("a roster add cannot name another league's team", async ({ page }) => {
     const db = admin();
@@ -1336,9 +1046,7 @@ test.describe("Path 17 — Per-league membership", () => {
       const form = page.locator("form").filter({
         has: page.locator('input[name="first_name"]'),
       });
-      // The season stays the page's own; only the team is swapped. Guarding
-      // the season alone passed this, and `is_captain` rides in the same
-      // payload.
+      // Only the team is swapped: guarding the season alone passed this.
       await tamper(
         page,
         form.locator('input[name="team_id"]'),
@@ -1351,22 +1059,18 @@ test.describe("Path 17 — Per-league membership", () => {
         form.getByRole("button", { name: "Add player" }).click(),
       );
 
-      // The refusal itself, asserted first: the guard redirects to the picker,
-      // and unlike the DB checks below this one WAITS, so it fails loudly
-      // rather than reading a write that has not landed yet.
+      // The refusal first: the guard redirects to the picker, and unlike the DB checks below this
+      // WAITS, so it fails loudly rather than reading a write that has not landed yet.
       await expect(page).toHaveURL("/");
 
-      // Nothing was written — not the roster row, and not even the player, since
-      // the guard runs before the insert that would create one.
+      // Nothing written, not even the player: the guard runs before the insert.
       const { data: players } = await db
         .from("players")
         .select("id")
         .eq("first_name", first);
       expect(players ?? []).toHaveLength(0);
 
-      // A cross-league roster row is nonsense the schema cannot refuse on its
-      // own: the two foreign keys are independent, so nothing but this guard
-      // stops one league's team being rostered into another's season.
+      // The schema cannot refuse a cross-league roster row: the two foreign keys are independent.
       expect(await crossLeagueRosterRows(db)).toBe(0);
     } finally {
       const { data: junk } = await db
@@ -1378,33 +1082,8 @@ test.describe("Path 17 — Per-league membership", () => {
     }
   });
 
-  /**
-   * ⛔ TWO TESTS STOOD HERE AND ARE GONE (2026-09-11), WITH NO LOSS OF COVER.
-   * They tampered with `setDefaultGoalie`'s hidden `id` to set and clear
-   * another league's default goalie. `0049` dropped
-   * `team_players.is_default_goalie` and that action with it, so both tests
-   * aimed at something that no longer exists — keeping them would have meant
-   * two green tests exercising nothing.
-   *
-   * ⚠️ THE EQUIVALENT GUARD FOR WHAT REPLACED IT IS NOT ASSERTED HERE YET, and
-   * that is stated rather than left to be discovered. A night is now written by
-   * `updateRosterPlayer`, which resolves the league from the ROW rather than
-   * from anything the form carries — a stronger position than the one these
-   * tested, since there is no `team_id`/`season_id` left on the form to lie
-   * about.
-   *
-   * ⛔ AN EARLIER VERSION OF THIS NOTE GAVE A REASON THAT WAS NOT TRUE. It said
-   * the refusal "surfaces as neither a redirect nor a status message through
-   * `useActionState`". It does redirect — `requireLeagueManagerOf` calls
-   * `redirect("/")` (`src/lib/auth/guards.ts`), and the `addRosterPlayer`
-   * tampering test above asserts exactly that on an action dispatched the same
-   * way. The real reason the test is absent is that the first attempt at it did
-   * not submit the form it thought it was submitting, and it was dropped rather
-   * than shipped green-and-meaningless. The gap is real and the fix is a test,
-   * not a rewording of this paragraph.
-   */
-
-  // ── A second manager can be taken back out of a league ────────────────────
+  // ⚠️ No tamper test yet for `updateRosterPlayer`'s league guard, which resolves the league from
+  // the row rather than the form. The gap is real; the fix is a test.
 
   test("a manager can be removed from a league, but never yourself", async ({
     page,
@@ -1426,9 +1105,7 @@ test.describe("Path 17 — Per-league membership", () => {
       await signInAs(page, "Manager");
       await page.goto(`/${LEAD_IN}/people`);
 
-      // Your own row offers no Remove — it could drop you out of a league you
-      // are the only way back into, and for a league's sole manager that row is
-      // always this one.
+      // Your own row offers no Remove: for a league's sole manager it is the only way back in.
       const ownRow = page
         .locator("table tbody tr")
         .filter({ hasText: "manager@obhl.test" });
@@ -1444,9 +1121,8 @@ test.describe("Path 17 — Per-league membership", () => {
       const removeForm = coRow.locator("form").filter({
         has: page.locator('input[name="league_id"]'),
       });
-      // The original id here is a PERMITTED removal, so an unapplied tamper
-      // removes the co-manager for real and the "still a member" check below
-      // passes without the attack happening. See `tamper`.
+      // The original id is a PERMITTED removal, so an unapplied tamper removes the co-manager and
+      // the "still a member" check passes without the attack. See `tamper`.
       await tamper(page, removeForm.locator('input[name="id"]'), self!.id);
 
       await submitAndSettle(
@@ -1512,22 +1188,8 @@ test.describe("Path 17 — Per-league membership", () => {
     }
   });
 
-  // ── The other half: RLS, for a session talking to PostgREST directly ──────
-  //
-  // The app guards gate the UI. A staff account also holds a real Supabase
-  // session, and can address the API with it without going through a page at
-  // all — so the same membership test has to live in the policies (0032), or
-  // the app half would look finished and stop nothing.
-
-  /**
-   * The refusals the DATABASE makes, to a session talking to PostgREST with no
-   * page in between. `arrange` runs on the admin client and returns the attempt,
-   * the read-back that proves nothing landed, and the restore for a red run.
-   *
-   * ⛔ READ THE ROW, NOT THE ERROR. An RLS-refused UPDATE matches no rows and
-   * reports no error, so an assertion on `error` passes whether the policy is
-   * there or not.
-   */
+  // ── The RLS half: a staff session can reach PostgREST with no page, so the policies must refuse.
+  // ⛔ `assertRefused` reads the row back: a refused UPDATE reports no error (`RUNBOOK.md` → Testing).
   type ApiRefusal = {
     title: string;
     /** The session's email, or null for an anonymous visitor. */
@@ -1652,9 +1314,8 @@ test.describe("Path 17 — Per-league membership", () => {
         expect(victim!.role, "victim must start as a non-manager").toBe("scorekeeper");
         return {
           attempt: async (client) => {
-            // Step 1 is PERMITTED, and asserted so: granting someone a league
-            // you manage is the flow the membership model exists for. Refused,
-            // step 2 would fail for that reason and prove nothing.
+            // Step 1 is PERMITTED and asserted so: refused, step 2 would fail for that reason and
+            // prove nothing.
             const granted = await client
               .from("profile_leagues")
               .insert({ profile_id: victim!.id, league_id: shared })
@@ -1699,9 +1360,8 @@ test.describe("Path 17 — Per-league membership", () => {
       title: "rewriting its own role or player link",
       as: "single-league-scorer@obhl.test",
       arrange: async (db) => {
-        // 0009's "own profile update" names no columns, so before 0050 any
-        // signed-in account could make itself a manager, or link itself to
-        // another league's captain. Measured on the local stack 2026-09-13.
+        // 0009's "own profile update" names no columns, so without 0050 any account could make
+        // itself a manager, or link itself to another league's captain.
         const { data: self } = await db
           .from("profiles")
           .select("id, role, player_id")
@@ -1783,11 +1443,8 @@ test.describe("Path 17 — Per-league membership", () => {
             const allowed = new Set(
               (sharedMembers ?? []).map((r) => r.profile_id as string),
             );
-            // ⚠️ PLUS EVERY ACCOUNT THAT BELONGS TO NO LEAGUE AT ALL. "manager
-            // write profiles" is `for all`, so its USING clause applies to SELECT
-            // too, and `contains_leagues_of` passes vacuously for an account in no
-            // league — deliberately: adding a brand-new account writes a profile
-            // that belongs to nothing yet.
+            // ⚠️ Plus every account in no league: "manager write profiles" is `for all`, and
+            // `contains_leagues_of` passes vacuously for one, so a brand-new account can be written.
             const { data: everyMembership } = await db
               .from("profile_leagues")
               .select("profile_id");
@@ -1803,9 +1460,8 @@ test.describe("Path 17 — Per-league membership", () => {
             expect(visible.size).toBeGreaterThan(0);
             for (const id of visible) expect(allowed.has(id)).toBe(true);
 
-            // ⛔ AND THE OFFICE STAYS OUT. Both office accounts belong to no league,
-            // so only the tier keeps them unreadable by a plain manager. The size
-            // check stops an empty `league_office` read passing vacuously.
+            // ⛔ AND THE OFFICE STAYS OUT: office accounts are in no league, so only the tier hides
+            // them. The size check stops an empty `league_office` read passing vacuously.
             expect(inOffice.size).toBeGreaterThan(0);
             for (const id of inOffice) expect(visible.has(id)).toBe(false);
 
@@ -1822,7 +1478,6 @@ test.describe("Path 17 — Per-league membership", () => {
       },
     },
     {
-      // Ported from scripts/verify-auth.mjs: the one check it made that no spec did.
       title: "dressing a player on the other team as a captain",
       as: "captain@obhl.test",
       arrange: async (db) => {
@@ -1856,9 +1511,8 @@ test.describe("Path 17 — Per-league membership", () => {
       },
     },
     {
-      // Ported from scripts/verify-transfers.mjs (#3): RLS has to reach through
-      // a security_invoker view nested inside another, or a staged league's
-      // stats are public.
+      // RLS must reach through a security_invoker view nested inside another, or a staged
+      // league's stats are public.
       title: "reading a staged league's season totals anonymously",
       as: null,
       arrange: async (db) => {
@@ -1901,9 +1555,8 @@ test.describe("Path 17 — Per-league membership", () => {
       },
     },
     {
-      // Part 1's 0051, found live by its final review: a manager session could
-      // store `teams/<team>.svg` as image/svg+xml in the PUBLIC logos bucket,
-      // around `uploadTeamLogo`'s allowlist. The one test the owner added.
+      // 0051: a manager session could store an SVG in the PUBLIC logos bucket, around
+      // `uploadTeamLogo`'s allowlist.
       title: "uploading an SVG straight to the logos bucket",
       as: "single-league-lead@obhl.test",
       arrange: async (db) => {
@@ -2008,7 +1661,7 @@ test.describe("Path 17 — Per-league membership", () => {
   });
 
   test("a captain can still dress a player on their own team through the API", async () => {
-    // Ported from scripts/verify-auth.mjs: the control for the captain row.
+    // The control for the captain row.
     const db = admin();
     const cap = await captainFixture(db);
     const client = await signedInClient("captain@obhl.test");
@@ -2032,9 +1685,7 @@ test.describe("Path 17 — Per-league membership", () => {
   });
 
   test("an anonymous visitor can read a public league's season totals", async () => {
-    // Ported from scripts/verify-transfers.mjs (#4). No migration grants SELECT
-    // on these views, so whether anon holds it is settled by asking — the same
-    // question a browser asks — not by reading information_schema.
+    // No migration grants SELECT on these views, so ask as a browser does, not information_schema.
     const db = admin();
     const { data: league } = await db
       .from("leagues")
@@ -2059,11 +1710,8 @@ test.describe("Path 17 — Per-league membership", () => {
   });
 });
 
-/**
- * Every URL a manager may have bookmarked before a move. The redirects in
- * `next.config.ts` are the only thing keeping them alive, and nothing else in
- * the suite would notice one deleted.
- */
+// The `next.config.ts` redirects keep bookmarked URLs alive, and nothing else in the suite would
+// notice one deleted.
 test.describe("Legacy URLs", () => {
   test("every legacy URL still lands on its page", async ({ page, request }) => {
     // `location` may be relative, so resolve it against a base before reading
@@ -2084,9 +1732,8 @@ test.describe("Legacy URLs", () => {
       ["/harbor/manage/seasons/abc-123", "/harbor/seasons/abc-123"],
       // Zero trailing segments: the bare prefix lands on the league home.
       ["/obhl/manage", "/obhl"],
-      // ⛔ Two explicit config rules, never one `:rest*` wildcard — zero-or-more
-      // would also match the bare `/schedule-builder` and send it to the games
-      // list instead of the season setup page (asserted at the end).
+      // ⛔ Two explicit rules, never one `:rest*`: zero-or-more also matches bare `/schedule-builder`
+      // and sends it to the games list instead of season setup (asserted at the end).
       ["/obhl/schedule-builder/repair", "/obhl/schedule/repair"],
       ["/obhl/schedule-builder/one-off", "/obhl/schedule/one-off"],
       // The score pages merged away; a game keeps the same id at either URL.
@@ -2108,15 +1755,13 @@ test.describe("Legacy URLs", () => {
     expect(locationOf(withQuery).pathname).toBe("/obhl/people");
     expect(locationOf(withQuery).search).toBe("?q=smith");
 
-    // The League Office keeps its `/manage/` prefix and is not a league: its
-    // first segment is `manage`, so a careless source pattern eats it.
-    // Anonymous, its own guard sends it to /login — it reached the route.
+    // The League Office keeps `/manage/` and is no league, so a careless source pattern eats it.
+    // Anonymous, its own guard sends it to /login: it reached the route.
     const office = await request.get("/manage/office", { maxRedirects: 0 });
     expect(locationOf(office).pathname).toBe("/login");
 
-    // ⛔ The bare builder URL is a redirect PAGE, not a config rule: a rule
-    // cannot look up WHICH season to land on. Anonymous it would bounce to
-    // /login, so it is driven signed in.
+    // ⛔ The bare builder URL is a redirect PAGE, not a config rule (a rule can't pick the season);
+    // driven signed in, since anonymous it bounces to /login.
     await signInAs(page, "Manager");
     await page.goto("/obhl/schedule-builder");
     await expect(page).toHaveURL(/\/obhl\/seasons\/[0-9a-f-]{36}$/);

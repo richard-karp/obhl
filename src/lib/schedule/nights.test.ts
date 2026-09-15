@@ -70,10 +70,6 @@ describe("groupIntoNights", () => {
     },
   );
 
-  // The reason this function was extracted. A postponed game has no
-  // scheduled_at any more, so grouping on that alone would drop it — taking its
-  // night's lock with it, and letting the one-off planner re-pair a night it
-  // must not touch while seeing it one game short.
   it("keeps a postponed game on the night it was postponed from", () => {
     const nights = groupIntoNights(
       [
@@ -108,9 +104,6 @@ describe("groupIntoNights", () => {
   });
 
   it("reports a postponed game's own date as null, not the night's", () => {
-    // The one-off repair writes scheduledAt straight back to the column. If this
-    // carried postponed_from, that write would resurrect the cleared date and
-    // leave the row claiming both a date and a postponement.
     const nights = groupIntoNights(
       [
         row({ id: "played" }),
@@ -130,7 +123,6 @@ describe("groupIntoNights", () => {
   });
 
   it("drops a game with no date at all", () => {
-    // Nothing ties it to a night, so there is nowhere to put it.
     const nights = groupIntoNights(
       [row({ id: "nowhere", scheduled_at: null, postponed_from: null })],
       TODAY,
@@ -177,12 +169,8 @@ describe("moveNightTo", () => {
     expect(gapMs).toBe(2 * 3_600_000 + 15 * 60_000);
   });
 
-  /**
-   * ⛔ The whole reason this is a function rather than a swap of the date part.
-   * A night moved across the DST boundary keeps its WALL CLOCK, not its UTC
-   * instant: 19:00 EDT and 19:00 EST are an hour apart in UTC, and rewriting
-   * only the date would put the November game on the ice at 18:00.
-   */
+  /** ⛔ Why this is a function, not a swap of the date part: across DST the wall clock stays,
+   *  and rewriting only the date would put a November 19:00 game on the ice at 18:00. */
   it("keeps the wall clock across the DST boundary, not the instant", () => {
     const moved = moveNightTo(
       [at("2026-10-27T23:00:00Z", "a")], // 19:00 EDT (-04:00)
@@ -194,8 +182,6 @@ describe("moveNightTo", () => {
   });
 
   it("moves nothing it was not given a time for", () => {
-    // A postponed game has no `scheduled_at` of its own. Its night is locked and
-    // the action refuses to move it, but the pure part must not invent a time.
     expect(moveNightTo([{ id: "a", scheduledAt: null }], "2026-09-29")).toEqual(
       [],
     );
@@ -277,27 +263,16 @@ describe("checkNightMove", () => {
     expect(check(nights, "2026-09-22", "2026-09-24")).toContain("2 games");
   });
 
-  /**
-   * ⛔ THE ONE-WAY DOOR. `season_is_started` is true as soon as any published
-   * game's `scheduled_at` is in the past, and from that moment generate,
-   * replace and remove refuse PERMANENTLY. Moving a live night backwards trips
-   * it without anybody publishing anything.
-   *
-   * And it does not undo: `groupIntoNights` marks a night with a past date
-   * `locked`, so the move back is refused by the guard above and the only way
-   * out is `rescheduleGame`, one game at a time.
-   */
+  /** ⛔ The one-way door: moving a live night into the past trips `season_is_started` for good,
+   *  and the past night locks, so the move can't be reversed. */
   it("refuses moving a night into the past", () => {
     const why = check([night("2026-09-22")], "2026-09-22", "2026-09-19");
     expect(why).toMatch(/already passed/);
-    // Named for what it costs, not just refused.
     expect(why).toMatch(/locks the season/i);
     expect(why).toMatch(/no undo/i);
   });
 
   it("allows a move onto today", () => {
-    // Tonight is a legitimate game night — the same call `isPastGameNight`
-    // makes for the generator's first night.
     expect(check([night("2026-09-22")], "2026-09-22", TODAY)).toBeNull();
   });
 

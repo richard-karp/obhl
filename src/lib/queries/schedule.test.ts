@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-// `getPublishState` only builds its own client when one is not passed, and
-// every test here passes one. Mocking the module keeps `next/headers` — which
-// `@/utils/supabase/server` imports at load and which has no request context
-// under vitest — out of the import graph entirely.
+// Every test passes a client. Mocking keeps `next/headers`, which has no request context
+// under vitest, out of the import graph.
 vi.mock("@/utils/supabase/server", () => ({
   createClient: async () => {
     throw new Error("a client was passed; this must not be called");
@@ -13,23 +11,12 @@ vi.mock("@/utils/supabase/server", () => ({
 import { getGamesOnDate, getPublishState } from "@/lib/queries/schedule";
 import type { DbClient } from "@/lib/db/helpers";
 
-/**
- * Kong's 502 body, verbatim. This is the string CI saw — it is not generated
- * anywhere in `node_modules`, it arrives over the wire when the gateway cannot
- * get a valid response out of PostgREST.
- */
+/** Kong's 502 body, verbatim, as it arrives over the wire. */
 const GATEWAY_502 = "An invalid response was received from the upstream server";
 
 /**
- * A chainable stand-in for a PostgREST builder.
- *
- * Every filter method (`select`, `eq`, `not`, `order`, `limit`, …) returns the
- * same object, and awaiting it settles. That is enough for all seven reads in
- * `getPublishState` without enumerating their chains, which differ.
- *
- * ⛔ THE COUNTER IS PER `from()`/`rpc()` CALL, NOT PER QUERY. A retry rebuilds
- * its query from the factory, so it lands as a *new* call — which is exactly
- * how these tests tell a first attempt from a second one.
+ * A chainable PostgREST stand-in. ⛔ The counter is per `from()`/`rpc()` call, not per query:
+ * a retry rebuilds from the factory, which is how these tests tell attempts apart.
  */
 function fakeClient(
   shouldFail: (read: { label: string; nth: number; call: number }) => boolean,
@@ -39,8 +26,7 @@ function fakeClient(
 
   const build = (label: string) => {
     const call = calls.push(label); // push returns the new 1-based length
-    // Per-label attempt number, so a test can say "the first time the RPC is
-    // read" without knowing where in the `Promise.all` that read sits.
+    // Per-label attempt number, independent of where the read sits in the `Promise.all`.
     const nth = (perLabel.get(label) ?? 0) + 1;
     perLabel.set(label, nth);
     const failed = shouldFail({ label, nth, call });
@@ -95,12 +81,8 @@ describe("getPublishState — a lost response is not a failed read", () => {
   });
 
   it("absorbs a single gateway 502 on one read — the CI failure", async () => {
-    // ⛔ TARGETED BY NAME, NOT BY POSITION. `season_is_started` is one of the
-    // six reads that lock, and naming it keeps this test testing what it claims
-    // if the `Promise.all` is ever reordered. Keyed off an index it could pass
-    // VACUOUSLY instead: `lowestId` is deliberately excluded from the failure
-    // list, so failing whichever read happened to sit first would leave
-    // `readFailed` false whether the retry worked or not.
+    // ⛔ By name, not position: `lowestId` is excluded from the failure list, so failing
+    // whichever read sits first could leave `readFailed` false and pass vacuously.
     const { client, calls } = fakeClient(
       ({ label, nth }) => label === "rpc:season_is_started" && nth === 1,
     );
@@ -125,9 +107,8 @@ describe("getPublishState — a lost response is not a failed read", () => {
   });
 
   it("still locks the builder when a read fails twice", async () => {
-    // A genuinely broken query, not a blip. The fail-closed rule is unchanged:
-    // `started` locks shut and `readFailed` travels with it so nothing renders
-    // the counts as though they were zero.
+    // A broken query, not a blip: `started` locks shut, and `readFailed` travels with it so
+    // nothing renders the counts as zero.
     const { client, calls } = fakeClient(() => true);
 
     const state = await getPublishState(SEASON, { client });
@@ -139,12 +120,7 @@ describe("getPublishState — a lost response is not a failed read", () => {
   });
 });
 
-/**
- * Records every builder call so a test can assert the filters that were built.
- *
- * Deliberately dumber than `fakeClient` above: these tests care about the
- * ARGUMENTS (the range bounds), not about call ordering or retries.
- */
+/** Records every builder call: these tests assert the arguments (the range bounds), not retries. */
 function recordingClient(rows: unknown[] = [], error: unknown = null) {
   const calls: Array<{ fn: string; args: unknown[] }> = [];
   const chainable: Record<string, unknown> = {};
@@ -178,18 +154,16 @@ describe("getGamesOnDate — the day's games, across leagues", () => {
     const { client, argsOf } = recordingClient();
     await getGamesOnDate(["L1"], "2026-09-14", { client });
 
-    // 00:00 on the night itself through 00:00 the next night, both stamped with
-    // the league's offset. In UTC these are 04:00 and 04:00 — a UTC-bounded day
-    // would drop the 9:40pm game, which lands at 01:40Z on the 15th.
+    // Midnight to midnight in league time (04:00Z). A UTC-bounded day would drop the 9:40pm
+    // game, which lands at 01:40Z on the 15th.
     expect(argsOf("gte")?.[1]).toBe("2026-09-14T04:00:00.000Z");
     expect(argsOf("lt")?.[1]).toBe("2026-09-15T04:00:00.000Z");
   });
 
   it("uses each end's own offset across the DST boundary", async () => {
     const { client, argsOf } = recordingClient();
-    // 1 Nov 2026 is the EDT->EST switch: the day starts at -04:00 and ends at
-    // -05:00, so it is 25 hours long. One offset for both ends would clip an
-    // hour off it — the hour a 9:40pm game sits in.
+    // 1 Nov 2026 is the EDT->EST switch, a 25-hour day. One offset for both ends would clip
+    // the hour a 9:40pm game sits in.
     await getGamesOnDate(["L1"], "2026-11-01", { client });
 
     // Midnight on the 1st is still EDT (04:00Z); midnight on the 2nd is EST
@@ -225,11 +199,8 @@ describe("getGamesOnDate — the day's games, across leagues", () => {
   });
 
   it("reports a failed read rather than calling it an empty night", async () => {
-    // ⛔ THE WHOLE POINT OF `readFailed`. Returning a bare [] here would tell a
-    // scorekeeper standing at the rink that there are no games tonight when the
-    // query actually errored — on the only page they have. Same rule
-    // `getScheduleConstraints` states: "no rows" and "I was not allowed to look"
-    // must not be the same value.
+    // ⛔ A bare [] would tell a scorekeeper at the rink there are no games tonight when the
+    // query errored.
     const { client } = recordingClient([], { message: "boom" });
 
     expect(await getGamesOnDate(["L1"], "2026-09-14", { client })).toEqual({

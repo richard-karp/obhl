@@ -32,18 +32,7 @@ async function playerNames(
   );
 }
 
-/**
- * A refusal, written out for the operator.
- *
- * The refusals are the whole value of the check, and a generic "could not
- * merge" throws that value away: the operator is being told something true
- * about these two records that they did not know, and either acts on it or
- * learns the tool is right. So each one names the game, the teams or the
- * accounts involved, and says what to do instead.
- *
- * Built here rather than in the page because the reason carries ids and the
- * lookups are the database's. `planMerge` stays pure.
- */
+/** Each refusal names the game, teams or accounts involved, and says what to do instead. */
 async function describeRefusal(admin: Admin, plan: Refusal): Promise<string> {
   switch (plan.reason) {
     case "opposing-teams": {
@@ -123,27 +112,15 @@ type MergeSet = {
   gameRowIds: string[];
 };
 
-/**
- * The rows a merge may touch, and the proof that every one of them is this
- * league's.
- *
- * Two jobs, and they are not separable. The review page only ever offers ids it
- * found inside this league — but the page is not what is being trusted here. A
- * hand-made POST names any uuid it likes, and `players` has no `league_id` to
- * check it against, so the league has to be re-derived from the rows the ids
- * actually have. A merge-set member with no row anywhere in this league is
- * refused rather than merged on the strength of the form saying it belongs.
- *
- * Every read filters by `player_id`, never by game or team. Fetching
- * `game_rosters` by `game_id` — the natural way to "get the game's rows" —
- * returns every player who dressed, and `planMerge` would sum those strangers'
- * goals into the survivor and delete their rows without reporting anything.
- */
+// Re-derives the league from the rows: `players` has no `league_id` and a hand-made POST can name
+// any uuid, so a member with no row in this league is refused.
 async function loadMergeSet(
   admin: Admin,
   leagueId: string,
   mergeSet: string[],
 ): Promise<{ error: string } | MergeSet> {
+  // By `player_id`, never by game or team: a game's rows include every player who dressed, and
+  // `planMerge` would absorb those strangers' goals and delete their rows.
   const [{ data: tp }, { data: gr }] = await Promise.all([
     admin
       .from("team_players")
@@ -160,9 +137,8 @@ async function loadMergeSet(
   const rosterRows = tp ?? [];
   const gameRows = gr ?? [];
 
-  // Games carry their league through their season, one more hop than roster
-  // rows do. A player with game rows in another league is out of reach here
-  // even if their roster rows all look local.
+  // Games carry their league through their season: game rows in another league put a player out
+  // of reach even if their roster rows look local.
   const gameIds = [...new Set(gameRows.map((r) => r.game_id))];
   const gameLeagues = new Map<string, string>();
   if (gameIds.length) {
@@ -220,9 +196,8 @@ async function loadMergeSet(
       leftOn: r.left_on,
     })),
     games: gameRows.flatMap((r): GameRow[] =>
-      // A substitute row has no player_id (0016) and cannot be in the set the
-      // `.in()` filter returned, but the column is nullable and `GameRow`'s is
-      // not — so this narrows rather than asserts.
+      // A substitute row has no player_id and cannot be here, but the column is nullable and
+      // `GameRow`'s is not, so this narrows rather than asserts.
       r.player_id
         ? [
             {
@@ -242,19 +217,8 @@ async function loadMergeSet(
   };
 }
 
-/**
- * Fold several same-name `players` records into one.
- *
- * **Not revertible.** Stat rows are summed and the absorbed records are deleted,
- * so `revertAuditEntries` skips `merge_players` — there is nothing to restore
- * the split from. That is why the refusals in `planMerge` run first and why the
- * page warns before the button.
- *
- * Scope is one league, structurally rather than by rule. The candidates come
- * only from players reachable through `team_players -> seasons -> league_id` for
- * THIS league, and `loadMergeSet` re-derives that from the rows rather than the
- * form. A cross-league merge is not a disabled button; it is unreachable.
- */
+// Not revertible: stats are summed and absorbed records deleted, so `revertAuditEntries` skips
+// `merge_players` and the `planMerge` refusals must run first.
 export async function mergePlayers(
   _prev: PlayersActionState,
   formData: FormData,
@@ -284,9 +248,8 @@ export async function mergePlayers(
   const loaded = await loadMergeSet(admin, leagueId, mergeSet);
   if ("error" in loaded) return { ok: false, message: loaded.error };
 
-  // Asked of the survivor only. An ABSORBED record that is archived needs no
-  // check: its `players` row is deleted by the merge and 0040's `player_id` FK
-  // cascades the archive row away with it, so that direction self-heals.
+  // Asked of the survivor only: an absorbed archived record is deleted, and 0040's FK cascades its
+  // archive row away.
   const keepArchived = await isPlayerArchivedIn(keepId, leagueId, admin);
   const plan = planMerge(
     keepId,
@@ -308,22 +271,8 @@ export async function mergePlayers(
     game_rows: loaded.gameRowIds,
   };
 
-  /**
-   * A merge that stopped partway, written down.
-   *
-   * Every failure from here on happens after at least one write has landed, and
-   * there is no transaction to unwind them — supabase-js has none. So a partial
-   * merge is a real outcome rather than a theoretical one, and the log is the
-   * only place anyone can find out how far it got: `before` holds every roster
-   * and game row id the plan was built from, which is what reconstructing the
-   * split by hand needs.
-   *
-   * Awaited rather than voided, like `logStaffChange` in people.ts and for the
-   * same reason — the runtime can freeze the function after the response and
-   * leave a voided promise unfinished, and this is the entry least worth
-   * losing. `logAudit` swallows its own errors, so it cannot turn a failed merge
-   * into a thrown one.
-   */
+  // Every failure from here lands after a write, with no transaction to unwind, so this entry (every
+  // row id is in `before`) is the only record of how far it got. Awaited, not voided.
   const partial = async (
     step: string,
     detail: string,
@@ -371,9 +320,8 @@ export async function mergePlayers(
       );
   }
 
-  // Same ordering for the same reason, per game: `unique (game_id, player_id)`
-  // (0004_games.sql:42) rejects the survivor's repoint while a duplicate row is
-  // still there.
+  // Same ordering per game: `unique (game_id, player_id)` (0004) rejects the survivor's repoint
+  // while a duplicate row remains.
   for (const g of plan.games) {
     if (g.deleteIds.length) {
       const { error } = await admin
@@ -402,15 +350,7 @@ export async function mergePlayers(
       );
   }
 
-  // Everything else that names a player by id. Each is a plain repoint: none of
-  // these has a unique constraint the merge can collide with — the
-  // goalie-of-record columns are plain references.
-  //
-  // ⛔ `team_goalie_days` USED TO BE FIRST IN THIS LIST AND IS GONE WITH THE
-  // TABLE (0049). It was the one entry that needed the caveat above, being
-  // unique on (team, season, day). Its replacement, `team_players.night_of_week`,
-  // needs no repoint at all: the merge already moves `team_players` rows, and
-  // the night rides along on the row rather than in a table keyed by player.
+  // Plain repoints: none has a unique constraint the merge can collide with.
   const repointed = await Promise.all([
     admin
       .from("games")
@@ -433,14 +373,8 @@ export async function mergePlayers(
     );
   }
 
-  // ⛔ LAST, and moving it up is not the harmless tidying it looks like.
-  //
-  // `game_rosters.player_id` is `on delete cascade` (0004_games.sql:38), so
-  // deleting an absorbed `players` row before its game rows have been repointed
-  // destroys that player's entire stat history — every game they dressed for,
-  // gone, with no error and no partial failure to notice. `team_players`
-  // cascades the same way, taking the night with it; the goalie-of-record
-  // columns are `set null`, which is quieter still.
+  // ⛔ Last: `game_rosters.player_id` and `team_players` cascade on delete, so deleting a `players`
+  // row before its rows are repointed silently erases that player's stat history.
   const { error: pErr } = await admin
     .from("players")
     .delete()
@@ -451,18 +385,15 @@ export async function mergePlayers(
       `Could not delete the absorbed records: ${pErr.message}`,
     );
 
-  // Dismissals that named an absorbed record are gone with it (both player
-  // columns cascade), which is right: the judgement was about two records, and
-  // one of them no longer exists.
+  // Dismissals naming an absorbed record cascade away with it, which is right.
 
   await logAudit({
     user_id: manager.id,
     action: "merge_players",
     entity_type: "player",
     entity_id: keepId,
-    // `players` has no league, and the absorbed rows are deleted above, so
-    // nothing here can resolve one afterwards. Passed explicitly, or the entry
-    // is filed under a null league and then hidden by RLS and every view.
+    // Passed: `players` has no league and the absorbed rows are gone, so a null league would hide
+    // the entry (`RUNBOOK.md` → Access control → Traps).
     league_id: leagueId,
     old_data: before,
     new_data: {
@@ -476,7 +407,6 @@ export async function mergePlayers(
 
   revalidatePath("/[league]/people/duplicates", "page");
   revalidatePath("/[league]/teams/[slug]", "page");
-  revalidatePath("/[league]/teams/[slug]", "page");
   revalidatePath("/[league]", "layout");
 
   const kept = names.get(keepId) ?? "the record";
@@ -486,13 +416,7 @@ export async function mergePlayers(
   };
 }
 
-/**
- * Record that two same-name records are two different people.
- *
- * Without this a dismissed cluster reappears on every visit forever and the
- * tool becomes noise the operator learns to skip past — which costs more than
- * the duplicates it was meant to catch.
- */
+/** Record two same-name records as different people, so the cluster stops reappearing. */
 export async function dismissDuplicatePair(
   _prev: PlayersActionState,
   formData: FormData,
@@ -507,9 +431,8 @@ export async function dismissDuplicatePair(
     return { ok: false, message: "Pick two different records." };
 
   const admin = createAdminClient();
-  // The same containment check the merge runs, for the same reason: this writes
-  // rows naming two players under a league, and nothing else here would stop a
-  // hand-made POST filing another league's players under this one.
+  // The merge's containment check, so a hand-made POST cannot file another league's players
+  // under this one.
   const loaded = await loadMergeSet(admin, leagueId, [a, b]);
   if ("error" in loaded) return { ok: false, message: loaded.error };
 
@@ -532,15 +455,7 @@ export async function dismissDuplicatePair(
   return { ok: true, message: "Marked as two different people." };
 }
 
-/**
- * Undo a dismissal, so the cluster comes back.
- *
- * The page cannot be honest without this. A dismissal is one click and looks
- * like every other button, but it hides a possible duplicate permanently and
- * the operator has no way to find out it happened — the cluster simply stops
- * appearing. "Show dismissed" plus this action is what makes it recoverable
- * outside of SQL.
- */
+/** Undo a dismissal: without it, a one-click dismissal hides a possible duplicate for good. */
 export async function restoreDuplicatePair(
   _prev: PlayersActionState,
   formData: FormData,

@@ -9,27 +9,14 @@ import {
 } from "@/lib/schedule/constraints";
 import type { DbClient } from "@/lib/db/helpers";
 
-// Every helper here that filters by team interpolates the id into a PostgREST
-// `.or()` string, which is not parameterised the way `.eq()` is. Each one
-// therefore checks the id itself and returns nothing if it isn't a UUID, rather
-// than trusting its caller — a rule that only holds if it holds uniformly, since
-// one guarded helper among several reads as though the others were judged safe.
-
-// Shared select for a game with both teams embedded (disambiguated by FK).
-//
-// `logo_path` and `logo_text_color` are read here rather than at each screen
-// because this is the ONE place a game's teams are named: the schedule, the
-// dashboard's captain panel, the calendar feed and the recent-results widget all
-// come through it. `TeamLogo`'s fallbacks — white initials — are silent, so a
-// column missing from this list looks like a team that chose the default rather
-// than like a read that never asked.
+// The one place a game's teams are named. `TeamLogo`'s fallbacks are silent, so a column missing
+// here looks like a team that chose the default.
 const GAME_SELECT = `
   id, scheduled_at, postponed_from, status, week, round, home_goals, away_goals, result_type, is_draft, label,
   home_team:teams!games_home_team_id_fkey(id, name, slug, color, logo_path, logo_text_color),
   away_team:teams!games_away_team_id_fkey(id, name, slug, color, logo_path, logo_text_color)
 `;
 
-/** The half of `teams` a game carries: identity, and how to draw its chip. */
 export type GameTeam = {
   id: string;
   name: string;
@@ -57,12 +44,8 @@ export type GameWithTeams = {
 };
 
 /**
- * All published games for a season, optionally filtered to one team.
- *
- * Like every read helper here, it takes its options as an object whose `client`
- * defaults to the RLS client. Manager-gated callers pass the admin client so
- * they don't depend on the season being publicly readable; anything reachable
- * by a merely signed-in user must leave the default alone.
+ * `client` defaults to the RLS client. Pass the admin client only from a manager-gated
+ * caller; anything a merely signed-in user can reach must leave the default.
  */
 export async function getSchedule(
   seasonId: string,
@@ -77,6 +60,8 @@ export async function getSchedule(
     .eq("is_draft", false)
     .order("scheduled_at", { ascending: true });
   if (teamId) {
+    // `.or()` interpolates the id unparameterised, unlike `.eq()`: every team filter in this file
+    // checks `isUuid` itself rather than trusting its caller.
     if (!isUuid(teamId)) return [];
     q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
   }
@@ -85,57 +70,29 @@ export async function getSchedule(
   return (data ?? []) as unknown as GameWithTeams[];
 }
 
-/**
- * A game plus the league it belongs to, for reads that span more than one.
- *
- * `GameWithTeams` carries no league or season at all, because every other
- * reader here is already scoped to a single league and never needed one. A
- * cross-league caller does: it cannot build a per-row link without knowing
- * which league each row came from.
- */
 export type GameWithLeague = GameWithTeams & { league_id: string };
 
 /**
- * Tonight's games, and whether the read that produced them actually worked.
- *
- * ⛔ `readFailed` IS THE POINT. `getScheduleConstraints` states the rule this
- * follows: "No constraints" and "I was not allowed to look" must not be the same
- * value. An empty array alone would tell a scorekeeper standing at the rink that
- * there are no games tonight when in fact the query errored — on the only page
- * they have, mid-shift. `SchedulePublishState` carries the same flag for the same
- * reason.
+ * ⛔ `readFailed` keeps a failed read from telling a scorekeeper at the rink there are no
+ * games tonight: "no rows" and "not allowed to look" must not be the same value.
  */
 export type GamesOnDate = { games: GameWithLeague[]; readFailed: boolean };
 
-// `GAME_SELECT` plus the season embed. ⛔ NOT added to the shared constant:
-// six other readers use it, and every one of their result shapes would change
-// for a field none of them reads.
+// ⛔ Not added to `GAME_SELECT`: every other reader's result shape would change for a field
+// none of them reads.
 const GAME_SELECT_WITH_LEAGUE = `${GAME_SELECT}, season:seasons!inner(league_id)`;
 
 /**
- * Every published game on one league-local DATE, across the given leagues.
- *
- * The scorekeeper's night. Keyed on the date rather than on a season, which is
- * what lets it show a game belonging to an inactive imported season — the exact
- * case that made the old per-league, season-pinned list awkward.
- *
- * ⛔ BOTH BOUNDS COME FROM `leagueDayStart`, NOT FROM `leagueOffset`. A league
- * day runs midnight-to-midnight in `America/New_York`, and on a DST boundary its
- * ends sit at different offsets — 1 Nov 2026 begins at -04:00 and the 2nd begins
- * at -05:00, making it 25 hours long. `leagueOffset` samples NOON, so on that
- * day it reports -05:00 for a midnight that is still -04:00 and starts the
- * window an hour late. Measured, not reasoned: the first version of this
- * function did exactly that and its own DST test caught it.
+ * ⛔ Both bounds come from `leagueDayStart`, never `leagueOffset`, which samples noon: on a
+ * DST day (1 Nov 2026 is 25 hours long) the window would start an hour late.
  */
 export async function getGamesOnDate(
   leagueIds: string[],
   dateKey: string,
   opts: { client?: DbClient } = {},
 ): Promise<GamesOnDate> {
-  // ⛔ Not merely an optimisation. Without this an empty list would build a
-  // query with no league filter at all, which is an unfiltered read of every
-  // game in the instance for a viewer entitled to none. Not a failure: a viewer
-  // with no scorable league genuinely has no games.
+  // ⛔ Not an optimisation: an empty list would build a query with no league filter, an
+  // unfiltered read of every game. Not a failure: no scorable league means no games.
   if (leagueIds.length === 0) return { games: [], readFailed: false };
 
   const supabase = opts.client ?? (await createClient());
@@ -147,9 +104,9 @@ export async function getGamesOnDate(
   const { data, error } = await supabase
     .from("games")
     .select(GAME_SELECT_WITH_LEAGUE)
+    // Keyed on league and date, never season: tonight's game may belong to an inactive season.
     .in("season.league_id", leagueIds)
-    // Explicit, not left to RLS: a manager-gated caller may pass the admin
-    // client, which bypasses the policy entirely.
+    // Explicit, not left to RLS: a caller may pass the admin client, which bypasses the policy.
     .eq("is_draft", false)
     .gte("scheduled_at", leagueDayStart(day))
     .lt("scheduled_at", leagueDayStart(nextDay))
@@ -164,22 +121,14 @@ export async function getGamesOnDate(
       GameWithTeams & { season: { league_id: string } | null }
     >
   )
-    // ⛔ A row whose league did not come back is DROPPED, not defaulted. The
-    // embed is `!inner`, so this cannot happen — but the alternative was a
-    // `?? ""` that builds `/undefined/games/<id>/score` and ships a dead link
-    // rather than showing one game fewer.
+    // ⛔ Dropped, never defaulted: a `?? ""` would ship a dead `/undefined/games/<id>/score`
+    // link. The `!inner` embed means it cannot happen.
     .filter((g) => !!g.season?.league_id)
     .map(({ season, ...game }) => ({ ...game, league_id: season!.league_id }));
   return { games, readFailed: false };
 }
 
-/**
- * Every published game a team has ever played, for its calendar feed.
- *
- * Deliberately not season-scoped: a subscription is a standing thing, and
- * narrowing it to the active season would delete past games out of calendars
- * that already hold them.
- */
+/** Not season-scoped: narrowing it would delete past games from calendars that hold them. */
 export async function getTeamFeedGames(
   teamId: string,
   opts: { client?: DbClient } = {},
@@ -196,7 +145,6 @@ export async function getTeamFeedGames(
   return (data ?? []) as unknown as GameWithTeams[];
 }
 
-/** Upcoming (scheduled, future) games. */
 export async function getUpcoming(
   seasonId: string,
   opts: { limit?: number; teamId?: string; client?: DbClient } = {},
@@ -223,13 +171,7 @@ export async function getUpcoming(
 
 export type { SeasonNight, SeasonNightGame } from "@/lib/schedule/nights";
 
-/**
- * A season's published games grouped into nights, in the shape the one-off
- * planner reasons about.
- *
- * The grouping and locking rules live in `groupIntoNights`, which is pure and
- * tested; this only fetches the rows.
- */
+/** Grouping and locking rules live in `groupIntoNights`; this only fetches the rows. */
 export async function getSeasonNights(
   seasonId: string,
   opts: { client?: DbClient } = {},
@@ -252,26 +194,13 @@ export async function getSeasonNights(
 }
 
 /**
- * A season's manager constraints, oldest first.
- *
- * Returned in the generator's own shape (`ScheduleConstraint`), not the row
- * shape: `params` is `jsonb`, so it arrives as `unknown` and the one place that
- * narrows it should be the one place that knows what each kind means. A row
- * whose `kind` is not one this build understands is dropped rather than passed
- * on — it can only have come from a newer deploy, and the generator would
- * report it unresolvable anyway.
+ * In the generator's shape: `params` is `jsonb`, narrowed only here. A `kind` this build
+ * does not know can only come from a newer deploy, and is dropped.
  */
 export async function getScheduleConstraints(
   seasonId: string,
-  // ⛔ REQUIRED, and it has to be the admin client. 0039 grants
-  // `season_schedule_constraints` to nobody — `revoke all from anon,
-  // authenticated` — so an RLS-client read returns `42501`, this function logs
-  // and returns `[]`, and the caller sees a season with no requests rather than
-  // an error. "No constraints" and "I was not allowed to look" must not be the
-  // same value. Required rather than defaulted so the choice is made at every
-  // call site instead of inherited silently — `DbClient` still admits the RLS
-  // client, so this forces the decision rather than making the wrong one
-  // impossible.
+  // ⛔ Required, and it must be the admin client: `0039` grants the table to nobody, so an RLS
+  // read logs 42501 and returns `[]`, a season with no requests instead of an error.
   opts: { client: DbClient },
 ): Promise<ScheduleConstraint[]> {
   if (!isUuid(seasonId)) return [];
@@ -299,7 +228,6 @@ export async function getScheduleConstraints(
   );
 }
 
-/** Most recent final games. */
 export async function getRecentResults(
   seasonId: string,
   opts: { limit?: number; teamId?: string; client?: DbClient } = {},
@@ -326,12 +254,8 @@ export async function getRecentResults(
 }
 
 /**
- * Everything the schedule builder needs to decide what it may offer.
- *
- * `started` is read from the `season_is_started` RPC rather than recomputed
- * here: it is the gate `replace_published_schedule` enforces, and a second copy
- * of that predicate in TypeScript would be free to drift from the one that
- * actually guards the delete.
+ * `started` comes from the `season_is_started` RPC, never recomputed: a TypeScript copy
+ * of the gate `replace_published_schedule` enforces could drift from it.
  */
 export type SchedulePublishState = {
   liveCount: number;
@@ -340,107 +264,30 @@ export type SchedulePublishState = {
   /** League-local YYYY-MM-DD of the first/last dated live game; null if none. */
   firstLiveDate: string | null;
   lastLiveDate: string | null;
-  /**
-   * A fingerprint of the *published* schedule, for callers that must remount
-   * when it is replaced rather than merely changed.
-   *
-   * The count alone will not do: replacing a 144-game schedule with another
-   * 144-game one leaves it identical. `replace_published_schedule` promotes the
-   * draft rows, so every game gets a NEW id and the lowest one moves — while an
-   * in-place edit (`applyOneOffGame`, `applyScheduleRepair`, `rescheduleNight`)
-   * updates rows by id and leaves every id alone, which is exactly the
-   * distinction its one consumer needs.
-   *
-   * ⛔ The id half is the LOWEST id, not the earliest game's. Ordering by date
-   * made the key move whenever a night moved to the front of the season, which
-   * remounted the generate form and discarded what the manager had typed —
-   * precisely the bug this key exists to prevent.
-   */
+  /** Moves when the schedule is replaced (every game gets a new id), not when edited in place. */
   liveScheduleKey: string;
-  /**
-   * `game_rosters` rows hanging off live games. They cascade on game delete
-   * (0004_games.sql), so a replace silently discards lineups a captain set in
-   * advance — the confirm dialog names this when it is non-zero.
-   */
+  /** Lineups on live games: they cascade on game delete (`0004`), so the confirm dialog names them. */
   lineupsAtRisk: number;
-  /**
-   * True when one of the reads below failed and `started` was locked shut
-   * rather than answered. The counts in this object are then *unknown*, not
-   * zero — anything rendering them has to say so instead of stating them.
-   */
+  /** A read failed and `started` locked shut: the counts are then unknown, not zero. */
   readFailed: boolean;
 };
 
-/**
- * How long to wait before a failed read is tried a second time. Long enough to
- * be on the other side of a gateway hiccup, short enough that a season whose
- * database is genuinely down still renders promptly — the reads run in
- * parallel, so this is paid once, not once per read.
- */
 const READ_RETRY_DELAY_MS = 150;
 
 /**
- * Run a read, and give it exactly one more go if it comes back with an error.
- *
- * ⛔ THIS DOES NOT SOFTEN THE FAIL-CLOSED RULE BELOW, AND MUST NOT BE READ AS
- * DOING SO. A read that fails TWICE still locks the builder, exactly as before.
- * All that changes is which failures count as an answer: one lost response no
- * longer does.
- *
- * The gap this closes is narrow and was measured. postgrest-js retries GET,
- * HEAD and OPTIONS at the transport layer (see `gameWrites.ts`), but only when
- * the *connection* fails. A gateway 502 is a perfectly valid HTTP response, so
- * nothing retries it: it arrives as `{ error }` and trips the lock on the first
- * blip. CI on `main` hit that in THREE OF SIX runs on 2026-09-06 — Kong's
- * `An invalid response was received from the upstream server`, raised once or
- * twice per run while 212 other tests drove the same page without trouble.
- * Whether a run went red was down to whether the blip happened to land on a
- * page load a test asserted against: run 34067560378 went red, run 34057958405
- * hit the same error and passed anyway.
- *
- * Seven parallel reads make this the most exposed call site in the app — seven
- * chances per render to catch a transient, six of which lock — and the same
- * blip against hosted Supabase takes a real manager's builder offline until
- * they think to reload.
- *
- * ⚠️ Retrying is safe for every read in this function and is not a licence to
- * wrap a write. Six are GET/HEAD, and `season_is_started` is a read-only RPC;
- * running any of them twice is indistinguishable from running it once. A
- * genuinely broken query fails both times and still locks, which is what the
- * tests in `schedule.test.ts` pin.
- *
- * ⛔ TAKES A FACTORY, NOT A BUILDER. A PostgREST builder is a thenable that
- * fires its request when awaited; the retry has to construct a fresh one rather
- * than await a spent object.
- *
- * ⚠️ EXPORTED, because `publishSchedule` reads the draft's dates before it
- * calls the terminal RPC and that read fails closed — so a single 502 there
- * turns a publish into a refusal, which is precisely the blip measured on this
- * project. Same safety argument: it is a GET, and running it twice is
- * indistinguishable from running it once.
+ * ⛔ Reads only, and one retry (a gateway 502 is a valid response, so nothing below retries it):
+ * a read failing twice still fails closed. Takes a factory, since an awaited builder is spent.
  */
 export async function readWithOneRetry<T extends { error: unknown }>(
   run: () => PromiseLike<T>,
-  /**
-   * Which read is retrying, for the log line below. Defaults to this file's own
-   * caller so the seven reads in `getPublishState` keep the exact message CI's
-   * diagnostics step greps for.
-   */
+  /** Its log line ends "read retried", which CI's diagnostics step greps for. */
   label = "publish state read",
 ): Promise<T> {
   const first = await run();
   if (!first.error) return first;
 
-  // ⛔ LOGGED, OR THE ABSORBED CASE IS INVISIBLE — WHICH IS THE CASE WE NOW
-  // EXPECT. `publish state read failed` below only fires when BOTH attempts
-  // fail, so without this line a retry that worked produces no output at all:
-  // the transient stops turning CI red and simultaneously stops being
-  // observable, in production and in the CI diagnostics step that greps for it.
-  // Absorbing a fault silently is how you stop finding out it is getting worse.
-  //
-  // `warn`, not `error`: this condition was handled. The read succeeded on the
-  // second try and the builder rendered normally, so anything watching stderr
-  // for genuine failures should not see this one.
+  // ⛔ Logged, or a retry that worked leaves no trace and a worsening fault goes unseen.
+  // `warn`, not `error`: the read succeeded on the second try.
   console.warn(
     `${label} retried:`,
     (first.error as { message?: string })?.message ?? String(first.error),
@@ -459,21 +306,15 @@ export async function getPublishState(
   const liveGames = () =>
     supabase
       .from("games")
-      // `id` alongside the date: the first live game's id is half of
-      // `liveScheduleKey` below, and it rides along on a query that was already
-      // fetching that exact row.
+      // `id` feeds `liveScheduleKey` through `lowestId` below.
       .select("id, scheduled_at")
       .eq("season_id", seasonId)
       .eq("is_draft", false);
 
   const [live, firstLive, lastLive, lowestId, drafts, started, lineups] =
     await Promise.all([
-      // An exact count from the server, not `data.length`. Counting the returned
-      // rows silently capped liveCount at PostgREST's `max_rows` (1000 — see
-      // supabase/config.toml), so a season past that would have told the manager a
-      // replace deletes 1000 games while the RPC deleted every one of them. It is
-      // also the read most likely to time out, being the only one here that
-      // touched every row in the season; `head: true` returns no rows at all.
+      // An exact server count, never `data.length`, which PostgREST's `max_rows` (1000) caps
+      // while the RPC deletes every game. `head: true` returns no rows.
       readWithOneRetry(() =>
         supabase
           .from("games")
@@ -481,14 +322,8 @@ export async function getPublishState(
           .eq("season_id", seasonId)
           .eq("is_draft", false),
       ),
-      // First and last dated live game, one row each rather than sorting the whole
-      // season in memory. Undated games are excluded here on purpose — they have
-      // no place in a date range — and no longer need to be carried by this query
-      // to be counted, now that the count above is its own request.
-      // `id` is a tiebreak, not decoration: two games on the same night share a
-      // timestamp often enough, and without it "the first live game" is
-      // whichever row PostgREST happened to return, which can differ between
-      // two renders of the same unchanged schedule.
+      // `id` breaks ties: games on one night often share a timestamp, and without it two renders
+      // of an unchanged schedule can disagree on the first game.
       readWithOneRetry(() =>
         liveGames()
           .not("scheduled_at", "is", null)
@@ -503,12 +338,8 @@ export async function getPublishState(
           .order("id", { ascending: false })
           .limit(1),
       ),
-      // ⛔ Ordered by ID, NOT by date — this one feeds `liveScheduleKey`, whose
-      // whole job is to move when the rows are REPLACED and stay put when they
-      // are merely edited. Keyed off the earliest game by date, moving a night
-      // to the front of the season changed it, and the generate form remounted
-      // and threw away everything the manager had typed — the exact bug the key
-      // was added to prevent, triggered by the feature next to it.
+      // ⛔ Ordered by id, never date: this feeds `liveScheduleKey`, and moving a night to the front
+      // would remount the generate form and discard what the manager typed.
       readWithOneRetry(() =>
         liveGames().order("id", { ascending: true }).limit(1),
       ),
@@ -534,52 +365,13 @@ export async function getPublishState(
       ),
     ]);
 
-  // Fail closed on ANY of them, not just the RPC.
-  //
-  // These are independent PostgREST requests, so one can fail on its own and
-  // leave the returned state looking authoritative. Every decision the builder
-  // makes is derived from these numbers — whether to offer the generate form,
-  // whether publishing confirms first, and what the confirmation says will be
-  // destroyed — so a partial read produces a confident answer from incomplete
-  // data. Absorbing a live-count error is the dangerous one: it reads as
-  // liveCount 0, which is publishMode's "draft-only", and the manager gets a
-  // one-click "Publish N games" with no dialog, no live count and no lineup
-  // warning, while the RPC behind that button still deletes the whole live
-  // schedule. Absorbing a lineup error quietly drops the warning that captains'
-  // lineups are deleted along with the games.
-  //
-  // Locking is the only honest way to fail closed here. A count has no "unknown"
-  // value publishMode could branch on, and inventing a non-zero one would put a
-  // fabricated number in front of the manager on the one screen in this app that
-  // deletes data. So the builder reports "started" and offers no publish path at
-  // all; nothing is destroyed, the RPC's own gate is unchanged, and the next
-  // render with a working query unlocks it.
-  //
-  // `readFailed` travels with it because locking alone still leaves the counts
-  // reading as a confident zero. Without it the locked card stated "0 games are
-  // published" about a season that may hold hundreds — the same fabricated
-  // number, moved one screen over.
-  // ⛔ `lowestId` IS DELIBERATELY NOT IN THIS LIST, AND THE REASON IS THE WHOLE
-  // POINT OF THE LIST.
-  //
-  // Locking the builder is the fail-closed answer for reads whose values drive
-  // DESTRUCTIVE decisions: the counts decide whether a one-click publish is
-  // offered over an RPC that deletes the live schedule, and what the confirm
-  // dialog says is about to be destroyed. A partial read there produces a
-  // confident number in front of the manager on the one screen that deletes
-  // data, so it locks instead.
-  //
-  // `lowestId` drives `liveScheduleKey`, whose only consumer is a React `key`
-  // that remounts the generate form after a publish. Its failure mode is a form
-  // that keeps its fields when it should have cleared them. Taking the entire
-  // builder offline for that is disproportionate — and it is a SEVENTH chance to
-  // trip a hard lock, added by this branch to a `Promise.all` that already had
-  // six. CI hit exactly that: a transient read on a season with no games at all
-  // rendered "This season's games couldn't be read" and cost a 12-minute
-  // timeout. The counts still fail closed; this one degrades.
+  // ⛔ `lowestId` is deliberately not in the fail-closed list: its failure only leaves the
+  // generate form un-cleared, which does not justify locking the builder.
   if (lowestId.error) {
     console.error("live schedule key read failed:", lowestId.error.message);
   }
+  // Fail closed on ANY other read: an absorbed live-count error reads as 0 and offers a one-click
+  // publish, with no dialog, over an RPC that deletes the live schedule.
   const failure =
     live.error ??
     firstLive.error ??

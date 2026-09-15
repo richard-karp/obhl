@@ -7,26 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-/**
- * Set a staff account's password, as a commissioner.
- *
- * ⚠️ This form is a convenience, not a restriction. `setStaffPassword` calls
- * `requireCommissioner` itself and checks the target's tier itself; drawing the
- * card only for a commissioner decides what is OFFERED and nothing else.
- *
- * Typed address rather than a picker on purpose. The office page already pays one
- * admin-API request per manager to label its appoint dropdown, and that cost
- * scales with the instance; a list of every staff account — managers,
- * scorekeepers and captains across every league — would scale worse for a control
- * whose whole use is "this specific person cannot get in". The action resolves
- * the address and says plainly when nothing answers to it.
- *
- * The result is reported, unlike the appoint/remove actions on this page, which
- * refuse quietly because the page renders a reason wherever they would. There is
- * no such reason to render here: whether an address matches an account is not
- * knowable until it is submitted, and a password that silently did not get set is
- * the worst possible outcome for a recovery path.
- */
+// ⚠️ A convenience, not a restriction: `setStaffPassword` checks `requireCommissioner` and the target's tier.
+// A typed address, not a picker (lookups scale with the instance); the result is always reported.
 export function OfficePasswordForm() {
   const [state, action, pending] = useActionState<SetPasswordState, FormData>(
     setStaffPassword,

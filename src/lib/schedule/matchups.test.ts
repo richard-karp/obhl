@@ -20,12 +20,8 @@ function scenario(nightCount: number) {
   return { T, plays, nightWeek, nightWeekday };
 }
 
-/**
- * Six teams all playing every night, over an arbitrary cadence given as
- * `[week, weekday]` per night. Three meetings per pair, which 15 nights of three
- * games fills exactly — so the weekday split has an exact answer to hit, and the
- * cadence is the only thing varying between these cases.
- */
+/** Six teams all playing every night over a `[week, weekday]` cadence; three meetings a pair
+ *  fill 15 nights of three games exactly, so the split has an exact answer. */
 function cadence(nights: [number, number][]) {
   const T = 6;
   return {
@@ -39,7 +35,6 @@ function cadence(nights: [number, number][]) {
   };
 }
 
-/** Per pairing, how many times it meets on each weekday, in weekday order. */
 function countsByWeekday(
   pairsByNight: [number, number][][],
   nightWeekday: number[],
@@ -75,7 +70,6 @@ function pairingExcess(
   return { excess: scaled / nightWeekday.length ** 2, off, pairs: counts.size };
 }
 
-/** Meeting counts implied by a result, as a symmetric matrix. */
 function counts(T: number, pairsByNight: [number, number][][]) {
   const m = Array.from({ length: T }, () => new Array(T).fill(0));
   for (const pairs of pairsByNight) {
@@ -129,8 +123,7 @@ describe("assignMatchups", () => {
   });
 
   it("declines rather than guessing when a night has too many pairings", () => {
-    // 14 teams all playing means 135135 perfect matchings a night — far past
-    // what can be enumerated, and sampling a slice of them misses the targets.
+    // 14 teams all playing is 135135 matchings a night: past enumeration, and a slice misses.
     const T = 14;
     const plays = Array.from({ length: T }, () => [true, true]);
     const targets = Array.from({ length: T }, () => new Array(T).fill(1));
@@ -187,8 +180,6 @@ describe("assignMatchups weekday split", () => {
   });
 
   it("is a no-op on a single-weekday cadence rather than double-counting it", () => {
-    // One weekday means every split is the only split. The term must read 0
-    // rather than dividing by a weekday count of one and charging for nothing.
     const nights: [number, number][] = [];
     for (let w = 0; w < 15; w++) nights.push([w, 4]);
     const { T, plays, nightWeek, nightWeekday, targets } = cadence(nights);
@@ -296,7 +287,6 @@ describe("assignMatchups night constraints", () => {
       nightPenalty: (n, pairs) =>
         key(pairs) === key(incumbent[n]) ? 0 : 5_000,
     })!;
-    // Already optimal, so a churn cost means there's no reason to move at all.
     expect(res.pairsByNight.map(key)).toEqual(incumbent.map(key));
     // And churn must not be reported as though it were bad spacing.
     expect(res.spacingCost).toBeLessThan(5_000);
@@ -306,7 +296,6 @@ describe("assignMatchups night constraints", () => {
 describe("assignSlots", () => {
   it("uses each of a night's slots exactly once", () => {
     const { T, plays, nightWeek, nightWeekday } = scenario(24);
-    // Targets are irrelevant here; we just need a valid pairing to slot.
     const targets = Array.from({ length: T }, () => new Array(T).fill(0));
     const m = assignMatchups({
       teamCount: T,
@@ -336,7 +325,6 @@ describe("assignSlots", () => {
       nightWeekday,
       targets,
     })!;
-    // A deliberately bad starting layout, with the first half held there.
     const initial = m.pairsByNight.map(() => [2, 1, 0]);
     const frozen = m.pairsByNight.map((_, n) => n < 12);
     const slotOf = assignSlots({
@@ -347,31 +335,13 @@ describe("assignSlots", () => {
       frozen,
     });
     for (let n = 0; n < 12; n++) expect(slotOf[n]).toEqual([2, 1, 0]);
-    // The free half is still a valid permutation and free to have moved.
     for (let n = 12; n < 24; n++)
       expect([...slotOf[n]].sort()).toEqual([0, 1, 2]);
   });
 });
 
-/**
- * The shape generation actually produces: 8 teams with a rotating bye pair, so
- * six play each night over three ice times. Which weekday each night falls on is
- * the only thing these cases vary.
- *
- * Per-weekday game counts come out uneven here — a team's byes do not divide
- * neatly across weekdays — which is the point: it is the proportional target
- * that gets exercised, not an even one.
- *
- * Built here rather than by running Phase M, which is what these rows used to
- * do. Phase M's search is not the unit under test, and routing the fixture
- * through it meant every Phase M change silently re-rolled the instance Phase S
- * is judged on: when the compound pass landed, two of these three cadences moved
- * from a good basin to a bad one at the default weight — a reading about Phase
- * M's luck arriving as a Phase S regression. The bye rotation is the same one as
- * before, so the uneven per-weekday counts above are unchanged; only the pairing
- * within each night is now fixed, by the circle method rotated per night so
- * opponents still vary through the season.
- */
+/** Eight teams, a rotating bye pair, pairs fixed by the circle method. ⚠️ Built here, not by
+ *  Phase M: routed through it, every Phase M change re-rolled the instance Phase S is judged on. */
 function slotCadence(weekdayOfNight: number[]) {
   const T = 8;
   const N = weekdayOfNight.length;
@@ -381,8 +351,6 @@ function slotCadence(weekdayOfNight: number[]) {
     const playing = Array.from({ length: T }, (_, t) => t).filter(
       (t) => !bye.has(t),
     );
-    // Circle method: hold the first team, rotate the rest by the night index,
-    // then fold the list onto itself.
     const [head, ...rest] = playing;
     const k = n % rest.length;
     const order = [head, ...rest.slice(k), ...rest.slice(0, k)];
@@ -399,8 +367,6 @@ describe("assignSlots without weekdays", () => {
   const BOUNDED = { restarts: 300, timeBudgetMs: 60_000 };
 
   it("still gives each night a valid ice-time permutation when no weekdays are given", () => {
-    // The option is optional: without it Phase S must produce what every caller
-    // predating goal 3 got — a valid permutation per night.
     const wd = new Array(28).fill(4);
     const { T, pairsByNight } = slotCadence(wd);
     const slotOf = assignSlots({

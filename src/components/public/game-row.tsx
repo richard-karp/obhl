@@ -49,12 +49,7 @@ function TeamLine({
   );
 }
 
-/**
- * The word on the button, which is the only thing that changes with status: a
- * finished game is being corrected, a cancelled or postponed one is being
- * managed back into shape, and everything else is being scored. Lifted verbatim
- * from the `/manage/score` table this row absorbed.
- */
+/** The button's word: a final is corrected, a cancelled or postponed game managed, the rest scored. */
 function scoreLabel(status: GameWithTeams["status"]) {
   if (status === "final") return "Edit";
   if (status === "cancelled" || status === "postponed") return "Manage";
@@ -64,16 +59,8 @@ function scoreLabel(status: GameWithTeams["status"]) {
 export function GameRow({
   game,
   league,
-  /**
-   * Where this game's scoresheet is, for a viewer entitled to open one. Absent
-   * for everybody else, which is every anonymous visitor — the row is then
-   * exactly what it was before this page absorbed the scorekeeper's list.
-   *
-   * ⛔ A href, not a boolean: the button has to sit OUTSIDE the row's own link,
-   * or a finished game nests one anchor inside another. That is invalid HTML,
-   * and browsers recover from it by splitting the outer link — which would have
-   * broken the box-score link this row has always had.
-   */
+  // Only for a viewer entitled to open the scoresheet. ⛔ A href, not a boolean: the button sits outside the
+  // row's link, since a nested anchor splits the box-score link.
   scoreHref,
 }: {
   game: GameWithTeams;
@@ -87,10 +74,8 @@ export function GameRow({
   const body = (
     <div className="hover:bg-muted/40 flex items-center gap-3 rounded-lg border p-3 transition-colors">
       <div className="text-muted-foreground w-16 shrink-0 text-xs">
-        {/* `data-testid` so a test can assert WHICH night is listed. There is no
-            `<time>` element here and the class list is shared with buttons and
-            badges, so a locator without this hook silently matches nothing — an
-            assertion built on one passed vacuously until 2026-09-10. */}
+        {/* `data-testid` so a test can assert which night is listed: with no `<time>` element
+            and shared classes, any other locator silently matches nothing. */}
         <div data-testid="game-date">{formatGameDate(game.scheduled_at)}</div>
         <div>{formatGameTime(game.scheduled_at)}</div>
       </div>

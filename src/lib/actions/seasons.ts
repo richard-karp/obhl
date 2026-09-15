@@ -18,12 +18,7 @@ export type TeamActionState = { ok: boolean; message: string } | null;
 
 type Admin = ReturnType<typeof createAdminClient>;
 
-/**
- * The league a season belongs to. This used to come from the `obhl_league`
- * cookie, which nothing writes now that the league is in the URL — leaving it
- * would have meant every write landing in whichever league was created first.
- * An action holding a season id can just ask the season.
- */
+/** The season's league, or a throw when the season is gone. */
 async function leagueIdOfSeason(
   admin: Admin,
   seasonId: string,
@@ -59,10 +54,8 @@ export async function createSeason(
     .select("id")
     .single();
   if (error) return { ok: false, message: error.message };
-  // Awaited rather than voided, here and below: a void promise can be left
-  // unfinished when the runtime freezes the function after the response, and
-  // `logAudit` swallows its own errors, so awaiting cannot turn a successful
-  // change into a reported failure. Same trade as `people.ts`.
+  // Awaited, not voided, here and below: a voided write can be dropped when the runtime freezes,
+  // and `logAudit` swallows its own errors.
   await logAudit({
     user_id: manager.id,
     action: "create_season",
@@ -74,10 +67,7 @@ export async function createSeason(
   return { ok: true, message: `Season "${name}" created.`, seasonId: data.id };
 }
 
-/**
- * Step 2 of season setup: create a team in the league, enroll it in the season,
- * and optionally set its captain (a player marked captain) + a captain login.
- */
+/** Step 2 of season setup: create a team, enrol it, and optionally a captain and their login. */
 export async function createTeamForSeason(
   _prev: TeamActionState,
   formData: FormData,
@@ -134,17 +124,8 @@ export async function createTeamForSeason(
     };
   }
 
-  // Logged HERE, not after the captain block, because from this line on the team
-  // survives every remaining exit. Three of them return `ok: false` — the
-  // captain's player row, its roster row, or its login failed — and each says so
-  // in its message while leaving the team enrolled, on purpose: a team without a
-  // captain is a valid state. Logging at the end therefore left exactly the
-  // teams whose creation went half-right unrecorded, which is the case an audit
-  // log is for.
-  //
-  // The captain is not in the payload for the same reason: nothing is known
-  // about it yet, and naming someone who then failed to get a login would make
-  // the entry assert the thing that did not happen.
+  // Logged here: the team survives every exit below, including three captain failures. The
+  // captain stays out of the payload because it may not land.
   await logAudit({
     user_id: manager.id,
     action: "create_team",
@@ -153,9 +134,8 @@ export async function createTeamForSeason(
     new_data: { name, season_id },
   });
 
-  // Captain is optional and secondary: if a captain step fails, the team still
-  // exists (a valid state), so report the partial outcome honestly instead of
-  // rolling the whole team back or claiming full success.
+  // A captain step failing leaves a valid team: report the partial outcome, never roll back or
+  // claim success.
   if (captainName) {
     const [first, ...rest] = captainName.split(/\s+/);
     const { data: player, error: pErr } = await admin
@@ -194,21 +174,14 @@ export async function createTeamForSeason(
         email_confirm: true,
       });
       if (uErr) {
-        // `createUser` failing is the NORMAL path for a captain who already has
-        // an account, so the address is looked up rather than treated as an
-        // error. Paged, because a single page of the instance's auth users
-        // would stop finding an existing captain once there are more than fit
-        // in it.
+        // Failing is normal for a captain who already has an account, so look it up (paged: one
+        // page stops finding them once the instance outgrows it).
         userId = (await findUserIdByEmail(admin, captainEmail)) ?? undefined;
       } else {
         userId = created.user.id;
       }
-      // ⛔ AND IF NEITHER WORKED, SAY SO. This was `if (userId) { … }` with no
-      // else, so the whole block below was skipped in silence: no login, no
-      // profile, no membership, and the team still reported as added with a
-      // captain who cannot sign in. `findUserIdByEmail` returns null for a
-      // failed `listUsers` exactly as it does for "not there", so any auth
-      // service error lands here — as does an instance past its 50-page cap.
+      // ⛔ Neither worked: say so. `findUserIdByEmail` returns null for a failed `listUsers` too,
+      // so an auth outage lands here.
       if (!userId) {
         revalidatePath("/[league]/seasons/[seasonId]", "page");
         return {
@@ -217,13 +190,8 @@ export async function createTeamForSeason(
         };
       }
 
-      // An existing account keeps its profile, the same rule as
-      // `createStaffAccount` in people.ts. `profiles.role` is account-wide, so
-      // writing "captain" would demote a manager or scorekeeper in every league
-      // they work; and `is_captain_of` (0038) reads `player_id` alone, so
-      // pointing an existing captain at this new player would end the captaincy
-      // they already hold. A different role is refused, an existing captain is
-      // only added to this league, and only a login with no role is written.
+      // An existing account keeps its profile: `profiles.role` is account-wide, and `is_captain_of`
+      // (0038) reads `player_id` alone. Only a login with no role is written.
       if (uErr) {
         const { data: existing } = await admin
           .from("profiles")
@@ -269,14 +237,8 @@ export async function createTeamForSeason(
           message: `Added ${name} with captain ${captainName}, but couldn't create their login (${profErr.message}).`,
         };
       }
-      // A role without a league reaches nothing: every manage page now asks
-      // for membership as well. Granted for the league this season is in.
-      //
-      // ⛔ AND CHECKED — this is the last thing that has to land for the
-      // captain to be able to sign in and reach anything. Discarded, it read
-      // exactly like the `profErr` branch above it succeeding: the team is
-      // reported added with a captain who holds the role and belongs to no
-      // league, which is the failure the comment above describes.
+      // ⛔ Checked: a role without a league reaches nothing, and this grant is the last thing the
+      // captain needs to sign in and reach anything.
       const granted = await addLeagueMembership(userId, season.league_id);
       if (!granted.ok) {
         revalidatePath("/[league]/seasons/[seasonId]", "page");
@@ -298,22 +260,8 @@ export async function createTeamForSeason(
 /** The two legible inks the monogram chip can draw its letters in. */
 const LOGO_TEXT_COLORS = ["light", "dark"] as const;
 
-/**
- * Step 2, after the fact: change an enrolled team's colour and the ink its
- * monogram is drawn in. Colour used to be settable once, at creation, and never
- * again.
- *
- * Both fields move together because they are one decision — "dark letters" means
- * nothing except against the colour chosen beside it, and a manager who picks a
- * pale colour needs to fix the letters in the same breath or the chip is
- * unreadable in between.
- *
- * Guarded on the TEAM's league rather than the season's. The season page is
- * where the control lives, but the team row is what gets written, and
- * `leagueOfTeam` is the only claim about that row the id itself supports — a
- * season id in the form would authorise a write to a team the season does not
- * contain.
- */
+// Colour and monogram ink move together, as one decision. Guarded on the team's league: that is
+// the row written, and a season id in the form could authorise a team the season lacks.
 export async function updateTeamColor(
   _prev: TeamActionState,
   formData: FormData,
@@ -327,9 +275,7 @@ export async function updateTeamColor(
 
   const color = String(formData.get("color") ?? "").trim() || null;
   const rawTextColor = String(formData.get("logo_text_color") ?? "light");
-  // Checked here as well as by 0041's check constraint: the constraint would
-  // reject a bad value with a Postgres error string, and this is a form field a
-  // manager can see.
+  // Checked here as well as by 0041's constraint, so the manager sees a sentence, not a Postgres error.
   if (!(LOGO_TEXT_COLORS as readonly string[]).includes(rawTextColor)) {
     return { ok: false, message: "Letter color must be light or dark." };
   }
@@ -339,9 +285,7 @@ export async function updateTeamColor(
     return { ok: false, message: "Color must be a hex value like #0ea5e9." };
   }
 
-  // Read before the update: the replaced colour is the only thing this entry can
-  // record that the team row does not already hold afterwards. Same reason
-  // `upload_logo` keeps `old_data`.
+  // Read before the update: the replaced colour exists nowhere else afterwards.
   const { data: was } = await admin
     .from("teams")
     .select("name, color, logo_text_color")
@@ -366,9 +310,7 @@ export async function updateTeamColor(
 
   revalidatePath("/[league]/seasons/[seasonId]", "page");
   revalidatePath("/[league]/teams", "page");
-  // The chip is on the public pages too — standings, the team pages, every game
-  // row — so revalidating only the setup page would leave the whole public site
-  // showing the old colour until something unrelated rebuilt it.
+  // The chip is on the public pages too, not only the setup page.
   revalidatePath("/[league]", "layout");
   return { ok: true, message: `Updated ${was.name}.` };
 }
@@ -379,9 +321,7 @@ export async function setActiveSeason(formData: FormData) {
   const leagueId = await leagueIdOfSeason(admin, id);
   const manager = await requireLeagueManager(leagueId);
 
-  // Which season is being replaced, read before the update that clears it —
-  // afterwards nothing says what was live, and that is the whole point of the
-  // entry.
+  // Read before the update that clears it: afterwards nothing says which season was live.
   const { data: was } = await admin
     .from("seasons")
     .select("id, name")
@@ -389,9 +329,8 @@ export async function setActiveSeason(formData: FormData) {
     .eq("is_active", true)
     .maybeSingle();
 
-  // Unset the current active first (one-active-per-league partial unique index),
-  // then activate the chosen season — scoped to this league so a stray id can't
-  // activate another league's season.
+  // Unset the active season first (one-active-per-league unique index), then activate this one,
+  // scoped to this league so a stray id cannot activate another league's season.
   const { error: e1 } = await admin
     .from("seasons")
     .update({ is_active: false })
@@ -428,9 +367,7 @@ export async function unenrollTeam(formData: FormData) {
     leagueOfSeason(season_id, admin),
   );
 
-  // The team's name, read before the enrollment goes: the team row survives an
-  // unenroll, but reading it here keeps the entry readable even if the team is
-  // later deleted outright.
+  // Read before the unenrol, so the entry stays readable if the team is later deleted.
   const { data: team } = await admin
     .from("teams")
     .select("name")
@@ -442,9 +379,8 @@ export async function unenrollTeam(formData: FormData) {
     .delete()
     .eq("season_id", season_id)
     .eq("team_id", team_id);
-  // Filed under the SEASON, which outlives the enrollment row — so
-  // `leagueOfEntity` still resolves a league and the entry stays visible. The
-  // `season_teams` row itself has no id here and would resolve to nothing.
+  // Filed under the season, which outlives the enrollment, so `leagueOfEntity` still resolves a
+  // league; a `season_teams` row would resolve nothing.
   await logAudit({
     user_id: manager.id,
     action: "unenroll_team",
@@ -489,11 +425,7 @@ export async function carryForwardEnrollment(formData: FormData) {
       .eq("season_id", sourceId);
     const rows = (src ?? []).map((r) => ({ season_id, team_id: r.team_id }));
     if (rows.length) {
-      // `ignoreDuplicates` turns this into ON CONFLICT DO NOTHING, and the
-      // representation then comes back holding ONLY the rows that were inserted
-      // — which is the count the log wants. Behaviour is unchanged: the row is
-      // nothing but its own key, so the update branch it replaces wrote nothing.
-      // Pressing the button twice used to record "carried 6 teams" both times.
+      // `ignoreDuplicates` returns only inserted rows, which is the count the entry wants.
       const { data: added } = await admin
         .from("season_teams")
         .upsert(rows, {
@@ -504,10 +436,8 @@ export async function carryForwardEnrollment(formData: FormData) {
       carried = added?.length ?? 0;
     }
   }
-  // Logged even when it carried nothing, and the two ways that happens are kept
-  // apart by `from_season_id`: no earlier season had teams to copy, or they were
-  // all enrolled here already. Someone reading this because a roster is
-  // unexpectedly empty needs to tell those apart.
+  // Logged even when nothing carried; `from_season_id` tells "no earlier season had teams" from
+  // "all already enrolled".
   await logAudit({
     user_id: manager.id,
     action: "carry_forward_enrollment",

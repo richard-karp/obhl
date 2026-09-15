@@ -8,10 +8,7 @@ import {
 } from "@/lib/actions/schedule";
 import { RedateForm } from "@/components/manage/redate-draft-button";
 
-/**
- * The formatted facts about a stale draft. The panel does the date work; both
- * this banner and the publish dialog render the same object.
- */
+/** The formatted facts about a stale draft; the banner and the publish dialog render the same object. */
 export type StaleNotice = {
   /** The raw "YYYY-MM-DD" first night, submitted back as the acknowledgement. */
   firstNight: string;
@@ -25,25 +22,8 @@ export type StaleNotice = {
   shiftedLabel: string;
 };
 
-/**
- * The warning a manager sees when their draft's first game has already been
- * played over, and the one-click way out of it.
- *
- * ⛔ MOUNTED WHETHER OR NOT THERE IS ANYTHING TO WARN ABOUT, AND THAT IS WHY IT
- * OWNS THE BANNER RATHER THAN SITTING INSIDE ONE. A successful move takes the
- * draft out of the stale state, so a component rendered only while stale
- * unmounts in the same commit its result arrives in — and the `useEffect` that
- * toasts never runs. That is not a theory: `11-schedule-build.spec.ts`
- * records the same race for PublishControls' success toast, which "often never
- * renders at all", and the first end-to-end run of this feature reproduced it.
- * Keeping this mounted and returning `null` when there is nothing to say is
- * what makes the confirmation reliable.
- *
- * ⚠️ So do not wrap this in `{stale ? … : null}` at the call site. The panel
- * decides whether the season is one that can act (it is not rendered on a
- * locked season, where neither publishing nor moving is possible), and `stale`
- * itself must reach this component as a prop, including when it is null.
- */
+// ⛔ Mounted whether or not stale, returning null: rendered only while stale, a successful move unmounts it
+// before its toast runs. ⚠️ So never wrap it in `{stale ? … : null}` at the call site.
 export function StaleDraftNotice({
   seasonId,
   stale,

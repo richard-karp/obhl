@@ -18,11 +18,8 @@ import {
 import { homeAwaySpread } from "./homeAway";
 import { twoNightsPerWeek } from "./calendars.test-support";
 
-/**
- * A real generated season, converted to the planner's index-based shape. Eight
- * teams over three ice times means six of eight play each night — the reference
- * shape from SCHEDULE_HANDOFF.md, where byes are what make the problem hard.
- */
+/** A generated season in the planner's shape: 8 teams on three ice times, so byes make it
+ *  hard. RUNBOOK.md, _Schedule generator_. */
 function season(opts: { teams: number; weeks: number; gamesPerTeam: number }) {
   const ids = Array.from({ length: opts.teams }, (_, i) => `t${i + 1}`);
   const cal = twoNightsPerWeek(opts.weeks);
@@ -90,11 +87,7 @@ function invariants(teamCount: number, nights: OneOffNight[]) {
 
 type Target = { night: number; pair: [number, number] };
 
-/**
- * A night both teams play but where they don't already meet. `accept` narrows it
- * further — the repair tests need a target whose exact repair is reachable, and
- * which of them is depends on the generated fixture.
- */
+/** A night both teams play but don't already meet; `accept` narrows it further. */
 function pickTarget(
   nights: OneOffNight[],
   from: number,
@@ -171,20 +164,8 @@ describe("planOneOff", () => {
     expect(baseline.changes.every((c) => c.night === target.night)).toBe(true);
   });
 
-  /**
-   * ⚠️ Exact repair is a property of the *instance*, not an invariant, and this
-   * fixture's target is picked by scanning the generated season — so which
-   * instance it lands on moves whenever the generator does.
-   *
-   * Measured over all twelve pairs forceable onto this fixture's night 6: nine
-   * repair exactly and three cannot, and raising the repair's own effort 25×
-   * (300 restarts, 12 s) does not move them — so those three are the shape
-   * `drift` documents, "pairs still off target if exact repair was unreachable".
-   * Asserting exact repair for whichever pair the scan happens to return would
-   * be asserting that luck, which is how this test read before.
-   */
-  // Finding a repairable target means planning each candidate until one lands,
-  // and a plan is a full Phase M + Phase S run — seconds, not milliseconds.
+  // ⚠️ Exact repair belongs to the instance, not an invariant (on night 6, nine of twelve pairs
+  // repair exactly; 25× the effort moves none of the rest), so find a repairable target first.
   it(
     "restores opponent balance where exact repair is reachable",
     { timeout: 60_000 },
@@ -215,9 +196,7 @@ describe("planOneOff", () => {
   );
 
   it("never leaves opponent balance worse than leaving the season alone", () => {
-    // The invariant that does hold everywhere: meeting counts are weighted far
-    // above churn, so a repair may fail to close the gap but must never widen
-    // it. This is what catches a weight that lets something outrank balance.
+    // Meeting counts outweigh churn, so a repair may fail to close the gap but never widen it.
     const baseline = plans.find((p) => p.id === "no-repair")!;
     const off = (p: OneOffPlan) =>
       p.drift.reduce((s, d) => s + Math.abs(d.delta), 0);
@@ -236,9 +215,7 @@ describe("planOneOff", () => {
   });
 
   it("repairs ice-time share far better than doing nothing", () => {
-    // Not a guarantee that it returns to the pre-edit value: the new matchups
-    // decide which teams share a slot, so a perfect split may stop being
-    // reachable. What it must do is beat leaving the season alone.
+    // Not back to the pre-edit value (new matchups decide who shares a slot): only beats nothing.
     const baseline = plans.find((p) => p.id === "no-repair")!;
     for (const plan of plans.filter((p) => p.id !== "no-repair")) {
       expect(plan.slotSpreadAfter).toBeLessThan(baseline.slotSpreadAfter);
@@ -246,26 +223,8 @@ describe("planOneOff", () => {
   });
 
   it("holds the per-weekday ice split rather than chasing the season total", () => {
-    // This used to assert the repair drove the *season* ice spread back to 0.
-    // It no longer does, and that is the goal-3 change working: the repair now
-    // scores each team's share within each weekday, not just across the season,
-    // and the season total is exactly the number that can read perfect while
-    // every weekday is lopsided.
-    //
-    // Measured on this fixture, with and without `weekdayOfNight` passed to
-    // `assignSlots`: without it the repair takes the season spread 4 → 0 while
-    // driving the per-weekday spread 19 → 36; with it the season spread stays
-    // at the incumbent's 4 and the per-weekday spread comes down to 17. So the
-    // assertion is the one that survives: never worse than leaving it alone, on
-    // either measure.
-    //
-    // At production's Phase S budget the repair reaches a trade the 400 ms
-    // fixture never found — season 8 → 4 while per-weekday goes 13 → 15 — so
-    // "never worse on either measure" is no longer free. The guarantee is
-    // unchanged but now carried by `worseThan`: a repair that regresses any of
-    // the four reported ice metrics has to name it, and one that names nothing
-    // has to be clean on all four. Spelled out here rather than reusing
-    // `oneOff.ts`'s own helper, so the two derivations stay independent.
+    // Every ice metric a repair regresses against no repair must appear in `worseThan`, and
+    // nothing else; derived here independently of `oneOff.ts`'s helper.
     const res = planOneOff({
       teamCount: T,
       nights,
@@ -324,10 +283,8 @@ describe("planOneOff", () => {
       for (const c of plan.changes) {
         expect(plan.matchupNights.includes(c.night)).toBe(c.matchupChanged);
       }
-      // A same-opponent night means exactly that and no more: the pairs are
-      // identical as a set. It does *not* mean only the ice time moved — the
-      // orientation pass can flip home/away on a night whose matchups it never
-      // touched, so describing these as "ice time only" would be a lie.
+      // Same opponents means the same pairs as a set, not "ice time only": orientation can
+      // flip home/away on a night whose matchups it never touched.
       const key = (ps: [number, number][]) =>
         ps
           .map((g) => [...g].sort().join("-"))
@@ -443,8 +400,6 @@ describe("planOneOff preconditions", () => {
 });
 
 describe("checkOneOffWrite", () => {
-  // Four teams, two ice times, two nights. Small enough to reason about by
-  // hand, big enough that a wrong permutation is a real one.
   const teamIds = ["A", "B", "C", "D"];
   const base = (): CheckWriteOptions => ({
     teamIds,
@@ -547,17 +502,8 @@ describe("checkOneOffWrite", () => {
     expect(checkOneOffWrite(o)).toMatch(/schedule changed/);
   });
 
-  /**
-   * ⛔ THE POSITIONAL HAZARD, CLOSED.
-   *
-   * Everything else about a change is by position: `to[i]` is written onto the
-   * i-th ice time of the night AS READ AT APPLY. Preview and apply read the
-   * schedule independently and `groupIntoNights` sorts a night by time — so one
-   * `rescheduleGame` in between reorders the night, every other check still
-   * passes (same teams, same count, same night), and the previewed matchups land
-   * on the wrong ice slots. The ids the plan was computed against are the only
-   * thing that can see it.
-   */
+  /** ⛔ The positional hazard: a reschedule between preview and apply reorders a night while
+   *  every other check passes, and only the previewed game ids can see it. */
   it("rejects a night whose games have been re-timed since the preview", () => {
     const o = base();
     o.changes[0].gameIds = ["n7-1", "n7-0"]; // the same two games, re-ordered
@@ -604,13 +550,11 @@ describe("checkOneOffWrite", () => {
   });
 
   it("rejects swapping in a team who wasn't playing that night", () => {
-    // The check that carries the invariant. Needs a night someone sits out, so
-    // give the 5th a single game and leave C and D on a bye; substituting C for
-    // B would hand C a game and take one off B.
+    // The check that carries the invariant: the 5th runs one game, so C for B would hand C a
+    // game and take one off B.
     const o = base();
     o.nights[0].games = [["A", "B"]];
-    // The night's ids shrink with it, or the identity check fires first and
-    // this stops testing the participation rule it was written for.
+    // Shrink the ids too, or the identity check fires first and this tests nothing.
     o.nights[0].gameIds = ["n5-0"];
     o.changes[1] = {
       date: "2027-01-05",
@@ -643,9 +587,6 @@ describe("checkOneOffWrite", () => {
   });
 
   it("rejects an unenrolled team elsewhere on the one-off night", () => {
-    // Unenrolling a team leaves its games scheduled. On the relabel path the
-    // row builder maps that night's games back through `teamIds`, and a team
-    // with no index there would reach the write as a row with no team on it.
     const o = base();
     o.nights[1].games[1] = ["E", "B"];
     expect(
@@ -655,9 +596,7 @@ describe("checkOneOffWrite", () => {
 });
 
 describe("buildOneOffRows", () => {
-  // Four teams over two ice times, two nights. The 5th already hosted the
-  // semifinals, so a prior round's labels are sitting on real rows — which is
-  // how a label gets a chance to survive, or to go stale.
+  // The 5th already hosted the semifinals, so a prior round's labels sit on real rows.
   const teamIds = ["A", "B", "C", "D"]; // A=0, B=1, C=2, D=3
   const at = (date: string, time: string) => `${date}T${time}:00-05:00`;
 
@@ -721,21 +660,11 @@ describe("buildOneOffRows", () => {
 
   const byId = (rows: OneOffRow[]) => new Map(rows.map((r) => [r.id, r]));
 
-  /**
-   * ⛔ THE LABEL-WIPE REGRESSION, ASSERTED.
-   *
-   * A repair permutes ice times for a living, and every night it touches is an
-   * ordinary night. The old code read a label off `night.games[i]` — the row on
-   * the i-th ice time — so when two games on a night swapped slots neither was
-   * `kept` at its own index and BOTH labels came out null. A season with a
-   * scheduled Final could have it silently erased by an unrelated repair.
-   *
-   * Labels follow the MATCHUP, which is what the header always claimed.
-   */
+  /** ⛔ The label-wipe regression: a repair that swaps two games' ice times must keep both
+   *  labels, since labels follow the matchup, not the row. */
   it("keeps a night's labels when a repair only swaps their ice times", () => {
     const o = base();
-    // No one-off game at all — the repair path — over the 5th, whose two games
-    // carry the semifinal labels. Same two matchups, opposite ice times.
+    // The repair path (no one-off) over the 5th: the same two matchups, opposite ice times.
     o.date = null;
     o.forcedPairs = [];
     o.changes = [
@@ -767,9 +696,7 @@ describe("buildOneOffRows", () => {
 
   it("rewrites a night's games in place, keeping each row's ice time", () => {
     const rows = buildOneOffRows(base());
-    // `toMatchObject`, because every row also carries the `prev*` values the
-    // write path needs to undo a half-applied batch — asserted on their own
-    // below rather than repeated in every expectation here.
+    // `toMatchObject`: rows also carry `prev*`, asserted on their own below.
     expect(rows).toMatchObject([
       {
         id: "g3",
@@ -788,12 +715,8 @@ describe("buildOneOffRows", () => {
     ]);
   });
 
-  /**
-   * ⛔ The undo payload. `applyGameWrites` writes rows one at a time — an upsert
-   * would resurrect a deleted game as a live fixture — so a failure partway
-   * through has to put the earlier ones back, and it does that from these
-   * fields rather than by re-reading a schedule that is already half-changed.
-   */
+  /** ⛔ `prev*` is what each row held: the write sends it as `prev`, refusing a row changed
+   *  since the plan. Never an upsert, which would resurrect a deleted game. */
   it("carries what each row held before, for the undo", () => {
     const rows = buildOneOffRows(base());
     const g3 = rows.find((r) => r.id === "g3")!;
@@ -1051,17 +974,8 @@ describe("buildOneOffRows", () => {
   });
 });
 
-/**
- * Items 3 and 4 of the repair spec: pin a team to a night (or a night and an ice
- * time) and repair around it, and repair with no pin at all.
- *
- * ⛔ THESE DRIVE THE SAME ENGINE THE ONE-OFF PLANNER USES, NEVER
- * `generateSchedule`. `season_is_started` shuts generate and
- * `replace_published_schedule` permanently once a season is under way, and this
- * is the feature that has to keep working after that — so it plans over the
- * unlocked nights and applies as an in-place UPDATE by id, exactly as
- * `applyOneOffGame` does.
- */
+/** ⛔ These drive the one-off planner's engine, never `generateSchedule`: repair must keep
+ *  working after `season_is_started` shuts generate, applying an in-place UPDATE by id. */
 describe("planRepair", () => {
   const base = season({ teams: 8, weeks: 8, gamesPerTeam: 12 });
   // Half the season played, as it would be mid-season.
@@ -1076,8 +990,7 @@ describe("planRepair", () => {
   )!;
 
   it("has a fixture with both a player and a bye on the pinned night", () => {
-    // Eight teams over three ice times means two sit out. If that ever stops
-    // being true the unmet test below would silently stop testing anything.
+    // Two of eight sit out; if that stops being true, the unmet test below tests nothing.
     expect(playing.length).toBeGreaterThan(0);
     expect(bye).toBeGreaterThanOrEqual(0);
   });
@@ -1092,13 +1005,8 @@ describe("planRepair", () => {
     expect(res.unmet).toBeNull();
   });
 
-  /**
-   * ⚠️ A satisfiable `play_on` is BY DEFINITION already satisfied — repair
-   * cannot add a team to a night, so the only such pin it can honour is one the
-   * published schedule already meets. Without saying so, the page shows plans
-   * beside a pin the manager believes produced them, when the run was an
-   * ordinary repair.
-   */
+  /** ⚠️ A satisfiable `play_on` is already met by definition (repair can't add a team), and the
+   *  page must say so rather than imply the pin produced the plans. */
   it("reports a satisfiable play_on pin as already met", () => {
     const res = planRepair({
       teamCount: T,
@@ -1122,13 +1030,8 @@ describe("planRepair", () => {
     expect(res.unmet).toBeNull();
   });
 
-  /**
-   * ⛔ THE PIN IS CHECKED, NOT ASSUMED. `slotForce` reaches Phase S as an
-   * `initial` packing plus a pinned index, and if the pinned team's game cannot
-   * be located the pin quietly becomes `undefined` — plans come back, none of
-   * them honour the instruction, and `unmet` still says null. Every plan this
-   * returns has to put the team on the slot it was asked for.
-   */
+  /** ⛔ The pin is checked, not assumed: an unlocatable game drops it quietly while `unmet`
+   *  says null, so every returned plan must put the team on the requested slot. */
   it("returns only plans that actually honour a slot_on pin", () => {
     const team = playing[0];
     const slots = nights[openNight].games.length;
@@ -1143,8 +1046,7 @@ describe("planRepair", () => {
     });
     if (!res.ok) throw new Error(res.reason);
     if (res.unmet) {
-      // A legitimate outcome, and it must be the honest one — never plans that
-      // silently ignore the pin.
+      // A legitimate outcome, and then it must be honest: no plans that ignore the pin.
       expect(res.plans).toEqual([]);
       return;
     }
@@ -1157,12 +1059,8 @@ describe("planRepair", () => {
     }
   });
 
-  /**
-   * ⛔ THE MOST LIKELY THING TO BE GOT WRONG. "X needs to play that night" reads
-   * as though repair will ADD them to it. It will not: participation is frozen
-   * by the published schedule, and adding a team to a night changes byes, which
-   * unbalances the season. The honest answer is to say so.
-   */
+  /** ⛔ The likeliest misreading: "X needs to play that night" doesn't add X, since that
+   *  changes byes; the honest answer is to say so. */
   it("reports a play_on pin unmet, with a reason, when the team byes that night", () => {
     const res = planRepair({
       teamCount: T,
@@ -1241,18 +1139,8 @@ describe("planRepair", () => {
     }
   });
 
-  /**
-   * ⚠️ ITEM 4 MUST BE ABLE TO SAY "NOTHING TO IMPROVE" rather than churn nights
-   * for a score that did not move — so this asserts the branch outright, on a
-   * fixture built to reach it, rather than accepting whichever answer came back.
-   *
-   * The construction: two played nights and one unlocked night running a single
-   * game. Participation is frozen, so there is no second game on that night to
-   * swap an opponent with and no second ice time to move between — nothing the
-   * three phases are allowed to change. Hand-built rather than generated,
-   * because a generated season's search runs under a wall clock and "found
-   * nothing" would be a timing claim rather than a structural one.
-   */
+  /** ⚠️ Item 4 must be able to say "nothing to improve": hand-built so there is structurally
+   *  nothing to change, since a generated season's "found nothing" is a timing claim. */
   it("says there is nothing to improve when no plan changes anything", () => {
     const res = planRepair({
       teamCount: 4,
@@ -1274,17 +1162,12 @@ describe("planRepair", () => {
       nights: nights.map((n) => ({ ...n, locked: true })),
       pin: null,
     });
-    // ⛔ Not "nothing to improve": there is nothing it is ALLOWED to look at,
-    // which is a different answer and deserves a different sentence.
+    // ⛔ Not "nothing to improve": nothing is allowed to move, which is a different sentence.
     expect(res.ok).toBe(false);
   });
 
-  /**
-   * ⛔ §5's id-stability property, at the level a pure test can reach it: the
-   * rows a plan writes are rows that already exist. A regenerate mints new ids
-   * and replaces every subscriber's calendar events; a repair must not. The e2e
-   * checks the real before/after id set.
-   */
+  /** ⛔ Id stability: a plan writes only rows that already exist, since a regenerate's new ids
+   *  replace every subscriber's calendar events. The e2e checks the real id set. */
   it("writes only rows that already exist, keeping every ice time", () => {
     const res = planRepair({ teamCount: T, nights, pin: null });
     if (!res.ok) throw new Error(res.reason);

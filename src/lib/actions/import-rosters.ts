@@ -15,11 +15,7 @@ import {
 } from "@/lib/import/esportsdesk";
 import type { ImportRunState } from "./import";
 
-// The same twelve team colours the full importer assigns. Copied rather than
-// shared because `import.ts` is a "use server" module, where every export has
-// to be an async function — a colour array cannot be exported from it. They are
-// cosmetic defaults a manager can change per team, so the two lists drifting
-// apart costs nothing.
+// Cosmetic defaults a manager can change per team.
 const palette = [
   "#0ea5e9",
   "#b45309",
@@ -35,18 +31,13 @@ const palette = [
   "#4f46e5",
 ];
 
-/**
- * Import ONLY teams and players from an esportsdesk season, as the starting
- * draft for a new OBHL season. Positions aren't on esportsdesk (all default to
- * F); goalies are fixed in Rosters afterwards.
- */
+/** Teams and players only, into a new league's first season; esportsdesk records no positions. */
 export async function runRosterOnlyImport(
   _prev: ImportRunState,
   formData: FormData,
 ): Promise<ImportRunState> {
-  // Role only, and deliberately: this creates a league that does not exist yet,
-  // so there is no membership to check it against. Registered in
-  // league-guards.test.ts for exactly this reason.
+  // Role only: this creates the league, so there is no membership to check yet (exempted in
+  // league-guards.test.ts).
   const manager = await requireManager();
   const url = String(formData.get("url") ?? "");
   const leagueName = String(formData.get("league_name") ?? "").trim();
@@ -59,9 +50,8 @@ export async function runRosterOnlyImport(
     return { ok: false, message: "Missing the source URL or a league name." };
   }
 
-  // The slug is the league's address, so a name that cannot produce a usable
-  // one is rejected before the import does any work. Both cases would otherwise
-  // create a league nobody can open, and there is no UI to delete one.
+  // A name with no usable slug is refused before any write: the league would be unreachable,
+  // and no UI deletes one.
   const leagueSlug = slugify(leagueName);
   if (!leagueSlug) {
     return {
@@ -87,10 +77,8 @@ export async function runRosterOnlyImport(
   } catch (e) {
     return { ok: false, message: `Fetch failed: ${(e as Error).message}` };
   }
-  // Checked before the first write, while backing out is still free. A source
-  // season that parses to nothing — usually a childSeasonID that does not match
-  // the league — would otherwise leave a permanent, public, empty league behind,
-  // and there is no UI to delete one.
+  // Checked before the first write: an empty parse (usually a mismatched childSeasonID) would
+  // leave a permanent public empty league.
   if (parsed.teams.length === 0) {
     return { ok: false, message: "No teams found at that URL." };
   }
@@ -110,23 +98,15 @@ export async function runRosterOnlyImport(
     };
   }
 
-  // Before anything else is written: an imported league whose creator is not a
-  // member is a league nobody can open, and there is no UI to delete one.
-  //
-  // ⛔ CHECKED, NOT ASSUMED. If this fails the import still succeeds and the
-  // league still exists — but the manager cannot reach it, so the run must not
-  // redirect them into a page that will only bounce them back to the picker.
-  // It reports instead. See the gate on the redirect at the tail.
+  // ⛔ Granted first and checked: a failed grant still imports, but the run must not redirect
+  // the manager into a league they cannot open.
   const membership = await addLeagueMembership(manager.id, league.id);
   const accessWarning = membership.ok
     ? ""
     : ` You were NOT added to this league (${membership.error}), so you cannot open it yet — ask a commissioner to add you. Everything else below was imported.`;
 
-  // Filed while the league still exists, so its id resolves. The one exit below
-  // that FAILS deletes the league again (the season insert), and this entry goes
-  // with it: `audit_log.league_id` is `references leagues(id) on delete cascade`
-  // (0031). A rolled-back import leaves no entry, which is right — nothing was
-  // created.
+  // Filed while the league exists: if the season insert fails, deleting the league cascades
+  // this entry away (0031), which is right.
   await logAudit({
     user_id: manager.id,
     action: "import_league",
@@ -156,11 +136,8 @@ export async function runRosterOnlyImport(
   let teamCount = 0;
   let playerCount = 0;
   let ci = 0;
-  // Teams that did not import cleanly, named in the returned message. A roster
-  // draft is the only thing this action produces, so a partial one has to say
-  // so: counting a team whose roster insert failed would report a draft the
-  // manager does not have. Each counter below is incremented only after the
-  // write it describes has succeeded.
+  // Teams that did not import cleanly, named in the result. Each counter moves only after the
+  // write it counts has succeeded.
   const problems: string[] = [];
 
   for (const t of parsed.teams) {
@@ -178,9 +155,7 @@ export async function runRosterOnlyImport(
       problems.push(`${t.name} (team: ${tErr?.message ?? "not created"})`);
       continue;
     }
-    // Counted only once it is in the season: a team that exists but was never
-    // joined to one is absent from every season-scoped view, so reporting it as
-    // imported would be a lie the manager cannot see.
+    // Counted only once enrolled: a team in no season is absent from every season-scoped view.
     const { error: stErr } = await admin
       .from("season_teams")
       .insert({ season_id: season.id, team_id: team.id });
@@ -191,9 +166,8 @@ export async function runRosterOnlyImport(
     teamCount++;
     if (t.players.length === 0) continue;
 
-    // Bulk-insert this team's players, then their roster rows — two calls per
-    // team instead of two per player (a real import is hundreds of players).
-    // PostgREST returns inserted rows in input order, so indexes line up.
+    // Two calls per team, not per player. PostgREST returns inserted rows in input order, so
+    // the indexes line up.
     const { data: inserted, error: pErr } = await admin
       .from("players")
       .insert(
@@ -210,10 +184,7 @@ export async function runRosterOnlyImport(
       continue;
     }
 
-    // A jersey is unique per team, so only the first wearer keeps the number and
-    // later repeats get null (the bulk insert can't lean on a per-row retry).
-    // Postgres does not collide nulls in a unique index, so any number of
-    // unnumbered players is fine.
+    // A jersey is unique per team: repeats get null, and Postgres does not collide nulls.
     const usedJerseys = new Set<number>();
     const rosterRows = t.players.map((p, i) => {
       let jersey = p.number;
@@ -232,49 +203,27 @@ export async function runRosterOnlyImport(
     });
     const { error: rErr } = await admin.from("team_players").insert(rosterRows);
     if (rErr) {
-      // The `players` rows above are already committed and now belong to no
-      // roster. Left in place deliberately: deleting on a failure path is how
-      // this codebase loses data, and the duplicate-merge tool can absorb them.
-      // What matters is that they are not counted as an imported roster.
+      // The `players` rows above stay, deliberately: deleting on a failure path loses data,
+      // and the duplicate-merge tool can absorb them. They are not counted.
       problems.push(`${t.name} (roster: ${rErr.message})`);
       continue;
     }
     playerCount += t.players.length;
   }
 
-  // ⚠️ THESE THREE STAY ABOVE THE BRANCH BELOW. Both outcomes wrote the same
-  // rows, so both need the same revalidation; moving them inside the `problems`
-  // branch would skip it on exactly the runs that already went wrong.
+  // ⚠️ Above the branch below: both outcomes wrote rows, so both need this revalidation.
   revalidatePath("/[league]/seasons", "page");
   revalidatePath("/[league]", "layout");
   // This import creates a league; the root landing page lists them.
   revalidatePath("/");
 
-  // A clean run ends in the league it just made.
-  //
-  // ⛔ THIS LINE MUST STAY OUTSIDE EVERY `try`. `redirect` works by throwing, so
-  // an enclosing `catch` would swallow it and the run would silently fall
-  // through — `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/redirect.md`
-  // says so twice.
-  //
-  // `replace`, not the server-action default `push`: leaving the one-shot form
-  // in history means Back lands on a blank form for a league that already exists.
-  //
-  // ⚠️ THE GATE IS TWO CONJUNCTS: no team or roster came up short (`problems`),
-  // and the manager was actually added to the league (`membership.ok`). Both
-  // have to hold — a run that imported every team but could not grant the
-  // creator membership must not redirect them into a page they cannot open.
+  // ⛔ Outside every `try`: `redirect` throws. `replace`, so Back skips the one-shot form. Only
+  // when every team landed AND the grant succeeded.
   if (problems.length === 0 && membership.ok)
     redirect(`/${leagueSlug}/seasons`, RedirectType.replace);
 
-  // Something came up short, so the manager stays and reads it. ⛔ This is the
-  // only place the failed teams are named — nothing is logged and nothing else
-  // renders them — which is why this exit returns rather than redirecting.
-  //
-  // ⚠️ STILL CONDITIONAL, because there are now TWO ways to arrive here. A
-  // membership failure alone reaches this line with `problems` empty, and an
-  // unconditional shortfall would tell that manager "0 of 12 teams did not
-  // import cleanly:" followed by nothing.
+  // ⛔ The only place failed teams are named, so this returns. Conditional: a grant failure
+  // alone arrives here with `problems` empty.
   const shortfall =
     problems.length > 0
       ? ` ${problems.length} of ${parsed.teams.length} teams did not import cleanly: ${problems.join("; ")}. Those teams are missing or incomplete in the new league — add what you need by hand. Re-running the import would create a second league, since there is no way to delete this one.`

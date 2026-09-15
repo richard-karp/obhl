@@ -15,28 +15,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-/**
- * Publish, or replace.
- *
- * Two things here confirm rather than one, and for different reasons:
- *
- *  - a **replace** destroys a live schedule, so it always has;
- *  - a **stale draft** — one whose first game night has already passed — does
- *    not destroy anything, and is worse. Publishing it starts the season in the
- *    past, which trips `season_is_started` the moment it lands: generate,
- *    replace and remove all refuse from then on, permanently, with no undo. A
- *    season's first publish is otherwise one click, and stays one click when the
- *    draft's dates are still ahead.
- *
- * ⚠️ THE STALE CASE IS CONFIRMED, NOT REFUSED, and that is a decision. A
- * manager whose games really were played on Tuesday and who is publishing on
- * Thursday before entering the scores needs this to go through. What they must
- * not be able to do is publish it without being told — so the dialog says what
- * it costs and offers the way out (move the draft forward) beside the way on.
- *
- * The panel does not render this at all on a started season; see the mode gate
- * in schedule-builder-panel.tsx.
- */
+// A replace or a stale draft confirms: a stale publish locks the season for good. ⚠️ Confirmed, not refused:
+// games really played Tuesday must publish Thursday, told the cost and offered the way out.
 export function PublishControls({
   seasonId,
   draftCount,
@@ -49,20 +29,12 @@ export function PublishControls({
   seasonId: string;
   draftCount: number;
   liveCount: number;
-  /**
-   * The live schedule's date range, already formatted by the server panel with
-   * `formatLongDate` — the same wording the rest of the panel uses. Null when
-   * no live game carries a date.
-   */
+  /** The live date range, formatted by the panel; null when no live game has a date. */
   liveRange: string | null;
   lineupsAtRisk: number;
   /** True in "replace" mode — a live schedule would be deleted. */
   destructive: boolean;
-  /**
-   * Null when the draft's first game is still ahead of us. The same object the
-   * warning banner renders — one shape, built once by the panel, so the two
-   * cannot drift apart.
-   */
+  /** Null while the first game is ahead; the same object the warning banner renders. */
   stale: StaleNotice | null;
 }) {
   const [open, setOpen] = useState(false);
@@ -71,54 +43,21 @@ export function PublishControls({
     null,
   );
 
-  // Toasting is a side effect on an external system (sonner), so it belongs in
-  // an effect. Closing the dialog is ordinary React state, though, and
-  // `react-hooks/set-state-in-effect` is right to reject setting it from here —
-  // it's derived from `state` and belongs in render, not synchronized after the
-  // fact. See `dialogOpen` below.
+  // Toasting is a side effect, so it lives in an effect; closing the dialog is derived in render (`dialogOpen`).
   useEffect(() => {
     if (!state) return;
     if (state.ok) toast.success(state.message);
     else toast.error(state.message);
   }, [state]);
 
-  // `open` is the user's intent (opened via the button, closed via Cancel/Esc),
-  // and a successful replace overrides it shut without its own setState call.
-  //
-  // Load-bearing precondition: `open` itself is never reset back to false on
-  // success, so this derivation is only correct for as long as the component
-  // is guaranteed to unmount afterward — which it is today (a success drops
-  // draftCount to 0, and the caller keys this component on draftCount, so it
-  // remounts with fresh state). If a future caller ever keeps this component
-  // mounted across a successful publish/replace (e.g. by rendering it outside
-  // the "has drafts" branch, or without the key), `open` would stay stuck
-  // `true` forever: the trigger's `setOpen(true)` becomes a no-op against the
-  // value it already holds, so `dialogOpen` never re-derives to true and the
-  // button goes permanently inert with no dialog and no feedback. Keep the
-  // `key` on the call site in schedule-builder-panel.tsx, or reintroduce an
-  // explicit reset, if that assumption ever stops holding.
-  //
-  // ⛔ THE STALE NIGHT IS NOT IN THAT KEY, AND MUST NOT BE — see the call site's
-  // own note. It was for one revision and silently swallowed the refusal toast.
-  // The reset below is what closes a dialog whose reason has gone away.
+  // `open` is never reset on success: correct only while a success unmounts this (the call site keys on
+  // `draftCount`), or the trigger goes inert. ⛔ Never add the stale night to that key: it eats the refusal toast.
 
   const range = liveRange ? ` (${liveRange})` : "";
   const confirms = destructive || !!stale;
 
-  // ⛔ RESET WHEN THE REASON FOR CONFIRMING GOES AWAY, AND DURING RENDER RATHER
-  // THAN IN AN EFFECT. `open` is only ever set true by the trigger and is never
-  // cleared, which is safe as long as a successful publish unmounts this
-  // component under a fresh `key`. A RE-DATE is the case that does not: `stale`
-  // goes null, the render forks back to a plain button below, and `<Dialog>`
-  // unmounts WITHOUT Radix firing `onOpenChange` — leaving `open` stuck true, so
-  // a later render where `stale` is non-null again (time passes the new
-  // face-off, a server action revalidates) re-derives `dialogOpen` true and
-  // opens the confirm with nobody having clicked.
-  //
-  // ⚠️ This is React's documented "adjust state when a prop changes" pattern,
-  // not a stylistic choice: the same reset written as `useEffect(() =>
-  // setOpen(false))` trips `Calling setState synchronously within an effect can
-  // trigger cascading renders` — an eslint ERROR, and CI now runs lint.
+  // ⛔ Reset `open` when the reason to confirm goes away: a re-date unmounts `<Dialog>` without `onOpenChange`,
+  // and it would later reopen unclicked. ⚠️ During render; in an effect it is an eslint error.
   const [wasConfirming, setWasConfirming] = useState(confirms);
   if (wasConfirming !== confirms) {
     setWasConfirming(confirms);
@@ -211,11 +150,8 @@ export function PublishControls({
             <form action={action}>
               <input type="hidden" name="season_id" value={seasonId} />
               {/*
-                ⛔ THE ACKNOWLEDGEMENT, AND IT NAMES THE NIGHT. `publishSchedule`
-                refuses a stale draft unless this matches the first night it
-                finds, so a tab whose warning has gone out of date — another tab
-                regenerated or moved the draft — is refused rather than waved
-                through on a click aimed at different dates.
+                ⛔ The acknowledgement names the night: `publishSchedule` refuses unless it matches, so an
+                out-of-date tab is refused rather than waved through.
               */}
               {stale ? (
                 <input type="hidden" name="stale_ok" value={stale.firstNight} />
@@ -225,11 +161,8 @@ export function PublishControls({
                   ? destructive
                     ? "Replacing…"
                     : "Publishing…"
-                  : // ⚠️ "…anyway" is the whole warning, carried onto the button
-                    // itself: a manager who opened this dialog for the ordinary
-                    // reason (a replace) and one who opened it because their
-                    // draft has gone stale are about to click the same button in
-                    // the same place, and only the label distinguishes them.
+                  : // ⚠️ "…anyway" carries the warning onto the button: a replace and a stale publish
+                    // share this button, and only the label tells them apart.
                     `${destructive ? "Replace" : "Publish"}${stale ? " anyway" : ""}`}
               </Button>
             </form>

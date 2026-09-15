@@ -7,31 +7,8 @@ import {
   type GameWrite,
 } from "./gameWrites";
 
-/**
- * ⚠️ THIS FILE LOST TWO THIRDS OF ITS TESTS WITH `0045`, AND THAT IS THE
- * MEASURE OF SUCCESS RATHER THAN A GAP.
- *
- * It used to drive a fake `games` table through every branch of a compensating
- * writer: a concurrent edit, a mid-batch failure, an undo that itself failed, a
- * lost response that had actually committed, a row that vanished. Those tests
- * were the right ones for that design — none of those branches is reachable
- * against a real database without two sessions and a lot of luck — and every
- * one of them is now testing code that does not exist. The batch lands in one
- * transaction or not at all.
- *
- * ⛔ WHAT REPLACED THEM IS NOT IN THIS FILE, AND THAT IS THE THING TO KNOW. The
- * behaviour those tests approximated is now proven against a real Postgres and
- * recorded in `docs/superpowers/plans/2026-09-06-schedule-write-rpc.md`: the
- * two-psql race (same season blocks at 3.54s, different seasons at 0.04s) and a
- * mid-batch FK violation leaving all 18 rows unchanged. **Vitest cannot see a
- * lock.** That is exactly how the old compensator passed three rounds of unit
- * tests with a lost-update bug in it, so do not add a fake here and believe it
- * covers serialization.
- *
- * What is left below is what stayed pure and worth checking: the ceiling, the
- * same-columns rule, the payload shape the function is promised, and the
- * mapping from its return.
- */
+// ⛔ Serialization is proven against real Postgres, not here: Vitest cannot see a lock, so never
+// add a fake and believe it covers the race. RUNBOOK.md, _Schedule edits and exports_.
 const write = (id: string, over: Partial<GameWrite> = {}): GameWrite => ({
   id,
   next: { home_team_id: "team-new" },
@@ -68,23 +45,14 @@ describe("checkWrites", () => {
     }
   });
 
-  /**
-   * ⛔ LOUD, NOT A REFUSAL. Every caller builds both sides from the same row, so
-   * a mismatch is a programmer error — and it used to be an undo that left a
-   * column changed. It is now a column written without ever being checked,
-   * which is quieter and no less wrong.
-   */
-  /**
-   * The same game twice applies ONE arbitrary write and reports success, because
-   * `update … from` joins each row once. `0045` refuses it too; this catches it
-   * first so the message names the game.
-   */
+  /** `update … from` joins each row once, so a duplicate id is one arbitrary write. */
   it("throws when the same game appears twice in one batch", () => {
     expect(() => checkWrites([write("g1"), write("g2"), write("g1")])).toThrow(
       /g1 appears twice/,
     );
   });
 
+  /** ⛔ Loud, not a refusal: a mismatch is a programmer error, a column written unchecked. */
   it("throws when next and prev name different columns", () => {
     expect(() =>
       checkWrites([
@@ -97,8 +65,7 @@ describe("checkWrites", () => {
   });
 
   it("treats a null label as a named column, not an absent one", () => {
-    // `label: null` is a real value to write and to check. If `in` were
-    // replaced by a truthiness test, this pair would read as mismatched.
+    // `label: null` is a named column; a truthiness test in place of `in` would mismatch it.
     expect(
       checkWrites([
         write("g1", { next: { label: null }, prev: { label: null } }),
@@ -120,12 +87,8 @@ describe("payloadFor", () => {
     });
   });
 
-  /**
-   * ⚠️ `scheduled_at` IS IN `expect` EVEN WHEN THE PLAN DOES NOT WRITE IT. That
-   * is how a concurrent `rescheduleGame` or postpone is caught on the repair
-   * path, which otherwise never names the time — drop it and the function has
-   * nothing to notice the move by.
-   */
+  /** ⚠️ `scheduled_at` is in `expect` even when not written: it is how the repair path notices a
+   *  concurrent reschedule or postpone. */
   it("carries scheduled_at into expect for a write that does not set it", () => {
     const [row] = payloadFor([
       write("g1", { next: { label: "A" }, prev: { label: "B" } }),
@@ -173,16 +136,8 @@ describe("resultFrom", () => {
     }
   });
 
-  /**
-   * ⛔ THIS TEST REPLACES ONE THAT ASSERTED THE OPPOSITE, AND THE OLD ONE WAS
-   * WRONG. It claimed "a batch can legally apply zero rows (every row already
-   * holds what it should)" and therefore that checking `applied` would produce
-   * false conflicts. `applied` is a Postgres `row_count`, which counts MATCHED
-   * rows, not changed ones — measured: a write whose `next` already equals the
-   * current value still returns `applied = 1`. So after a passing pre-check the
-   * count must equal the batch size exactly, and the wrong comment is the whole
-   * reason the check was missing.
-   */
+  /** ⛔ `applied` is a `row_count` of MATCHED rows: a no-op write still returns 1, so a short
+   *  count is a failure. An old test asserted the opposite, which is why the check was missing. */
   it("reports a short applied count as a failure, not a success", () => {
     const two = [write("g1"), write("g2")];
     const r = resultFrom({ applied: 1, refused: null, reason: null }, two);

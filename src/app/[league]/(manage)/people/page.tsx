@@ -33,8 +33,7 @@ const ROLE_LABEL: Record<string, string> = {
   captain: "Captain",
 };
 
-// Fixed here and in League Office so the two surfaces cannot drift. Audit prose
-// says "a commissioner" and "a deputy commissioner"; these are the column form.
+// The column form, matching League Office; audit prose says "a deputy commissioner".
 const OFFICE_LABEL: Record<string, string> = {
   commissioner: "Commissioner",
   deputy: "Deputy",
@@ -49,31 +48,23 @@ export default async function PeoplePage({
 }) {
   const { league: leagueSlug } = await params;
   const { season: seasonParam } = await searchParams;
-  // Season-scoped for one reason: the captain candidates below come from one
-  // season's rosters. Everything else on the page is league-wide.
-  // League, then GUARD, then context — `getManageContext` reads every season on
-  // the ADMIN client, so it must not run for a request about to be refused.
-  // `resolveLeagueBySlug` is cache()-wrapped, so the context reuses it free.
+  // League, then guard, then context: `getManageContext` reads every season on the admin client, so it
+  // must not run for a request about to be refused. The season scopes only the captain candidates.
   const league = await resolveLeagueBySlug(leagueSlug);
   if (!league) notFound();
   const viewer = await requireLeagueManager(league.id);
   const ctx = await getManageContext(leagueSlug, seasonParam);
   const admin = createAdminClient();
 
-  // This league's staff, not the instance's. The page listed every profile in
-  // the database, and its Remove button deleted the account outright — so a
-  // manager of one league was handed the other league's staff to delete.
+  // This league's staff, not the instance's: otherwise a manager is handed another league's staff to remove.
   const { data: members } = await admin
     .from("profile_leagues")
     .select("profile_id")
     .eq("league_id", ctx.league.id);
   const leagueMemberIds = (members ?? []).map((m) => m.profile_id);
 
-  // The office is unioned in EXPLICITLY. Its members reach every league without
-  // holding a `profile_leagues` row for any of them, so the query above cannot
-  // see them and no amount of widening it would — the row does not exist. They
-  // are listed because a manager looking at their own league's staff should see
-  // everyone who can act in it, and their rows are read-only here.
+  // The office is unioned in explicitly: it holds no `profile_leagues` row, so the query above cannot see
+  // it. Listed because it can act in this league; its rows are read-only here.
   const officeTiers = await listOfficeTiers();
   const memberIds = [...new Set([...leagueMemberIds, ...officeTiers.keys()])];
 
@@ -111,18 +102,11 @@ export default async function PeoplePage({
       )
       .eq("season_id", ctx.season.id)
       .eq("is_captain", true)
-      // Current captains only — a departed row keeps its captaincy in the
-      // history it preserves, and offering it here would link an account to a
-      // team the person has left.
+      // Current captains only: a departed row keeps its captaincy, and would link an account to a team
+      // the person has left.
       .is("left_on", null);
-    // Archived out of THIS league (0040) — filtered in memory rather than in the
-    // query above, because `player_league_archive` has no join to `team_players`
-    // and the candidate list is a handful of rows either way.
-    //
-    // ⚠️ This is the only player-derived list on this page. Everything else here
-    // is staff PROFILES, which the archive has nothing to say about — a person
-    // archived out of a league is not an account, and nothing here should go
-    // looking for a general player list to filter, because there isn't one.
+    // Archived out of this league (0040), filtered in memory: `player_league_archive` has no join to
+    // `team_players`. The only player-derived list here; the rest is staff profiles.
     const archived = await archivedPlayerIdsIn(ctx.league.id, admin);
     captains = (caps ?? [])
       .filter((c) => !archived.has(c.player_id))
@@ -132,24 +116,14 @@ export default async function PeoplePage({
       }));
   }
 
-  // Addresses for everyone the table will show. The strategy, and why it is not
-  // `listUsers`, is on `emailsByProfileId`.
   const emailById = await emailsByProfileId(admin, memberIds);
 
   const staff = (profiles ?? [])
     .map((p) => ({ ...p, email: emailById.get(p.id) ?? "—" }))
     .sort((a, b) => (a.role ?? "").localeCompare(b.role ?? ""));
 
-  // The one refusal `removeStaff` makes, so a row can render the reason rather
-  // than a button that silently does nothing. It also covers the sole manager
-  // of a league, who is necessarily whoever is looking at this page.
-
-  // The same idea for the role control: a role is instance-wide, so changing it
-  // lands in every league that person works — and `updateStaffRole` refuses,
-  // silently, any change that would reach one the viewer is not in. Worked out
-  // here so the row says why instead of offering a control that does nothing.
-  // `mayWriteProfileOf` is the server-side twin — this decides what to render,
-  // that decides what happens, and they have to agree.
+  // A role is instance-wide, and `updateStaffRole` silently refuses a change reaching a league the viewer
+  // is not in, so the row renders the reason instead of a control that does nothing.
   const viewerLeagues = new Set(await memberLeagueIds(viewer.id));
   const leaguesOf = new Map<string, string[]>();
   for (const m of allMemberships ?? []) {
@@ -158,15 +132,9 @@ export default async function PeoplePage({
       m.league_id,
     ]);
   }
-  // The SAME rule the server applies, not a second statement of it. What renders
-  // and what `updateStaffRole` permits have to agree, and they now agree by
-  // construction rather than by two pieces of logic being kept in step by hand.
-  // Containment stays the tier-0 test; `decideProfileWrite` ignores it above that.
   const viewerTier = officeTiers.get(viewer.id) ?? null;
-  // BOTH of `updateStaffRole`'s gates, in the same order, or the row offers what
-  // the server refuses. `decideProfileWrite` is the precedence half; the second
-  // clause is the demotion half — a manager may not unmake a peer, and the
-  // office is the tier that can.
+  // ⚠️ Both of `updateStaffRole`'s gates, in its order, or the row offers what the server refuses: the
+  // same `decideProfileWrite`, then a manager may not unmake a peer (the office can).
   const canChangeRole = (id: string, role: string | null) =>
     decideProfileWrite(
       viewerTier,
@@ -182,16 +150,11 @@ export default async function PeoplePage({
         description="Create staff accounts and assign manager, captain, or scorekeeper roles."
       >
         {/*
-          The switcher scopes the captain candidates in the form below, and
-          nothing else on this page — the staff list is league-wide. It is here
-          rather than in the brand bar for the reason on `SeasonSwitcher`.
+          The switcher scopes only the captain candidates in the form below; the staff list is league-wide.
         */}
         <SeasonSwitcher ctx={ctx} />
         {/*
-          Here rather than in the top nav: the nav already carries its five
-          inline links and a sixth pushes the whole set onto its own row, and
-          duplicate review is a job you go looking for after an import, not a
-          section of the site.
+          The only link to the duplicates review: neither `NavLinks` nor the staff row lists it.
         */}
         <Button asChild variant="outline" size="sm">
           <Link href={`/${leagueSlug}/people/duplicates`}>

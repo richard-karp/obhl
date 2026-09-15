@@ -21,9 +21,8 @@ export async function revertAuditEntries(
   if (!leagueId) return { error: "No league selected." };
   const manager = await requireLeagueManager(leagueId);
 
-  // Reverting is a write — it reopens games, restores player status, undoes
-  // captaincy. Scoped to the league the form was submitted from, so an id
-  // belonging to another league cannot be reverted from this one.
+  // Reverting is a write, so it is scoped to the submitting league: another league's
+  // entry cannot be reverted from this one.
   const { data: entries } = await admin
     .from("audit_log")
     .select(
@@ -56,18 +55,14 @@ export async function revertAuditEntries(
           break;
 
         case "add_player": {
-          // Read from the row rather than the entry. `new_data` may be missing
-          // `team_id` on older entries, and that gap used to skip the
-          // played-since check entirely and hard-delete a row with games behind
-          // it — the exact destruction 0036 exists to prevent.
+          // Read from the row, not the entry: older entries lack `team_id`, which skips the
+          // played-since check and hard-deletes a row with games behind it (0036).
           const { data: row } = await admin
             .from("team_players")
             .select("player_id, team_id, season_id")
             .eq("id", entry.entity_id)
             .maybeSingle();
-          // Already gone: the add has nothing left to undo. Checked before the
-          // columns are read, so there is no absent-id fallback to get wrong —
-          // all three are NOT NULL on a row that exists.
+          // Already gone: the add has nothing left to undo.
           if (!row) break;
           const {
             player_id: playerId,
@@ -75,9 +70,8 @@ export async function revertAuditEntries(
             season_id: seasonId,
           } = row;
 
-          // Scoped to this season through `games`, which is where `season_id`
-          // lives — player and team alone count every season this team has
-          // played.
+          // Scoped to this season through `games`: player and team alone count every
+          // season this team has played.
           const { count } = await admin
             .from("game_rosters")
             .select("*, games!inner(season_id)", { count: "exact", head: true })
@@ -86,20 +80,14 @@ export async function revertAuditEntries(
             .eq("games.season_id", seasonId);
 
           if ((count ?? 0) > 0) {
-            // They have dressed since the add, so the row is now the record of
-            // those games — `v_goalie_stats` inner-joins it and `v_skater_stats`
-            // left-joins it for jersey and position. Retire it instead of
-            // deleting it, the same way removeRosterPlayer does. This used to
-            // throw and refuse the whole revert; a departure undoes the add as
-            // far as it can be undone without losing what happened.
+            // Dressed since the add, so the row is the record of those games (`v_goalie_stats`
+            // inner-joins it): retire it as `removeRosterPlayer` does, never delete it.
             const { error } = await admin
               .from("team_players")
               .update({
                 left_on: new Date().toISOString().slice(0, 10),
                 is_captain: false,
-                // Both are claims about the present that a departure ends —
-                // the same pair `movePlayerToTeam` clears. `night_of_week`
-                // replaced `is_default_goalie` here in 0049.
+                // Both are claims about the present that a departure ends, as in `movePlayerToTeam`.
                 night_of_week: null,
               })
               .eq("id", entry.entity_id);
@@ -118,9 +106,8 @@ export async function revertAuditEntries(
             action: "revert_add_player",
             entity_type: "team_player",
             entity_id: entry.entity_id,
-            // The row may have just been deleted, so this entry cannot resolve
-            // its own league. It is already known: every entry here was read
-            // with `.eq("league_id", leagueId)` above.
+            // Passed: the row may be gone, and a null-league entry is hidden (`RUNBOOK.md` →
+            // Access control → Traps). Every entry here was read under `leagueId`.
             league_id: leagueId,
             new_data: { removal: (count ?? 0) > 0 ? "departed" : "deleted" },
           });
@@ -133,22 +120,16 @@ export async function revertAuditEntries(
               "Missing player data — cannot restore (entry predates revert support).",
             );
           }
-          // `removeRosterPlayer` now takes one of two branches: it deletes a row
-          // with no games behind it, or marks one that has games departed. The
-          // row's survival is what says which happened — and reading it rather
-          // than the entry's `new_data.removal` is what makes this work for the
-          // entries written before that field existed.
+          // The row's survival says whether `removeRosterPlayer` deleted or departed it; read
+          // it, not `new_data.removal`, which older entries lack.
           const { data: survived } = await admin
             .from("team_players")
             .select("id")
             .eq("id", entry.entity_id)
             .maybeSingle();
 
-          // `left_on` restored from the snapshot, never defaulted. The row may
-          // have already been departed when it was removed, and defaulting
-          // would silently put a player who left in February back on the active
-          // roster — or, on the insert path, leave a restored player marked
-          // departed. Either way nothing reports it.
+          // `left_on` comes from the snapshot, never a default: a default silently puts a
+          // departed player back on the active roster, or marks a restored one departed.
           const leftOn = typeof od.left_on === "string" ? od.left_on : null;
 
           if (survived) {
@@ -157,13 +138,8 @@ export async function revertAuditEntries(
               .update({
                 left_on: leftOn,
                 is_captain: Boolean(od.is_captain),
-                // ⚠️ RESTORED FROM THE SNAPSHOT, AND OLDER SNAPSHOTS SIMPLY DO
-                // NOT HAVE IT. Entries written before 0049 carry
-                // `is_default_goalie` instead; that key is ignored rather than
-                // translated, because a flag meaning "this team's fallback
-                // goalie" has no honest equivalent in a column meaning "the
-                // night this player turns out". Reverting such an entry leaves
-                // the night null, which is what an unassigned player has.
+                // ⚠️ From the snapshot. Entries before 0049 carry `is_default_goalie` instead,
+                // which has no honest night equivalent, so they restore null.
                 night_of_week:
                   typeof od.night_of_week === "number"
                     ? od.night_of_week
@@ -189,12 +165,8 @@ export async function revertAuditEntries(
                   : null,
               is_suspended: Boolean(od.is_suspended),
               left_on: leftOn,
-              // ⚠️ RESTORED HERE TOO, NOT ONLY ON THE UPDATE BRANCH ABOVE. The
-              // snapshot carries the whole row, and this branch was rebuilding
-              // every other column from it while dropping the night — so
-              // reverting the removal of a goalie who had never dressed put
-              // them back without the night that made them a starter. Entries
-              // predating 0049 have no such key and correctly yield null.
+              // ⚠️ Restored on this branch too: dropping it brings a removed goalie back
+              // without the night that made them a starter.
               night_of_week:
                 typeof od.night_of_week === "number" ? od.night_of_week : null,
             });

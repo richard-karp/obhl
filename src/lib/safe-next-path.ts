@@ -1,10 +1,6 @@
 /**
- * A redirect target that stays on this site, or `fallback`.
- *
- * ⛔ Decided by the URL parser, not by inspecting characters: the parser folds
- * `\` into `/` and strips tab/CR/LF first, which every hand-written check missed.
- * A path that normalizes to `//host` (a dot-segment ahead of the slashes, plain
- * or percent-encoded) is refused too, even though the origin check alone passes it.
+ * ⛔ Decided by the URL parser, not by inspecting characters: it folds `\` into `/` and strips
+ * tab/CR/LF. A path normalizing to `//host` is refused, though the origin check passes it.
  */
 export function safeNextPath(
   raw: string | null | undefined,

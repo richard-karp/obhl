@@ -1,53 +1,19 @@
 import { leagueDateKey } from "@/lib/format";
 import type { BalanceRow } from "./balance";
 
-/**
- * What a manual schedule edit may not produce, independent of the balance
- * invariant in `balance.ts`.
- *
- * Two halves, and they run at different moments:
- *
- * - `editable` asks whether a row may be TOUCHED, and runs on the rows as they
- *   are now.
- * - `legalAfter` asks whether the schedule the edit would produce is legal, and
- *   runs on the POST-EDIT rows.
- *
- * ⛔ `legalAfter` RUNS FOR EVERY PRIMITIVE, INCLUDING THE ONES THAT DO NOT TOUCH
- * TEAMS. `exchangeSlots` trades dates, so it can drop a team onto a night it
- * already plays without changing a single team column. A guard list attached to
- * "the operation that changes teams" would leave that door open; one that runs
- * over the resulting rows cannot.
- */
+// ⛔ `legalAfter` runs on the post-edit rows for every primitive: `exchangeSlots` changes no
+// team column yet can put a team on a night it already plays.
 export type GuardRow = BalanceRow & {
   home_goals: number | null;
   away_goals: number | null;
 };
 
-/** Turn a team id into something a manager recognises. */
 export type NameOf = (teamId: string) => string;
 
 const identity: NameOf = (id) => id;
 
-/**
- * `null` when this row may be edited, otherwise why not.
- *
- * ⛔ SCHEDULED ONLY, FOR NOW — AND THIS IS NARROWER THAN THE USER ASKED FOR.
- * They chose "postponed and cancelled stay editable, refuse only when goals
- * exist", and this guard was written that way. It was wrong in a way no test
- * caught: `applyGameWrites`'s pre-flight (`gameWrites.ts:246`) hard-codes
- * `row.status !== "scheduled" → conflict`, so a widened status set never
- * reached the UPDATE at all. A cancelled game keeps its date, so it WAS
- * offered in the picker, and choosing one gave "The schedule changed while
- * this was on screen" forever.
- *
- * So the guard now refuses what the write path refuses, and says so honestly.
- * ⚠️ Widening belongs to the schedule-write RPC — it rewrites that pre-flight,
- * and doing it here first means writing it twice. Decided with the user
- * 2026-09-07. See `docs/superpowers/plans/2026-09-06-schedule-write-rpc.md`.
- *
- * `final` is refused whether or not goals exist: a 0-0 final holds none and is
- * still a played game.
- */
+/** ⛔ Scheduled only, narrower than the user asked: the write refuses other statuses, so a wider
+ *  guard offers games that fail forever. Widen both together; a 0-0 final is still played. */
 export function editable(
   row: GuardRow,
   nameOf: NameOf = identity,
@@ -65,12 +31,7 @@ export function editable(
   return null;
 }
 
-/**
- * `null` when the post-edit schedule is legal, otherwise the first problem.
- *
- * Takes every row of the season, not only the edited ones: a doubleheader is a
- * property of a night, and the game that collides may be one nobody touched.
- */
+/** Takes every season row: the game a doubleheader collides with may be one nobody touched. */
 export function legalAfter(
   rows: GuardRow[],
   nameOf: NameOf = identity,

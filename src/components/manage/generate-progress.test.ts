@@ -57,9 +57,7 @@ describe("generateProgress", () => {
 });
 
 describe("estimatedGenerateMs", () => {
-  // Not pinned to a number: the point of computing it from SLOT_CANDIDATES is
-  // that adding a candidate moves it. Bound it to the range the indicator's
-  // copy makes sense in instead.
+  // Not pinned to a number: adding a slot candidate moves it. Bounded to the range the copy makes sense in.
   it("is a positive estimate in the tens of seconds", () => {
     const ms = estimatedGenerateMs();
     expect(ms).toBeGreaterThan(5_000);

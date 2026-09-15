@@ -49,9 +49,8 @@ describe("rankStandings", () => {
   });
 
   it("resolves a three-way tie by mini-table head-to-head, then GD", () => {
-    // a, b, c all tied on points/wins. Within the group:
-    //   a beat b, b beat c, c beat a  -> all 2 H2H pts -> fall to GD.
-    // GD: a=3, b=2, c=1  -> a, b, c.
+    // a beat b, b beat c, c beat a: all 2 H2H pts, so GD decides
+    // (a=3, b=2, c=1) -> a, b, c.
     const rows = [
       team("a", 4, 2, 3, 12),
       team("b", 4, 2, 2, 10),

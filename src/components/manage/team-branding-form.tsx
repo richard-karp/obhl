@@ -6,15 +6,8 @@ import { TeamLogo } from "@/components/shared/team-logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-/**
- * One enrolled team's colour and monogram ink, edited in place beside the team
- * it belongs to.
- *
- * The chip is a live preview off local state rather than the saved row, because
- * the question this control exists to answer — "can I read the letters against
- * that colour?" — cannot be answered by a swatch, and answering it after a round
- * trip means saving something unreadable to find out.
- */
+// The chip previews local state, not the saved row: whether the letters read against the colour must be
+// answerable before saving.
 export function TeamBrandingForm({
   teamId,
   name,
@@ -32,11 +25,8 @@ export function TeamBrandingForm({
     updateTeamColor,
     null,
   );
-  // ⚠️ The picker has to show SOMETHING, and `<input type="color">` has no empty
-  // state — so a team with no colour shows the same slate the chip falls back
-  // to. `touched` is what keeps that from becoming a real colour: without it,
-  // opening a colourless team's row and pressing Save wrote slate-grey as a
-  // deliberate choice nobody made.
+  // ⚠️ `<input type="color">` has no empty state, so a colourless team shows slate. `touched` stops Save
+  // writing that slate as a choice nobody made.
   const [draftColor, setDraftColor] = useState(color ?? "#64748b");
   const [touched, setTouched] = useState(color !== null);
   const [draftInk, setDraftInk] = useState(logoTextColor ?? "light");
@@ -44,13 +34,11 @@ export function TeamBrandingForm({
   return (
     <form action={action} className="flex flex-wrap items-center gap-2">
       <input type="hidden" name="team_id" value={teamId} />
-      {/* An empty `color` is written as null, which for a team that never had
-          one is exactly what it already had. The visible picker drops its
-          `name` until it is touched, so only a deliberate pick submits a hex. */}
+      {/* An empty `color` is written as null; the visible picker has no `name` until
+          touched, so only a deliberate pick submits a hex. */}
       {touched ? null : <input type="hidden" name="color" value="" />}
-      {/* `logoPath` deliberately not passed: a team with an uploaded logo still
-          gets a monogram preview here, because the colour and ink are what this
-          control edits and the image would hide both. */}
+      {/* `logoPath` not passed: an uploaded image would hide the colour and ink
+          this control edits, so the preview stays a monogram. */}
       <TeamLogo name={name} color={draftColor} textColor={draftInk} />
       <Input
         type="color"

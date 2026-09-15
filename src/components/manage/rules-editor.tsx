@@ -125,11 +125,8 @@ export function RulesEditor({
 
       <div className="flex items-center gap-3">
         {/*
-          `!editor` as well as `saving`. Tiptap's `immediatelyRender: false`
-          defers the mount by a tick, and lazy-loading this component widened
-          that window — inside it `onSave` returns silently, so a fast click did
-          nothing with no feedback at all. `07-staff.spec.ts` clicks Save
-          immediately after opening the editor and would sit on its timeout.
+          `!editor` as well as `saving`: `immediatelyRender: false` and lazy loading defer the mount, and
+          inside that window `onSave` returns silently, so a fast click did nothing.
         */}
         <Button onClick={onSave} disabled={saving || !editor}>
           {saving ? "Saving…" : "Save rules"}

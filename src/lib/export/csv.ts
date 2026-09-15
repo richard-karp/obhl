@@ -10,16 +10,8 @@ export type CsvGame = {
 const FORMULA_LEAD = /^[=+\-@\t\r]/;
 
 /**
- * RFC 4180 quoting — a field holding a comma, quote, CR or LF is wrapped and its
- * inner quotes doubled — plus a leading `'` on anything a spreadsheet would
- * execute.
- *
- * The `'` is not redundant with the quoting: CSV quotes are stripped before the
- * cell value is interpreted, so `"=HYPERLINK(…)"` still runs. It has to sit
- * inside the quotes to be part of the value. Team names reach this unfiltered
- * from `importLeague`, which parses them out of a scraped third-party page, so
- * they are untrusted input. Spreadsheets read `'` as a literal-text marker and
- * don't display it; a programmatic parser will see it.
+ * RFC 4180 quoting, plus a leading `'` inside the quotes on anything a spreadsheet would run:
+ * quotes are stripped before a cell is evaluated, and scraped team names are untrusted.
  */
 function escapeField(value: string): string {
   const safe = FORMULA_LEAD.test(value) ? `'${value}` : value;
@@ -27,18 +19,8 @@ function escapeField(value: string): string {
 }
 
 /**
- * A season's fixtures as CSV, dated in the league zone. Undated games keep their
- * row with empty date and time cells — unlike `buildIcs`, which has no way to
- * represent one and drops it.
- *
- * Carries no score and no status: this is a schedule, not a results export. The
- * caller is responsible for withholding games whose status makes their date
- * untrue (cancelled, postponed), since nothing here could show it.
- *
- * A non-null `scheduled_at` must be a parseable timestamp: `leagueDateKey`
- * raises `RangeError` on anything else, deliberately rather than emitting a
- * blank cell that would hide corrupt data. Reading from the `timestamptz`
- * column satisfies this for free.
+ * Undated games keep a row with empty cells. The caller withholds statuses whose date is untrue;
+ * a non-null `scheduled_at` must parse, or `leagueDateKey` raises rather than hiding bad data.
  */
 export function buildScheduleCsv(games: CsvGame[]): string {
   const rows = games.map((g) => [

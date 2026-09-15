@@ -147,10 +147,8 @@ describe("planMerge", () => {
   });
 });
 
-// The merge is a third writer to 0040's invariant, and it reaches the forbidden
-// state from the side the other two do not guard: `archivePlayer` refuses while
-// someone is rostered, `addRosterPlayer` refuses to roster someone archived —
-// but repointing a roster row at an already-archived survivor passes both.
+// A merge reaches 0040's forbidden state from the side `archivePlayer` and `addRosterPlayer`
+// do not guard: repointing a roster row at an already-archived survivor passes both.
 describe("planMerge with an archived survivor", () => {
   it("refuses when an active roster row would land on the archived record", () => {
     const rosters: RosterRow[] = [

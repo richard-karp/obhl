@@ -1,14 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { countsFor, preserved, type BalanceRow } from "./balance";
 
-/**
- * Rows are written by hand rather than generated: every case here is about one
- * specific difference, and a generator would hide which.
- *
- * Times are league-local evenings. `leagueDateKey` buckets by the LEAGUE's day,
- * so a 20:15 game and a 19:00 game on the same evening are one night — that is
- * the thing worth testing, not arithmetic on a Map.
- */
 const row = (
   id: string,
   home: string,
@@ -43,12 +35,8 @@ describe("countsFor", () => {
     expect([...c.perNight.values()]).toEqual([2, 1]);
   });
 
-  /**
-   * ⛔ THE RULE THE WHOLE FEATURE RESTS ON. Postponement takes a game off its
-   * night — that is what postponing IS. If these rows counted, restoring a
-   * postponed game would read as an edit that unbalanced the schedule, and the
-   * invariant would refuse the one operation that repairs a rink closure.
-   */
+  /** ⛔ Postponement takes a game off its night; counted, restoring one would read as an
+   *  unbalancing edit and be refused. */
   it("ignores postponed and cancelled games in the per-night count", () => {
     const c = countsFor([
       row("g1", "A", "B", TUE),
@@ -58,12 +46,8 @@ describe("countsFor", () => {
     expect([...c.perNight.values()]).toEqual([1]);
   });
 
-  /**
-   * ⚠️ But they DO count per team, and that asymmetry is deliberate: a
-   * postponed game is still a game the team owes. Dropping it from the totals
-   * would let a manager postpone a game and then trade it away, ending the
-   * season a game short with every check still green.
-   */
+  /** ⚠️ But per team they count, deliberately: otherwise a postponed game could be traded
+   *  away, ending the season a game short with every check green. */
   it("still counts postponed games toward a team's total", () => {
     const c = countsFor([row("g1", "A", "B", TUE, "postponed")]);
     expect(c.perTeam.get("A")).toBe(1);
@@ -105,12 +89,7 @@ describe("preserved", () => {
     expect(preserved(before, after)).toBeNull();
   });
 
-  /**
-   * A substitution always moves TWO totals — one team gains, one loses — and
-   * `preserved` reports the first difference it finds, not both. So the
-   * contract under test is "names a team that moved, with both numbers", not
-   * which of the pair it happens to reach first.
-   */
+  /** A substitution moves two totals and `preserved` names the first, so either team passes. */
   it("names a team whose total changed, and both numbers", () => {
     // D replaced by A in g2 — A gains, D loses.
     const after = countsFor([
@@ -135,14 +114,8 @@ describe("preserved", () => {
     expect(why).toMatch(/game/);
   });
 
-  /**
-   * ⚠️ THIS TEST EXISTS BECAUSE THE PARAMETER WAS ADDED AND NEVER PASSED. The
-   * `nameOf` argument was written, `balance.ts` grew it, and the one production
-   * call site kept calling `preserved` with two arguments for a whole review
-   * cycle — every refusal still naming a UUID, with the full suite green,
-   * because nothing asserted the name ever reached the message. A parameter
-   * that no test observes is a parameter that can quietly go unwired.
-   */
+  /** ⚠️ `nameOf` shipped unpassed for a review cycle with the suite green: a parameter no test
+   *  observes can go unwired. */
   it("names teams through nameOf when one is supplied", () => {
     const after = countsFor([
       row("g1", "A", "B", TUE),
@@ -155,11 +128,7 @@ describe("preserved", () => {
     expect(why).toMatch(/^(Falcons|Otters) would play \d+ games, not \d+\./);
   });
 
-  /**
-   * A team the schedule has never seen must be caught rather than crash on a
-   * missing key — `Z` has no "before" count at all, and `B`, whom it replaced,
-   * has no "after" one. Either name is a correct report; both are the same edit.
-   */
+  /** A team new to the schedule is caught, not a crash on a missing key; either name is right. */
   it("catches a substitution that introduces a team new to the schedule", () => {
     const after = countsFor([
       row("g1", "A", "Z", TUE),

@@ -1,6 +1,5 @@
 import type { Night } from "./assignNights";
 
-/** Just the placement facts spacing analysis needs (a subset of ScheduledGame). */
 export type PlacedGame = {
   home: string;
   away: string;
@@ -9,76 +8,27 @@ export type PlacedGame = {
 };
 
 export type SpacingReport = {
-  /** Team-weeks where a team sat out 2+ of that week's game nights. */
   byesMultiWeek: number;
-  /** Consecutive-week pairs where a team byed in both weeks. */
   byesConsecWeek: number;
-  /** ...and byed on the same weekday in both weeks. */
   byesConsecWeekSameDay: number;
-  /** The same two teams meeting twice within one week. */
   rematchSameWeek: number;
-  /** The same two teams meeting in back-to-back weeks. */
   rematchConsecWeek: number;
-  /** ...on the same weekday. */
   rematchConsecWeekSameDay: number;
-  /** The same two teams meeting on adjacent game nights. */
   rematchAdjNight: number;
-  /** A team's back-to-back games in the same ice-time slot. */
   slotConsecutive: number;
-  /**
-   * A team byeing two game nights in a row. Stated in nights, not weeks, so
-   * unlike the three bye rules above it does not step over a holiday gap — the
-   * pair straddling a two-week break is exactly the one that hurts most.
-   */
+  /** In nights, not weeks, so unlike the bye rules above it doesn't step over a holiday gap. */
   byesAdjNight: number;
-  /**
-   * Σ over matchups of the squared deviation of that matchup's per-weekday
-   * meeting counts from its proportional target, offset so the flattest split
-   * the calendar allows reads 0. A statement about the whole count vector, so
-   * it generalises past two weekdays; identically 0 when there is only one.
-   *
-   * A **score, not a count**, and not necessarily a whole number — a 47-night
-   * season with one pairing at 4/1 reads 3.7872. Squared because the search
-   * needs the gradient: 4/1 is far worse than 3/2 where an even split is 2.5,
-   * and a count cannot say so. Rank on this; show `pairingsOffWeekdaySplit`.
-   */
+  /** ⚠️ A score, not a count (47 nights, one pairing at 4/1 reads 3.7872): rank on it, show
+   *  `pairingsOffWeekdaySplit`. Squared, because the search needs the gradient. */
   pairingWeekdayExcess: number;
-  /**
-   * How many matchups are off their ideal weekday split at all — the plain count
-   * behind the score above, for the places a person reads rather than the search.
-   * Zero exactly when `pairingWeekdayExcess` is.
-   */
   pairingsOffWeekdaySplit: number;
-  /**
-   * Σ over (team, weekday) of the spread of that team's ice-time counts on that
-   * weekday. The season-wide share can be perfect while every weekday is
-   * lopsided, which is what this catches.
-   */
   slotWeekdaySpread: number;
-  /**
-   * A team's third-and-later game in an unbroken run of one ice time, so a run
-   * of 4 counts 2. Costed apart from `slotConsecutive` because three in a row
-   * is worse than two unrelated repeats, not equal to them.
-   */
+  /** Third and later game of a run in one ice time, so a run of 4 counts 2. */
   slotStreak3: number;
-  /**
-   * Σ over teams of that team's clustered windows. A total, so it says how much
-   * clustering the season holds but not who carries it.
-   */
   slotClusterWindows: number;
-  /**
-   * The largest single team's clustered-window count. This is the number that
-   * matches the complaint: the damage concentrates, and a season measured at 33
-   * total had one team carrying 14 of them and another carrying 1.
-   */
   slotClusterWorstTeam: number;
-  /**
-   * Longest gap in days between any team's consecutive games. **Informational
-   * only** — it must never enter `rankSchedule`, because a long layoff can be a
-   * calendar fact (a Christmas break) that no schedule can undo. It exists to
-   * make `byesAdjNight` legible: the residual is the holiday, not a defect.
-   * `null` when no team has two games to sit between.
-   */
+  /** Longest gap in days between a team's games. ⚠️ Informational: never rank on it, since a
+   *  long layoff can be a calendar fact (a holiday). null when no team has two games. */
   longestLayoffDays: number | null;
 };
 
@@ -88,12 +38,8 @@ const toUTC = (d: string) => {
   return Date.UTC(y, m - 1, dd);
 };
 
-/**
- * A clustered window is 5 consecutive games in which a team takes one ice time
- * 3+ times — "the late game three times in five weeks", which is how the
- * complaint arrives. Counted over a team's GAMES, not calendar nights, so a
- * league with byes reads the same way a league without them does.
- */
+// A clustered window: 5 consecutive games with one ice time 3+ times. Counted over a team's
+// games, not nights, so a league with byes reads like one without.
 const CLUSTER_WINDOW = 5;
 const CLUSTER_MAX_SAME = 2;
 
@@ -104,33 +50,19 @@ export type NightMeta = {
   sortedWeeks: number[];
 };
 
-/**
- * The Monday week numbering is anchored to — the Monday of the first night's
- * week. Extracted so a caller holding a date that is *not* a game night (a
- * manager's "the week of the 12th") can be numbered on exactly the same scale
- * as the nights, rather than re-deriving the anchor and drifting from it.
- */
 function weekAnchor(nights: Night[]): number {
   const first = toUTC(nights[0].date);
   const firstWd = new Date(first).getUTCDay();
   return first - ((firstWd + 6) % 7) * DAY; // back to Monday
 }
 
-/**
- * The week index an arbitrary calendar date falls in, on `buildNightMeta`'s
- * numbering — so a stored "any date in the intended week" resolves to the same
- * integer the nights carry. Null when there are no nights to anchor against.
- *
- * This is why schedule constraints store a *date* rather than a week number: a
- * week number shifts the moment a skip date is added, and this function does
- * not.
- */
+/** Week index of any date on `buildNightMeta`'s numbering. ⚠️ Why constraints store a date,
+ *  not a week number: a week number shifts when a skip date is added; this doesn't. */
 export function weekIndexOf(date: string, nights: Night[]): number | null {
   if (nights.length === 0) return null;
   return Math.floor((toUTC(date) - weekAnchor(nights)) / (7 * DAY));
 }
 
-/** Precompute per-night week/weekday, weeks anchored to the first night's Monday. */
 export function buildNightMeta(nights: Night[]): NightMeta {
   if (nights.length === 0) {
     return { week: [], weekday: [], weekNights: new Map(), sortedWeeks: [] };
@@ -151,9 +83,8 @@ export function buildNightMeta(nights: Night[]): NightMeta {
 
 const matchupKey = (a: string, b: string) => [a, b].sort().join("|");
 
-// Spacing penalty weights, ranked: byes (#2) > rematch spacing (#3) > ice-time
-// spread/consecutiveness (#4). All are dwarfed by the balance weight in the
-// search so that even weekday distribution (#1) is never traded away.
+// ⚠️ Ranked byes > rematch > ice time, all dwarfed by `BALANCE_W`. Moves with `MULT_W` and
+// `CHURN_W`; `weightCoupling.test.ts` pins the ratios. RUNBOOK.md, _Schedule generator_.
 export const SPACING_W = {
   byeMultiWeek: 400,
   byeConsecWeekSameDay: 300,
@@ -166,7 +97,6 @@ export const SPACING_W = {
   slotConsecutive: 6,
 };
 
-/** Weighted bye + ice-time-spread + slot-consecutive penalty for one team. */
 export function teamSpacingCost(
   slotByNight: Map<number, number>,
   numSlots: number,
@@ -193,7 +123,6 @@ export function teamSpacingCost(
     const wb = byeWeekdays.get(b)!;
     if ([...wa].some((d) => wb.has(d))) c += SPACING_W.byeConsecWeekSameDay;
   }
-  // Ice-time: even share + spread out (no back-to-back same slot).
   const counts = new Array(numSlots).fill(0);
   const mine = [...slotByNight.entries()].sort((x, y) => x[0] - y[0]);
   for (const [, s] of mine) counts[s]++;
@@ -205,7 +134,6 @@ export function teamSpacingCost(
   return c;
 }
 
-/** Weighted rematch-clustering penalty for one matchup's meeting nights. */
 export function matchupSpacingCost(nights: number[], meta: NightMeta): number {
   const s = [...nights].sort((a, b) => a - b);
   let c = 0;
@@ -227,20 +155,8 @@ export function matchupSpacingCost(nights: number[], meta: NightMeta): number {
 const spreadOf = (a: number[]) =>
   a.length ? Math.max(...a) - Math.min(...a) : 0;
 
-/**
- * Split `total` items across weekdays in proportion to each weekday's share of
- * the nights — the flattest split those totals allow, which is an even split
- * exactly when the night counts are equal.
- *
- * Largest-remainder rounding, which is provably the integer vector minimising
- * the squared deviation from the real-valued proportional target: moving a unit
- * from weekday `a` to `b` changes the cost by `(1 - 2·frac(a)) - (1 - 2·frac(b))`,
- * so the units belong on the largest remainders. Ties break on weekday order to
- * keep the result deterministic.
- *
- * Kept in integers throughout — `total·nights[d]` and a `% N` rather than a
- * division — so no rounding error can move a floor across an integer boundary.
- */
+/** Largest-remainder split of `total` by each weekday's share of nights; ties by weekday.
+ *  ⚠️ Integers throughout, so no rounding error can move a floor across a boundary. */
 export function proportionalSplit(
   total: number,
   nightsPerWd: number[],
@@ -257,16 +173,8 @@ export function proportionalSplit(
   return out;
 }
 
-/**
- * How far one matchup's per-weekday meeting counts sit from its proportional
- * target, as a squared deviation offset so the flattest split the calendar
- * allows reads exactly 0 — including when that flattest split is uneven, and
- * when two different splits are equally flat.
- *
- * Returned scaled by N² (N = total nights) to stay an exact integer: the caller
- * sums many of these and divides once, so no float noise reaches a comparison.
- * Zero whenever there is only one weekday, so single-weekday cadences are free.
- */
+/** A matchup's squared distance from its flattest weekday split (0 at the flattest).
+ *  ⚠️ Scaled by N² to stay an exact integer: callers sum, then divide once. */
 export function weekdayExcessScaled(
   counts: number[],
   nightsPerWd: number[],
@@ -283,151 +191,52 @@ export function weekdayExcessScaled(
   return scaled;
 }
 
-/**
- * A manager's request that one team's games over a stretch of the season lean
- * toward the earlier or the later ice times (`slot_bias`).
- *
- * Lives here rather than in `slots.ts` because two places have to price it
- * identically: Phase S's own descent, and `iceOutcome`, which is what actually
- * decides which of the five Phase S candidates ships. A term visible only to
- * the former makes the feature a coin toss.
- */
+/** `slot_bias`. ⚠️ Lives here because Phase S's descent and `iceOutcome` must price it
+ *  identically; a term only the descent sees is ignored by the best-of-five choice. */
 export type SlotBias = {
   team: number;
-  /** `nights[i]` is true when night `i` falls inside the requested window. */
   nights: boolean[];
   prefer: "early" | "late";
 };
 
-/**
- * Weight per slot-step toward the requested end of the evening.
- *
- * Ranked deliberately low. A step of ice-share deviation is worth
- * `2 × WEEKDAY_SHARE_W` = 60 and a three-game run 140–200, so at 4 this can
- * only ever decide between arrangements the share and streak terms are
- * indifferent about — which is the whole of what "best effort, below the real
- * goals" means. It is a *preference*, not a pin; `slot_on` is the pin.
- */
+/** ⚠️ Deliberately low: a share step is 60 and a run 140–200, so 4 only breaks ties between
+ *  arrangements they don't care about. A preference; `slot_on` is the pin. */
 export const SLOT_BIAS_W = 4;
 
-/**
- * Signed pull: +1 charges the slot index (so slot 0 is cheapest — "early"),
- * −1 credits it (so the last slot is cheapest — "late").
- *
- * Signed rather than "distance from the preferred end" on purpose: distance
- * needs a slot count, and the two callers derive theirs differently (Phase S
- * from `slotsPerNight`, `iceOutcome` from the assignment it was handed). A
- * signed index differs from a distance by a per-game constant, which cancels in
- * every comparison either of them makes, and cannot drift.
- *
- * ⚠️ OVERLAPPING WINDOWS ADD. A team can carry several biases and their date
- * ranges can overlap, so a night inside two of them is charged twice — and
- * inside an "early" and a "late" it cancels to nothing, which is what asking
- * for both should cost. Both consumers must accumulate: `iceOutcome` below
- * sums by looping the biases, and `assignSlots` folds them into one row per
- * team with `+=` for the same reason. Assigning there instead let the last
- * window win outright, which is how these two came to price the same season
- * differently — the descent optimised one number and the rank-off compared
- * another.
- */
+/** +1 early, −1 late. ⚠️ Signed, not a distance (no slot count to drift between callers),
+ *  and overlapping windows add: `iceOutcome` and `assignSlots` must both accumulate. */
 export const biasSign = (prefer: SlotBias["prefer"]): number =>
   prefer === "early" ? 1 : -1;
 
-/**
- * An ice-time result, in the six numbers `spacingReport` publishes plus the
- * manager's ice-time preference. Selection ranks these lexicographically rather
- * than blending them, because a blended scalar can and does prefer a candidate
- * that breaks the even season share to buy a flatter weekday split — the trade
- * the league has rejected twice.
- */
+/** ⚠️ Ranked lexicographically, never blended: a blended scalar buys a flatter weekday split
+ *  by breaking the even season share, a trade the league has rejected twice. */
 export type IceOutcome = {
-  /** Σ over teams of (max − min) of that team's season slot counts. */
   seasonSpread: number;
-  /** `slotWeekdaySpread` — the same, within each weekday. */
   weekdaySpread: number;
-  /** `slotStreak3`. */
   streak3: number;
-  /** `slotConsecutive`. */
   consecutive: number;
-  /**
-   * `slotClusterWorstTeam` — the largest single team's clustered-window count.
-   * The worst team, not the league total, because the damage concentrates:
-   * a season measuring 33 windows in total had 14 on one team and 1 on another.
-   */
   clusterWorst: number;
-  /** `slotClusterWindows` — the league total, used only to break a tie on the worst team. */
   clusterTotal: number;
-  /**
-   * Σ over every `slot_bias` of `biasSign × slot` for that team's games inside
-   * the window. Zero whenever no bias is asked for, which is what keeps this
-   * field invisible to an unconstrained generation.
-   */
   biasCost: number;
 };
 
-/**
- * Lexicographic, lower is better. Negative when `a` beats `b`.
- *
- * Order: season share ▸ three-game runs ▸ per-weekday share ▸ ordinary repeats
- * ▸ manager ice-time bias. Clustering is computed but NOT ranked — see below.
- *
- * `streak3` sits above `weekdaySpread` because the league states goal 4 as an
- * absolute — a team never runs three games deep in one ice time — while the
- * weekday split is a fairness target with no such line. Measured 2026-08-12 on
- * the reference season: the 140 candidate flattens the weekday split to 0 but
- * leaves a three-game run in two runs out of three, and with the two terms the
- * other way round this comparator took that trade every time. Ranking runs
- * first means the flat split is taken when it is free and declined when its
- * price is a run.
- */
+/** Lexicographic, lower wins. ⚠️ `streak3` stays above `weekdaySpread`: swapped, the 140
+ *  candidate traded a three-game run for a flat split. RUNBOOK.md, _Schedule generator_. */
 export function compareIceOutcome(a: IceOutcome, b: IceOutcome): number {
   return (
     a.seasonSpread - b.seasonSpread ||
     a.streak3 - b.streak3 ||
     a.weekdaySpread - b.weekdaySpread ||
     a.consecutive - b.consecutive ||
-    // ⛔ THE CLUSTERING PAIR IS DELIBERATELY NOT RANKED HERE, AND IT WAS TRIED.
-    // Inserting `clusterWorst`/`clusterTotal` at this exact point measured as:
-    //
-    //   - inert on an unconstrained season — all five candidates land on
-    //     `clusterWorst` 17 or 18 and the winner takes it at season share 0,
-    //     weekday split 0, runs 0 and 48 repeats, so the comparison is decided
-    //     before clustering is ever read; and
-    //   - actively harmful on a constrained one, where the night-order pass is
-    //     gated off and these terms would sit directly above `biasCost`. On a
-    //     6-team fixture, bias satisfaction fell 2/3 → 1/3: clustering flipped
-    //     the winner away from the candidate honouring the manager's request.
-    //
-    // `iceOutcome` still computes the pair — the figure is wanted, and the
-    // agreement test below pins it — but ranking on it is what does not pay.
-    // Measured 2026-09-09 under the repo's vitest env (`OBHL_SLOT_RESTARTS`
-    // 2000), NOT production's 20_000; re-measure before revisiting.
-    //
-    // Last, and it must be here at all: generation runs Phase S five times and
-    // keeps the winner by this comparator, so a bias term living only inside
-    // `assignSlots`' own cost would be invisible to the choice that ships — the
-    // candidate honouring the manager's request could lose to one ignoring it,
-    // at random. Ranked below every real goal, so it only ever breaks a tie.
+    // ⛔ Clustering is not ranked here, and it was tried: inert unconstrained, and it dropped
+    // bias satisfaction 2/3 -> 1/3 on a constrained fixture. Re-measure before revisiting.
+    // ⛔ `biasCost` must be here, last: RUNBOOK.md, _Schedule generator_.
     a.biasCost - b.biasCost
   );
 }
 
-/**
- * The ice-time numbers, computed straight from a slot assignment rather
- * than from placed games — so Phase S can rank candidates without building a
- * season for each one. Definitions are kept identical to `spacingReport`'s and
- * a test asserts they agree; change both together or neither.
- */
-/**
- * Clustered windows for one team's chronological slot sequence: how many
- * `CLUSTER_WINDOW`-game windows hold more than `CLUSTER_MAX_SAME` games in a
- * single ice time.
- *
- * ⛔ ONE DEFINITION, TWO READERS. `spacingReport` computes this from placed
- * games and `iceOutcome` from a raw slot assignment, and this file's contract is
- * that the two agree. A hand-copied twin is how that contract rots, so both call
- * here.
- */
+/** ⛔ One definition, two readers: `spacingReport` and `iceOutcome` must agree, so both
+ *  call here; a hand-copied twin is how that rots. */
 function clusteredWindows(slots: number[], numSlots: number): number {
   let clustered = 0;
   for (let i = 0; i + CLUSTER_WINDOW <= slots.length; i++) {
@@ -438,12 +247,13 @@ function clusteredWindows(slots: number[], numSlots: number): number {
   return clustered;
 }
 
+/** Ice-time numbers straight from a slot assignment, so Phase S can rank candidates.
+ *  ⚠️ Definitions match `spacingReport`'s and a test asserts it: change both or neither. */
 export function iceOutcome(opts: {
   teamCount: number;
   pairsByNight: [number, number][][];
   slotOf: number[][];
   weekdayOfNight?: number[];
-  /** Manager ice-time preferences, if any. Absent = `biasCost` is 0. */
   biases?: SlotBias[];
 }): IceOutcome {
   const { teamCount, pairsByNight, slotOf, weekdayOfNight, biases } = opts;
@@ -452,8 +262,6 @@ export function iceOutcome(opts: {
   const usedW = [...new Set(wds)].sort((a, b) => a - b);
   const wIndex = new Map(usedW.map((d, i) => [d, i]));
 
-  // Each team's slots in chronological night order — night indexes are already
-  // chronological, which is the same assumption `spacingReport` makes.
   const seq: number[][] = Array.from({ length: teamCount }, () => []);
   const seqW: number[][] = Array.from({ length: teamCount }, () => []);
   const seqN: number[][] = Array.from({ length: teamCount }, () => []);
@@ -496,8 +304,6 @@ export function iceOutcome(opts: {
     }
     seasonSpread += Math.max(...season) - Math.min(...season);
 
-    // Games, not nights — `seq[t]` holds only the games this team plays, so its
-    // byes are skipped by construction, exactly as `spacingReport` does.
     const clustered = clusteredWindows(s, numSlots);
     clusterTotal += clustered;
     if (clustered > clusterWorst) clusterWorst = clustered;
@@ -562,9 +368,7 @@ export function spacingReport(
     longestLayoffDays: null,
   };
 
-  // Weekday and ice-time frames for the per-weekday metrics. Both are derived
-  // from the data rather than taken as parameters: the builder panel passes
-  // nights whose `slots` are empty, so the slot count has to come off the games.
+  // ⚠️ The slot count comes off the games: the builder panel passes nights with empty `slots`.
   const usedWeekdays = [...new Set(meta.weekday)].sort((a, b) => a - b);
   const wIndex = new Map(usedWeekdays.map((d, i) => [d, i]));
   const D = usedWeekdays.length;
@@ -575,7 +379,6 @@ export function spacingReport(
   const sortedWeeks = [...meta.weekNights.keys()].sort((a, b) => a - b);
   for (const t of teamIds) {
     const has = played.get(t)!;
-    // Per-week bye picture for this team.
     const byeWeekdays = new Map<number, Set<number>>(); // week -> weekdays byed
     const hasBye = new Set<number>();
     for (const w of sortedWeeks) {
@@ -598,13 +401,10 @@ export function spacingReport(
         if ([...wa].some((d) => wb.has(d))) report.byesConsecWeekSameDay++;
       }
     }
-    // Byes on back-to-back nights. Night indexes are chronological, the same
-    // assumption the rematch-adjacency check below already makes.
     for (let ni = 1; ni < nights.length; ni++) {
       if (!has.has(ni) && !has.has(ni - 1)) report.byesAdjNight++;
     }
 
-    // Slot consecutiveness across this team's games in chronological order.
     const mine = [...slotByNight.get(t)!.entries()].sort((x, y) => x[0] - y[0]);
     for (let i = 1; i < mine.length; i++) {
       if (mine[i][1] === mine[i - 1][1]) report.slotConsecutive++;
@@ -617,7 +417,6 @@ export function spacingReport(
       }
     }
 
-    // Rolling window over this team's games. `mine` is already chronological.
     const clustered = clusteredWindows(
       mine.map((m) => m[1]),
       numSlots,
@@ -626,7 +425,6 @@ export function spacingReport(
     if (clustered > report.slotClusterWorstTeam)
       report.slotClusterWorstTeam = clustered;
 
-    // Ice-time share within each weekday, not just across the season.
     for (let d = 0; d < D; d++) {
       const counts = new Array(numSlots).fill(0);
       for (const [ni, s] of mine) {
@@ -635,8 +433,6 @@ export function spacingReport(
       report.slotWeekdaySpread += spreadOf(counts);
     }
 
-    // Longest layoff, in days rather than nights — the point of it is that the
-    // calendar gap between two adjacent night indexes can be three weeks.
     for (let i = 1; i < mine.length; i++) {
       const gap =
         (toUTC(nights[mine[i][0]].date) - toUTC(nights[mine[i - 1][0]].date)) /
@@ -647,9 +443,6 @@ export function spacingReport(
     }
   }
 
-  // Squared deviation of each matchup's weekday split from its proportional
-  // target, accumulated in units of N² so the whole sum stays an exact integer
-  // and one division at the end is the only floating-point step.
   let excessScaled = 0;
   const N = nights.length;
 
@@ -673,8 +466,7 @@ export function spacingReport(
       }
     }
   }
-  // Round to 4dp: the value feeds a lexicographic rank tuple, where a 1e-16
-  // residue would read as one plan genuinely beating another.
+  // 4dp: in a lexicographic rank, a 1e-16 residue reads as one plan beating another.
   if (N > 0) {
     report.pairingWeekdayExcess =
       Math.round((excessScaled / (N * N)) * 1e4) / 1e4;
