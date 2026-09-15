@@ -214,6 +214,10 @@ test.describe("Path 17 — Schedule Builder", () => {
 
     // Rendered state, not the toast — the toast auto-dismisses.
     await expect(page.getByText(`Published: ${published} games`)).toBeVisible();
+    // Fall 2026 is published, inactive and newer than the active Spring 2026.
+    await expect(
+      page.getByText("These games aren't on the public site yet"),
+    ).toBeVisible();
 
     // The published state must say that generating a new draft is how to replace it.
     await expect(

@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { discardSchedule } from "@/lib/actions/schedule";
+import {
+  needsActivation,
+  type SeasonStamp,
+} from "@/lib/schedule/activationNotice";
 import { getEnrolledTeams } from "@/lib/queries/teams";
 import {
   getPublishState,
@@ -69,9 +73,22 @@ type DraftRow = {
 export async function ScheduleBuilderPanel({
   seasonId,
   league,
+  isActive,
+  thisSeason,
+  activeSeason,
+  activeSeasonReadFailed,
 }: {
   seasonId: string;
   league: string;
+  /**
+   * ⚠️ A prop, not a read here: this panel's own season read discards its error,
+   * so a failed read would claim "nobody can see these games" on an active season.
+   */
+  isActive: boolean;
+  thisSeason: SeasonStamp;
+  /** The league's active season, or null when it has none. */
+  activeSeason: SeasonStamp | null;
+  activeSeasonReadFailed: boolean;
 }) {
   const admin = createAdminClient();
 
@@ -320,6 +337,31 @@ export async function ScheduleBuilderPanel({
 
   return (
     <div className="space-y-6">
+      {/* ⚠️ Above the `mode === "locked"` fork: a started season that isn't
+          active is the worst case, and inside the fork it would never show. */}
+      {needsActivation({
+        isActive,
+        liveCount: publish.liveCount,
+        // `publish.readFailed`, not the panel-wide one: a failed draft read
+        // leaves the published count accurate.
+        readFailed: publish.readFailed || activeSeasonReadFailed,
+        thisSeason,
+        activeSeason,
+      }) ? (
+        <div className="space-y-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+          <p className="font-semibold">
+            ⚠ These games aren&apos;t on the public site yet
+          </p>
+          {/* Team calendar feeds span every season, so they already show these games. */}
+          <p>
+            The schedule is published, but this isn&apos;t the league&apos;s
+            active season, and the public schedule and standings show only the
+            active one. Use Set active at the top of this page when you&apos;re
+            ready. Team calendar subscriptions already include these games.
+          </p>
+        </div>
+      ) : null}
+
       {mode === "locked" ? (
         <Card>
           <CardHeader>

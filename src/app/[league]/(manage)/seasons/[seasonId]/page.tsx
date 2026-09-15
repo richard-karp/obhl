@@ -10,6 +10,7 @@ import {
 import { AddTeamForm } from "@/components/manage/add-team-form";
 import { TeamBrandingForm } from "@/components/manage/team-branding-form";
 import { ScheduleBuilderPanel } from "@/components/manage/schedule-builder-panel";
+import type { SeasonStamp } from "@/lib/schedule/activationNotice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -70,35 +71,56 @@ export default async function SeasonSetupPage({
 
   const { data: season } = await admin
     .from("seasons")
-    .select("id, name, league_id, is_active, starts_on, ends_on")
+    .select("id, name, league_id, is_active, starts_on, ends_on, created_at")
     .eq("id", seasonId)
     .maybeSingle();
   // The id says nothing about which league it belongs to, so the slug in the
   // URL is the only claim of ownership — enforce it rather than trust it.
   if (!season || season.league_id !== league.id) notFound();
 
-  const [{ data: enrolled }, { data: captains }, { count: publishedCount }] =
-    await Promise.all([
-      admin
-        .from("season_teams")
-        .select(
-          "team_id, teams!season_teams_team_id_fkey(id, name, color, logo_text_color, logo_path)",
-        )
-        .eq("season_id", seasonId),
-      admin
-        .from("team_players")
-        .select(
-          "team_id, players!team_players_player_id_fkey(first_name, last_name)",
-        )
-        .eq("season_id", seasonId)
-        .eq("is_captain", true)
-        .is("left_on", null),
-      admin
-        .from("games")
-        .select("*", { count: "exact", head: true })
-        .eq("season_id", seasonId)
-        .eq("is_draft", false),
-    ]);
+  const [
+    { data: enrolled },
+    { data: captains },
+    { count: publishedCount },
+    { data: leagueActive, error: leagueActiveError },
+  ] = await Promise.all([
+    admin
+      .from("season_teams")
+      .select(
+        "team_id, teams!season_teams_team_id_fkey(id, name, color, logo_text_color, logo_path)",
+      )
+      .eq("season_id", seasonId),
+    admin
+      .from("team_players")
+      .select(
+        "team_id, players!team_players_player_id_fkey(first_name, last_name)",
+      )
+      .eq("season_id", seasonId)
+      .eq("is_captain", true)
+      .is("left_on", null),
+    admin
+      .from("games")
+      .select("*", { count: "exact", head: true })
+      .eq("season_id", seasonId)
+      .eq("is_draft", false),
+    // The league's active season, for the builder's activation notice.
+    admin
+      .from("seasons")
+      .select("id, starts_on, created_at")
+      .eq("league_id", league.id)
+      .eq("is_active", true)
+      .maybeSingle(),
+  ]);
+
+  if (leagueActiveError) {
+    console.error(
+      "league active season read failed:",
+      leagueActiveError.message,
+    );
+  }
+  const activeSeason: SeasonStamp | null = leagueActive
+    ? { startsOn: leagueActive.starts_on, createdAt: leagueActive.created_at }
+    : null;
 
   const captainOf = new Map<string, string>();
   for (const c of (captains ?? []) as any[]) {
@@ -250,7 +272,17 @@ export default async function SeasonSetupPage({
               description="Enroll at least two teams above, then the schedule builder appears here."
             />
           ) : (
-            <ScheduleBuilderPanel seasonId={seasonId} league={league.slug} />
+            <ScheduleBuilderPanel
+              seasonId={seasonId}
+              league={league.slug}
+              isActive={season.is_active}
+              thisSeason={{
+                startsOn: season.starts_on,
+                createdAt: season.created_at,
+              }}
+              activeSeason={activeSeason}
+              activeSeasonReadFailed={!!leagueActiveError}
+            />
           )}
         </CardContent>
       </Card>
