@@ -1077,9 +1077,7 @@ export async function rescheduleNight(
         "Couldn't read this season's dates, so the move wasn't attempted. Reload and try again.",
     };
   }
-  // ⛔ The same guard the read beside it has always had. Without it a failed nights read reaches
-  // `checkNightMove` as a season with no game nights, which refuses with "that isn't a game
-  // night" — fail-closed by accident, and a lie about a schedule nobody could read.
+  // ⛔ Without this, a failed nights read reaches `checkNightMove` as "not a game night": a false refusal.
   if (nights.readFailed) {
     return {
       ok: false,
@@ -1275,9 +1273,7 @@ export async function previewOneOffGame(
     seasonId,
     admin,
   );
-  // ⛔ Fails closed WITH THE TRUE REASON, the same discipline as `moveGameNight`'s season-bounds
-  // guard: an unread schedule reads as a season with no game nights, and every message below
-  // would then tell the manager something false about their own season.
+  // ⛔ A failed nights read looks like a season with no game nights: refuse with the real reason.
   if (nightsReadFailed) {
     return {
       ok: false,
@@ -1367,9 +1363,7 @@ export async function applyOneOffGame(
     seasonId,
     admin,
   );
-  // ⛔ Fails closed WITH THE TRUE REASON, the same discipline as `moveGameNight`'s season-bounds
-  // guard: an unread schedule reads as a season with no game nights, and every message below
-  // would then tell the manager something false about their own season.
+  // ⛔ A failed nights read looks like a season with no game nights: refuse with the real reason.
   if (nightsReadFailed) {
     return {
       ok: false,
@@ -1519,9 +1513,7 @@ async function repairContext(seasonId: string, admin: Admin) {
     seasonId,
     admin,
   );
-  // ⛔ Fails closed WITH THE TRUE REASON, the same discipline as `moveGameNight`'s season-bounds
-  // guard: an unread schedule reads as a season with no game nights, and every message below
-  // would then tell the manager something false about their own season.
+  // ⛔ A failed nights read looks like a season with no game nights: refuse with the real reason.
   if (nightsReadFailed) {
     return {
       ok: false as const,
@@ -1649,9 +1641,7 @@ export async function applyScheduleRepair(input: {
   }
 
   const { teams, nights, nightsReadFailed } = await loadContext(seasonId, admin);
-  // ⛔ Fails closed WITH THE TRUE REASON, the same discipline as `moveGameNight`'s season-bounds
-  // guard: an unread schedule reads as a season with no game nights, and every message below
-  // would then tell the manager something false about their own season.
+  // ⛔ A failed nights read looks like a season with no game nights: refuse with the real reason.
   if (nightsReadFailed) {
     return {
       ok: false,

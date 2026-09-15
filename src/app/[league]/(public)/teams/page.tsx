@@ -30,8 +30,7 @@ export default async function TeamsPage({
     ? await getManageContext(leagueParam, seasonParam)
     : null;
   const ctx = manageCtx ?? (await getActiveContext(leagueParam));
-  // ⚠️ `ctx` is either context here. Only the public one can report a failed read; a manager
-  // arriving through `getManageContext` gets the plain message, which is all that context knows.
+  // ⚠️ Only the public context reports a failed read; `getManageContext` gets the plain message.
   if (!ctx.season)
     return (
       <NoSeason

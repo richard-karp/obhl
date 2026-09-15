@@ -38,8 +38,7 @@ export default async function TeamPage({
     ? await getManageContext(leagueParam, seasonParam)
     : null;
   const ctx = manageCtx ?? (await getActiveContext(leagueParam));
-  // ⚠️ `ctx` is either context here. Only the public one can report a failed read; a manager
-  // arriving through `getManageContext` gets the plain message, which is all that context knows.
+  // ⚠️ Only the public context reports a failed read; `getManageContext` gets the plain message.
   if (!ctx.season)
     return (
       <NoSeason
@@ -167,9 +166,7 @@ export default async function TeamPage({
             {detail.team.name}
           </h1>
           <p className="text-muted-foreground text-sm">
-            {/* ⚠️ The subtle one. This record is derived from the games read, so a failed read
-                publishes a confident 0-0-0 — the same lie as "the schedule hasn't been built
-                yet", and much harder to spot, because 0-0-0 is a real record a new team has. */}
+            {/* ⚠️ Derived from the games read: a failed read would show 0-0-0, a real record. */}
             {detail.gamesReadFailed ? "Record unavailable" : `${w}-${l}-${t}`} ·{" "}
             {ctx.season.name}
           </p>

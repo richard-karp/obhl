@@ -4,11 +4,7 @@ import type { Tables } from "@/lib/db/helpers";
 
 export type Announcement = Tables<"announcements">;
 
-/**
- * ⛔ The home page draws no card at all when this is empty, so a failed read is INVISIBLE there:
- * a league that posted "no game this week" shows nothing, and looks like a league that posted
- * nothing. Absence being the normal state is what makes the failure worth naming.
- */
+/** ⛔ The home page draws no card when this is empty, so a failed read would be invisible there. */
 export type AnnouncementsRead = {
   rows: Announcement[];
   readFailed: boolean;

@@ -16,11 +16,7 @@ export type RankedStanding = StandingRow & {
   team_logo_path: string | null;
 };
 
-/**
- * ⛔ `rows` empty and `readFailed` false is "nobody has played yet"; `readFailed` true is "we
- * could not look". The table renders the first as a league with no results, which is a statement
- * about the season rather than about the read.
- */
+/** ⛔ Empty `rows` means "nobody has played yet" only when `readFailed` is false. */
 export type StandingsRead = { rows: RankedStanding[]; readFailed: boolean };
 
 export async function getStandings(
@@ -33,9 +29,7 @@ export async function getStandings(
     { data: finals, error: finErr },
     { data: branding },
   ] = await Promise.all([
-    // ⚠️ Only the two reads the failure check below depends on are retried. The branding read is
-    // left bare on purpose: its failure degrades to a plain chip, a real fallback rather than a
-    // wrong table.
+    // ⚠️ Only the reads the failure check needs are retried: a failed branding read degrades to a plain chip.
     readWithOneRetry(
       () =>
         supabase.from("v_standings_raw").select("*").eq("season_id", seasonId),
@@ -61,8 +55,6 @@ export async function getStandings(
       )
       .eq("season_id", seasonId),
   ]);
-  // ⚠️ The branding read is deliberately NOT here: its failure degrades to a plain chip (see
-  // below), which is a real fallback rather than a wrong standings table.
   if (rawErr || finErr) {
     console.error("standings read failed:", (rawErr ?? finErr)?.message);
     return { rows: [], readFailed: true };

@@ -19,12 +19,8 @@ export async function GET(
     getTeamFeedGames(teamId),
     publicLeagueOfTeam(teamId),
   ]);
-  // ⛔ BEFORE the `!league` check, not after. `publicLeagueOfTeam` returns null for "no such
-  // team", "not yours" AND "the read failed", so a league-first order reports 404 whenever both
-  // reads fail — and the 503 would be unreachable in the case it exists for.
-  //
-  // ⛔ AND `no-store`. The success path below caches for an hour; serving a blip under that
-  // header is what turns one bad second into an hour of empty calendar in a subscriber's client.
+  // ⛔ Before the `!league` check, and `no-store` because success caches for an hour
+  // (`RUNBOOK.md` → Schedule edits and exports).
   if (schedule.readFailed) {
     return new Response("Schedule temporarily unavailable", {
       status: 503,

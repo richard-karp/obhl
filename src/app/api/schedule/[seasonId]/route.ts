@@ -27,11 +27,8 @@ export async function GET(
     getSchedule(seasonId, { teamId: team?.id }),
     publicLeagueOfSeason(seasonId),
   ]);
-  // ⛔ BEFORE the `!league` check: `publicLeagueOfSeason` is null for a failed read too, so a
-  // league-first order would report 404 whenever both reads fail — exactly the case this exists
-  // for. The games read is the PAYLOAD, and a payload that failed must not serialise as a valid
-  // empty file; the league read is an identity lookup, where 404 already means three things
-  // (`RUNBOOK.md` → Schedule edits and exports).
+  // ⛔ Before the `!league` check, which a failed read also trips: league-first turns this 503 into a
+  // 404 (`RUNBOOK.md` → Schedule edits and exports).
   if (schedule.readFailed) {
     return new Response("Schedule temporarily unavailable", {
       status: 503,

@@ -69,8 +69,7 @@ export default async function OneOffGamePage({
         </Button>
       </PageHeader>
 
-      {/* ⛔ Before the "no published schedule" arm, which is what a failed read would otherwise
-          render — telling a manager their season has no schedule because we could not read it. */}
+      {/* ⛔ Before the "No published schedule" arm, which a failed read would otherwise render. */}
       {nights.readFailed ? (
         <EmptyState
           title="Couldn't load this season's schedule"

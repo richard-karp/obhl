@@ -496,13 +496,8 @@ export async function ScheduleBuilderPanel({
       )}
 
       {/*
-        In every mode with published games, `locked` above all. Hidden on `readFailed`: an empty picker would
-        read as "nothing to move" rather than "we couldn't look".
-        ⛔ `readFailed` is NOT the read that fills this picker — it covers the publish and draft reads,
-        so the one failure that empties the picker went straight through the line above. That case is
-        handled inside the card rather than by hiding it: `seasonNights.readFailed` says so in words,
-        because a card that vanishes is itself a kind of silent empty. Same wording on the public
-        schedule page, which hosts the other copy of this control.
+        In every mode with published games, `locked` above all. Hidden on `readFailed`, or an empty picker reads
+        as "nothing to move"; ⛔ that flag skips the nights read, whose failure the card reports itself.
       */}
       {publish.liveCount > 0 && !readFailed ? (
         <Card>

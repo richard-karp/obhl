@@ -1,10 +1,6 @@
 import { EmptyState } from "@/components/shared/empty-state";
 
-/**
- * ⛔ `readFailed` is not decoration. Every caller reaches this through `ctx.season === null`,
- * which is true both when the league has no active season and when the read of it failed —
- * and "Check back soon" is a statement about the league, made on information nobody has.
- */
+/** ⛔ Callers pass `readFailed`: a null season is also a failed read, and "Check back soon" would be false. */
 export function NoSeason({ readFailed = false }: { readFailed?: boolean }) {
   if (readFailed) {
     return (

@@ -14,12 +14,7 @@ export type Season = Tables<"seasons">;
 export type ActiveContext = {
   league: League;
   season: Season | null;
-  /**
-   * ⛔ `season` IS NULL FOR TWO DIFFERENT THINGS, and this separates them: the league genuinely
-   * has no active season, or the read failed. Seven public pages answer null with `NoSeason` —
-   * "Check back soon" — stated as a fact about a league that may have a season running right now.
-   * The widest instance of the same bug as `getSchedule`'s, since it is every page at once.
-   */
+  /** ⛔ `season` is null for no active season and for a failed read; this tells `NoSeason` which. */
   seasonReadFailed: boolean;
 };
 
@@ -94,11 +89,8 @@ const getLeagueSeasons = cache(async function getLeagueSeasons(
         .order("created_at", { ascending: false }),
     "league seasons read",
   );
-  // ⚠️ STILL FLATTENS a twice-failed read into "this league has no seasons", unlike its sibling
-  // above. Deliberate, and the reason is the blast radius: `ManageContext.season` is read at 23
-  // sites across nine pages whose null handling all means "no seasons yet". The retry absorbs a
-  // blip and the renamed log puts a double failure in front of CI's grep; reshaping the type is
-  // its own change. Staff-only, and the season switcher is the way back out.
+  // ⚠️ Still flattens a failed read to "no seasons": `ManageContext.season` has 23 call sites that read
+  // null that way. Staff-only, and the season switcher is the way back out.
   if (error) console.error("league seasons read failed:", error.message);
   return data ?? [];
 });

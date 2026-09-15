@@ -44,21 +44,14 @@ export type GameWithTeams = {
 };
 
 /**
- * ⛔ THE SAME RULE AS `GamesOnDate`, WHICH SEE: a failed read and an empty season must not
- * be the same value. The page that renders these games says "The schedule hasn't been built
- * yet" on an empty list — as a fact, about a league that may have built one.
- *
- * ⚠️ `readFailed` means BOTH attempts failed. A blip absorbed by `readWithOneRetry` returns
- * false here and logs `… read retried`, which CI greps for.
+ * ⛔ A failed read and an empty season are different values, as in `GamesOnDate`. `readFailed` means
+ * both attempts failed; a blip the retry absorbs logs `… read retried`, which CI greps for.
  */
 export type ScheduleRead = { games: GameWithTeams[]; readFailed: boolean };
 
 /**
- * Retry, log and shape, in one call.
- *
- * ⚠️ `label` IS TAKEN ONCE ON PURPOSE. It spells both lines — "<label> retried" from the retry
- * and "<label> failed" here — and CI's diagnostics step greps for that pair, so a label that
- * ends in "read" keeps both visible. Passing it separately to each let them drift.
+ * Retry, log and shape. ⚠️ One `label` spells both "<label> retried" and "<label> failed", the pair
+ * CI's diagnostics step greps for, so they cannot drift apart.
  */
 async function gamesRead(
   run: () => PromiseLike<{ data: unknown; error: { message: string } | null }>,
@@ -85,12 +78,10 @@ export async function getSchedule(
 ): Promise<ScheduleRead> {
   const { teamId, client } = opts;
   const supabase = client ?? (await createClient());
-  // ⛔ Not a failed look: a caller asking for an id no team can have has genuinely no games.
-  // `.or()` below interpolates the id unparameterised, unlike `.eq()`, so every team filter in
-  // this file checks `isUuid` itself rather than trusting its caller.
+  // ⛔ `.or()` interpolates the id unparameterised, unlike `.eq()`: every team filter in this file checks
+  // `isUuid` itself. An id no team can have genuinely has no games, so this is not a failed read.
   if (teamId && !isUuid(teamId)) return { games: [], readFailed: false };
-  // ⛔ A FACTORY, NOT A BUILDER: a PostgREST builder fires on await and is then spent, so the
-  // retry has to rebuild the whole query — the conditional team filter included.
+  // ⛔ A factory, not a builder: an awaited PostgREST builder is spent, so the retry builds anew.
   return gamesRead(() => {
     const q = supabase
       .from("games")
@@ -209,10 +200,8 @@ export async function getUpcoming(
 export type { SeasonNight, SeasonNightGame } from "@/lib/schedule/nights";
 
 /**
- * ⛔ `readFailed` matters MORE here than on the pages, because two server actions validate
- * against this list. Flattened to `[]`, a failed read makes every date "not a game night", so
- * `moveGameNight` and the one-off planner refuse the write with a message about the schedule —
- * fail-closed by accident, and telling the manager something untrue about their season.
+ * ⛔ Two server actions validate against these nights: flattened to `[]`, a failed read makes every
+ * date "not a game night" and refuses the write for a false reason.
  */
 export type SeasonNightsRead = { nights: SeasonNight[]; readFailed: boolean };
 

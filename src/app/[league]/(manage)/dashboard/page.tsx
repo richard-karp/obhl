@@ -152,9 +152,8 @@ async function OpenGamesCard({
 }) {
   if (!seasonId) return null;
   const schedule = await getSchedule(seasonId, { client: createAdminClient() });
-  // ⚠️ This card's NORMAL state is absent, which is what makes a swallowed failure here so quiet:
-  // a manager reading a missing card as "every game is closed" is the same mistake in a place
-  // nobody would look for it. So a failed read says so rather than rendering nothing.
+  // ⚠️ This card's normal state is absent, so a failed read must say so: a missing card reads as
+  // "every game is closed".
   if (schedule.readFailed) {
     return (
       <section aria-label="Games still open">

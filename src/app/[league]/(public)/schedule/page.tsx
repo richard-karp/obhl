@@ -134,8 +134,7 @@ export default async function SchedulePage({
     ? await getManageContext(leagueParam, seasonParam)
     : null;
   const ctx = manageCtx ?? (await getActiveContext(leagueParam));
-  // ⚠️ `ctx` is either context here. Only the public one can report a failed read; a manager
-  // arriving through `getManageContext` gets the plain message, which is all that context knows.
+  // ⚠️ Only the public context reports a failed read; `getManageContext` gets the plain message.
   if (!ctx.season)
     return (
       <NoSeason
@@ -143,19 +142,14 @@ export default async function SchedulePage({
       />
     );
   const slug = ctx.league.slug;
-  // ⛔ The pair, not the bare list. A failed teams read leaves `selected` undefined, and this page
-  // treats an unresolved slug as "no filter" — so someone who asked for one team would silently
-  // get every team's games. The export routes refuse that case outright with a 404; this page has
-  // a valid season and real games to show, so it shows them and says the filter is unavailable.
+  // ⛔ The pair, not the bare list: on a failed teams read `?team=` resolves to nothing, and the page
+  // would silently show every team's games (`RUNBOOK.md` → Schedule edits and exports).
   const teamsRead = await getEnrolledTeamsRead(ctx.season.id);
   const teams = teamsRead.teams;
   const selected = team ? teams.find((t) => t.slug === team) : undefined;
   const schedule = await getSchedule(ctx.season.id, { teamId: selected?.id });
 
-  // ⛔ AN EARLY RETURN, not another branch in the JSX below: on a failed read every control under
-  // the header is either wrong (a team filter over games nobody has) or broken (a download whose
-  // route now answers 503). This is the page the reported bug was seen on — it rendered "The
-  // schedule hasn't been built yet" at a league that had built one.
+  // ⛔ An early return: on a failed read the team filter and both downloads (now a 503) are wrong or broken.
   if (schedule.readFailed) {
     return (
       <div className="space-y-8">
@@ -219,9 +213,7 @@ export default async function SchedulePage({
   const seasonNights = canManage
     ? await getSeasonNights(ctx.season.id)
     : { nights: [], readFailed: false };
-  // ⚠️ Empty on a failed read too, since `getSeasonNights` returns no nights then — which is why
-  // the card below is gated on `readFailed` rather than on this being empty. The two are not the
-  // same thing, and only the card can tell the manager which one it is.
+  // ⚠️ Also empty on a failed read, so the card below gates on `readFailed`, not on this.
   const openNights = seasonNights.nights.filter((n) => !n.locked);
   const editable: EditableGame[] = canManage
     ? games
@@ -294,11 +286,7 @@ export default async function SchedulePage({
               />
               {/*
                 ⛔ Moving a night belongs here: once `season_is_started`, this page is a manager's whole surface.
-                ⚠️ Gated on the season having games, not movable ones: the form explains when none are left.
-                ⛔ AND on the nights read having succeeded. `RescheduleNightForm` answers an empty list
-                with "Every remaining game night has already been played or is in the past" — a claim
-                about the season, which a failed read has no standing to make. The builder panel's copy
-                of this card is gated the same way.
+                ⚠️ Gated on having games (not movable ones) and on a good nights read, or the form says none are left.
               */}
               <div className="space-y-2 rounded-lg border p-3">
                 <h3 className="text-sm font-semibold">Move a game night</h3>

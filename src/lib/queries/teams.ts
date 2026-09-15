@@ -26,22 +26,11 @@ export type RosterEntry = {
   night_of_week: number | null;
 };
 
-/**
- * ⚠️ A failed read looks like no teams enrolled, and the exports answer it with a 404 for a
- * team that exists: hence the retry (a GET) and the log.
- */
 export type EnrolledTeamsRead = { teams: TeamSummary[]; readFailed: boolean };
 
 /**
- * ⛔ THE PAIR EXISTS FOR ONE CALLER, and the reason is a silent wrong answer rather than a
- * cosmetic one. The public schedule page resolves `?team=<slug>` against this list; when the
- * read fails the list is empty, the slug resolves to nothing, and the page renders EVERY team's
- * games to someone who asked for one — the exact thing the export routes refuse with a 404
- * (`RUNBOOK.md` → Schedule edits and exports: "an unresolved slug is a 404, never no filter").
- *
- * ⚠️ Deliberately not the default shape. Eight other call sites read this list to populate a
- * picker or validate a team, where an empty list is already handled; converting them is its own
- * change, not a side effect of fixing the filter.
+ * ⚠️ A failed read looks like no teams enrolled, and the exports 404 a team that exists: hence the retry
+ * and the log. The pair is for the public schedule's `?team=` filter, which must not silently show all.
  */
 export async function getEnrolledTeamsRead(
   seasonId: string,
@@ -102,18 +91,9 @@ export type TeamDetail = {
   roster: RosterEntry[];
   skaters: Views<"v_skater_stats">[];
   goalies: Views<"v_goalie_stats">[];
-  /**
-   * ⛔ NAMED, not `Awaited<ReturnType<typeof getSchedule>>`. Deriving it meant a change to one
-   * query helper silently reshaped a public type consumed by a page in another directory — which
-   * is why this fan-out was invisible until someone went looking. It also keeps `games` a bare
-   * array, like its three siblings above.
-   */
+  /** ⛔ Named, not derived from `getSchedule`: a helper's change must not silently reshape this public type. */
   games: GameWithTeams[];
-  /**
-   * ⚠️ NOT "the team page failed to load": the roster and both stats views are independent reads
-   * that can succeed while this one fails. It scopes the schedule tab and the W-L-T record, and
-   * nothing else.
-   */
+  /** ⚠️ Scopes the schedule tab and the W-L-T record only: the roster and stats are separate reads. */
   gamesReadFailed: boolean;
 };
 

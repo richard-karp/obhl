@@ -134,9 +134,8 @@ export default async function SeasonSetupPage({
     .filter(Boolean)
     .sort((a: any, b: any) => a.name.localeCompare(b.name));
   const teamCount = teams.length;
-  // ⚠️ A `count` read reports failure only through `error`: `publishedCount` is null either way,
-  // so without this the chip below states "No schedule yet" as a fact about a season whose games
-  // it could not count.
+  // ⚠️ A `count` read fails only through `error` (`publishedCount` is null either way), and the chip
+  // below must not report a count nobody has.
   if (publishedError) {
     console.error("published count read failed:", publishedError.message);
   }
