@@ -1,19 +1,5 @@
-/** The public site as an anonymous visitor sees it: league pages, stats, the schedule and its exports. */
-/**
- * Paths 1–5: public site — no auth required. Every route is league-scoped:
- * these exercise `/obhl`, the seeded Oceanview league.
- * Assumes seeded data: 6 Oceanview teams (Sharks/Bears/Wolves/Ducks/Hawks/Bisons),
- * 3 finalized rounds, 2 later rounds still `scheduled`, one round TONIGHT, and
- * 3 announcements. (Harbor also gains one game tonight, for the cross-league
- * assertions in `05-scoring-night`.)
- *
- * ⚠️ The tonight round is the only fixture that is ever today, and it exists for
- * the scorekeeper's page (`05-scoring-night`). Nothing in this file asserts an
- * absolute game count — the CSV/ICS checks below are deliberately relational
- * (`toBeGreaterThan(0)`, `toBeLessThan(allCsv.length)`) — so it costs this file
- * nothing. Keep it that way: an exact count here would break every time the
- * seed grows.
- */
+// ⚠️ No absolute game counts here: the seed grows and the tonight rounds are consumable
+// (`RUNBOOK.md` → Seed and fixtures). Keep the export checks relational.
 import { test, expect } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 
@@ -24,8 +10,6 @@ function admin() {
     { auth: { autoRefreshToken: false, persistSession: false } },
   );
 }
-
-// ── Path 1: Homepage ────────────────────────────────────────────────────────
 
 test.describe("Path 1 — Homepage widgets", () => {
   test("renders league name, standings, stat leaders, upcoming games, and announcements", async ({
@@ -58,8 +42,6 @@ test.describe("Path 1 — Homepage widgets", () => {
     await expect(page.getByText("Something went wrong")).not.toBeVisible();
   });
 });
-
-// ── Path 2: Stats — sorting ─────────────────────────────────────────────────
 
 test.describe("Path 2 — Stats tables and sorting", () => {
   test("skater stats load and rows are sortable by clicking column headers", async ({
@@ -105,8 +87,6 @@ test.describe("Path 2 — Stats tables and sorting", () => {
   });
 });
 
-// ── Path 3: Player profile ──────────────────────────────────────────────────
-
 test.describe("Path 3 — Player profile", () => {
   test("clicking a skater from stats opens their profile with chart and game log", async ({
     page,
@@ -117,12 +97,8 @@ test.describe("Path 3 — Player profile", () => {
     const tab = page.getByRole("tabpanel").first();
     await expect(tab.locator("table tbody tr").first()).toBeVisible();
 
-    // ⛔ BY HREF, NOT "the first link in the row". The row's first link is now
-    // the team crest — the wide Team column was dropped and the crest moved in
-    // beside the name — so `.getByRole("link").first()` reads the team's
-    // `aria-label` as the player's name and navigates to `/obhl/teams/<slug>`.
-    // It passed for as long as the name happened to come first, which is not
-    // what this test is about.
+    // ⛔ By href, not the row's first link: that is now the team crest, whose `aria-label` reads as a
+    // name and navigates to the team page.
     const firstLink = tab
       .locator("table tbody tr")
       .first()
@@ -145,8 +121,6 @@ test.describe("Path 3 — Player profile", () => {
   });
 });
 
-// ── Path 4: Schedule + game detail ─────────────────────────────────────────
-
 test.describe("Path 4 — Schedule and game detail", () => {
   test("schedule page shows upcoming by default and results in their own view", async ({
     page,
@@ -157,10 +131,7 @@ test.describe("Path 4 — Schedule and game detail", () => {
     await expect(page.getByRole("heading", { name: "Upcoming" })).toBeVisible();
     await expect(page.getByText("Scheduled").first()).toBeVisible();
 
-    // ⛔ AND RESULTS ARE NOT ON IT. Before the views existed this section sat
-    // below Upcoming on the same page, so asserting the heading was visible
-    // said nothing about where it lived. Its absence here is what makes the
-    // navigation below a real assertion rather than a restatement.
+    // ⛔ And results are NOT on it: that absence makes the navigation below a real assertion.
     await expect(page.getByRole("heading", { name: "Results" })).toHaveCount(0);
 
     const views = page.getByRole("navigation", { name: "Schedule views" });
@@ -174,11 +145,8 @@ test.describe("Path 4 — Schedule and game detail", () => {
   test("clicking a finalized game opens its detail page with a score", async ({
     page,
   }) => {
-    // ⚠️ FROM THE RESULTS VIEW. `game-row.tsx` wraps a row in a
-    // `/obhl/games/<id>` link only when the game is FINAL, so the bare
-    // schedule used to serve this test out of its Recent Results section.
-    // That section is a view of its own now and the default one has no such
-    // links at all.
+    // ⚠️ From the results view: `game-row.tsx` links a row only when the game is FINAL, and the
+    // default view has none.
     await page.goto("/obhl/schedule?view=results");
 
     const gameLink = page.locator('a[href^="/obhl/games/"]').first();
@@ -186,10 +154,8 @@ test.describe("Path 4 — Schedule and game detail", () => {
     await gameLink.click();
     await expect(page).toHaveURL(/\/obhl\/games\//);
 
-    // A real box score: the FINAL marker, both teams' skater tables, and a
-    // goaltending line under each. The seed names a goalie of record on every
-    // game it finalizes, so "No goalie recorded" here means the resolution
-    // broke, not that the fixture is thin.
+    // A real box score. The seed names a goalie of record on every final, so "No goalie recorded"
+    // means the resolution broke.
     await expect(page.getByText("FINAL")).toBeVisible();
     await expect(page.getByRole("table")).toHaveCount(2);
     await expect(page.getByText("Goalie", { exact: true })).toHaveCount(2);
@@ -197,17 +163,8 @@ test.describe("Path 4 — Schedule and game detail", () => {
     await expect(page.getByText(/^GA \d+$/).first()).toBeVisible();
   });
 
-  /**
-   * The schedule page's team filter and its two download buttons used to
-   * disagree: the list narrowed to the selected team and the buttons kept
-   * pointing at `/api/schedule/<season>`, so "pick a team, download" handed
-   * back all six teams' games — and dropping that .ics into a calendar filled
-   * it with the whole season.
-   *
-   * Driven through the page rather than against the routes directly, because
-   * the defect was the LINK, not the route: a route that can filter is no use
-   * if the button never asks it to.
-   */
+  // The team filter and the download buttons must agree: driven through the page, because the defect
+  // was the LINK handing back every team's games, not the route.
   const csvRows = (body: string) =>
     body
       // Strip the UTF-8 BOM `buildScheduleCsv` opens with, then the header.
@@ -235,14 +192,8 @@ test.describe("Path 4 — Schedule and game detail", () => {
     };
   }
 
-  /**
-   * ⛔ DUCKS, NOT SHARKS, AND THE SEED IS THE REASON. `getSchedule` filters with
-   * `home_team_id.eq.<id>,away_team_id.eq.<id>` — an OR over two columns — and
-   * the seeded Sharks play 5 home games and 0 away ones, so a filter that had
-   * dropped the away half entirely would have returned the identical 5 rows and
-   * this test would have passed. The Ducks play 2 home and 3 away, so both sides
-   * of that OR carry rows, and the home/away assertion below pins them.
-   */
+  // ⛔ DUCKS, NOT SHARKS: the Sharks are 5-0 at home, so they check one branch of the OR (`RUNBOOK.md`
+  // → Seed and fixtures). The Ducks play both, and the home/away assertion below pins them.
   test("picking a team exports only that team's games", async ({
     page,
     request,
@@ -255,9 +206,7 @@ test.describe("Path 4 — Schedule and game detail", () => {
     expect(ducks.csv).toContain("team=ducks");
     expect(ducks.ics).toContain("team=ducks");
 
-    // One request per file: the body and the headers both come off the same
-    // response, so re-fetching to read a header only widens the window for the
-    // two to disagree.
+    // One request per file: body and headers come off the same response, so they cannot disagree.
     const allCsvRes = await request.get(all.csv!);
     const ducksCsvRes = await request.get(ducks.csv!);
     const allCsv = csvRows(await allCsvRes.text());
@@ -270,10 +219,8 @@ test.describe("Path 4 — Schedule and game detail", () => {
     expect(ducksCsv.length).toBeLessThan(allCsv.length);
     for (const row of ducksCsv) expect(row).toContain("Ducks");
 
-    // ⛔ BOTH SIDES OF THE OR. `Date,Time,Home,Away`, and the seeded names hold
-    // no commas, so column 2 is Home and column 3 is Away. A filter matching
-    // only `home_team_id` still satisfies every assertion above; these two are
-    // what make that impossible.
+    // ⛔ BOTH SIDES OF THE OR: `Date,Time,Home,Away`, and no seeded name holds a comma. A home-only
+    // filter passes every assertion above; these two do not.
     const cols = ducksCsv.map((r) => r.split(","));
     expect(cols.filter((c) => c[2] === "Ducks").length).toBeGreaterThan(0);
     expect(cols.filter((c) => c[3] === "Ducks").length).toBeGreaterThan(0);
@@ -282,8 +229,7 @@ test.describe("Path 4 — Schedule and game detail", () => {
     for (const c of cols)
       expect([c[2], c[3]].filter((n) => n === "Ducks").length).toBe(1);
 
-    // The file says whose schedule it is, which is what the season-only export
-    // could not do and the reason it was left unfiltered for a year.
+    // The file says whose schedule it is.
     expect(ducksCsvRes.headers()["content-disposition"]).toContain(
       "obhl-ducks-schedule.csv",
     );
@@ -297,23 +243,16 @@ test.describe("Path 4 — Schedule and game detail", () => {
     expect(ducksIcs.length).toBeLessThan(allIcs.length);
     for (const summary of ducksIcs) expect(summary).toContain("Ducks");
 
-    // ⛔ THE CALENDAR NAME, NOT JUST THE TEAM NAME. A bare `toContain("Ducks")`
-    // is already satisfied by the SUMMARY lines above, so it would stay green if
-    // the calendar stopped naming the team altogether — and that name is the
-    // whole reason a filtered export is allowed to exist, per `RUNBOOK.md` →
-    // Schedule edits and exports. This is what a subscriber sees in their
-    // calendar app's sidebar.
+    // ⛔ THE CALENDAR NAME, NOT JUST THE TEAM: the SUMMARY lines already contain "Ducks", and that name
+    // is why a filtered export may exist (`RUNBOOK.md` → Schedule edits and exports).
     expect(unfold(ducksIcsBody)).toContain("— Ducks Schedule");
     expect(unfold(allIcsBody)).not.toContain("— Ducks Schedule");
     expect(ducksIcsRes.headers()["content-disposition"]).toContain(
       "obhl-ducks-schedule.ics",
     );
 
-    // ── Folded in from 15: each league's SEASON export is named for that
-    // league. `buildIcs` always took the name as an argument, but the routes
-    // passed a literal, so both leagues' feeds arrived in a subscriber's
-    // calendar app called "OBHL Schedule". The event UIDs are deliberately
-    // unchanged.
+    // Each league's SEASON export is named for that league, not a literal "OBHL Schedule". The event
+    // UIDs are deliberately unchanged.
     const db = admin();
     for (const slug of ["harbor", "obhl"]) {
       const { data: league } = await db
@@ -343,17 +282,8 @@ test.describe("Path 4 — Schedule and game detail", () => {
     }
   });
 
-  /**
-   * ⛔ A team the season does not hold must 404, NOT fall back to the whole
-   * season. Falling back is the bug this fixes wearing a different hat: the
-   * caller asked for one team and would silently receive six.
-   *
-   * `anchors` is a real team in the OTHER seeded league, so this covers the
-   * cross-league case as well as the unknown one. The empty string covers a
-   * bare `?team=`, which `searchParams.get` answers with `""` rather than
-   * `null` — a truthiness test read that as "no team asked for" and served the
-   * whole season under a 200.
-   */
+  // ⛔ A team outside the season is a 404, never the whole season (`RUNBOOK.md` → Schedule edits and
+  // exports). `anchors` is the other league's team; `""` is a bare `?team=`, which reads as no filter.
   test("an export for a team outside the season is a 404, not the season", async ({
     page,
     request,
@@ -367,19 +297,8 @@ test.describe("Path 4 — Schedule and game detail", () => {
     }
   });
 
-  /**
-   * ⚠️ A ROUTE HANDLER CAN SET A STATUS, AND THESE ARE THE PLACES THAT SHOULD.
-   * The public PAGES cannot — a `notFound()` after an `await` answers 200,
-   * because the response has begun streaming (issue #30, and Next documents it
-   * under `loading.tsx`'s *Status Codes*). That limitation is not shared by
-   * `route.ts`, so an export asked for an id that resolves to nothing must say
-   * so properly rather than hand back an empty-but-valid file.
-   *
-   * A well-formed uuid is the case that matters. A MALFORMED one was already
-   * refused — both routes have carried an `isUuid` guard and a comment about a
-   * "header-only file that looks like a real but empty season" — but the same
-   * file came back, with a 200 on it, for a uuid that simply named nothing.
-   */
+  // ⚠️ A route handler can set a status, unlike a page whose `notFound()` follows an `await` and streams
+  // a 200: an export for an id naming nothing must 404, not return an empty file.
   test("an export for a season that does not exist is a 404, not an empty file", async ({
     request,
   }) => {
@@ -395,10 +314,8 @@ test.describe("Path 4 — Schedule and game detail", () => {
     const junk = await request.get("/api/schedule/not-a-uuid");
     expect(junk.status()).toBe(404);
 
-    // ⚠️ The team feed is a SUBSCRIPTION, so this assertion is load-bearing in a
-    // way the two above are not: a calendar app polls this URL indefinitely, and
-    // the 404 is what tells its owner the team is gone rather than leaving them
-    // an empty calendar that never says so.
+    // ⚠️ The team feed is a subscription a calendar app polls indefinitely: the 404 tells its owner the
+    // team is gone, rather than an empty calendar that never says so.
     const feed = await request.get(`/api/schedule/team/${missing}/feed.ics`);
     expect(feed.status()).toBe(404);
   });
@@ -419,8 +336,6 @@ test.describe("Path 4 — Schedule and game detail", () => {
   });
 });
 
-// ── Path 5: Teams list + team detail ───────────────────────────────────────
-
 test.describe("Path 5 — Teams list and team detail", () => {
   test("teams list shows all 6 Oceanview teams", async ({ page }) => {
     await page.goto("/obhl/teams");
@@ -436,8 +351,6 @@ test.describe("Path 5 — Teams list and team detail", () => {
     }
   });
 });
-
-// ── Path 16: Leagues, as an anonymous visitor finds them ───────────────────
 
 test.describe("Path 16 — Leagues, as an anonymous visitor finds them", () => {
   test("the root landing page lists both leagues and links to each", async ({
@@ -503,8 +416,7 @@ test.describe("Path 16 — Leagues, as an anonymous visitor finds them", () => {
       await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(
         0,
       );
-      // Folded in from 15: no league switcher. ⚠️ ANONYMOUS ONLY — a signed-in
-      // member of two leagues DOES get one on this URL, in the staff row.
+      // No league switcher. ⚠️ Anonymous only: a signed-in member of two leagues gets one here.
       await expect(page.getByLabel("Select league")).toHaveCount(0);
     }
     // …only a way back to the picker.

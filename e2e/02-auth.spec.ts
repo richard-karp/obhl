@@ -1,7 +1,3 @@
-/** Signing in and out: the dev panel, a claimless token, passwords and the reset mail. */
-/**
- * Path 6: Auth — login and session management.
- */
 import { test, expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
@@ -34,29 +30,16 @@ async function signInAs(page: Page, role: Role, then?: string) {
   if (then) await page.goto(then);
 }
 
-/**
- * Rewrite a hidden input, then PROVE it stuck before submitting.
- *
- * The same helper and the same reason as `09-access.spec.ts`: setting
- * `.value` before hydration lands is undone when React takes over, and the form
- * posts its original value — so on a slow runner the tamper never happened and
- * the test passes for the wrong reason.
- */
+// A `.value` set before hydration is undone and the form posts its ORIGINAL value, so the tamper never
+// happened and the test passes for the wrong reason. So settle, set, and assert.
 async function tamper(page: Page, field: Locator, value: string) {
   await page.waitForLoadState("networkidle");
   await field.evaluate((el, v) => ((el as HTMLInputElement).value = v), value);
   await expect(field).toHaveValue(value);
 }
 
-/**
- * The access token the browser is actually holding, decoded.
- *
- * `@supabase/ssr` writes the session as `sb-<host-head>-auth-token`, base64url
- * behind a `base64-` prefix, split into `.0`/`.1` chunks past 3180 bytes. All of
- * that is reassembled here for ONE assertion — that the token carries no role
- * claim — because a probe that assumes the claim is missing is a probe that
- * proves nothing when it is present.
- */
+// The access token the browser holds, reassembled from `@supabase/ssr`'s chunked base64url cookie for
+// one assertion: a probe that assumes the role claim is missing proves nothing when it is present.
 async function accessTokenClaims(page: Page) {
   const base = `sb-${new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).hostname.split(".")[0]}-auth-token`;
   const cookies = (await page.context().cookies())
@@ -78,14 +61,8 @@ async function accessTokenClaims(page: Page) {
 // Mailpit, from `[inbucket] port` in supabase/config.toml.
 const MAIL = "http://127.0.0.1:54324/api/v1";
 
-/**
- * ⚠️ `networkidle` BEFORE THE FIRST CLICK, and it is not padding. The password
- * form's submit is a server action: pre-hydration React posts the form for real,
- * so a click landing in that window behaves differently from one after it. The
- * earlier client-dispatcher version of this form silently ate the submit there —
- * see `login-form.tsx` — and this wait is what makes the test drive the state a
- * user reaches, rather than the race.
- */
+// ⚠️ `networkidle` before the first click, not padding: pre-hydration React posts the server-action
+// form for real, so this drives the state a user reaches, not the race (`login-form.tsx`).
 async function signInWithPassword(
   page: Page,
   email: string,
@@ -93,24 +70,15 @@ async function signInWithPassword(
 ) {
   await page.goto("/login");
   await page.waitForLoadState("networkidle");
-  // ⚠️ BY ID, NOT BY ORDER. `/login` has two "Email" fields — the magic link's
-  // and this one — and `getByLabel("Email").last()` would silently start driving
-  // the magic-link form the day the blocks are reordered, failing every test
-  // here with a message about none of that.
+  // ⚠️ By id, not order: `/login` has two "Email" fields, and `.last()` would silently drive the
+  // magic-link form if the blocks were reordered.
   await page.locator("#password-email").fill(email);
   await page.locator("#password").fill(password);
   await page.getByRole("button", { name: "Sign in with password" }).click();
 }
 
-/**
- * The newest message addressed to `email`, waited for.
- *
- * ⚠️ POLLED AND FILTERED BY RECIPIENT. Reading `messages[0]` straight after the
- * click assumes Mailpit has already ingested the mail and that nothing else
- * landed in the gap — an assumption that reddens a run for nothing the code did.
- * `/api/v1/search?query=to:<address>` is Mailpit's own filter; verified against
- * the running container rather than taken from documentation.
- */
+// ⚠️ Polled and filtered by recipient (Mailpit's `search?query=to:`): reading `messages[0]` right after
+// the click assumes the mail is in and nothing else landed.
 async function newestMailIdFor(email: string): Promise<string> {
   const url = `${MAIL}/search?query=${encodeURIComponent(`to:${email}`)}`;
   let id: string | null = null;
@@ -129,21 +97,8 @@ async function newestMailIdFor(email: string): Promise<string> {
 
 const signOut = (page: Page) => page.getByRole("button", { name: "Sign out" });
 
-/**
- * ⛔ THE ORDER OF THE THREE ASSERTIONS BELOW IS LOAD-BEARING, and getting it
- * wrong makes a test that passes against the OLD behaviour. Every one of these
- * matchers retries, so any of them evaluated against the page the browser has
- * not left yet passes instantly:
- *
- *   - `toHaveURL("/")` after signing out FROM `/` is already true, always;
- *   - so is "the picker heading is visible", for the same reason.
- *
- * The sign-out button disappearing is the one condition that cannot be true
- * before the navigation, whatever the destination — so it goes first, and the
- * other two are only read once it holds. Watched: with the assertions in the
- * other order, the picker test passed against the `/login` redirect this change
- * replaces.
- */
+// ⛔ The order is load-bearing: every matcher retries, and `toHaveURL("/")` or the picker heading pass
+// on the page not yet left. The sign-out button disappearing cannot, so it goes first.
 async function assertLandedSignedOutOn(
   page: Page,
   url: string,
@@ -170,31 +125,8 @@ test.describe("Path 6 — Auth / Login / Session", () => {
   });
 });
 
-/**
- * Path 6b: the role LOCKOUT — an account whose token carries no role claim.
- *
- * ⛔ THE POINT OF THIS BLOCK IS THAT IT CLEARS THE CLAIM RATHER THAN ASSERTING ON
- * THE CODE PATH. `getSessionUser` used to read `app_metadata.role` and nothing
- * else; when the custom-access-token hook (0010) has not fired — it is enabled in
- * the Supabase dashboard, not by a migration, so a restored project simply does
- * not have it — the account signs in with `role: null` and every guard refuses
- * it while `profiles` says it is a manager. That is the standing lockout risk
- * that `RUNBOOK.md` → Deploy and operations → Setting up a hosted instance
- * records under the auth hook, and a test that only drove a working account
- * would go green whether or not it was fixed.
- *
- * The claim is cleared by construction, not by editing a token: the hook injects
- * the role only `if v_role is not null`, so signing in WHILE `profiles.role` is
- * null mints a token with no claim at all. Setting the role afterwards leaves
- * that already-issued token exactly as it was — which is the case the fix exists
- * to repair.
- *
- * ⚠️ Sign-in goes through the dev panel with a rewritten address, because
- * `devSignIn` is the only path a browser has to a password login and the panel
- * only draws buttons for the seeded seven. There is nothing to add to that list:
- * a fixture account with no role would have to be given one to be useful, and
- * then it would not be this test.
- */
+// ⛔ Clears the claim by construction: signing in while `profiles.role` is null mints a token with no
+// role claim, the lockout in `RUNBOOK.md` → Deploy and operations → Setting up a hosted instance.
 test.describe("Path 6b — a session with no role claim", () => {
   const email = `no-claim-${Date.now()}@obhl.test`;
   let userId: string;
@@ -222,9 +154,8 @@ test.describe("Path 6b — a session with no role claim", () => {
       .eq("slug", "obhl")
       .single();
     leagueId = league!.id;
-    // Membership up front, so the ONLY thing that changes mid-test is
-    // `profiles.role`. Without it the control would be refused by the membership
-    // check instead and would prove nothing about the role one.
+    // Membership up front, so only `profiles.role` changes mid-test; otherwise the control is refused
+    // by the membership check and proves nothing about the role one.
     await db
       .from("profile_leagues")
       .insert({ profile_id: userId, league_id: leagueId });
@@ -244,14 +175,8 @@ test.describe("Path 6b — a session with no role claim", () => {
 
     // Sign in while the role is still null — the token is minted without it.
     await page.goto("/login");
-    // ⛔ LOCATE THE FORM, NEVER THE VALUE. `input[name="email"][value="…"]` is a
-    // locator that deletes its own match: on a HIDDEN input `value` is a
-    // reflected attribute, so `el.value = x` rewrites the very attribute the
-    // selector keyed on and the following assertion finds no element at all.
-    // Watched, in a browser: one match before the write, zero after. It is not a
-    // hydration race and not a slow-runner flake — it can never pass anywhere.
-    // Every other tamper in this suite locates its form by structure, which is
-    // why none of them hit this.
+    // ⛔ Locate the FORM, never the value: on a hidden input `value` is a reflected attribute, so
+    // `el.value = x` rewrites what `input[value="…"]` keyed on and the match vanishes.
     const manager = page.getByRole("button", { name: "Manager", exact: true });
     const devForm = page.locator("form").filter({ has: manager });
     await tamper(page, devForm.locator('input[name="email"]'), email);
@@ -297,22 +222,8 @@ test.describe("Path 6b — a session with no role claim", () => {
   });
 });
 
-/**
- * Path 24: the password half of auth — sign in, set your own, and the landing
- * that hands out the link.
- *
- * ⛔ NOTHING SEEDED IS TOUCHED. Every seeded account's password is `hockey123`
- * and `devSignIn` hardcodes it, so a test that changed one and then failed
- * before restoring it would break the quick sign-in every other spec uses. This
- * one makes its own auth user and deletes it, so the fixture cannot be dirtied
- * by a red step.
- *
- * ⚠️ WHAT THIS CANNOT PROVE: that a reset email arrives on PRODUCTION. The last
- * test here drives the whole loop against the local stack — request, read the
- * real message out of Mailpit, open the link, set a password — which covers
- * every hop except the one that needs the project's SMTP and a verified sending
- * domain. That hop is dashboard work and is not reachable from a test.
- */
+// ⛔ Nothing seeded is touched: `devSignIn` hardcodes `hockey123`, so this makes its own user.
+// ⚠️ Green here says nothing about a reset email arriving on production (its SMTP and domain).
 test.describe("Path 24 — password sign-in", () => {
   const EMAIL = `password-path-${Date.now()}@obhl.test`;
   const PASSWORD = "hockey12345";
@@ -331,13 +242,8 @@ test.describe("Path 24 — password sign-in", () => {
     userId = data!.user!.id;
   });
 
-  /**
-   * ⛔ AUDIT ROWS FIRST. `audit_log.user_id` references `auth.users` with no
-   * cascade, so once this account has logged a password change, deleting it fails
-   * — and `deleteUser`'s error is a returned value, not a throw, so the failure
-   * would be silent and the account would outlive the test. Asserted, because a
-   * cleanup that quietly does nothing is how a fixture rots.
-   */
+  // ⛔ Audit rows first: `audit_log.user_id` references `auth.users` with no cascade, and `deleteUser`
+  // returns its error rather than throwing, so the delete is asserted.
   test.afterAll(async () => {
     if (!userId) return;
     const db = admin();
@@ -379,9 +285,8 @@ test.describe("Path 24 — password sign-in", () => {
     await signInWithPassword(page, EMAIL, "hockey54321");
     await expect(page).toHaveURL("/");
 
-    // ⛔ THE AUDIT ENTRY, ASSERTED RATHER THAN ASSUMED. `logAudit` swallows every
-    // error by design, so a broken insert here is invisible in the app and would
-    // never fail a test that only drove the UI.
+    // ⛔ The audit entry, asserted: `logAudit` swallows every error by design, so a broken insert is
+    // invisible in the app.
     const { data: entries } = await admin()
       .from("audit_log")
       .select("action, entity_type, entity_id, new_data")
@@ -396,28 +301,8 @@ test.describe("Path 24 — password sign-in", () => {
     expect(JSON.stringify(entries![0].new_data)).not.toContain("hockey54321");
   });
 
-  /**
-   * The whole loop, through a real message.
-   *
-   * ⛔ THE HOP THIS EXISTS FOR is `redirectTo` surviving into the email and back
-   * out of `/auth/confirm`. Measured on 2026-09-05: the mail carries
-   * `redirect_to=…%2Fauth%2Fconfirm%3Fnext%3D%2Fset-password`, the browser lands
-   * on `/auth/confirm?code=…&next=%2Fset-password`, and the route redirects to
-   * `/set-password`. ⚠️ Note the PKCE `code` — there is NO `type` parameter, so
-   * `/auth/confirm` cannot tell a recovery link from a magic link, which is why
-   * the landing page has to be named in the query rather than inferred.
-   *
-   * ⛔ AND WHY THAT MATTERS OFF THIS MACHINE: a `redirectTo` that is not on
-   * Supabase's allow-list is refused SILENTLY — measured, no error — and the mail
-   * points at the Site URL instead, so the person lands signed-in on `/` with the
-   * token spent. Locally this passes only because `config.toml` allows
-   * `http://localhost:3000/**`. This test is green here and says nothing about
-   * production's allow-list.
-   *
-   * Skips rather than fails when the local mail API is not answering: the port is
-   * `[inbucket] port` from `supabase/config.toml`, and a red run on an assumption
-   * about someone's environment is worse than a gap that announces itself.
-   */
+  // ⛔ Tests `redirectTo` surviving into the mail and out of `/auth/confirm` (a PKCE `code`, no `type`,
+  // so `next` must name the page). ⚠️ Green locally says nothing about production's allow-list.
 
   test("the emailed link lands on /set-password and finishes the flow", async ({
     page,
@@ -462,18 +347,8 @@ test.describe("Path 24 — password sign-in", () => {
   });
 });
 
-/**
- * Where signing out LANDS you.
- *
- * It used to be `/login` — the email-entry screen — which reads as a failed
- * sign-out rather than a finished one: the person deliberately left, and the app
- * answered by asking them to come back. The destination is now the public home
- * of the league they were in, and `/` when there is no league in context.
- *
- * ⛔ The slug arrives from the CLIENT, as a hidden field on the sign-out form,
- * and becomes a redirect target. The third test is the one that matters: a slug
- * that does not resolve must land on `/`, not on whatever was posted.
- */
+// Sign-out lands on the league's public home, or `/`. ⛔ The slug comes from a hidden form field and
+// becomes a redirect target: one that does not resolve must land on `/`.
 test.describe("Sign-out destination", () => {
   test("from a league page it lands on that league's public home", async ({
     page,
