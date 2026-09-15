@@ -1173,8 +1173,8 @@ test.describe("Path 28 — manual schedule edits", () => {
     }
   });
 
-  // ⛔ Hiding a control is not a permission. This tests the RLS backstop, `0046`'s trigger, since a
-  // server action can't be posted from here. ⚠️ If it fails the trigger was narrowed: never skip it.
+  // ⛔ Hiding a control is not a permission; a server action can't be posted from here, so this tests `0046`'s
+  // trigger (`RUNBOOK.md` → Access control → Traps). ⚠️ If it fails the trigger was narrowed: never skip it.
   test("a scorekeeper's own session cannot change a game's schedule state", async () => {
     const season = await seasonIdOf(EDIT_SEASON);
     const { data: game } = await admin()
