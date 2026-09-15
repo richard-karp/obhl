@@ -13,28 +13,15 @@ import {
 } from "@/components/manage/duplicate-clusters";
 import { PageHeader } from "@/components/shared/page-header";
 
-/**
- * Review same-name player records and fold the real duplicates into one.
- *
- * A roster-only import carries names and nothing else, so it creates a fresh
- * `players` row for every team appearance: one person who played for two teams
- * arrives as two records, and their stats split across both. Two real people
- * also share a name, which is why nothing here merges on its own.
- *
- * Scoped to this league by construction. Candidates come only from roster rows
- * in this league's seasons, so a record from another league is not a disabled
- * option — it is never on the page. The actions re-derive the same scope from
- * the ids they are given, since a form is not evidence.
- */
+// Nothing merges on its own: two real people share names. Candidates come only from this league's
+// rosters, and the actions re-derive that scope from the ids, since a form is not evidence.
 export default async function DuplicatesPage({
   params,
 }: {
   params: Promise<{ league: string }>;
 }) {
   const { league: leagueSlug } = await params;
-  // Deliberately season-less, and therefore NOT `getManageContext`: duplicate
-  // detection reads EVERY season of the league (see the note above), so there
-  // is nothing for a switcher to scope and nothing to pay a seasons query for.
+  // Season-less, so not `getManageContext`: detection reads every season, leaving nothing to switch.
   const league = await resolveLeagueBySlug(leagueSlug);
   if (!league) notFound();
   const ctx = { league };
@@ -48,13 +35,8 @@ export default async function DuplicatesPage({
   const seasonName = new Map((seasons ?? []).map((s) => [s.id, s.name]));
   const seasonIds = [...seasonName.keys()];
 
-  // Every season, and departed rows too — no `left_on` filter here. This is a
-  // question about identity, not about who is on a team today, and a record
-  // that only ever appears as a departure is exactly as likely to be someone's
-  // duplicate. The importer also makes a new record per appearance each time it
-  // runs, so last season's import and this one's split the same person.
-  // `.in()` with an empty list is a valid filter that matches nothing, so a
-  // league with no seasons yet needs no special case here.
+  // Every season and departed rows too (no `left_on` filter): identity, not today's team, and each import
+  // run makes a new record per appearance. `.in()` with an empty list matches nothing, safely.
   const [{ data: rows }, { data: pairs }] = await Promise.all([
     admin
       .from("team_players")
@@ -85,9 +67,8 @@ export default async function DuplicatesPage({
     (pairs ?? []).map((p) => [p.player_a, p.player_b] as const),
   );
 
-  // `findDuplicateClusters` returns one entry per matching ROW, so a record on
-  // two teams is in its cluster twice. The merge form offers records, not
-  // appearances, so the collapse happens here — see the note on that function.
+  // `findDuplicateClusters` returns one entry per matching row; the merge form offers records, not
+  // appearances, so a record on two teams is collapsed here.
   const views: ClusterView[] = clusters.map((c) => {
     const byPlayer = new Map<string, ClusterView["players"][number]>();
     for (const m of c.members) {
@@ -111,10 +92,8 @@ export default async function DuplicatesPage({
     return { key: c.key, name: players[0]?.name ?? c.key, players };
   });
 
-  // Names for the dismissed list. Read from `players` rather than the candidate
-  // rows above: a dismissed record whose roster row has since been deleted is
-  // not among them, and it would otherwise show as a blank line with an Undo
-  // button beside it.
+  // Dismissed names come from `players`, not the candidates: a record whose roster row is gone would show
+  // as a blank line beside an Undo button.
   const dismissedIds = [
     ...new Set((pairs ?? []).flatMap((p) => [p.player_a, p.player_b])),
   ];

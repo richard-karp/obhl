@@ -1,19 +1,7 @@
-/**
- * The arithmetic behind the generate progress bar, kept out of the component so
- * it can be tested: vitest only collects `.test.ts` files under `src` and this
- * repo has no component-test harness, so a pure module is the only testable
- * part. The bar itself is verified by eye.
- *
- * Time-based, because the generator reports nothing while it runs — Phase S
- * spends a fixed wall-clock budget per candidate inside a single server action,
- * so there is no progress to read, only elapsed time against an expectation.
- */
+// Kept out of the component so it can be tested (there is no component-test harness). Time-based: the
+// generator reports nothing while it runs.
 export type GenerateProgress = {
-  /**
-   * 0..0.95. Capped below 1 deliberately: a bar sitting at 100% while the
-   * server is still working reads as hung, where a bar stalled just short of
-   * the end reads as "nearly there".
-   */
+  /** 0..0.95: a bar at 100% while the server is still working reads as hung. */
   fraction: number;
   /** Whole seconds left, floored at 0 once the estimate is spent. */
   remainingSec: number;
@@ -28,10 +16,8 @@ export function generateProgress(
   elapsedMs: number,
   expectedMs: number,
 ): GenerateProgress {
-  // A non-positive estimate would divide by zero. It can't happen from
-  // `estimatedGenerateMs()`, but the value crosses a server/client boundary as
-  // a prop, so treat it as "no estimate": show the bar pinned at its cap and
-  // the overrun copy, which is honest about not knowing how long is left.
+  // A non-positive estimate is "no estimate" (it crosses a server/client boundary): pinned at the cap, with
+  // the overrun copy.
   if (!(expectedMs > 0)) {
     return { fraction: MAX_FRACTION, remainingSec: 0, overrun: true };
   }

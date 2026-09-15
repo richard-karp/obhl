@@ -6,18 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-/**
- * The reschedule control on a scoresheet.
- *
- * ⛔ THIS IS A CLIENT COMPONENT FOR ONE REASON: `rescheduleGame` REFUSES. It
- * refuses a game that has been played, and it refuses a move to a different
- * night — the second is a rule the card states in prose right above this form,
- * so a manager reaching it is doing something the page invited them to try.
- * As a plain `<form action={…}>` those refusals could only be thrown, and a
- * throw from a server action lands in `app/error.tsx`: the entire scoresheet is
- * replaced by "Something went wrong", and the sentence explaining what to do
- * instead is never shown to the person it was written for.
- */
+// ⛔ A client component because `rescheduleGame` refuses: from a plain form action a refusal could only
+// throw, replacing the scoresheet with `app/error.tsx` and hiding the explanation.
 export function RescheduleForm({ gameId }: { gameId: string }) {
   const [state, action, pending] = useActionState(rescheduleGame, null);
 

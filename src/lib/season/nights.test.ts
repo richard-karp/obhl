@@ -8,15 +8,13 @@ import {
 
 describe("resolveSeasonNights", () => {
   it("uses what the season stored, ignoring the games", () => {
-    // The stored value is a DECLARATION — the nights the league books — and it
-    // is what the manager ticked when they built the schedule. A season that
+    // The stored value is a declaration, the nights the league books: a season that
     // has so far only played Tuesdays still plays Thursdays.
     expect(resolveSeasonNights([2, 4], [2])).toEqual([2, 4]);
   });
 
   it("falls back to the weekdays the published games actually fall on", () => {
-    // For a season nobody built here — the importer writes games without ever
-    // running the generator — the games are the only statement there is.
+    // For a season with nothing stored, the games are the only statement there is.
     expect(resolveSeasonNights([], [1, 4])).toEqual([1, 4]);
     expect(resolveSeasonNights(null, [3])).toEqual([3]);
   });
@@ -33,9 +31,8 @@ describe("resolveSeasonNights", () => {
 });
 
 describe("hasMultipleNights", () => {
-  // ⛔ THIS BOOLEAN GATES EVERY PIECE OF NIGHT UI — the roster column, the
-  // dialog's select, the public team page. Exactly-one must be false or a
-  // single-night league grows a control that can only ever say one thing.
+  // ⛔ This gates every piece of night UI: exactly one must be false, or a single-night
+  // league grows a control that can only ever say one thing.
   it("is false for none and for exactly one, true from two", () => {
     expect(hasMultipleNights([])).toBe(false);
     expect(hasMultipleNights([2])).toBe(false);

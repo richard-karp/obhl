@@ -1,11 +1,8 @@
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Whether a value is a canonical UUID.
- *
- * Route params reach PostgREST filters — some of them interpolated into `.or()`
- * strings rather than parameterised — so an id from the URL has to be checked
- * before it gets near a query.
+ * An id from the URL is checked before any query: some filters interpolate it into `.or()`
+ * strings rather than parameterising it.
  */
 export function isUuid(value: string): boolean {
   return UUID.test(value);

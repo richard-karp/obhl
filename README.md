@@ -60,7 +60,7 @@ identity.
 | Script | Purpose |
 |---|---|
 | `npm run dev` / `build` / `start` | Next.js dev / production build / serve |
-| `npm test` | Vitest unit tests (tiebreakers, round-robin, night assignment) |
+| `npm test` | Vitest unit tests |
 | `npm run db:reset` | Drop + re-apply all migrations and `seed.sql` |
 | `npm run seed:users` | Create/sync the staff accounts via the admin API |
 | `npm run gen-types` | Generate DB types from the local schema |
@@ -82,44 +82,4 @@ identity.
   policies in `0009_rls_roles.sql`, and a custom access-token hook
   (`0010_auth_hook.sql`) injects the role into the JWT for UI gating.
 
-## Deploying (hosted Supabase + Vercel)
-
-1. **Create a Supabase project** and link it: `npx supabase link --project-ref <ref>`.
-2. **Push the schema**: `npx supabase db push` (applies `supabase/migrations/`).
-3. **Enable the auth hook**: in the Supabase dashboard → Authentication → Hooks,
-   set the *Custom Access Token* hook to `public.custom_access_token_hook`
-   (mirrors `[auth.hook.custom_access_token]` in `config.toml`).
-4. **Set the site URL / redirect URLs** in Authentication settings to your
-   production domain (e.g. `https://your-app.vercel.app` and `/auth/confirm`).
-5. **Deploy to Vercel** with these environment variables:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-   - `SUPABASE_SECRET_KEY` (server-only)
-   - `NEXT_PUBLIC_SITE_URL` (your production URL)
-6. **Bootstrap the first manager**: create the user in the Supabase dashboard and
-   insert a `profiles` row with `role = 'league_manager'`. This is the only step
-   that needs the dashboard — a manager with no league yet can still sign in and
-   reach the next one.
-7. **Create the first league** in-app at **`/manage/leagues/new`**, which imports
-   the teams and players of an esportsdesk league into a new public league,
-   with its first season left inactive. A signed-in manager also reaches it from
-   the "New league" link on the landing page. Until 2026-09-08 this page lived at
-   `/<league>/import` and so needed a league to already exist — the first league
-   on an instance had to be inserted by hand in SQL. It does not any more.
-8. **Add everyone else** from **People & Roles** inside the new league.
-
-### Test / staging deploy (one-click dev login on)
-
-For a still-in-test deploy where you want the seeded demo data and the one-click
-quick sign-in available to testers:
-
-- After step 2, seed the demo data + test accounts against the hosted DB:
-  `npx supabase db push` already ran the migrations; run `psql "$DB_URL" -f supabase/seed.sql`
-  then `SUPABASE_SECRET_KEY=… NEXT_PUBLIC_SUPABASE_URL=… npm run seed:users`.
-- Add one more Vercel env var: **`ENABLE_DEV_LOGIN=true`** — this keeps the
-  one-click Manager/Scorekeeper/Captain panel on `/login` even though it's a
-  production build.
-
-⚠️ While `ENABLE_DEV_LOGIN=true`, **anyone with the URL can sign in as any role**
-— only share the link with people you trust. For real production, **remove the
-`ENABLE_DEV_LOGIN` var** (and seed real data instead of `seed.sql`).
+Deploying and operating: see RUNBOOK.md → Deploy and operations.

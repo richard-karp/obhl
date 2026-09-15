@@ -13,11 +13,7 @@ const TUE = Date.UTC(2026, 8, 1); // 2026-09-01 is a Tuesday
 const day = (offsetFromTue: number) =>
   new Date(TUE + offsetFromTue * 86400000).toISOString().slice(0, 10);
 
-/**
- * `weeks` calendar weeks of game nights, one per day-offset from Tue 2026-09-01
- * (0=Tue, 1=Wed, 2=Thu, 3=Fri). The cadence is a parameter because the metrics
- * below have to hold for any number of weekdays, not just the league's two.
- */
+/** `weeks` weeks of nights at day `offsets` from Tue 2026-09-01 (0=Tue … 3=Fri). */
 function cadence(
   weeks: number,
   offsets: number[],
@@ -142,10 +138,6 @@ describe("spacingReport — byesAdjNight", () => {
   });
 
   it("fires across a holiday gap, where the week-based bye rules do not", () => {
-    // Weeks 0 and 3, nothing between. A byes the second night of week 0 and the
-    // first of week 3 — not consecutive *weeks*, so the three existing bye rules
-    // all read clean, yet A goes 23 days without a game. This gap is the whole
-    // reason the metric is stated in nights.
     const ns: Night[] = [
       { date: day(0), slots: ["19:00"] }, // Tue, week 0
       { date: day(2), slots: ["19:00"] }, // Thu, week 0
@@ -227,12 +219,6 @@ describe("spacingReport — pairingWeekdayExcess", () => {
   });
 });
 
-/**
- * The count behind the score above. It exists because the score is what the
- * *search* needs and reads as nonsense to a person: the same schedule these rows
- * score at 4 has one matchup off, and on a season whose weekday night counts do
- * not divide evenly the score is not even a whole number.
- */
 describe("spacingReport — pairingsOffWeekdaySplit", () => {
   const ns = nights(3); // 3 Tue + 3 Thu
 
@@ -270,9 +256,7 @@ describe("spacingReport — pairingsOffWeekdaySplit", () => {
   });
 
   it("is a whole number where the score is fractional", () => {
-    // 2 Tue / 1 Thu, so the score divides by 9 and lands off an integer. This is
-    // the row the builder panel used to print: "0.6667 matchups off an even
-    // weekday split", for a season with exactly one.
+    // 2 Tue / 1 Thu: the score divides by 9 and lands off an integer.
     const uneven: Night[] = [
       { date: day(0), slots: ["19:00"] }, // Tue
       { date: day(2), slots: ["19:00"] }, // Thu
@@ -288,9 +272,8 @@ describe("spacingReport — pairingsOffWeekdaySplit", () => {
 describe("spacingReport — slotWeekdaySpread", () => {
   it("catches a team whose season ice share is perfect but whose weekdays are not", () => {
     const ns = nights(2, ["19:00", "20:15"]); // Tue, Thu, Tue, Thu
-    // A: both Tuesdays in slot 0, both Thursdays in slot 1. Season 2-2 (spread
-    // 0), but Tue is 2-0 and Thu is 0-2 — spread 2 each, so 4. This is the exact
-    // defect the season-wide term cannot see.
+    // A: Tuesdays in slot 0, Thursdays in slot 1. Season 2-2 (spread 0), but each weekday
+    // spreads 2, so 4 a team.
     const games = [
       g("A", "B", 0, 0),
       g("A", "B", 2, 0),
@@ -313,9 +296,6 @@ describe("spacingReport — slotWeekdaySpread", () => {
   });
 
   it("degenerates to the season-wide spread on a single-weekday cadence", () => {
-    // With one weekday the per-weekday term says exactly what the season term
-    // says. Harmless in the rank tuple (the two are always equal, so the second
-    // is never the tiebreak), but a cost function must not charge both.
     const ns = cadence(4, [2], ["19:00", "20:15"]); // Thu only
     const games = [
       g("A", "B", 0, 0),
@@ -394,8 +374,6 @@ describe("compareIceOutcome", () => {
   };
 
   it("prefers a flat season share over every other gain", () => {
-    // The failure mode this exists to prevent: a candidate that looks better on
-    // weekday spread and repeats but breaks the even season share.
     const tempting = {
       ...base,
       seasonSpread: 4,
@@ -411,13 +389,8 @@ describe("compareIceOutcome", () => {
   });
 
   it("will not buy a flat weekday split with a three-game run", () => {
-    // The trade this order exists to refuse, and the exact shape Phase S offers:
-    // the 140 candidate reaches a flat per-weekday split but leaves a team three
-    // games deep in one ice time. Goal 4 is stated as a never; the weekday split
-    // is a target. So the run outranks the split, and 8-with-no-runs wins.
     const flatSplitOneRun = { ...base, weekdaySpread: 0, streak3: 1 };
     expect(compareIceOutcome(base, flatSplitOneRun)).toBeLessThan(0);
-    // ...but the split is still taken when it costs no run.
     const flatSplitNoRun = { ...base, weekdaySpread: 0 };
     expect(compareIceOutcome(flatSplitNoRun, base)).toBeLessThan(0);
   });
@@ -451,11 +424,8 @@ describe("compareIceOutcome — clustering is computed but not ranked", () => {
     ...o,
   });
 
-  // ⛔ Ranking on clustering here was built, measured, and removed. It was inert
-  // on an unconstrained season (every candidate 17 or 18, the winner decided on
-  // the terms above it) and cost a manager an honoured request on a constrained
-  // one — bias satisfaction fell 2/3 → 1/3. These tests exist so that re-adding
-  // it is a deliberate act with a measurement behind it, not a tidy-looking edit.
+  // ⛔ Ranking on clustering was built, measured and removed: inert unconstrained, and bias
+  // satisfaction fell 2/3 -> 1/3 constrained. Re-adding it needs a new measurement.
   it("ignores the clustering pair", () => {
     expect(
       compareIceOutcome(OUT({ clusterWorst: 3 }), OUT({ clusterWorst: 9 })),
@@ -465,8 +435,6 @@ describe("compareIceOutcome — clustering is computed but not ranked", () => {
     ).toBe(0);
   });
 
-  // The regression removing it prevents: a bias difference must decide, whatever
-  // the clustering does. `biasCost` is the last tiebreak by contract.
   it("lets biasCost decide regardless of clustering", () => {
     expect(
       compareIceOutcome(
@@ -478,13 +446,8 @@ describe("compareIceOutcome — clustering is computed but not ranked", () => {
 });
 
 describe("iceOutcome clustered windows", () => {
-  // Hand-computed, deterministic, independent of the generator: five nights,
-  // three sheets, three games a night. Every team's single five-game window
-  // holds three of one ice time, so each carries exactly one clustered window.
-  //
-  // ⚠️ THREE SHEETS, NOT TWO. On two sheets every five-game window is clustered
-  // by pigeonhole, so a two-sheet fixture cannot tell a working implementation
-  // from a broken one.
+  // ⚠️ Three sheets, not two: on two, every five-game window is clustered by pigeonhole, so the
+  // fixture could not tell a working implementation from a broken one.
   it("counts them on a fixture the generator did not produce", () => {
     const pairsByNight: [number, number][][] = Array.from({ length: 5 }, () => [
       [0, 1],
@@ -509,23 +472,8 @@ describe("iceOutcome clustered windows", () => {
 });
 
 describe("ice-time clustering", () => {
-  /**
-   * One game a week for t1 vs t2 on the ice times in `slots`, plus a second
-   * game the same night between t3 and t4 that alternates between the other two
-   * sheets.
-   *
-   * ⚠️ THE SECOND PAIR IS WHAT PINS `slotClusterWorstTeam` AS A MAX. An earlier
-   * version of this helper ran t1 vs t2 alone, so both teams shared one slot
-   * sequence and every team's clustered-window count was identical — which
-   * means a last-team-wins bug (`report.slotClusterWorstTeam = clustered`,
-   * dropping the `>` test in `spacing.ts`) passes that fixture unchanged. t3/t4
-   * carry 0 clustered windows in every case below and are LAST in `teamIds`, so
-   * such an implementation now reports 0 where the max is 2.
-   *
-   * `(s + 1 + (i % 2)) % 3` is s+1 or s+2, never s — so the two games on a night
-   * never take the same sheet — and it alternates fast enough that neither t3
-   * nor t4 ever takes one ice time 3 times in 5.
-   */
+  /** t1 v t2 on `slots` weekly, plus t3 v t4 alternating the other sheets. ⚠️ t3/t4 carry 0
+   *  windows and come last, so a last-team-wins bug reports 0 where the max is 2. */
   const seasonOf = (slots: number[]) => {
     const nights = slots.map((_, i) => ({
       date: new Date(Date.UTC(2026, 8, 1) + i * 7 * 86400000)
@@ -548,7 +496,6 @@ describe("ice-time clustering", () => {
   it("counts a window where one ice time takes 3 of 5 games", () => {
     // windows: [2,2,2,0,1] -> three 2s, and [2,2,0,1,2] -> three 2s.
     const r = seasonOf([2, 2, 2, 0, 1, 2]);
-    // The max over teams, not the last team's: t3/t4 carry 0.
     expect(r.slotClusterWorstTeam).toBe(2);
     expect(r.slotClusterWindows).toBe(4); // t1 and t2, both windows
   });

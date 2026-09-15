@@ -69,9 +69,8 @@ describe("buildScheduleCsv", () => {
     );
   });
 
-  // Excel and Sheets evaluate a cell that opens with one of these. Quoting does
-  // not prevent it — CSV quotes are stripped before the value is interpreted —
-  // and team names can arrive from scraped import data, so they are untrusted.
+  // Excel and Sheets evaluate a cell opening with one of these even when quoted, and team
+  // names can arrive from scraped import data.
   it.each(["=", "+", "-", "@", "\t"])(
     "marks a team name beginning with %j as literal text",
     (lead) => {

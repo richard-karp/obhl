@@ -25,38 +25,8 @@ import type { Season } from "@/lib/queries/season";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-/**
- * Everything a manager can do to a roster, as one section of the team page.
- *
- * This WAS `/manage/rosters/[teamId]`, a second URL over the same team, reached
- * by a uuid nobody could read. The forms below are the same forms, wired to the
- * same actions, moved rather than rewritten.
- *
- * ⛔ DO NOT GIVE THIS ITS OWN WRITE PATH. `0036` exists because a second, naive
- * implementation of a transfer destroyed goalie records through
- * `v_goalie_stats`' inner join while the games stayed on the schedule, and
- * reported no error while doing it. Every control here submits to
- * `lib/actions/rosters.ts`, which guards itself and knows about departures.
- *
- * ⚠️ THE OWNERSHIP CHECK IS GONE BECAUSE IT IS NO LONGER POSSIBLE TO FAIL, not
- * because it was tidied away. The old page took a team UUID from the URL and had
- * to prove `team.league_id === ctx.league.id` before trusting it — an id says
- * nothing about whose it is. This one is handed the team its page already
- * resolved BY SLUG WITHIN THE LEAGUE, so a team from another league cannot be
- * named here at all. If this component ever grows an id parameter, that check
- * comes back with it.
- *
- * ⚠️ THE SEASON AND THE SWITCHER BELONG TO THE PAGE, NOT TO THIS. `season` is
- * whatever the page resolved — the manage context's season for a manager, which
- * is not necessarily the active one — and the page renders the switcher beside
- * the heading. This component only edits the season it is handed. That split is
- * what lets the same page serve the public its active season and a manager the
- * one they picked.
- *
- * A server component: it reads on the admin client, and it is rendered only for
- * a viewer `canManageLeague` has already said yes to, so an anonymous visitor
- * never triggers any of these queries.
- */
+// ⛔ No write path of its own: every control submits to `lib/actions/rosters.ts`, since a naive transfer
+// destroyed goalie records silently (`0036`). ⚠️ Given a team id instead, it would need an ownership check.
 export async function RosterEditor({
   team,
   season,
@@ -67,9 +37,6 @@ export async function RosterEditor({
   leagueId: string;
 }) {
   const admin = createAdminClient();
-  // ⛔ ONE READ NOW, NOT TWO. The second was `team_goalie_days`, for the Goalie
-  // Schedule card below it; 0049 dropped that table and the night rides on the
-  // roster row itself.
   const { data: roster } = await admin
     .from("team_players")
     .select(
@@ -77,15 +44,11 @@ export async function RosterEditor({
     )
     .eq("season_id", season.id)
     .eq("team_id", team.id)
-    // The active roster. A departed row is kept as history (0036) so the
-    // stats views can still credit what was earned here; it is not somebody
-    // to set a lineup with.
+    // The active roster: a departed row is history (0036) the stats views credit, not someone to line up.
     .is("left_on", null)
     .order("jersey_number", { ascending: true });
 
-  // The season's other teams, for the per-row transfer control. Read from
-  // `season_teams` rather than `teams`: a team that exists in the league but is
-  // not enrolled this season is not somewhere anyone can be transferred to.
+  // From `season_teams`, not `teams`: a team not enrolled this season is nowhere to transfer to.
   const { data: enrolled } = await admin
     .from("season_teams")
     .select("team_id, teams!season_teams_team_id_fkey(id, name)")
@@ -98,17 +61,8 @@ export async function RosterEditor({
     )
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  // ⚠️ THE TEAM BELONGS TO THE LEAGUE BUT NOT TO THIS SEASON. The check above
-  // only proves the former. Reachable in one click now that the season switcher
-  // exists: it posts `next = usePathname()`, so switching season here keeps the
-  // same `team.id`, and a team enrolled last season but not this one rendered an
-  // empty roster with a working Add Player form — which wrote `team_players`
-  // rows for a team the season does not have. An empty state rather than
-  // `notFound()`, because the team is real and the switcher is how they got
-  // here: name the season, and leave the switcher on the page to get back.
-  //
-  // The server refuses it too (`addRosterPlayer`) — hiding a form is a list,
-  // not a restriction, the same distinction the picker comment below draws.
+  // ⚠️ The team may not be in this season (the switcher keeps `team.id`); without this, Add Player wrote rows
+  // for it. An empty state, not `notFound()`, and `addRosterPlayer` refuses too.
   if (!(enrolled ?? []).some((e) => e.team_id === team.id)) {
     return (
       <EmptyState
@@ -118,14 +72,8 @@ export async function RosterEditor({
     );
   }
 
-  // Global people not already on this team's roster — for the shared-identity
-  // "existing person" picker (reuse someone who plays in another league).
-  //
-  // ⛔ STILL READ UNFILTERED FROM `players`, AND THAT IS THE POINT. The archive
-  // is applied below, per league. Pushing it into this query as a global flag —
-  // the shape a `players.archived_at` column would have forced — would hide the
-  // person from every OTHER league's picker too, silently, for leagues that
-  // never archived them.
+  // ⛔ `players` read unfiltered, with the archive applied per league below: a global archived flag would
+  // silently hide the person from every other league's picker.
   const [{ data: allPeople }, archived, { data: leagueRostered }] =
     await Promise.all([
       admin
@@ -133,21 +81,15 @@ export async function RosterEditor({
         .select("id, first_name, last_name")
         .order("last_name", { ascending: true }),
       archivedPlayerIdsIn(leagueId, admin),
-      // Who is on some team in THIS league right now. Used only so the picker can
-      // say so: `archivePlayer` refuses these, and a button that always fails is
-      // worse than no button.
+      // On a team in this league now: the picker says so, since `archivePlayer` refuses them.
       admin
         .from("team_players")
         .select("player_id, seasons!inner(league_id)")
         .is("left_on", null)
         .eq("seasons.league_id", leagueId),
     ]);
-  // The season's nights, for the dialog's select and for `showNight`. Shared
-  // with the page above through `cache()`, so this costs nothing extra.
-  // ⚠️ STILL NEEDED AFTER THE NIGHT COLUMN BECAME A PILL. The column was only
-  // one of the two readers; `PlayerEditDialog` offers these as the options a
-  // manager picks from, so deleting this alongside the column would empty the
-  // control that sets the value the pill displays.
+  // Shared with the page through `cache()`. ⚠️ Not only for `showNight`: `PlayerEditDialog` offers these as the
+  // night options, so deleting this empties that control.
   const nights = await seasonNightsFor(season);
   const showNight = hasMultipleNights(nights);
 
@@ -160,8 +102,7 @@ export async function RosterEditor({
     .map((p) => ({
       id: p.id,
       name: `${p.first_name} ${p.last_name}`,
-      // Archived OUT OF THIS LEAGUE. The picker hides these until "Show
-      // archived" is ticked; every other league still lists them normally.
+      // Archived out of this league only: hidden until "Show archived" is ticked.
       archived: archived.has(p.id),
       rostered: rosteredInLeague.has(p.id),
     }));
@@ -201,20 +142,8 @@ export async function RosterEditor({
       {(roster ?? []).length === 0 ? (
         <EmptyState title="No players yet" description="Add players above." />
       ) : (
-        /*
-          ⛔ THE SAME THREE SECTIONS AS THE PUBLIC TABLE ABOVE, IN THE SAME
-          ORDER. A manager reading their roster and a visitor reading it are
-          reading the same list; splitting one and not the other would make the
-          editor a different document from the page it sits on.
-
-          ⚠️ THE ROW IS THREE COLUMNS NOW, NOT EIGHT CONTROLS. Everything a
-          player can have done to them is behind Edit. That is what fixes the
-          horizontal fit the maintainer reported: the panel was opening inside
-          the last CELL of a row that already carried Rookie, Suspend, Injury,
-          Set, Set Default, Make C, Edit, Transfer and Remove. Three and not
-          four because the night is a pill in the name cell rather than a
-          column of its own — see `NightBadge`.
-        */
+        /* ⛔ The same three sections as the public table above, in the same order. ⚠️ Three columns, with
+           everything else behind Edit: that is what makes the row fit. */
         <div className="space-y-6">
           {(
             [
@@ -301,11 +230,8 @@ export async function RosterEditor({
                                 injuryNotes={r.injury_notes ?? null}
                                 transferTargets={transferTargets}
                               />
-                              {/* ⚠️ REMOVE STAYS ON THE ROW, OUTSIDE THE
-                                  DIALOG. It is the one destructive control
-                                  here, and burying it under an Edit button
-                                  makes it something you find by accident while
-                                  doing something else. */}
+                              {/* ⚠️ Remove stays on the row, outside the dialog: the one
+                                  destructive control must not be found by accident. */}
                               <form action={removeRosterPlayer}>
                                 <input type="hidden" name="id" value={r.id} />
                                 <input
@@ -336,12 +262,7 @@ export async function RosterEditor({
       )}
 
       {/*
-        ⛔ THE "GOALIE SCHEDULE" CARD STOOD HERE AND IS GONE (2026-09-11). It set
-        a goalie per weekday for the team, in a table only goalies could use.
-        A night is now a property of any roster row — set where every other
-        roster field is set — and for a goalie it is what makes them that
-        night's starter. `src/lib/goalie/suggest.ts` is the whole of the rule.
-        Do not rebuild a goalie-only scheduling surface here.
+        ⛔ No goalie-only scheduling card: a night is a field on any roster row (`src/lib/goalie/suggest.ts`).
       */}
     </div>
   );

@@ -12,12 +12,8 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { SeasonSwitcher } from "@/components/manage/season-switcher";
 
-/**
- * Mid-season one-off games — a tournament final or semifinals dropped into a
- * night that's already scheduled, with the rest of the season repaired around
- * it. Deliberately not part of the schedule builder: that page is pre-season
- * (draft → review → publish), while this only makes sense once games are live.
- */
+// A final or semifinal dropped into an already-scheduled night. Not part of the builder, which is
+// pre-season: this only makes sense once games are live.
 export default async function OneOffGamePage({
   params,
   searchParams,
@@ -27,9 +23,8 @@ export default async function OneOffGamePage({
 }) {
   const { league: leagueParam } = await params;
   const { season: seasonParam } = await searchParams;
-  // League, then GUARD, then context — `getManageContext` reads every season on
-  // the ADMIN client, so it must not run for a request about to be refused.
-  // `resolveLeagueBySlug` is cache()-wrapped, so the context reuses it free.
+  // League, then guard, then context: `getManageContext` reads every season on the admin client, so it
+  // must not run for a request about to be refused.
   const league = await resolveLeagueBySlug(leagueParam);
   if (!league) notFound();
   await requireLeagueManager(league.id);
@@ -52,9 +47,8 @@ export default async function OneOffGamePage({
     );
   }
 
-  // Read past RLS, matching the actions this page submits to. Otherwise a
-  // season the public-read policies don't cover renders the "no published
-  // schedule" empty state here while `previewOneOffGame` sees the schedule fine.
+  // Read past RLS, matching the actions: otherwise a season public reads don't cover shows "no published
+  // schedule" here while `previewOneOffGame` sees it fine.
   const admin = createAdminClient();
   const [teams, nights] = await Promise.all([
     getEnrolledTeams(ctx.season.id, { client: admin }),

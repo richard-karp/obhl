@@ -9,15 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { getSessionUser } from "@/lib/auth/session";
 import { getMemberLeagues } from "@/lib/auth/membership";
 
-/**
- * Wording for the one page that belongs to no league, and so has no league name
- * to borrow. Override per deployment with NEXT_PUBLIC_SITE_TITLE and
- * NEXT_PUBLIC_SITE_SUBTITLE; both take effect on the next deploy.
- *
- * `||` rather than `??` on purpose — an env var set to an empty string is the
- * usual way this gets misconfigured, and blank wording is worse than the
- * default.
- */
+// Overridden per deployment, on the next deploy. `||`, not `??`: an env var set to "" is the usual
+// misconfiguration, and blank wording is worse than the default.
 const TITLE = process.env.NEXT_PUBLIC_SITE_TITLE || "Choose your league";
 const SUBTITLE =
   process.env.NEXT_PUBLIC_SITE_SUBTITLE ||
@@ -27,63 +20,20 @@ const SUBTITLE =
 // layout's "%s · OBHL" template, which would read oddly against a custom title.
 export const metadata: Metadata = { title: { absolute: TITLE } };
 
-/**
- * Root landing page: the one place that isn't league-scoped. Every league lives
- * at `/<slug>` from here on, so this is what a bare domain, a role-denied
- * redirect, and a completed sign-in all land on.
- */
 export default async function LandingPage() {
   const supabase = await createClient();
   const publicLeagues = await getPublicLeagues(supabase);
 
-  // This page is where a completed sign-in lands, and until now it said nothing
-  // about having signed in — no badge, no way out. It has no league in the URL,
-  // so the account state is the instance-wide one.
   const user = await getSessionUser();
 
-  // ⚠️ NO "Manage" CROSS-LINK ANY MORE. It used to point at
-  // `/<oldest league this account can reach>/dashboard`, which was the one route
-  // from here into the staff tools. There are no separate staff tools to route
-  // to: a staff member opens their league like anybody else and the staff row
-  // beneath the header carries everything they can do.
-  //
-  // ⛔ BUT THE LIST HAD TO GROW TO ABSORB THAT, or removing the link would have
-  // been a regression rather than a simplification. `getPublicLeagues` filters
-  // `is_public`, so a league still being STAGED appeared nowhere on this page —
-  // and for a single-league manager the old cross-link pointed at exactly that
-  // league. `LeagueSwitcher` renders null below two leagues, so nothing else
-  // covered them: they would have been left typing the URL. The leagues this
-  // account belongs to are therefore listed too.
+  // ⛔ A member's leagues are listed too: `getPublicLeagues` omits a staged league, and nothing else
+  // here links to one (`LeagueSwitcher` renders null below two leagues).
   const mine = user ? await getMemberLeagues(user.id) : [];
 
-  // Staged = `is_public` is false ON THE ROW. ⛔ DO NOT go back to deriving this
-  // from "absent from `publicLeagues`". That inference reads as equivalent —
-  // `getPublicLeagues` filters on exactly that column — but it is only equivalent
-  // when that read returns every public league, and it fails in the HARMFUL
-  // direction when it doesn't: a connection blip returns `[]`, and every league
-  // this account belongs to is then badged "Not yet public", including ones the
-  // public can see. PostgREST's `max_rows` (1000) is a second route to the same
-  // wrong badge. Telling a manager their league is hidden when it is visible is
-  // the one mistake this badge exists to prevent, so the column is read.
-  //
-  // The slug set is still used, but only to DEDUPLICATE — a league that is both
-  // public and yours must appear once. `leagues.slug` is `not null unique`
-  // (0002), so matching on it is exact.
-  //
-  // ⚠️ PUBLISHED FIRST, THEN THE REST — DELIBERATE, and it does NOT preserve the
-  // `created_at` order both reads ask for. Concatenating two sorted lists gives a
-  // list sorted by section, so a league staged in 2024 sorts below one published
-  // yesterday. That is the right shape for this page rather than an accident of
-  // the merge: the public list is what this page is FOR and what every visitor
-  // sees, and a member's unpublished leagues are an appendix to it that only they
-  // can see at all. Interleaving them by age would bury a staged league in a list
-  // whose other rows mean something different.
-  //
-  // Restoring a single `created_at` order would also mean widening both return
-  // types to carry the column — neither read returns it — for an ordering nobody
-  // has asked for. If that ever changes, sort the merged array; do not reorder
-  // the sections.
+  // ⛔ Staged is `is_public` on the row, never "absent from `publicLeagues`": a failed read returns
+  // `[]` and badges every league "Not yet public". The slug set only deduplicates.
   const publicSlugs = new Set(publicLeagues.map((l) => l.slug));
+  // ⚠️ Published first, then the member's own, on purpose: never interleave the sections by age.
   const leagues = [
     ...publicLeagues.map((l) => ({ ...l, staged: false })),
     ...mine
@@ -91,16 +41,8 @@ export default async function LandingPage() {
       .map(({ is_public, ...l }) => ({ ...l, staged: !is_public })),
   ];
 
-  // ⛔ A SCOREKEEPER GETS THE MINIMAL CHROME HERE TOO, AND THE REASON IS THE
-  // SHARED CREDENTIAL. `AccountCluster` offers a "Password" link; the scorekeeper
-  // account is one login every volunteer uses, so a well-meaning tap on it
-  // changes the password out from under everyone else, mid-season, with nothing
-  // to say what happened.
-  //
-  // ⚠️ THEY REACH THIS PAGE MORE OFTEN THAN IT LOOKS. Every guard in the app
-  // refuses to `/` — `requireLeagueRole`, `requireRole`, `requireLeagueManagerOf`
-  // — so a scorekeeper who types a URL they may not have lands right here. That
-  // is why stripping it on `/tonight` alone was not enough.
+  // ⛔ A scorekeeper gets the minimal chrome here too: the account is shared, so `AccountCluster`'s
+  // Password link changes everyone's password. Every guard refuses to `/`, so they land here often.
   const cluster =
     user?.role === "scorekeeper" ? (
       <ScorekeeperChrome role={user.role} showTonight />
@@ -108,19 +50,8 @@ export default async function LandingPage() {
       <AccountCluster user={user && { role: user.role }} />
     );
 
-  // ⚠️ THE ROLE, WITH NO MEMBERSHIP CHECK — and this is the one page where that
-  // is right rather than the mistake `staff-links.tsx` warns about. Everywhere
-  // else a role is paired with membership because the role is instance-wide and
-  // the page belongs to a league. This page belongs to none, and the act it is
-  // offering — creating a league — has no league to be a member of yet. It is
-  // exactly the check `requireManager()` makes on the page behind this link, and
-  // the two must agree or the link renders for someone the page turns away.
-  //
-  // ⛔ THIS IS THE ONLY ROUTE IN FOR A MANAGER WHO BELONGS TO NO LEAGUE. The
-  // staff row that carries the same link is drawn by `[league]/layout.tsx` for
-  // members only, so such an account never sees it. That account is the one
-  // creating the first league on a fresh instance, which is the case this whole
-  // page's empty state used to dead-end.
+  // ⛔ Role only, with no membership check, matching `requireManager()` behind the link: the only way
+  // in for a manager with no league, since the staff row is drawn for members only.
   const canCreateLeague = user?.role === "league_manager";
   const newLeagueLink = (
     <Link
@@ -141,23 +72,14 @@ export default async function LandingPage() {
           <p className="text-muted-foreground">{SUBTITLE}</p>
         </div>
         {/*
-          Signed in the cluster is several controls and needs a row of its own;
-          signed out it is the theme toggle and nothing else, and the wrapper is
-          skipped so this page's anonymous markup is byte-for-byte what it was —
-          the parent is `justify-between`, which would otherwise spread the
-          controls across the full width.
+          Signed out, the wrapper is skipped: the cluster is only the theme toggle, and the
+          `justify-between` parent would otherwise spread the controls across the full width.
         */}
         {user ? (
           <div className="flex items-center gap-2">
             {/*
-              ⚠️ `leagues.length > 0` IS NOT REDUNDANT WITH THE EMPTY STATE'S
-              OWN COPY OF THIS LINK — it is what stops the two rendering at
-              once. Both conditions held on a league-less instance, which is
-              exactly the case this page exists to unblock, so the one state
-              that mattered most drew the button twice. It also made
-              `getByRole("link", { name: "New league" })` match two elements,
-              a strict-mode failure waiting for the first test to meet an
-              empty database.
+              ⚠️ `leagues.length > 0` is not redundant: it stops this and the empty state's own copy of
+              the link rendering together on a league-less instance.
             */}
             {canCreateLeague && leagues.length > 0 ? newLeagueLink : null}
             {cluster}
@@ -168,21 +90,8 @@ export default async function LandingPage() {
       </div>
 
       {leagues.length === 0 ? (
-        // A freshly bootstrapped database renders this: the site is up before
-        // any league exists.
-        //
-        // ⛔ FOR A MANAGER THIS WAS A DEAD END, and closing it is the point of
-        // moving league creation out here. "Once a league is published it will
-        // appear here" is true for a visitor and useless to the one person who
-        // can do something about it — and until this link existed, the only way
-        // to create the first league on an instance was to write the row by
-        // hand, because the importer lived at `/<league>/import` and there was
-        // no league to put in that URL.
-        //
-        // ⚠️ BESIDE `EmptyState`, NOT INSIDE IT. That component takes
-        // title/description/icon/className and has no children slot; widening a
-        // shared component for one caller is the wrong trade when a sibling does
-        // the job.
+        // ⛔ A manager needs the link here, or a fresh instance has no way to create its first league.
+        // Beside `EmptyState`, not inside: it has no children slot.
         <div className="space-y-4">
           <EmptyState
             title="No leagues yet"
@@ -202,12 +111,8 @@ export default async function LandingPage() {
               >
                 {l.name}
                 {/*
-                  ⚠️ THE BADGE IS THE POINT OF LISTING THESE AT ALL. A staged
-                  league sits beside published ones in the same list, and without
-                  it a manager cannot tell which of their leagues the public can
-                  already see — which is the one fact staging exists to control.
-                  Only a member ever sees a row carrying it: the row is only here
-                  because `getMemberLeagues` returned it.
+                  ⚠️ The badge is the point of listing staged leagues: without it a manager cannot tell
+                  which of their leagues the public can already see.
                 */}
                 {l.staged ? (
                   <Badge variant="secondary" className="shrink-0 font-normal">

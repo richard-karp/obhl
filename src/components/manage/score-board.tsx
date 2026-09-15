@@ -38,21 +38,10 @@ export type TeamBoard = {
   logoTextColor: string | null;
   dressed: DressedLine[];
   roster: RosterCheck[];
-  /**
-   * Rostered goalies (position='G') — the only choices for goalie of record.
-   *
-   * ⚠️ `night` is carried but not rendered. This board offers every goalie and
-   * lets the scorekeeper pick; the night is what `suggestGoalie` already used
-   * to choose `suggestedGoalieId` below, and showing it beside a number the
-   * scorekeeper is matching against a jersey would be noise. It replaced
-   * `isDefault`, which was equally unread — 0049 dropped the flag behind it.
-   */
+  // The only choices for goalie of record. ⚠️ `night` is carried but not rendered: `suggestGoalie` already
+  // used it, and beside a jersey number it is noise.
   goalies: { playerId: string; number: number | null; night: number | null }[];
-  /**
-   * Who to pre-select: the team's only goalie, else the one whose night this
-   * is, else nobody. See `src/lib/goalie/suggest.ts` — the rule is there and
-   * tested, not here.
-   */
+  /** Who to pre-select; the rule lives, tested, in `src/lib/goalie/suggest.ts`. */
   suggestedGoalieId: string | null;
   /** Goalie of record (explicit pick); null falls back to the dressed goalie. */
   goalieId: string | null;
@@ -63,10 +52,7 @@ export type TeamBoard = {
 };
 export type ScoreBoardData = {
   gameId: string;
-  /**
-   * What `finalizeGame` refused this sheet over, one line per problem, empty
-   * when it has not refused. See `lib/games/incomplete.ts`.
-   */
+  /** What `finalizeGame` refused this sheet over, one line per problem (`lib/games/incomplete.ts`). */
   problems: string[];
   status: string;
   finalized: boolean;
@@ -196,16 +182,8 @@ function GoalieAndEmptyNet({
   data: ScoreBoardData;
   board: TeamBoard;
 }) {
-  // Explicit pick takes priority; fall back to the configured suggestion.
-  // ⛔ A SUGGESTION IS NOT A SELECTION, AND CONFLATING THEM COSTS A GOALIE THEIR
-  // GAME. `suggestedGoalieId` is a hint from the day's rota or the team default;
-  // nobody has confirmed it. It used to be harmless to draw it as selected,
-  // because dressing everyone via the lineup checkboxes gave `v_goalie_stats` its
-  // dressed-G fallback either way. Goalies left those checkboxes, so `setGoalie`
-  // is now the ONLY thing that creates their `game_rosters` row — and it runs
-  // only on an explicit tap. A scorekeeper who sees a filled button and moves on
-  // leaves `home_goalie_id` null AND no dressed goalie, so both branches of
-  // `v_goalie_stats` miss and the goalie gets no GP, no GAA, no W/L.
+  // ⛔ A suggestion is not a selection: only a tap on `setGoalie` creates the goalie's `game_rosters` row, so a
+  // suggestion drawn as set leaves them with no GP, GAA or W/L.
   const isSet = board.goalieId != null;
   const activeValue = isSet
     ? board.goalieIsSub
@@ -235,9 +213,7 @@ function GoalieAndEmptyNet({
                 <Button
                   type="submit"
                   size="sm"
-                  // Filled = confirmed. Muted = suggested but NOT yet set, so
-                  // it reads as "probably this one, tap to confirm" rather than
-                  // as done.
+                  // Filled = confirmed; muted = suggested, not yet set ("tap to confirm").
                   variant={
                     activeValue === opt.value
                       ? isSet
@@ -422,10 +398,7 @@ export function ScoreBoard({ data }: { data: ScoreBoardData }) {
             <form action={finalizeGame}>
               <input type="hidden" name="game_id" value={data.gameId} />
               {/*
-                ⛔ `confirm` IS ONLY SENT ONCE THE ACTION HAS ALREADY REFUSED.
-                Pre-filling it on the first press would turn the gate into a
-                no-op — the action would never see an unconfirmed submit and
-                the warning below would never be reached.
+                ⛔ `confirm` is sent only once the action has refused: pre-filled, the gate is a no-op.
               */}
               {data.problems.length > 0 ? (
                 <input type="hidden" name="confirm" value="1" />
@@ -447,11 +420,7 @@ export function ScoreBoard({ data }: { data: ScoreBoardData }) {
       </div>
 
       {/*
-        ⛔ IT NAMES WHAT IS MISSING, BY TEAM. "Something is wrong" would be read
-        past exactly the way the muted goalie button was — production shipped
-        three games with four goalies and one whole lineup unrecorded, and the
-        scorekeeper had no way to see it from this page. The list is the fix;
-        the second press is the acknowledgement.
+        ⛔ It names what is missing, by team: a vague warning gets read past. The second press acknowledges.
       */}
       {data.problems.length > 0 ? (
         <div

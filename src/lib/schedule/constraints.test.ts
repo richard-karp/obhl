@@ -45,8 +45,6 @@ describe("resolveConstraints", () => {
   it("turns a date into a night index and a week-of date into that week's nights", () => {
     const r = resolve([
       c("1", "b", "bye_on", { date: "2026-09-17" }),
-      // Any day of that week resolves to the same week — that is why the column
-      // stores a date rather than a week number.
       c("2", "c", "bye_week", { week_of: "2026-09-23" }),
     ]);
     expect(r.items[0].unresolved).toBeNull();
@@ -56,8 +54,7 @@ describe("resolveConstraints", () => {
   });
 
   it("makes slot_on imply play_on", () => {
-    // ⛔ Without the implied play night, Phase P may hand the team a bye and the
-    // pin becomes vacuously unsatisfiable.
+    // ⛔ Without the implied play night, Phase P may bye the team and the pin can't be met.
     const r = resolve([
       c("1", "a", "slot_on", { date: "2026-09-14", time: "20:15" }),
     ]);
@@ -90,7 +87,6 @@ describe("resolveConstraints", () => {
 
   describe("a constraint can outlive what it names", () => {
     it("skips a team that is no longer enrolled", () => {
-      // `on delete cascade` does not cover this: un-enrolling deletes no team row.
       const r = resolve([c("1", "gone", "bye_on", { date: "2026-09-07" })]);
       expect(r.items[0].unresolved).toMatch(/no longer enrolled/);
       expect(r.empty).toBe(true);
@@ -107,8 +103,6 @@ describe("resolveConstraints", () => {
         c("1", "a", "slot_on", { date: "2026-09-07", time: "22:45" }),
       ]);
       expect(r.items[0].unresolved).toMatch(/not an ice time/);
-      // And it drops the implied play night with it, rather than leaving half a
-      // constraint forcing participation for a pin that will never be applied.
       expect(r.forced).toEqual([]);
     });
 
@@ -150,14 +144,8 @@ describe("constraintConflicts", () => {
     expect(out).toHaveLength(1);
   });
 
-  /**
-   * ⛔ TWO IS NOT A CONFLICT, and asserting that it was is what this test used
-   * to do. One sheet of ice holds one game, and one game holds TWO teams — so
-   * two teams asking for the same ice time may simply be asking to play each
-   * other on it. Phase M has not paired anyone when `constraintConflicts` runs,
-   * so that is unknowable here, and refusing it turned a satisfiable request
-   * into a refusal by name.
-   */
+  /** ⛔ Two is not a conflict: two teams on one ice time may be playing each other, which is
+   *  unknowable before Phase M. Refusing it turned a satisfiable request into a refusal. */
   it("allows two teams on one sheet — they may be playing each other", () => {
     const out = constraintConflicts(
       resolve([
@@ -220,8 +208,6 @@ describe("refuteConstraints", () => {
   });
 
   it("counts a bye_in_week toward the budget, unless a forced bye already pays for it", () => {
-    // Weeks 0 and 1 each already hold a forced bye, so these two disjunctions
-    // are free and the set fits.
     const paid = refuteConstraints(
       resolve([
         c("1", "a", "bye_on", { date: NIGHTS[0].date }),
@@ -245,7 +231,6 @@ describe("refuteConstraints", () => {
   });
 
   it("refuses more teams off a night than it has byes to give", () => {
-    // One game a night among 4 teams leaves exactly 2 byes.
     const out = refuteConstraints(
       resolve(
         ["a", "b", "c"].map((t, i) =>
@@ -282,13 +267,8 @@ describe("refuteConstraints", () => {
   });
 
   it("refuses a bye_in_week on a week that has no bye to give", () => {
-    // Week 0 is nights 0 and 1, and here they run TWO games each. With four
-    // teams that seats everybody: byesAvailable = 4 - 2*2 = 0, both nights.
-    //
-    // ⛔ THE BUDGET ARITHMETIC CANNOT SEE THIS, which is why it went unrefuted.
-    // The season holds 8 nights and each team plays 5 games, so the budget is 3
-    // byes — ample. The set "fits" while being impossible, and the search then
-    // runs to exhaustion and fails without saying why.
+    // Week 0 runs two games a night, seating all four teams (0 byes), yet the season budget is
+    // 3 byes. ⛔ The budget arithmetic can't see this, which is why it went unrefuted.
     const fullFirstWeek = {
       ...opts,
       gamesPerTeam: new Array(4).fill(5),
@@ -302,10 +282,7 @@ describe("refuteConstraints", () => {
     expect(out).toHaveLength(1);
     expect(out[0]).toContain("no bye to give");
 
-    // ⛔ TWO CONTROLS, because "it returned a message" is not the claim.
-    //
-    // The same impossibility asked as `bye_on` was ALWAYS refused — that is
-    // what made the gap a real inconsistency rather than a missing feature.
+    // ⛔ Two controls: the same ask as `bye_on` was always refused, and a week later it must pass.
     expect(
       refuteConstraints(
         resolve([c("1", "a", "bye_on", { date: NIGHTS[0].date })]),
@@ -313,8 +290,6 @@ describe("refuteConstraints", () => {
       )[0],
     ).toContain("0 byes to give");
 
-    // And the identical request one week later, where the nights run one game
-    // and can host it, must still say nothing.
     expect(
       refuteConstraints(
         resolve([c("1", "a", "bye_in_week", { week_of: NIGHTS[2].date })]),
@@ -324,12 +299,8 @@ describe("refuteConstraints", () => {
   });
 
   it("reads correctly when the week holds a single game night", () => {
-    // ⛔ THE COMMONEST LEAGUE SHAPE, and the one the first version of this
-    // message got wrong: it produced "all 1 of its nights seat every one of the
-    // 4 teams". One night a week, two games on it, four teams — nobody byes.
-    //
-    // Five nights and four games a team leaves a budget of one, so the budget
-    // check above stays silent and this asserts on exactly one sentence.
+    // ⛔ The commonest league shape, which the first message got wrong ("all 1 of its nights").
+    // Five nights and four games a team leave a budget of one, so only this sentence fires.
     const weekly: Night[] = [
       "2026-09-07",
       "2026-09-14",
@@ -406,14 +377,8 @@ describe("evaluateConstraints", () => {
     ).toBe(true);
   });
 
-  /**
-   * ⛔ THE REGRESSION THIS SUITE MISSED. The verdict used to take its midpoint
-   * from the slots the team was actually given, so a team handed the earliest
-   * ice on every night had an observed max of 0, a midpoint of 0, and failed
-   * `mean < mid` — the best possible outcome reported as unmet. `late` passed
-   * the same probe, which is why reading the code did not show it. Four teams
-   * on two sheets: slot indexes are 0 and 1, so the middle is 0.5.
-   */
+  /** ⛔ The midpoint must come from the ice available, not the ice taken: a team on slot 0 every
+   *  night read `0 < 0` and failed. Four teams on two sheets, so the middle is 0.5. */
   describe("slot_bias reads against the ice available, not the ice taken", () => {
     const window = { from: NIGHTS[0].date, to: NIGHTS.at(-1)!.date };
     const evaluate = (prefer: "early" | "late", slot: (n: number) => number) =>
@@ -448,10 +413,8 @@ describe("evaluateConstraints", () => {
   });
 
   it("reports everything unmet when the fallback planner won", () => {
-    // ⛔ planByWeeks has no participation matrix to force, so nothing was ever
-    // applied. A request that holds in its output holds by accident and would
-    // not survive a re-generate; calling that "met" would be a false claim that
-    // the manager's instruction worked.
+    // ⛔ `planByWeeks` forces nothing, so a request holding in its output holds by accident;
+    // calling it met would be a false claim.
     const r = resolve([c("1", "a", "bye_on", { date: NIGHTS[2].date })]);
     expect(
       evaluateConstraints(r, {
@@ -492,14 +455,10 @@ describe("forcedByeCredits", () => {
       ]),
     });
     expect(credits.byesMultiWeek).toBe(1);
-    // Both nights are forced and they are adjacent, so that breach is forced too.
     expect(credits.byesAdjNight).toBe(1);
   });
 
   it("does NOT credit a week the solver chose to put a second bye in", () => {
-    // One forced bye plus one the search picked. The search could have put its
-    // own bye elsewhere, so the breach is collateral — and collateral is the
-    // thing this feature exists to make visible rather than hide.
     const r = resolve([c("1", "a", "bye_on", { date: NIGHTS[2].date })]);
     const credits = forcedByeCredits(r, {
       nights: NIGHTS,
@@ -530,30 +489,10 @@ describe("forcedByeCredits", () => {
   });
 });
 
-/**
- * The hard gate for a constrained run: **the three invariants of §A.2, exactly.**
- *
- * Total games per team, games per night, and how many times each pair meets.
- * A team's bye budget is fixed at `nights − gamesPerTeam`, so a forced bye moves
- * a bye and never adds one — which is why constraints are pure rearrangements
- * inside the feasible space and none of these three may move.
- *
- * ⛔ There is deliberately NO assertion that unconstrained teams read zero on the
- * bye rules. Each night's team count is fixed, so taking one team off a night
- * puts another team on it; the reference solution is nearly unique with about one
- * slot of slack in the whole season, and a constraint spends some of it. Asserting
- * zero collateral would either block a correct implementation or push someone into
- * weakening the real baseline gate to get green. Collateral is measured and
- * reported, not gated.
- */
-/**
- * ⛔ THE RANK-OFF DOES NOT DECIDE A CONSTRAINED GENERATION.
- *
- * `planByWeeks` cannot honour a request, so letting it win the rank-off tells
- * the manager "could not be met" while a plan that met it was discarded for
- * ranking slightly worse. Eight teams on three sheets is the shape where Phase P
- * both produces a plan AND used to lose it.
- */
+/** ⛔ No assertion that unconstrained teams read zero on the bye rules, on purpose: a
+ *  constraint spends the season's slack, so collateral is reported, never gated. */
+/** ⛔ The rank-off does not decide a constrained generation: eight teams on three sheets is
+ *  the shape where Phase P produced a plan and used to lose it. */
 describe("a constrained generation prefers Phase P", () => {
   const teams = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"];
   const slots = ["19:00", "20:15", "21:30"];
@@ -583,14 +522,10 @@ describe("a constrained generation prefers Phase P", () => {
     });
     expect(report.constraints[0].satisfied).toBe(true);
     expect(report.unscheduled).toBe(0);
-    // The invariant the whole feature rests on is untouched by the swap.
     for (const t of report.gamesPerTeam) expect(t.count).toBe(8);
   });
 
   it("still runs the rank-off when nothing was asked for", () => {
-    // The headline bar: an unconstrained generation must not notice this branch
-    // exists. Same season, no requests — every invariant holds and no constraint
-    // is reported at all.
     const { report } = assignNights(pairings, nights, teams);
     expect(report.constraints).toEqual([]);
     expect(report.unscheduled).toBe(0);
@@ -598,12 +533,6 @@ describe("a constrained generation prefers Phase P", () => {
   });
 });
 
-/**
- * The three defects an independent review found after two self-review passes
- * had missed them. All three were in the FEEDBACK path — the schedule was
- * right, what the manager was told about it was not — which is exactly the
- * class that ships unnoticed.
- */
 describe("what the manager is told", () => {
   const NIGHTS4: Night[] = [
     "2026-09-15",
@@ -614,9 +543,6 @@ describe("what the manager is told", () => {
   const SIX = ["a", "b", "c", "d", "e", "f"];
 
   it("reports a set whose every constraint failed to resolve", () => {
-    // `empty` is true here — nothing reached a solver phase — and gating the
-    // report on it meant the likeliest first mistake (a date that is not a game
-    // night) produced a cheerful success toast and no verdict at all.
     const r = resolveConstraints(
       [c("1", "a", "bye_on", { date: "2030-01-01" })],
       {
@@ -641,8 +567,6 @@ describe("what the manager is told", () => {
   });
 
   it("does not call two identical pins a contradiction", () => {
-    // Nothing stops a manager double-clicking Add, and any conflict at all
-    // makes `generateSchedule` refuse outright — so a stutter blocked a season.
     const dup = {
       teamId: "a",
       kind: "slot_on" as const,
@@ -670,8 +594,6 @@ describe("what the manager is told", () => {
   });
 
   it("judges a slot_bias off the placed games whichever planner placed them", () => {
-    // `slot_bias` asks where games LANDED, which is readable from any plan — so
-    // the fallback short-circuit must not swallow it and report it unmet.
     const r = resolveConstraints(
       [
         c("1", "a", "slot_bias", {
@@ -718,12 +640,6 @@ describe("presentSpacing", () => {
     });
   });
 
-  /**
-   * The two sides are not always counted over the same teams — `spacingReport`
-   * counts teams that have games, the credits count every enrolled team — so a
-   * constrained team the generator placed no games for can be credited byes
-   * that were never charged. A negative bye count means nothing to a reader.
-   */
   it("never presents a negative count, however the credits were derived", () => {
     const out = presentSpacing(raw, {
       byesMultiWeek: 9,
@@ -776,9 +692,7 @@ describe("assignNights with manager constraints", () => {
   it("invariant 2: games per night is untouched", () => {
     const perNight = new Array(ns.length).fill(0);
     for (const g of games) perNight[g.nightIndex]++;
-    // 48 games over 16 nights at 3 sheets: an exact fit, every night full.
     expect(perNight).toEqual(new Array(ns.length).fill(3));
-    // ...and no team is ever booked twice on one night.
     for (let n = 0; n < ns.length; n++) {
       const on = games
         .filter((g) => g.nightIndex === n)
@@ -810,18 +724,8 @@ describe("assignNights with manager constraints", () => {
   });
 
   it("does not count a requested week off as a rule-1 breach in the presented metrics", () => {
-    // The solver's own `byeRuleCost` still counts it, by design: it is also the
-    // basis of Phase P's admissible lower bound, and re-deriving that DP to make
-    // a table read nicely risks an inadmissible bound that prunes optimal
-    // solutions. So the exclusion is a presentation step, and this asserts on
-    // what the report shows, not on the solver's internal figure.
-    //
-    // ⛔ THE CREDITS ARE COMPUTED HERE, THE WAY PRODUCTION COMPUTES THEM. The
-    // report used to carry a `constraintCredits` field that nothing outside this
-    // test ever read, while `schedule-builder-panel.tsx` recomputed the same
-    // figure locally from the placed games — two sources for one number, which
-    // is how the wrong one gets wired in later. The field is gone, and this
-    // exercises the call the app actually makes.
+    // ⛔ Credits computed here as production computes them (`forcedByeCredits` off the placed
+    // games): a report field only this test read was how the wrong source got wired in.
     const plays = ts.map(() => new Array(ns.length).fill(false));
     for (const g of games) {
       plays[ts.indexOf(g.home)][g.nightIndex] = true;
@@ -845,8 +749,6 @@ describe("assignNights with manager constraints", () => {
   it("reports every constraint, with a reason whenever one is unmet", () => {
     expect(report.constraints.map((x) => x.id)).toEqual(["k1", "k2", "k3"]);
     for (const outcome of report.constraints) {
-      // A met request carries no reason; an unmet one always carries a sentence.
-      // Silence is the failure mode this exists to prevent.
       if (outcome.satisfied) expect(outcome.reason).toBeNull();
       else expect(outcome.reason).toEqual(expect.stringMatching(/\S/));
     }
@@ -854,22 +756,8 @@ describe("assignNights with manager constraints", () => {
 });
 
 describe("assignNights — a pinned slot survives the clustering pass", () => {
-  // Same shape as assignNights.test.ts's ice-time clustering fixture (6 teams,
-  // one weeknight, 3 sheets — everyone plays every week), chosen deliberately:
-  // that shape is loose enough for `improveNightOrder` to find and accept an
-  // admissible permutation (measured there: worst-team clustering 14 -> 4).
-  // The 8-team fixture above (`assignNights with manager constraints`) is NOT
-  // loose enough — checked directly: the pass finds no admissible improvement
-  // on it and leaves the identity, so a constraint test built on it would
-  // never exercise the bug this guards against.
-  //
-  // `rankSchedule` carries no constraint term, so on a shape where the pass
-  // DOES move nights, it could relabel which night holds the block of games
-  // `slot_on` pinned — moving the pin off the night Phase P placed it on while
-  // leaving every ranked metric no worse. `assignNights` guards the whole pass
-  // on `resolved.empty` for exactly this reason. This test fails if that guard
-  // is ever lost: verified by temporarily forcing the pass to run
-  // unconditionally, which broke this assertion.
+  // The 6-team one-weeknight shape, loose enough for the night-order pass to move nights; the
+  // 8-team fixture above isn't, so it would never exercise a moved pin.
   const ts = Array.from({ length: 6 }, (_, i) => `t${i + 1}`);
   const ns = sixTeamTuesdays(23);
   const pairings = buildBalancedPairings(ts, 23);
@@ -896,11 +784,8 @@ describe("assignNights — a constrained season still gets its ice time spread",
   const ts = Array.from({ length: 6 }, (_, i) => `t${i + 1}`);
   const ns = sixTeamTuesdays(23);
   const pairings = buildBalancedPairings(ts, 23);
-  // ⛔ NIGHT 15, AND THE NUMBER MATTERS. Probed 2026-09-09 across nights
-  // 1/4/7/11/15/19/22 with the `nightClass` term deleted: the pins on 7, 15 and
-  // 19 go UNMET, the rest survive anyway because the pass never wants to move
-  // them. A fixture on night 11 — which this used — passes with the class check
-  // removed entirely, so it asserted nothing about the labels.
+  // ⛔ Night 15, and the number matters: with `nightClass` deleted, pins on 7, 15 and 19 go
+  // unmet; one on night 11 passes anyway and asserts nothing about the labels.
   const resolved = resolveConstraints(
     [c("p1", "t3", "slot_on", { date: ns[15].date, time: "21:30" })],
     { nights: ns, teamIds: ts },
@@ -926,16 +811,10 @@ describe("assignNights — a constrained season still gets its ice time spread",
       ],
       { nights: ns, teamIds: ts },
     );
-    // Guards the fixture itself: a wrong param key resolves into `items` but
-    // into no solver entry, leaving `empty` true and testing nothing.
-    // `teamId`, not `team_id`.
+    // Guards the fixture: a wrong param key resolves to no solver entry and tests nothing.
     expect(r.empty).toBe(false);
-    // ⛔ `variations: 1`. The class check is a property of the night-order pass,
-    // and a block of four HIDES a broken one: selection ranks unmet requests
-    // first, so when one draw's permutation moves a pin off its night, another
-    // draw that left it alone wins and the verdict comes back satisfied anyway.
-    // Verified by mutation — with `nightClass` deleted this test passes at the
-    // default block size and fails here.
+    // ⛔ `variations: 1`: a block of four hides a broken class check, since selection ranks unmet
+    // requests first. Verified by mutation (passes at the default block, fails here).
     const out = assignNights(pairings, ns, ts, {
       constraints: r,
       variations: 1,

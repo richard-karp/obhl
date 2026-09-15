@@ -18,10 +18,8 @@ export default async function GamePage({
   ]);
   if (!box) notFound();
 
-  // Games are addressed by id alone, so nothing about the id says which league
-  // it belongs to. Without this, /harbor/games/<an-obhl-id> renders Oceanview's
-  // box score under Harbor's header. Checked against the league rather than its
-  // active season so links to a finished season's games keep resolving.
+  // An id names no league: without this, /harbor/games/<an-obhl-id> renders under Harbor's header. The
+  // league, not its active season, so links to a finished season's games keep resolving.
   if (box.game.season.league_id !== ctx.league.id) notFound();
 
   const { game } = box;

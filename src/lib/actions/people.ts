@@ -18,13 +18,7 @@ export type PeopleActionState = { ok: boolean; message: string } | null;
 
 const ROLES: AppRole[] = ["league_manager", "captain", "scorekeeper"];
 
-/**
- * What an account looks like before an action changes it.
- *
- * Read once and used twice: the manager guard above turns on `role`, and the
- * audit entry needs the same value as `old_data` plus a name, so that the log
- * reads as "Made Alex Chen a scorekeeper" rather than two opaque uuids.
- */
+/** An account's role and name before a change: guards turn on the role, audit entries need both. */
 async function staffSnapshot(
   admin: ReturnType<typeof createAdminClient>,
   id: string,
@@ -37,14 +31,8 @@ async function staffSnapshot(
   return data ? { role: data.role, display_name: data.display_name } : null;
 }
 
-/**
- * Is this account a member of the league the form was submitted from?
- *
- * People & Roles used to list every profile in the instance and act on any of
- * them. Each action now derives its league from the form and refuses an id
- * outside it, so a manager of one league cannot reach into another's staff even
- * with a hand-made request.
- */
+// Every action derives its league from the form and refuses a profile outside it, so a manager of
+// one league cannot reach another's staff with a hand-made request.
 async function isMemberOf(
   admin: ReturnType<typeof createAdminClient>,
   profileId: string,
@@ -59,22 +47,8 @@ async function isMemberOf(
   return !!data;
 }
 
-/**
- * One audit entry for a staff change.
- *
- * `entity_id` is the LEAGUE id, not the profile id. A person spans leagues, so
- * a profile id names no single one, and what changed here is *this league's*
- * staff. `leagueOfEntity` in `src/lib/audit.ts` resolves `"league_staff"` the
- * same way — without that case the entry is written with a null league, which
- * RLS and every league-scoped view then hide, so it would be correct and
- * invisible.
- *
- * Awaited rather than voided: a `void` promise can be left unfinished when the
- * runtime freezes the function after the response, and who was granted or
- * revoked access to a league is the last record worth losing. `logAudit`
- * swallows its own errors, so awaiting cannot turn a successful change into a
- * reported failure.
- */
+// `entity_id` is the league: `leagueOfEntity` resolves "league_staff" through it, or the entry is
+// hidden (`RUNBOOK.md` → Access control → Traps). Awaited: a voided write can be dropped.
 async function logStaffChange(
   actorId: string,
   leagueId: string,
@@ -90,14 +64,8 @@ async function logStaffChange(
   });
 }
 
-/**
- * Manager adds a staff account to THIS league — creating the login if the
- * person doesn't have one yet, and granting membership either way.
- *
- * Membership is the point: a role with no league reaches nothing. Adding an
- * address that already has an account is therefore a normal, useful outcome
- * (that is how one person works both leagues), not a collision.
- */
+// Creates the login if needed and grants this league either way: adding an existing account is
+// how one person works two leagues, not a collision.
 export async function createStaffAccount(
   _prev: PeopleActionState,
   formData: FormData,
@@ -122,9 +90,8 @@ export async function createStaffAccount(
   }
 
   const admin = createAdminClient();
-  // `is_captain_of` trusts `profiles.player_id` alone, so the player's EVERY
-  // league must be one this manager works — see `mayLinkPlayer`. Any role, and
-  // before the first write.
+  // `is_captain_of` trusts `profiles.player_id` alone, so every league the player is in must be
+  // one this manager works (`mayLinkPlayer`): any role, before the first write.
   if (playerId) {
     const link = await mayLinkPlayer(actor.id, playerId, leagueId, admin);
     if (link === "not_in_league") {
@@ -156,21 +123,8 @@ export async function createStaffAccount(
     userId = created.user.id;
   }
 
-  // ⛔ An EXISTING account's role is never rewritten here.
-  //
-  // `profiles.role` is one account-wide column (`0003_membership.sql`): the JWT
-  // hook copies it (`0010`) and RLS resolves it through `auth_role()` (`0009`).
-  // Writing it from this page therefore changes what that person may do in
-  // *every* league they belong to. And this is the one action in this file that
-  // never calls `isMemberOf` — the address is typed in, so the target need have
-  // no connection to this league at all.
-  //
-  // Together those let a manager of one league hand `league_manager` to an
-  // account whose only league they cannot reach, through the ordinary form with
-  // no tampering. `e2e/09-access.spec.ts` covers it.
-  //
-  // Adding an existing account is still how one person works two leagues: it
-  // grants membership and leaves the profile untouched.
+  // ⛔ An existing account's role is never rewritten: `profiles.role` is account-wide and the
+  // address is typed in, so it would change what someone does in leagues this manager cannot reach.
   const existing = await staffSnapshot(admin, userId);
   if (existing?.role) {
     if (existing.role !== role) {
@@ -183,11 +137,8 @@ export async function createStaffAccount(
             : `${email} already has an account as ${held}. A role is account-wide, so this form will not change it — add them as ${held}, then change it from their row.`,
       };
     }
-    // ⛔ CHECKED, NOT DISCARDED. Membership is the whole of what this branch
-    // grants — the account and its role already exist — so if the write does
-    // not land, nothing happened and saying otherwise is the only failure the
-    // manager cannot see. supabase-js REPORTS rather than throws, so an
-    // unchecked `await` here looked identical either way.
+    // ⛔ Checked: the membership is all this branch grants, and supabase-js reports a failure
+    // rather than throwing, so an unchecked await looks like success.
     const granted = await addLeagueMembership(userId, leagueId);
     if (!granted.ok)
       return {
@@ -207,19 +158,8 @@ export async function createStaffAccount(
     };
   }
 
-  // Everything above this line either creates the account or only grants it a
-  // league. From here the profile itself is written, and `profiles.role` is
-  // instance-wide — so an existing account reachable in a league this manager
-  // cannot see would have the role IT uses there rewritten from here, through
-  // the ordinary form, with no tampering.
-  //
-  // Narrow, and easy to mistake for dead code: the branch above returns for
-  // every account that already holds a role, so what reaches here is a login
-  // that exists with no profile row or a null one. It stays because the write
-  // below is instance-wide whatever the row looked like first. The accounts it
-  // cannot see are covered twice over — refused above when the role differs,
-  // granted only a membership when it matches, and then held by the SAME test in
-  // `updateStaffRole`, which is the other way into an instance-wide role write.
+  // Looks like dead code and is not: a login with no profile row reaches here, and the write
+  // below is instance-wide, so containment is checked (`mayWriteProfileOf`, as in `updateStaffRole`).
   if (existed && !(await mayWriteProfileOf(actor.id, userId))) {
     return {
       ok: false,
@@ -230,22 +170,15 @@ export async function createStaffAccount(
   const { error: pErr } = await admin.from("profiles").upsert({
     id: userId,
     role,
-    // Only written when one was submitted. Nulling it for every non-captain
-    // role is what severed a captain's player link the moment they were made a
-    // manager or scorekeeper — and a person can be both.
+    // Only when submitted: nulling it for other roles severs a captain's player link, and one
+    // person can hold both.
     ...(playerId ? { player_id: playerId } : {}),
     display_name: displayName,
   });
   if (pErr) return { ok: false, message: pErr.message };
 
-  // ⛔ Same as the grant path above, and worse here: the account was just
-  // created and given a role. Without the membership row that role reaches
-  // nothing — the failure `seasons.ts` describes as "a role without a league
-  // reaches nothing" — while the form reports the staff member as added.
-  //
-  // ⚠️ NOT rolled back. The profile stays, deliberately: deleting on a failure
-  // path is how this codebase loses data, and re-running the form finds the
-  // existing account and takes the grant path above, which is the recovery.
+  // ⛔ Checked: without the membership the new role reaches nothing. ⚠️ Not rolled back: re-running
+  // the form finds the account and takes the grant path above.
   const granted = await addLeagueMembership(userId, leagueId);
   if (!granted.ok)
     return {
@@ -263,7 +196,6 @@ export async function createStaffAccount(
   };
 }
 
-/** Manager changes the role of someone already in this league. */
 export async function updateStaffRole(formData: FormData) {
   const leagueId = String(formData.get("league_id") ?? "");
   if (!leagueId) return;
@@ -275,53 +207,18 @@ export async function updateStaffRole(formData: FormData) {
   const admin = createAdminClient();
   if (!(await isMemberOf(admin, id, leagueId))) return;
 
-  // Read once: the manager guard turns on this role, and the audit entry needs
-  // the same value as `old_data`.
   const before = await staffSnapshot(admin, id);
 
-  // A manager cannot be demoted by a PEER. Every manager can reach this page,
-  // so without this any one of them could unmake any other — including whoever
-  // set the league up, and including themselves. Removing a manager from a
-  // league is a different question and is allowed (`removeStaff`), and
-  // promoting someone TO manager still works; it is unmaking one that is
-  // refused.
-  //
-  // The League Office is the tier that CAN: `officeTierOf` makes this refusal
-  // conditional on the actor holding no tier, so a commissioner or deputy
-  // demotes a manager where another manager cannot.
-  //
-  // ...unless the actor is in the League Office, which is the tier that outranks
-  // a manager. One condition is the whole of "the office can revoke a manager,
-  // peers cannot" — `mayWriteProfileOf` below still decides whether THIS office
-  // member outranks THIS target, so a deputy is not being waved through here.
-  //
-  // The UI renders no role control on a manager's row for a peer, so reaching
-  // this means a hand-made request. It returns quietly rather than throwing:
-  // there is nowhere to put a message on a form action that returns void.
+  // A peer manager cannot demote a manager; the League Office can (`mayWriteProfileOf` below still
+  // checks rank). Quiet: the UI draws no control here, so only a hand-made request arrives.
   if (before?.role === "league_manager" && !(await officeTierOf(actor.id)))
     return;
 
-  // ...and no role write here may reach a league the actor cannot see.
-  //
-  // EVERY role, not only a promotion to manager. `profiles.role` is one
-  // instance-wide column, so making this league's captain a scorekeeper takes
-  // away their captaincy in the other league they work too — the same
-  // cross-league write as a promotion, pointed the other way, and reachable by
-  // the same two ordinary submissions with no tampering.
-  //
-  // Being a member of this league is not enough to authorise any of it, because
-  // membership here is exactly what `createStaffAccount` hands out for free when
-  // the role matches — which is why `mayWriteProfileOf` tests containment rather
-  // than overlap.
-  //
-  // Quiet, like the demotion above and for the same reason. The page renders no
-  // role control at all where this would refuse, so reaching it means a
-  // hand-made request.
+  // Any role write, not only a promotion: `profiles.role` is instance-wide and membership here is
+  // free to obtain, so `mayWriteProfileOf` tests containment, not overlap.
   if (!(await mayWriteProfileOf(actor.id, id))) return;
 
-  // Role only. This used to null `player_id` for any non-captain role, so
-  // promoting a captain to manager quietly unlinked them from their player —
-  // and the captain surface is derived from that link.
+  // Role only: `player_id` stays, since the captain surface is derived from that link.
   const { error } = await admin.from("profiles").update({ role }).eq("id", id);
   if (error) return;
   await logStaffChange(actor.id, leagueId, "update_staff_role", {
@@ -335,41 +232,8 @@ export async function updateStaffRole(formData: FormData) {
   revalidatePath("/[league]/people", "page");
 }
 
-/**
- * Manager removes someone from THIS league.
- *
- * This used to call `auth.admin.deleteUser`, which does not come back — from a
- * page that listed every profile in the instance, so a manager of one league
- * could delete another league's staff outright. Revoking the one membership is
- * the league-scoped equivalent and is reversible: the account, its role, its
- * player link and its other leagues all survive.
- *
- * A manager CAN be removed, unlike demotion. Handing out a second manager
- * account is the flow this whole model exists for, and while Remove deleted the
- * account there was no safe way to undo it; now that it only revokes one
- * league, refusing would leave that grant a one-way door with SQL as the only
- * way back.
- *
- * Removing YOURSELF is refused — it would drop you out of a league you may be
- * the only way back into.
- *
- * ⚠️ That rule USED to double as the reason a league can never reach zero
- * managers, which is why there is no separate "last manager" check: the caller
- * was always a manager AND a member of this league, so either the league had
- * two managers or the target was the caller.
- *
- * The League Office breaks that argument. A commissioner is neither a member of
- * the league nor the target, so a commissioner CAN take a league to zero
- * managers. That is DELIBERATE, not an oversight: the office reaches every
- * league present and future, so whoever emptied it can also appoint the
- * replacement. It is not a one-way door, and refusing here would rebuild exactly
- * the dead end the office exists to remove — the one where a league ends up in a
- * state only SQL can fix.
- *
- * Note the asymmetry that keeps this safe: a commissioner may empty a league,
- * and a MANAGER still cannot, because the self-removal rule above is untouched
- * for them. The tier that can undo it is the only tier that can do it.
- */
+// Revokes one membership, never the account. Self-removal is refused, so a manager cannot empty a
+// league; the League Office may, deliberately, since it can appoint the replacement.
 export async function removeStaff(formData: FormData) {
   const leagueId = String(formData.get("league_id") ?? "");
   if (!leagueId) return;
@@ -380,15 +244,8 @@ export async function removeStaff(formData: FormData) {
   if (!(await isMemberOf(admin, id, leagueId))) return;
   if (id === actor.id) return;
 
-  // ⛔ Never an office member. Their membership is a RULE, not a row, so there is
-  // nothing here to delete: `removeLeagueMembership` would succeed having done
-  // nothing, and the audit entry below would record a removal that did not
-  // happen. Refusing is not a tightening — it is the difference between a no-op
-  // and a LIE in the log.
-  //
-  // Removing someone from the office is done in League Office, which is the one
-  // page that owns the tier. People & Roles says so on the row rather than
-  // offering a Remove that silently achieves nothing.
+  // ⛔ Never an office member: their membership is a rule, not a row, so the revoke would do
+  // nothing and the audit entry would record a removal that did not happen.
   if (await officeTierOf(id)) return;
 
   // Snapshot before the revoke: afterwards the membership row is gone, and the

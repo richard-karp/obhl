@@ -11,17 +11,11 @@ export function OfficeRowActions({
   id: string;
   /** The tier this row holds — what may be done to it, not who is looking. */
   tier: "commissioner" | "deputy";
-  /**
-   * Whether the viewer may change anything here at all. A deputy sees the same
-   * roster and no controls: they are not above their peers, and they are not
-   * above the tier itself.
-   */
+  /** Whether the viewer may change anything here; a deputy sees the roster and no controls. */
   viewerIsCommissioner: boolean;
 }) {
-  // No control for a commissioner, for ANYONE — including another commissioner.
-  // The tier is peer-flat, so nobody outranks it, and an absent control with no
-  // explanation reads as a bug rather than a rule. The page says why at length;
-  // this is the short form on the row itself.
+  // No control on a commissioner row, for anyone: the tier is peer-flat. The title says why, so the absence
+  // doesn't read as a bug.
   if (tier === "commissioner") {
     return (
       <span

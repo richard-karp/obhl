@@ -81,11 +81,7 @@ function expandRange(from: Date, to: Date): string[] {
 
 type SkipRange = { from: string; to: string };
 
-/**
- * The six things a manager can tell the generator, in the order they are worth
- * reaching for: the two that pin a bye, the two that pin a game, then the
- * softer week-level and preference kinds.
- */
+/** The six request kinds, in the order worth reaching for: bye pins, game pins, then the softer kinds. */
 const CONSTRAINT_OPTIONS: { value: ConstraintKind; label: string }[] = [
   { value: "bye_on", label: "Bye on a night" },
   { value: "bye_week", label: "Bye the whole week" },
@@ -95,56 +91,8 @@ const CONSTRAINT_OPTIONS: { value: ConstraintKind; label: string }[] = [
   { value: "slot_bias", label: "Prefer early/late ice" },
 ];
 
-/**
- * The constraints card.
- *
- * ⚠️ It lives INSIDE the generate form, and that is not a layout preference.
- * The season's game nights do not exist until this form is filled in — they are
- * derived by `enumerateNights` from the weekdays, skip dates and start/end above,
- * and nothing about them is stored. A card rendered elsewhere on the page would
- * have no calendar to offer.
- *
- * ⛔ NEITHER BUTTON HERE IS A SUBMIT BUTTON, AND BOTH REASONS ARE LOAD-BEARING.
- *
- * Adding used to post through `formAction` on a submit button — the only way a
- * control inside the generate form can post somewhere else, since HTML forbids
- * nested forms. It worked, and it took the whole generate form down with it:
- * React 19 resets every uncontrolled input on a submit that reaches its form
- * action, so adding one manager request wiped the first game night, the games
- * per team, the ice times and every weekday checkbox the manager had just
- * typed. Measured 2026-09-06 on Fall 2026. It was also this form's FIRST submit
- * button in tree order, which made it what Enter did from any text field.
- *
- * So Add is an ordinary `type="button"` that builds its own `FormData` from the
- * form it sits in and calls the action in a transition — the same shape Remove
- * has always had, for the different reason below. With no submit button but
- * Generate left in the form, the form's own `onSubmit` can prevent the default
- * unconditionally, which is what stops the reset.
- *
- * ⛔ REMOVING CANNOT USE `formAction` EITHER, AND THIS IS NOT A STYLE CHOICE. A remove
- * has to say WHICH request, and the obvious way — `name="constraint_id"
- * value={c.id}` on the submit button — is silently broken. React uses a submit
- * button's `name` to encode which action to invoke when `formAction` is a
- * function, so it OVERRIDES the one written there:
- *
- *     Cannot specify a "name" prop for a button that specifies a function as a
- *     formAction. React needs it to encode which action should be invoked.
- *     It will get overridden.
- *
- * That is a console warning, not an error, and what it describes has no symptom
- * worth the name: the action runs, `constraint_id` arrives empty, and the
- * manager is told "No request selected." about a request they plainly selected.
- * Measured 2026-09-04 — every ✕ on this card was inert, and a request once added
- * could not be removed at all.
- *
- * `type="button"` also stops the ✕ submitting the generate form by accident,
- * which a bare `<button>` in a form otherwise does.
- *
- * The date fields are plain dates, deliberately unvalidated here: this component
- * cannot know which dates become game nights until the generator runs, so a
- * request naming a date that turns out not to be one is reported unmet with that
- * reason on the preview rather than refused at entry.
- */
+// ⛔ Add is `type="button"`: a submit reaching a form action makes React 19 reset the whole generate form.
+// ⛔ Remove too: a function `formAction` overrides the button's `name`, so the request id arrives empty.
 function ConstraintsCard({
   teams,
   constraints,
@@ -157,12 +105,8 @@ function ConstraintsCard({
     ConstraintState,
     FormData
   >(saveScheduleConstraint, null);
-  // Not `useActionState` — see the ⛔ above. The id has to travel in the
-  // FormData this builds, because a submit button's `name` cannot carry it.
-  //
-  // ⚠️ WHICH id is in flight, not a boolean. One shared pending flag disabled
-  // EVERY ✕ while any one of them was removing — wrong to look at, and what
-  // made the e2e teardown click a disabled button and time out.
+  // Not `useActionState`: the id travels in the FormData built here. ⚠️ Which id is in flight, not a
+  // boolean, or every ✕ is disabled while any one is removing.
   const [, startRemove] = useTransition();
   const [removingId, setRemovingId] = useState<string | null>(null);
   const removeRequest = (id: string) => {
@@ -175,17 +119,8 @@ function ConstraintsCard({
         if (result?.ok) toast.success(result.message);
         else if (result) toast.error(result.message);
       } catch (err) {
-        // ⛔ NEVER SWALLOW NEXT'S CONTROL FLOW. `redirect()` and `notFound()`
-        // work BY THROWING, and this action reaches `redirect("/")` through
-        // `requireLeagueManager` — catching that would turn "you may not do
-        // this" into a toast and leave the manager sitting on the page they
-        // were being sent away from. Both carry a `digest` of "NEXT_REDIRECT;…"
-        // or "NEXT_NOT_FOUND", so they go straight back up.
-        //
-        // Everything else is a real failure and has to be said out loud:
-        // `useActionState` used to own this path, and replacing it with a bare
-        // await left a rejected action looking exactly like the inert ✕ this
-        // control was just fixed for.
+        // ⛔ Never swallow Next's control flow: `redirect()` (via `requireLeagueManager`) throws a "NEXT_"
+        // digest, which must go back up. Anything else is a real failure and is said out loud.
         const digest = (err as { digest?: unknown } | null)?.digest;
         if (typeof digest === "string" && digest.startsWith("NEXT_")) throw err;
         toast.error(
@@ -196,22 +131,8 @@ function ConstraintsCard({
       }
     });
   };
-  /**
-   * The card's own fields, so a manager adding three byes in a row types three
-   * dates rather than three dates and three teams.
-   *
-   * ⛔ THE NAMED FIELDS, NEVER `form.reset()`. This card has no `<form>` of its
-   * own — it sits INSIDE the generate form (see the ⚠️ above `ConstraintsCard`),
-   * so a reset here empties the first game night, the games per team, the ice
-   * times and every weekday checkbox the manager has just filled in. That is
-   * the same React 19 form-reset damage the ⛔ in this component's header
-   * describes, arrived at by hand instead of by `formAction`.
-   *
-   * ⚠️ `constraint_kind` and `constraint_prefer` are deliberately NOT cleared.
-   * The kind is the controlled `kind` state and re-picking it for every request
-   * of the same sort is the annoyance, not the help; `constraint_prefer` only
-   * renders under `slot_bias` and has a meaningful default.
-   */
+  // ⛔ After an add, clear the named fields, never `form.reset()`: this card sits inside the generate form,
+  // so a reset empties that too. ⚠️ `constraint_kind` and `constraint_prefer` are kept on purpose.
   const cardRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!addState) return;
@@ -239,15 +160,8 @@ function ConstraintsCard({
     <div
       ref={cardRef}
       className="space-y-2 rounded-lg border p-3"
-      /*
-        ⚠️ ENTER INSIDE THIS CARD MEANS "ADD REQUEST", NOT "GENERATE".
-        A form has one default submit button, and now that Add is a plain
-        button that is Generate — so Enter from the date or ice-time field
-        started a 25-second generate instead of adding the request the manager
-        was in the middle of typing. It used to do the right thing only by
-        accident, because Add happened to be the first submit button in tree
-        order. Handled here rather than left to the browser.
-      */
+      /* ⚠️ Enter inside this card means "Add request": the form's default submit button is Generate, a
+         25-second run, so the browser must not handle it. */
       onKeyDown={(e) => {
         if (e.key !== "Enter" || e.shiftKey) return;
         const el = e.target as HTMLElement;
@@ -398,12 +312,8 @@ function ConstraintsCard({
         ) : null}
 
         {/*
-          ⛔ `type="button"`, NOT a submit carrying `formAction` — see the ⛔ in
-          this component's header. As a submit it took React 19's form-reset
-          path and emptied the generate form above on every request added.
-
-          `formNoValidate` went with it: a plain button never triggers the
-          form's native validation, so there is nothing left to opt out of.
+          ⛔ `type="button"`, not a submit with `formAction` (React 19 resets the generate form). It reads
+          `e.currentTarget.form`, so the card must stay inside the generate form.
         */}
         <Button
           type="button"
@@ -424,15 +334,7 @@ function ConstraintsCard({
   );
 }
 
-/**
- * The generate button — the ONLY submit button in this form.
- *
- * That is worth keeping true. It carried a `data-generate` marker while the
- * constraints card's "Add request" was also a submit, so the form's `onSubmit`
- * could tell them apart; the marker is gone because the discrimination was
- * itself the bug (see `onSubmit`). Adding a second submit button here would
- * bring back React 19's form reset for whatever it submits.
- */
+/** The only submit button in this form: a second would bring back React 19's form reset for it. */
 function SubmitButton({ pending }: { pending: boolean }) {
   return (
     <Button type="submit" disabled={pending}>
@@ -441,31 +343,15 @@ function SubmitButton({ pending }: { pending: boolean }) {
   );
 }
 
-/**
- * What a screen reader is told while a generate runs — the sentence only, never
- * the countdown. Lives here because the visible copy and the announced copy are
- * rendered in two different places (see the live region in the form below) and
- * have to stay in step.
- */
+/** What a screen reader hears while a generate runs: the sentence only, never the countdown. */
 const GENERATING_STATUS = "Building the schedule.";
 
-/**
- * The bar, the countdown, and the tick that drives them.
- *
- * Mounted only while the action is pending (see the call site), so this
- * component's lifetime *is* one run: the start timestamp is captured at mount
- * and the interval is torn down at unmount. That is load-bearing. If this were
- * ever rendered unconditionally with `pending` as a prop, a second generate
- * would measure from the first run's start and show instant overrun, and the
- * interval would keep ticking between runs — both would need an explicit reset
- * to replace what the conditional render gives for free.
- */
+// Mounted only while pending, so its lifetime is one run. Rendered unconditionally, a second generate would
+// measure from the first run's start and show instant overrun.
 function GenerateProgressBar({ expectedMs }: { expectedMs: number }) {
   const [elapsedMs, setElapsedMs] = useState(0);
 
-  // The clock is read here rather than during render — `Date.now()` in a render
-  // body is impure, and an effect that runs once on mount is the same instant
-  // for this component's purposes.
+  // The clock is read in an effect: `Date.now()` in a render body is impure.
   useEffect(() => {
     const startedAt = Date.now();
     const id = setInterval(() => {
@@ -482,19 +368,14 @@ function GenerateProgressBar({ expectedMs }: { expectedMs: number }) {
   return (
     <div className="min-w-0 flex-1 space-y-1.5">
       {/*
-        Named, so it isn't announced as a bare unlabelled progress bar. This is
-        the one part of the indicator a screen reader can usefully query on
-        demand — hence a real name rather than `aria-hidden` alongside the text.
+        Named, not `aria-hidden`: the one part of the indicator a screen reader can query on demand.
       */}
       <Progress
         value={fraction * 100}
         aria-label="Schedule generation progress"
       />
       {/*
-        Visual only. The announced copy is the live region in the form below;
-        this paragraph would otherwise duplicate it, and it carries the
-        countdown, which changes four times a second and must never reach a
-        screen reader.
+        Visual only: the live region below announces, and the countdown must never reach a screen reader.
       */}
       <p
         className="text-muted-foreground flex items-center gap-1.5 text-xs"
@@ -527,53 +408,24 @@ export function ScheduleGenerateForm({
   teams: { id: string; name: string }[];
   /** This season's stored manager requests. */
   constraints: ScheduleConstraint[];
-  /**
-   * How long a generate is expected to take, computed server-side from the
-   * generator's own Phase S budget.
-   *
-   * One number for every season, NOT a per-season estimate — the search spends
-   * its whole budget on any league big enough to need it, and saturates from
-   * about 28 game nights up. Below that it overstates: a 12-night season is
-   * told "about 26 seconds" and finishes in under 3. That was a deliberate
-   * choice over a never-overstating "up to about 30 seconds" ceiling, and the
-   * copy hedges with "about" because of it. An adaptive curve was rejected —
-   * the night count is available, but the night-count-to-time fit is one
-   * machine's numbers.
-   */
+  /** From Phase S's budget: one number for every season, so it overstates a small one (hence "about"). */
   expectedMs: number;
 }) {
   const [mode, setMode] = useState<"games" | "date">("games");
   const [skips, setSkips] = useState<SkipRange[]>([]);
   const formRef = useRef<HTMLFormElement>(null);
-  /**
-   * Which schedule of the many equally-valid ones is on screen.
-   *
-   * ⚠️ `localStorage`, NOT a column on `seasons`. This is per-manager,
-   * per-browser scratch — a migration for a counter is disproportionate.
-   *
-   * ⛔ EVERY ACCESS IN try/catch AND EVERY READ TOLERATES null. A private
-   * window, cleared site data, or a browser set to block storage makes the
-   * accessor ITSELF throw, and a season with nothing stored must simply start
-   * at 1 rather than render nothing.
-   */
+  // ⚠️ `localStorage`, not a `seasons` column: per-manager scratch. ⛔ Every access in try/catch: blocked
+  // storage makes the accessor itself throw, and a season with nothing stored starts at 1.
   const variationKey = `obhl:variation:${seasonId}`;
   const [variation, setVariation] = useState(() => {
-    // ⛔ A LAZY INITIALISER IS SAFE HERE ONLY BECAUSE `variation` IS NEVER
-    // RENDERED. It is read in `tryAnother` and written into the FormData in
-    // `dispatch`; it reaches no DOM node, so the server and the client can
-    // disagree about it without any hydration mismatch to reconcile. Add a
-    // `<input value={variation}>` and this has to move into an effect.
-    //
-    // The `typeof window` guard is for the server render, where there is no
-    // `localStorage` at all.
+    // ⛔ A lazy initialiser is safe only because `variation` is never rendered, so there is no hydration
+    // mismatch; render it into an input and this moves into an effect. `typeof window`: the server render.
     if (typeof window === "undefined") return 1;
     try {
       const n = Number(window.localStorage.getItem(variationKey));
       return Number.isFinite(n) && n >= 1 ? Math.min(50, Math.floor(n)) : 1;
     } catch {
-      // A private window, cleared site data, or a browser set to block storage
-      // makes the accessor ITSELF throw. The counter is a convenience, not
-      // state — starting over at 1 is a correct outcome, not a failure.
+      // A convenience, not state: starting over at 1 is correct.
       return 1;
     }
   });
@@ -591,8 +443,7 @@ export function ScheduleGenerateForm({
     null,
   );
 
-  // Same house pattern as publish-controls.tsx: the result is a toast, not
-  // inline text, and toasting is a side effect on an external system.
+  // The result is a toast, and toasting is a side effect, so it lives in an effect.
   useEffect(() => {
     if (!state) return;
     if (state.ok) toast.success(state.message);
@@ -626,65 +477,18 @@ export function ScheduleGenerateForm({
   if (seasonStart) disabled.push({ before: parseKey(seasonStart) });
   if (seasonEnd) disabled.push({ after: parseKey(seasonEnd) });
 
-  /**
-   * ⛔ THE ACTION IS DISPATCHED HERE, NOT THROUGH `<form action={…}>`, AND THAT
-   * IS THE WHOLE FIX FOR "generate cleared my fields".
-   *
-   * React 19 resets a form's uncontrolled inputs on every submit that goes
-   * through the `action` prop — `startHostTransition` in react-dom calls
-   * `requestFormReset` before it ever runs the action, with no opt-out
-   * (react-dom 19.2.4, `react-dom-client.development.js`). Generate is
-   * ITERATIVE: a manager regenerates five or six times, changing one field
-   * each pass, and every pass was throwing away the other five. Measured
-   * 2026-09-06 on Fall 2026 — after a generate, `games_per_team` went back to
-   * 10, `slot_times` to "19:00, 20:20, 21:40" and every weekday checkbox to
-   * unchecked, while the skip chips and the length mode (React state, not
-   * inputs) survived untouched. That split is what identifies the cause: a
-   * remount would have taken the state with it.
-   *
-   * `preventDefault` is what stops React's reset. Its "action" listener is
-   * queued after this `onSubmit` and bails when the event is already
-   * default-prevented, so the reset never runs — and the action is then ours to
-   * dispatch. `startTransition` is required, not decorative: `useActionState`'s
-   * dispatcher only raises its `isPending` flag when it is called inside one,
-   * so without it the button never says "Generating…" and the progress bar
-   * never mounts.
-   *
-   * ⛔ UNCONDITIONAL, AND THAT TOOK A SECOND FIX TO EARN. This used to bail
-   * unless the submitter carried `data-generate`, because the constraints
-   * card's "Add request" was a submit button posting through `formAction` and
-   * preventing here would have made every Add silently do nothing. The bail was
-   * the bug: React still took the reset path for that submitter, so adding one
-   * manager request wiped every field the manager had typed — the half of the
-   * original complaint that the first fix missed.
-   *
-   * Add is a plain `type="button"` now (see the ConstraintsCard header), so
-   * Generate is the only submit button left in this form and there is nothing
-   * left to discriminate. Preventing unconditionally also closes the hole the
-   * submitter check opened: a submit with a null submitter — `requestSubmit()`
-   * with no argument, or implicit submission with no default button — fell
-   * through to a native browser navigation that discarded the whole form.
-   */
+  // ⛔ Dispatched here, not through `<form action>`: React 19 resets uncontrolled inputs on an action submit,
+  // and `preventDefault` is what stops it. `startTransition` is what raises `isPending`.
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    // ⛔ Unconditional: Generate is the only submit, and a null submitter would fall through to a navigation.
     e.preventDefault();
     // Generate always means "the first schedule for these inputs".
     rememberVariation(1);
     dispatch(e.currentTarget, 1);
   };
 
-  /**
-   * Dispatch the action with an explicit variation.
-   *
-   * ⛔ `v` is a PARAMETER, never read back from `variation` state. React batches
-   * the `setVariation` next to each caller, so reading the state here would
-   * dispatch the value from before the click and "Try a different schedule"
-   * would regenerate the schedule the manager just rejected.
-   *
-   * ⛔ AND THE TRY BUTTON IS `type="button"`, NOT A SECOND SUBMIT — see the
-   * note on `SubmitButton`. Generate stays the only submit in this form, so
-   * nothing re-opens React 19's form reset, and this takes exactly the path
-   * `onSubmit` takes once it has prevented the default.
-   */
+  // ⛔ `v` is a parameter, never read from state: React batches `setVariation`, so it would resend the old one.
+  // ⛔ The Try button calls this as `type="button"`, not a second submit, so the form reset stays shut.
   const dispatch = (form: HTMLFormElement, v: number) => {
     const body = new FormData(form);
     body.set("variation", String(v));
@@ -713,11 +517,8 @@ export function ScheduleGenerateForm({
             name="start_date"
             type="date"
             required
-            // The browser half of the past-date guard: it stops the mistake
-            // being typed, but a client can drop it, so `generateSchedule`
-            // refuses the same date server-side. Today, in the league's zone —
-            // not the browser's, which would disagree by a day for anyone
-            // travelling.
+            // The browser half of the past-date guard; `generateSchedule` refuses server-side. Today in the
+            // league's zone, not the browser's, which is a day off for anyone travelling.
             min={leagueDateKey(new Date().toISOString())}
             defaultValue={seasonStart ?? ""}
           />
@@ -865,11 +666,7 @@ export function ScheduleGenerateForm({
       <div className="flex items-center gap-3 pt-1">
         <SubmitButton pending={pending} />
         {/*
-          `type="button"`, dispatching through `dispatch` rather than submitting
-          — see the ⛔ on `dispatch` and the note on `SubmitButton`. A second
-          `type="submit"` here would put a second submitter back in this form,
-          which is the arrangement the unconditional `preventDefault` in
-          `onSubmit` exists to make unnecessary.
+          ⛔ `type="button"` through `dispatch`, never a second submitter in this form (see `onSubmit`).
         */}
         <Button
           type="button"
@@ -890,19 +687,8 @@ export function ScheduleGenerateForm({
       </div>
 
       {/*
-        Permanently mounted, and empty when idle. A live region inserted into
-        the DOM with its text already in place is generally not announced — the
-        region has to exist *before* its content changes — so this deliberately
-        sits outside the `pending` branch instead of inside the indicator.
-
-        It carries the sentence only. The countdown lives in the visual
-        paragraph above, which is `aria-hidden`: a number ticking four times a
-        second inside a live region would be read out on every change.
-
-        The overrun wording stays visual. Announcing it would mean lifting the
-        indicator's elapsed-time state up to this component, and that state is
-        deliberately scoped to the indicator's mount — see the note on
-        GenerateProgressBar. Not worth trading that for a second announcement.
+        Permanently mounted: a live region must exist before its content changes. The sentence only, since
+        a ticking countdown would be read on every change.
       */}
       <p aria-live="polite" className="sr-only">
         {pending ? GENERATING_STATUS : ""}

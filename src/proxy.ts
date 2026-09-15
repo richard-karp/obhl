@@ -1,8 +1,7 @@
 import { type NextRequest } from "next/server";
 import { updateSession } from "@/utils/supabase/middleware";
 
-// Next 16 renamed the `middleware` file convention to `proxy`. This runs on
-// every matched request to keep the Supabase auth session fresh.
+// Next 16's name for `middleware`: keeps the Supabase auth session fresh on every matched request.
 export async function proxy(request: NextRequest) {
   return await updateSession(request);
 }

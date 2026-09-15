@@ -2,14 +2,8 @@ import { describe, it, expect } from "vitest";
 import { isAuthorizedCron, nightWindow } from "./close-night";
 
 /**
- * The window the nightly sweep finalizes games in.
- *
- * ⛔ THE LOWER BOUND IS THE WHOLE POINT, and it is the fix for the worst bug this
- * route has had. Without it the query selected every `in_progress` game ever —
- * and `reopenGameById` puts a PAST-dated game back into that state, from the
- * scoresheet's Reopen button and from `audit.ts`'s revert of a wrong
- * `finalize_game`. The sweep re-finalized anything a manager had just corrected,
- * so the app's only undo survived less than a day.
+ * ⛔ The lower bound is the point: without it the sweep re-finalizes a past game that a manager
+ * just reopened, and the only undo survives less than a day.
  */
 describe("nightWindow", () => {
   // 2am EDT on 11 Sep — the sweep's own slot, a few hours after the night ended.
@@ -75,13 +69,8 @@ describe("nightWindow", () => {
 });
 
 /**
- * The cron route's bearer check.
- *
- * ⛔ IT HAS ALREADY BEEN WRONG ONCE, in a way no unit test existed to catch: the
- * length guard compared `String.length` (UTF-16 code units) while
- * `timingSafeEqual` compares BYTE length. Any header carrying a byte >= 0x80
- * passed the guard and then made `timingSafeEqual` THROW — turning a clean 401
- * into an unhandled 500 on an internet-reachable endpoint.
+ * ⛔ The length guard must compare bytes: a character count lets a non-ASCII header make
+ * `timingSafeEqual` throw, an unhandled 500 where a 401 belongs.
  */
 describe("isAuthorizedCron", () => {
   const SECRET = "s3cret-value";
@@ -111,10 +100,8 @@ describe("isAuthorizedCron", () => {
   });
 
   it("refuses a non-ASCII header rather than throwing", () => {
-    // ⛔ THE REGRESSION. "é" is one UTF-16 code unit and two UTF-8 bytes, so a
-    // header the same STRING length as the expected value has a different BYTE
-    // length — which is exactly what made `timingSafeEqual` raise. This must
-    // return false, not blow up.
+    // ⛔ "é" is one UTF-16 code unit and two UTF-8 bytes: the same string length, a different
+    // byte length. This must return false, not throw.
     const sameStringLength = `Bearer ${"é".repeat(SECRET.length)}`;
     expect(sameStringLength.length).toBe(`Bearer ${SECRET}`.length);
     expect(() => isAuthorizedCron(sameStringLength, SECRET)).not.toThrow();

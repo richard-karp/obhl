@@ -58,9 +58,7 @@ describe("solveParticipation", () => {
     expect(describeParticipation(plays, nights)).toEqual(metrics);
   });
 
-  // The ladder in planByParticipation falls back to these unpinned rungs when a
-  // calendar's optimal per-weekday quotas can't be packed onto nights, so the
-  // path needs to hold up on its own even though the pinned rungs usually win.
+  // The unpinned rungs `planByParticipation` falls back to must hold up on their own.
   it("solves with the per-weekday quotas left unpinned", () => {
     const nights = twoNightWeeks(12, 3);
     const res = solveParticipation({
@@ -97,11 +95,8 @@ describe("solveParticipation", () => {
   });
 
   it("solves a single-weekday calendar", () => {
-    // One weekday: every pair of consecutive nights is also a pair of
-    // consecutive weeks, so rule 4 and rule 3 fire on the same events. That
-    // double charge is deliberate — the two rules agree here rather than
-    // conflicting, and a team that byes two Thursdays running has still had two
-    // game nights off in a row.
+    // One weekday: consecutive nights are consecutive weeks, so rules 3 and 4 fire on the same
+    // events. Deliberate: they agree here rather than conflict.
     const nights: ParticipationNight[] = [];
     for (let w = 0; w < 16; w++) nights.push({ week: w, weekday: 0, games: 3 });
     const res = solveParticipation({
@@ -112,21 +107,12 @@ describe("solveParticipation", () => {
     });
     expect(res).not.toBeNull();
     for (const row of res!.plays) expect(row.filter(Boolean).length).toBe(12);
-    // Single weekday: a team's games are all on it, so the spread is trivially 0.
     expect(res!.weekdaySpread).toBe(0);
   });
 
   it("still splits weekdays evenly when every team byes every week", () => {
-    // 8 teams, 2 games a night: only 4 of 8 play, so each team byes one of every
-    // week's two nights. Rule 3 is unreachable, and rules 2 and 4 cannot both
-    // hold: alternating weekdays satisfies rule 2 but makes every Thu-then-Mon
-    // pair a back-to-back bye, while byeing one weekday for half the season and
-    // the other for the rest costs rule 2 on every week but stays clear of
-    // back-to-back nights. Rule 4 is weighted above rule 2 — a team sitting two
-    // game nights running is the worse defect — so the solver takes the second,
-    // and this is the one calendar shape in the suite where that shows.
-    //
-    // Rule 1 is unaffected either way and must still hold exactly.
+    // 4 of 8 play, so each team byes one night a week: rules 2 and 4 can't both hold, and rule 4
+    // outranks rule 2. Rule 1 must still hold exactly.
     const nights = twoNightWeeks(14, 2);
     const res = solveParticipation({
       teamCount: 8,
@@ -153,9 +139,7 @@ describe("solveParticipation", () => {
   };
 
   it("declines when a weekday's byes can't be shared out evenly", () => {
-    // An even 4-or-5 split each way would need 16 byes on weekday 0, but its
-    // seven nights only hand out 14 — no assignment of nights can fix that, so
-    // the arithmetic check refuses before any search happens.
+    // An even split needs 16 byes on weekday 0, but its seven nights hand out only 14.
     const res = solveParticipation({
       teamCount: 8,
       nights: lopsided(),
@@ -180,13 +164,6 @@ describe("solveParticipation", () => {
   });
 });
 
-/**
- * Manager constraints in Phase P.
- *
- * The invariant every one of these asserts, in one form or another: a forced
- * bye MOVES a bye. Games per team and the per-night bye quota are properties of
- * the calendar, not of the request, and nothing here is allowed to bend them.
- */
 describe("solveParticipation with manager constraints", () => {
   const base = () => ({
     teamCount: 8,
@@ -247,10 +224,8 @@ describe("solveParticipation with manager constraints", () => {
     expect(res.plays[1][8]).toBe(false);
     expect(res.plays[1][9]).toBe(false);
     expectStructureHolds(res.plays, opts.nights, 18);
-    // The rule-1 breach the request creates is REAL in the solver's own metric —
-    // it is only excluded when the numbers are presented. Asserting the solver
-    // reports zero here would contradict the design: `byeRuleCost` is also the
-    // basis of the admissible bound, and is deliberately left alone.
+    // The rule-1 breach is real in the solver's metric and excluded only when presented: don't
+    // assert zero (`byeRuleCost` is the admissible bound's basis).
     expect(res.byeMultiWeek).toBeGreaterThanOrEqual(1);
   });
 
@@ -267,16 +242,11 @@ describe("solveParticipation with manager constraints", () => {
   });
 
   it("survives a constraint set that forces no cells at all", () => {
-    // A season carrying only `slot_bias` — or only `bye_in_week` — arrives here
-    // with an EMPTY `forced` array rather than none: the set is non-empty, so
-    // the caller does not short-circuit. Crashed before the guard was written
-    // against "has forced cells" instead of "was given a forced argument".
+    // A `slot_bias`- or `bye_in_week`-only season arrives with `forced: []`, not none.
     const opts = base();
     const empty = solveParticipation({ ...opts, forced: [] });
     expect(empty).not.toBeNull();
     expectStructureHolds(empty!.plays, opts.nights, 18);
-    // ...and it is the same schedule an unconstrained solve produces, since
-    // nothing was actually asked for.
     expect(empty!.plays).toEqual(solveParticipation(base())!.plays);
     expect(solveParticipation({ ...opts, byeInWeek: [] })).not.toBeNull();
   });
@@ -305,10 +275,7 @@ describe("solveParticipation with manager constraints", () => {
       ...opts,
       // Nights 0, 2, 4, 6 are the first four Mondays.
       forced: [0, 2, 4, 6].map((night) => ({ team: 0, night, plays: false })),
-      // A fourth Monday bye is one more than a perfectly even 18 games allows,
-      // so the request only fits at all once the weekday band widens by a game.
-      // The generator's own ladder does this for itself — this is the rung it
-      // lands on, reached directly because the unit under test is the solver.
+      // A fourth Monday bye fits only once the weekday band widens by a game.
       weekdaySlack: 1,
     })!;
     expect(res).not.toBeNull();
@@ -317,24 +284,10 @@ describe("solveParticipation with manager constraints", () => {
   });
 });
 
-/**
- * Two requests naming ONE cell.
- *
- * The per-weekday bye limits are per-cell, `forced` is a list of requests, and
- * the two are not the same length. Neither route in requires the manager to do
- * anything wrong: `saveScheduleConstraint` is a plain insert with no unique
- * index and the picker keeps its team after a successful add, so a double-click
- * duplicates a request; and a `bye_week` plus a `bye_on` inside that same week
- * resolves to two entries for one night with no duplicate request at all.
- *
- * ⚠️ `exactWeekdayTargets: true` — the bug lives in the exact-target pinning,
- * and the generator's rung ladder drops to `exact: false` at rung 4, which is
- * why this never surfaced as a refusal end-to-end. It surfaced as a worse
- * schedule and no message, so it is asserted here at the solver.
- */
+/** Two requests naming one cell (a double-click, or `bye_week` overlapping `bye_on`). ⚠️ Pinned
+ *  to `exactWeekdayTargets: true`: the ladder's unpinned rungs hid the bug end to end. */
 describe("solveParticipation with duplicate forced cells", () => {
-  // Tighter than `base()` above on purpose: 8 nights leaves 2 byes a team, so
-  // a single duplicated request is already enough to over-count a weekday.
+  // Tighter than `base()`: 2 byes a team, so one duplicate already over-counts a weekday.
   const tight = () => ({
     teamCount: 8,
     nights: twoNightWeeks(4, 3),

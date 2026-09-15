@@ -5,7 +5,6 @@ import {
   leagueTimeKey,
 } from "@/lib/format";
 
-/** A game row as the night grouping needs it, independent of the query shape. */
 export type NightRow = {
   id: string;
   scheduled_at: string | null;
@@ -20,55 +19,32 @@ export type SeasonNightGame = {
   id: string;
   homeTeamId: string;
   awayTeamId: string;
-  /**
-   * The game's own `scheduled_at`, which is null for a postponed game — *not*
-   * the date the night was derived from. The one-off repair writes this value
-   * straight back, so carrying `postponed_from` here would resurrect a date that
-   * was deliberately cleared.
-   */
+  /** ⛔ The game's own `scheduled_at` (null when postponed), not its night's date: repair
+   *  writes it back. RUNBOOK.md, _Schedule edits and exports_. */
   scheduledAt: string | null;
   label: string | null;
-  /**
-   * The row's own status. Carried so a caller refusing a locked night can say
-   * WHICH game locked it — `locked` on its own is a boolean with no story, and
-   * "that night has been played" about a night where one game is postponed is
-   * the wrong sentence.
-   */
+  /** Carried so a refusal can name the game that locked the night, not just refuse. */
   status: string;
 };
 
 export type SeasonNight = {
   /** League-local calendar date, "YYYY-MM-DD". */
   date: string;
-  /**
-   * The repair may not touch this night: it's in the past, or one of its games
-   * has moved off `scheduled` (played, in progress, postponed, cancelled).
-   * Whole-night granularity, because re-pairing part of a night would break
-   * one-game-per-team.
-   */
+  /** Past, or a game has left `scheduled`. Whole nights, because re-pairing part of one would
+   *  break one game per team. */
   locked: boolean;
   /** The night's games in ice-time order. */
   games: SeasonNightGame[];
 };
 
-/**
- * Groups a season's games into the nights the one-off planner reasons about.
- *
- * Pure, and takes `today` as a league date key rather than reading the clock, so
- * the locking rules can be tested.
- *
- * A postponed game is placed by `postponed_from`: it has no `scheduled_at` any
- * more, and grouping on that alone would drop it — which would take its night's
- * lock with it and let the planner re-pair a night it must not touch. A game
- * with neither date has no night to belong to and is dropped.
- */
+/** ⛔ A postponed game is placed by `postponed_from`, or its night loses its lock and repair
+ *  re-pairs it. `today` is a league date key. RUNBOOK.md, _Schedule edits and exports_. */
 export function groupIntoNights(
   rows: NightRow[],
   today: string,
 ): SeasonNight[] {
-  // `at` is where the night is; `game.scheduledAt` is what the row actually
-  // holds. They differ for a postponed game, and conflating them is how a
-  // cleared date would find its way back into the column.
+  // `at` places the game; `game.scheduledAt` is what gets written. Conflate them and a cleared
+  // date comes back.
   type Slot = { at: string; game: SeasonNightGame };
   const byDate = new Map<string, { slots: Slot[]; locked: boolean }>();
 
@@ -102,61 +78,24 @@ export function groupIntoNights(
     }));
 }
 
-/**
- * Whether a whole-night move is allowed, and if not, why — in a sentence a
- * manager can act on.
- *
- * Pure and in this module rather than in the server action, for the reason
- * `checkOneOffWrite` is: every refusal here is a decision worth testing without
- * a database, and there are four of them.
- *
- * ⛔ A LOCKED NIGHT IS NAMED, NOT JUST REFUSED. `locked` is set by
- * `groupIntoNights` from exactly two conditions — the date is behind us, or a
- * game has moved off `scheduled` — and they want different sentences. A game
- * with goals is always the second one, because the first bumped stat takes a
- * game to `in_progress` (`bumpStat` in actions/games.ts), so this covers the
- * "has goals" half of the season lock without a second query for them.
- *
- * ⚠️ A target night that already runs games is refused rather than merged.
- * Combining two nights changes how many games run in an evening, which is an
- * ice-booking question the app cannot answer — so the count is reported and the
- * decision left with the manager.
- */
+/** Whether a whole-night move is allowed, else why. ⚠️ A target night that already runs games
+ *  is refused, not merged: how many games an evening runs is an ice-booking question.
+ *  ⛔ A locked night is named, not just refused; a game with goals is always off `scheduled`
+ *  (`bumpStat`), so no goals query is needed. */
 export function checkNightMove(opts: {
   nights: SeasonNight[];
   from: string;
   to: string;
-  /**
-   * The league-local calendar date, supplied by the caller for the reason
-   * `groupIntoNights` takes it: server-UTC is up to five hours ahead of the
-   * league's zone, which would refuse a same-day move every evening after 7pm.
-   */
+  /** League-local: server UTC runs up to five hours ahead and would refuse evening moves. */
   today: string;
-  /** The season's own bounds, either end nullable. */
   season: { startsOn: string | null; endsOn: string | null };
-  /** Team id → name, for naming the game that blocked the move. */
   nameOf: (id: string) => string;
 }): string | null {
   const { nights, from, to, today, season, nameOf } = opts;
   if (from === to) return "That night is already on that date.";
 
-  /**
-   * ⛔ THE ONE-WAY DOOR, AND THE REASON THIS FUNCTION TAKES `today` AT ALL.
-   *
-   * `season_is_started` (0026) is true the moment ANY published game's
-   * `scheduled_at` is in the past, and from then on `generateSchedule`,
-   * `replace_published_schedule` and `removeSchedule` refuse permanently. These
-   * are already-published rows, so moving a night backwards trips that lock
-   * without anyone publishing anything — the same trap `isPastGameNight` guards
-   * the generator against, on a path that does not even need a publish.
-   *
-   * ⚠️ AND IT DOES NOT UNDO. `groupIntoNights` marks a night whose date is
-   * behind us `locked`, so the move back is refused by the lock check below and
-   * the only way out is `rescheduleGame`, one game at a time.
-   *
-   * Today itself passes, matching `isPastGameNight`: tonight is a legitimate
-   * game night, and refusing it would cost the manager a real option.
-   */
+  // ⛔ The one-way door: a published game moved into the past trips `season_is_started` for
+  // good, and a past night locks, so nothing moves it back. Today itself passes.
   if (to < today) {
     return "That date has already passed. Moving live games into the past locks the season — it can no longer be regenerated, replaced or removed — and there is no undo.";
   }
@@ -187,36 +126,11 @@ export function checkNightMove(opts: {
   return null;
 }
 
-/**
- * One game's new timestamp, as `rescheduleNight` writes it.
- *
- * `from` rides along because the write is conditional on it: the update applies
- * only while the row still holds the time this plan was computed against, so a
- * game rescheduled or postponed in between refuses instead of being dragged to
- * the new night. Carrying it here is what keeps the write path from re-deriving
- * it and getting a null.
- */
+/** `from` rides along because the write applies only while the row still holds it. */
 export type MovedGame = { id: string; from: string; scheduledAt: string };
 
-/**
- * Move a whole night's games to another date, keeping their ice-time order and
- * the gaps between the slots.
- *
- * The rule is **wall clock, not instant**: a game on the ice at 19:00 is on the
- * ice at 19:00 on the new date, whichever side of the DST boundary each date
- * falls. That preserves the gaps by construction — 19:00/20:15/21:30 stays
- * 19:00/20:15/21:30 — where carrying the UTC instants forward would shift the
- * whole night by an hour across a boundary, and rewriting only the date part of
- * the string would do the same thing while looking correct.
- *
- * Pure, and takes the games in the order they should keep. `groupIntoNights`
- * already returns a night's games in ice-time order, so a caller handing one
- * straight over gets that order back.
- *
- * A game with no `scheduledAt` is dropped rather than given a time. Only a
- * postponed game is in that state, its night is locked, and `rescheduleNight`
- * refuses a locked night — so this is the belt to that braces, not a path.
- */
+/** ⚠️ Wall clock, not instant: 19:00 stays 19:00 across a DST boundary, keeping the gaps. A
+ *  game with no `scheduledAt` (postponed, so its night is locked) is dropped. */
 export function moveNightTo(
   games: { id: string; scheduledAt: string | null }[],
   targetDate: string,

@@ -18,21 +18,8 @@ export type RepairNight = { date: string; times: string[] };
 const SELECT =
   "border-input bg-background h-9 w-full rounded-md border px-2 text-sm";
 
-/**
- * Pin a team to a night — or a night and an ice time — and repair the season
- * around it, or repair it with no pin at all.
- *
- * ⛔ **STATE THE PIN → SEE A PLAN → APPLY.** The diff is on screen before
- * anything is written, never after. This is the screen that stops a manager
- * wrecking a live schedule, and the one-off planner already set the precedent.
- *
- * ⚠️ **What repair cannot do, said out loud on the page rather than only when it
- * fails.** Participation is frozen by the published schedule: who plays on which
- * night cannot move, so games played, byes and per-weekday counts cannot either.
- * What moves is who plays whom, the ice time and home/away. A team pinned to a
- * night it byes is reported unmet with that reason — the obvious reading of "X
- * needs to play that night" is that repair will add them to it, and it will not.
- */
+// ⛔ State the pin, see a plan, then apply: the diff is on screen before anything is written. ⚠️ Repair
+// can't add a team to a night (participation is frozen), so a pin on a bye is reported unmet.
 export function ScheduleRepairForm({
   seasonId,
   teams,
@@ -73,11 +60,7 @@ export function ScheduleRepairForm({
       }
       if (res.kind !== "preview") return;
       setPreview(res.preview);
-      // ⛔ Index 0, NOT index 1. The one-off form skips its first plan because
-      // that one is the zero-change "leave the season alone" baseline;
-      // `planRepair` filters that baseline out before returning, so copying the
-      // skip here quietly defaulted to the SECOND repair ("disturb the fewest
-      // games") while the comment claimed it was picking the best.
+      // ⛔ Index 0, not 1: `planRepair` already drops the zero-change baseline the one-off form skips.
       setChosen(res.preview.plans[0]?.id ?? null);
     });
   };
@@ -89,15 +72,11 @@ export function ScheduleRepairForm({
     startTransition(async () => {
       const res = await applyScheduleRepair({
         seasonId,
-        // Dates, not the planner's night indices: apply re-reads the schedule,
-        // and an index would silently point at a different night if anything
-        // shifted in between.
+        // Dates, not night indices: apply re-reads the schedule, and an index could point at another night.
         changes: plan.changes.map((c) => ({
           date: preview.nights[c.night].date,
           to: c.to,
-          // ⛔ The ids this plan was computed against, in slot order. Apply
-          // re-reads the schedule and refuses if they have moved — see
-          // `PlannedNight.gameIds`.
+          // ⛔ The ids this plan was computed against, in slot order: apply refuses if they have moved.
           gameIds: preview.nights[c.night].gameIds,
         })),
       });
@@ -188,17 +167,10 @@ export function ScheduleRepairForm({
                   {night ? "Any time that night" : "Pick a night first…"}
                 </option>
                 {/*
-                  The night's PUBLISHED ice times, not a form's slot list — the
-                  pin is about a night that already exists. See `publishedSlots`
-                  in the action for the hazard this avoids.
+                  The night's published ice times, not a form's slot list: the pin is about an existing night.
                 */}
                 {/*
-                  ⚠️ DISTINCT times. A night can run two games at the same clock
-                  time — two sheets of ice, or a hand `rescheduleGame` — and
-                  listing both gave two <option>s with the same key and the same
-                  value: a React duplicate-key warning, and two choices that
-                  submit identically. The pin means "that ice time", and the
-                  server resolves it to the first game on it.
+                  ⚠️ Distinct times: two games at one clock time made duplicate keys; the server takes the first.
                 */}
                 {[...new Set(night?.times ?? [])].map((t) => (
                   <option key={t} value={t}>
@@ -217,9 +189,7 @@ export function ScheduleRepairForm({
               {pending ? "Working…" : "Preview the repair"}
             </Button>
             {/*
-              Item 4: the same engine with no pin at all — what a manager
-              reaches for after a run of manual reschedules has left the
-              ice-time share lopsided.
+              The same engine with no pin: for when manual reschedules have left ice-time share lopsided.
             */}
             <Button
               variant="outline"
@@ -293,9 +263,8 @@ function RepairPlans({
     );
   }
 
-  // ⚠️ A third answer, and not "nothing to improve": repairs DO exist, and the
-  // pin is what rules them out. Collapsing this into the branch below would
-  // tell the manager their season is as good as it gets when it is not.
+  // ⚠️ Not "nothing to improve": repairs exist and the pin rules them out. Merged into the branch below, it
+  // would call the season as good as it gets.
   if (preview.pinBlocksImprovement) {
     return (
       <Card>
@@ -318,8 +287,7 @@ function RepairPlans({
     );
   }
 
-  // ⚠️ Item 4 has to be able to say this, rather than offer a plan that churns
-  // nights for a score that did not move.
+  // ⚠️ An unpinned repair must be able to say this, rather than churn nights for a score that did not move.
   if (preview.nothingToImprove) {
     return (
       <Card>
@@ -328,9 +296,7 @@ function RepairPlans({
         </CardHeader>
         <CardContent className="space-y-2">
           {/*
-            ⚠️ "Already true" and "the search could not do it" are different
-            answers, and telling a manager the wrong one is how they conclude
-            the feature is broken when it simply had no work to do.
+            ⚠️ "Already true" and "the search could not" are different answers; the wrong one reads as broken.
           */}
           {preview.pinAlreadyMet ? (
             <p className="text-sm">
@@ -355,10 +321,7 @@ function RepairPlans({
       </CardHeader>
       <CardContent className="space-y-4">
         {/*
-          ⛔ A `play_on` pin that IS satisfiable is one the published schedule
-          already meets — repair cannot add a team to a night, so there is no
-          other kind it can honour. Saying so stops the manager reading these
-          plans as something their pin produced.
+          ⛔ A satisfiable `play_on` pin is one already met (repair can't add a team to a night): say so.
         */}
         {preview.pinAlreadyMet ? (
           <p className="text-sm">

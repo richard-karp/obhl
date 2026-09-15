@@ -23,30 +23,8 @@ import { POSITION_LABEL } from "@/lib/players/positions";
 
 export type DialogTeam = { id: string; name: string };
 
-/**
- * Everything about one player, in one place.
- *
- * ⛔ A CONTAINER, NOT A WRITE PATH. Every control here submits to an existing
- * action in `lib/actions/rosters.ts`. `0036` exists because a second, naive
- * implementation of a transfer destroyed goalie records through
- * `v_goalie_stats`' inner join and reported no error doing it; the roster
- * editor's header says the same thing at more length. Nothing in this file may
- * grow a query.
- *
- * ⛔ WHY A DIALOG AT ALL. The edit form used to open INSIDE the row's last
- * cell, which already held eight controls — Rookie, Suspend, Injury+Set, Set
- * Default, Make C, Edit, Transfer, Remove — so it was handed whatever remained
- * of one cell of one column. It did not fit at any viewport, which is what the
- * maintainer reported. Moving the controls out is what makes the row readable;
- * the dialog is where they went.
- *
- * ⚠️ THE RENAME KEEPS ITS OWN BUTTON AND ITS OWN PARAGRAPH. Jersey, position
- * and night live on `team_players` — one team, one season. A name lives on
- * `players`, which has no league at all, so renaming reaches every league the
- * person plays in. Folding it into the same Save would hide a cross-league
- * write inside a routine one. That was true when these were two stacked forms
- * and it is true now that they are two sections of a dialog.
- */
+// ⛔ A container, not a write path: every control submits to `lib/actions/rosters.ts`, and nothing here may
+// grow a query (`0036`). ⚠️ Rename keeps its own button: a name lives on `players`, reaching every league.
 export function PlayerEditDialog({
   rosterId,
   firstName,
@@ -67,13 +45,8 @@ export function PlayerEditDialog({
   jerseyNumber: number | null;
   position: string;
   nightOfWeek: number | null;
-  /**
-   * The season's nights, 0=Sun..6=Sat. EMPTY means do not offer the control —
-   * a league that plays one night has nothing to choose between. The caller
-   * decides via `hasMultipleNights`; an empty list here also means the field
-   * is not submitted, which `updateRosterPlayer` reads as "leave it alone"
-   * rather than "clear it".
-   */
+  // 0=Sun..6=Sat. Empty offers no control and submits no field, which `updateRosterPlayer` reads as "leave
+  // it alone", not "clear it".
   nights: number[];
   isCaptain: boolean;
   isRookie: boolean;
@@ -97,54 +70,21 @@ export function PlayerEditDialog({
     FormData
   >(transferPlayer, null);
 
-  /**
-   * ⛔ THE STATUS TOGGLES GO THROUGH `useActionState`, NOT `<form action={…}>`.
-   * As plain form posts — which is what they were in the row — each one is a
-   * full server-action round trip that revalidates the page underneath this
-   * dialog. In a table cell that was fine, because there was nothing to keep
-   * open. Here it risks tearing the dialog down mid-edit, which is the same
-   * reason `EditPlayerForm` already dispatched its two forms this way.
-   *
-   * ⚠️ BOUND DIRECTLY, NOT THROUGH A WRAPPER THAT DISCARDS THE RESULT. The
-   * first version wrapped each in `async () => { await action(body); return
-   * null; }`, so the state was permanently null and the error paragraph below
-   * was unreachable — dead UI over two writes that also swallowed their own
-   * `.error`. Both actions return a state now.
-   */
+  // ⛔ Status toggles go through `useActionState`: a plain form post revalidates the page and can tear the
+  // dialog down mid-edit. ⚠️ Bound directly, never through a wrapper that discards the result.
   const [statusState, statusAction, statusPending] = useActionState<
     RosterActionState,
     FormData
   >(updatePlayerStatus, null);
 
-  // Captaincy is its own action and its own row-level fact, dispatched the same
-  // way and for the same reason as the toggles above.
+  // Captaincy: its own action, dispatched the same way.
   const [captainState, captainAction, captainPending] = useActionState<
     RosterActionState,
     FormData
   >(toggleCaptain, null);
 
-  /**
-   * ⛔ A SUCCESSFUL SAVE DOES NOT CLOSE THIS, AND THAT IS DELIBERATE TWICE OVER.
-   *
-   * It holds several independent controls — number/position/night, the status
-   * toggles, transfer, rename — and a manager commonly uses more than one in a
-   * sitting. Closing on the first Save would throw them out mid-edit and make
-   * the next change a second trip through the row.
-   *
-   * It also avoids the cascading render `setState` inside an effect causes;
-   * `publish-controls.tsx` records the same lesson from the other direction.
-   * The status line under each form is what confirms the write; Done closes.
-   *
-   * ⚠️ TWO EXCEPTIONS, AND BOTH ARE THE EDITOR'S DOING RATHER THAN THIS
-   * DIALOG'S. The roster renders three sibling tables keyed by position and
-   * scoped to `left_on is null` on one team, so:
-   *   - changing a player F→G moves their row to a different list, and
-   *   - transferring them removes it from this table entirely.
-   * Either way this component unmounts with the row, taking the dialog and its
-   * confirmation. That is right — the row has left the table the dialog was
-   * opened from — but it means those two saves DO close it, including the
-   * transfer this same paragraph lists among the things done in one sitting.
-   */
+  // ⛔ A successful save does not close this: a manager uses several controls in one sitting. ⚠️ A position
+  // change or a transfer still does, moving the row out of its table and unmounting the dialog with it.
   const statusForm = (
     field: string,
     value: string,
@@ -174,9 +114,8 @@ export function PlayerEditDialog({
           Edit
         </Button>
       </DialogTrigger>
-      {/* Wider than the default so number/position/night sit on one line at
-          desktop width, and scrollable so the whole thing is reachable at
-          390px, where they stack. */}
+      {/* Wider than the default so number, position and night share a line; scrollable
+          so all of it is reachable at 390px. */}
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{name}</DialogTitle>
@@ -332,9 +271,8 @@ export function PlayerEditDialog({
               Set
             </Button>
           </form>
-          {/* Failures only. A successful toggle is visible in the button's own
-              pressed state and in the row's badge behind the dialog; a refusal
-              has nowhere else to appear. */}
+          {/* Failures only: a success shows in the button's pressed state and the row's
+              badge, and a refusal has nowhere else to appear. */}
           {[statusState, captainState].map((st, i) =>
             st && !st.ok ? (
               <p key={i} role="status" className="text-destructive text-xs">
@@ -452,9 +390,8 @@ export function PlayerEditDialog({
               {namePending ? "Renaming…" : "Rename everywhere"}
             </Button>
           </div>
-          {/* Said BEFORE the button is pressed, not after. A person is one
-              record across leagues, and a manager fixing a typo has no way to
-              know from this page that they also skate somewhere else. */}
+          {/* Said before the button is pressed: a manager fixing a typo can't tell from
+              here that the person also plays in another league. */}
           <p className="text-muted-foreground text-xs">
             A player is one record shared by every league they play in, so this
             renames them everywhere — not just here. If they also play a league

@@ -5,9 +5,8 @@ const TIERS: (OfficeTier | null)[] = ["commissioner", "deputy", null];
 const name = (t: OfficeTier | null) => t ?? "manager";
 
 describe("decideProfileWrite — the nine-cell precedence matrix", () => {
-  // Rows are the actor, columns the target, in TIERS order. `contains` is true
-  // throughout so the office cells are not accidentally passing on the tier-0
-  // test; the containment sub-cases are asserted separately below.
+  // Rows are the actor, columns the target. `contains` is true throughout, so no office
+  // cell passes on the tier-0 test; containment is asserted separately below.
   const expected: Record<string, boolean> = {
     "commissioner->commissioner": false, // peer-flat: the tier is not editable from the app
     "commissioner->deputy": true,
@@ -15,7 +14,7 @@ describe("decideProfileWrite — the nine-cell precedence matrix", () => {
     "deputy->commissioner": false, // a deputy cannot touch the office at all
     "deputy->deputy": false,
     "deputy->manager": true,
-    "manager->commissioner": false, // trap (b): never via vacuous containment
+    "manager->commissioner": false, // never via vacuous containment
     "manager->deputy": false,
     "manager->manager": true, // ...when contained; see below
   };
@@ -41,10 +40,8 @@ describe("decideProfileWrite — the tier-0 containment sub-cases", () => {
 });
 
 describe("decideProfileWrite — the office ignores containment", () => {
-  // Reach is a rule at every office tier, not data, so an office member has no
-  // profile_leagues rows and containment is meaningless for them. If any office
-  // cell ever started depending on `contains`, the two halves of the rule would
-  // have drifted: 0034's SQL reaches its containment test only at tier 0.
+  // An office cell that depends on `contains` has drifted from `0034`, whose SQL reaches
+  // its containment test only at tier 0.
   it.each([
     ["commissioner", "deputy", true],
     ["commissioner", null, true],
@@ -62,11 +59,8 @@ describe("decideProfileWrite — the office ignores containment", () => {
 });
 
 describe("decideProfileWrite — self-writes", () => {
-  // At the office tiers this is peer-flatness doing the work, and it is why an
-  // office member cannot demote themselves into a powerless commissioner. At
-  // tier 0 a manager DOES pass here — their leagues trivially contain their own —
-  // and it is `updateStaffRole`'s demotion guard, not this rule, that refuses.
-  // Asserted so a future change to either cannot quietly swap which one holds.
+  // At tier 0 a manager passes here; `updateStaffRole`'s demotion guard is what refuses.
+  // Asserted so a change to either cannot quietly swap which one holds.
   it.each(TIERS)("%s cannot write their own tier", (tier) => {
     expect(decideProfileWrite(tier, tier, true)).toBe(tier === null);
   });

@@ -7,13 +7,6 @@ import {
   type IceOutcome,
 } from "./spacing";
 
-/**
- * Phase S under manager constraints.
- *
- * This file is only about the two things constraints add: a pinned ice time,
- * and the preference term.
- */
-
 /** `n` identical nights of two games: 0 v 1 and 2 v 3, on two sheets of ice. */
 const twoGameNights = (n: number): [number, number][][] =>
   Array.from({ length: n }, () => [
@@ -24,9 +17,7 @@ const twoGameNights = (n: number): [number, number][][] =>
 describe("assignSlots pins", () => {
   it("holds a pinned game on its ice time while the night permutes around it", () => {
     const pairsByNight = twoGameNights(6);
-    // Ask for the arrangement the search would otherwise refuse: team 0 on the
-    // late sheet every single night. The even-share term costs 60 a step and the
-    // pin is not a cost at all, so this only holds if the pin is honoured.
+    // Team 0 late every night, which the share term would refuse: this holds only if the pin does.
     const slotOf = assignSlots({
       teamCount: 4,
       pairsByNight,
@@ -53,10 +44,8 @@ describe("assignSlots pins", () => {
       weekdayOfNight: new Array(6).fill(1),
       timeBudgetMs: 200,
       restarts: 50,
-      // Only night 0 is supplied. The rest are `undefined`, which is NOT the
-      // identity packing — they go through `seedNights` like any other night,
-      // which is what lets generation pin a handful of nights without freezing
-      // the season's ice-time layout.
+      // ⚠️ Only night 0 is supplied: `undefined` nights are seeded like any other, not the
+      // identity packing, which is what lets generation pin a few nights.
       initial: [[1, 0], ...new Array(5).fill(undefined)],
       pinned: [[0], ...new Array(5).fill(undefined)],
     });
@@ -68,15 +57,7 @@ describe("assignSlots pins", () => {
 });
 
 describe("assignSlots slot_bias", () => {
-  /**
-   * A fixture where the bias is the ONLY thing left to decide.
-   *
-   * Two identical nights on one weekday, two sheets, four teams. The even-share
-   * terms pin team 0 to one early game and one late one; both orderings tie on
-   * season share, on per-weekday share, and on repeats (neither has any). Which
-   * night gets which sheet is therefore a coin toss — unless a bias is asked
-   * for, which is precisely the situation this term exists for.
-   */
+  /** Two identical nights where every other term ties, so only the bias decides. */
   const biasFixture = (prefer: "early" | "late") =>
     assignSlots({
       teamCount: 4,
@@ -101,10 +82,8 @@ describe("assignSlots slot_bias", () => {
   });
 
   it("will not buy the preference by breaking the even ice share", () => {
-    // Ten nights, one weekday, the whole season inside the window. An even
-    // share is 5/5; taking every game early would be 10/0. The bias is 4 a step
-    // against 60 for a step of share, so it must lose — best effort means
-    // exactly this, and a weight that won here would have reordered the goals.
+    // Ten nights inside the window: an even share is 5/5, all early 10/0. The bias (4 a step)
+    // must lose to the share (60).
     const slotOf = assignSlots({
       teamCount: 4,
       pairsByNight: twoGameNights(10),
@@ -147,9 +126,6 @@ describe("iceOutcome bias", () => {
     });
     expect(honoured.biasCost).toBe(0);
     expect(ignored.biasCost).toBe(SLOT_BIAS_W);
-    // Everything else about the two is identical, which is the point: without
-    // this term reaching `compareIceOutcome`, generation would pick between
-    // them at random and the feature would be a coin toss.
     expect(compareIceOutcome(honoured, ignored)).toBeLessThan(0);
   });
 
@@ -184,9 +160,6 @@ describe("compareIceOutcome bias ranking", () => {
   });
 
   it("never outranks an ordinary repeat, let alone anything above it", () => {
-    // A candidate that honours the bias perfectly but adds a repeat loses, and
-    // so does one that adds a three-game run. Bias is the last term for a
-    // reason: it is a preference, and `slot_on` is the pin.
     expect(
       compareIceOutcome({ ...base, consecutive: 11, biasCost: -100 }, base),
     ).toBeGreaterThan(0);
@@ -197,40 +170,8 @@ describe("compareIceOutcome bias ranking", () => {
 });
 
 describe("a night permutation is not safe for slot_bias", () => {
-  /**
-   * ⛔ WHY `nightClass` CARRIES A MEMBERSHIP BIT PER BIAS. The night-order pass
-   * may only swap nights whose labels match (`nightClass` in `assignNights.ts`),
-   * and that label is correct only if it names every way a request can depend on
-   * a night's POSITION. A `slot_bias` looks like the one kind that cannot:
-   * `play_on`/`slot_on` name a night, `bye_in_week` names a week, but a bias is
-   * (team, prefer) and reads position-free — so leaving it out of the label, or
-   * exempting bias-only leagues from the pass altogether, both look free.
-   *
-   * Neither is. `SlotBias.nights` is a per-night mask — a from/to stretch of the
-   * season, "over THIS stretch, lean my games late" — and `biasCost` charges
-   * only the games whose night index falls inside it. Permuting nights relabels
-   * which games are in the window, so the cost moves. Below: one arrangement and
-   * a pure permutation of it, same games, same slots, different `biasCost`.
-   *
-   * ⚠️ The failure mode if this is misread is not a crash. `evaluateConstraints`
-   * runs afterwards off the final games, so it would honestly report a request
-   * as unmet that PHASE S had honoured — a bias is a Phase S cost term, and
-   * `evaluateConstraints` deliberately exempts `slot_bias` from the
-   * `plannerHonours` short-circuit. A silent downgrade, not an error.
-   *
-   * ⚠️ AN EARLIER VERSION OF THIS BLOCK DREW A STRONGER CONCLUSION THAN IT
-   * EARNS — that the gate therefore could not be narrowed and had to stay
-   * `resolved.empty`. What the asymmetry below rules out is narrowing the gate
-   * BY CONSTRAINT KIND. It says nothing against constraining the PERMUTATION,
-   * which is what night classes do, and which is what lets the pass run on a
-   * constrained season at all. Measured: worst-team clustering 15 under the old
-   * gate, 4 with night classes and the draw block restored.
-   *
-   * Related: `describe("iceOutcome bias")` above is already a pure night
-   * permutation (`biasCost` 0 → 4). This block exists as the NAMED landing spot
-   * for "is a bias position-sensitive?", not as new behavioural coverage — do
-   * not delete either as a duplicate of the other.
-   */
+  /** ⛔ Why `nightClass` carries a bit per bias: a bias names a stretch of nights, so a pure night
+   *  permutation moves `biasCost`. This and `iceOutcome bias` are not duplicates; keep both. */
   const pairsByNight: [number, number][][] = Array.from({ length: 4 }, () => [
     [0, 1],
     [2, 3],

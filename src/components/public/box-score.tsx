@@ -50,16 +50,8 @@ function TeamScore({
   );
 }
 
-/**
- * Who was in net, under the team's skaters.
- *
- * ⛔ THE TWO "NO LINE" CASES READ DIFFERENTLY ON PURPOSE. A substitute goalie
- * is a complete answer that carries no individual record (`0015`); nobody
- * having entered anything is a gap. Four of the six team-sides in the
- * maintainer's first three production games are the second kind, and this
- * string is how they find out — so it has to say "nobody recorded this", not
- * show a blank or a `—` that reads as a zero.
- */
+// ⛔ The two "no line" cases read differently: a substitute (`0015`) is a complete answer, while nobody entering
+// a goalie is a gap, which must say so rather than show a blank or a `—` that reads as zero.
 function GoalieLineRow({ goalie }: { goalie: BoxGoalie }) {
   if (goalie.kind === "sub") {
     return (

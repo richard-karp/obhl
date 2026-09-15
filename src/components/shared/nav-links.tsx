@@ -14,29 +14,22 @@ const LINKS = [
   { path: "/rules", label: "Rules" },
 ];
 
-/**
- * The league slug has to arrive as a prop: this is a client component and the
- * resolver is server-only. It is also what active state is measured against —
- * the league home is `/harbor`, not `/`, and a bare `startsWith("/standings")`
- * matches nothing under `/harbor/standings`.
- */
+// The slug arrives as a prop (a client component; the resolver is server-only), and active state is measured
+// against `/<league>`, not `/`.
 export function NavLinks({ league }: { league: string }) {
   const pathname = usePathname();
   const base = `/${league}`;
 
   return (
-    // Named, because the staff row beside it is a second `navigation` landmark
-    // and an unnamed one leaves a screen-reader user with "navigation" and
-    // "Staff tools navigation" to tell apart.
+    // Named: the staff row is a second `navigation` landmark.
     <nav
       aria-label="League"
       className="flex items-center gap-1 overflow-x-auto"
     >
       {LINKS.map((link) => {
         const href = `${base}${link.path}`;
-        // Exact match for the home link; elsewhere the section stays lit on its
-        // detail pages (`/harbor/teams/sharks`). The `/` guard is what stops a
-        // hypothetical `/standings-archive` lighting up Standings.
+        // Exact match for home; a section stays lit on its detail pages, and the `/` guard stops
+        // `/standings-archive` lighting up Standings.
         const active =
           link.path === ""
             ? pathname === base

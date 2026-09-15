@@ -1,11 +1,6 @@
 import type { OfficeAuditEntry } from "@/lib/audit";
 
-/**
- * The same shape the audit entries beneath this band use
- * (`audit-session-list.tsx`), and pinned to a locale for the same reason: a bare
- * `toLocaleDateString()` renders in whatever locale and timezone the SERVER
- * happens to have, which is neither the reader's nor stable across deploys.
- */
+// Pinned to a locale, like `audit-session-list.tsx`: a bare `toLocaleDateString()` uses the server's.
 function fmt(iso: string) {
   return new Date(iso).toLocaleString("en-US", {
     month: "short",
@@ -16,23 +11,15 @@ function fmt(iso: string) {
   });
 }
 
-/**
- * Prose fixed in one place so the two surfaces cannot drift.
- *
- * The role column and the office roster read "Commissioner" and "Deputy"; audit
- * prose reads "a commissioner" and "a deputy commissioner", which is how the
- * appointment is said aloud.
- */
+/** Prose fixed in one place: audit prose says "a deputy commissioner", the role column "Deputy". */
 function sentence(e: OfficeAuditEntry): string {
   switch (e.action) {
     case "appoint_deputy":
       return `${e.actor} appointed ${e.target} as a deputy commissioner`;
     case "remove_deputy":
       return `${e.actor} removed ${e.target} as a deputy commissioner`;
-    // Not an office act at all — it is filed here because this band is the only
-    // surface that shows an entry with no league (see the comment at the
-    // `logAudit` call in `auth.ts:updateOwnPassword`). Worded so it cannot be
-    // misread as one: actor and target are the same person.
+    // Not an office act: filed here because this band is the only surface for an entry with no league.
+    // Worded so it can't be misread as one.
     case "set_own_password":
       return `${e.actor} set their own password`;
     default:
@@ -42,16 +29,7 @@ function sentence(e: OfficeAuditEntry): string {
   }
 }
 
-/**
- * League Office changes, as a distinct band rather than rows in a league's log.
- *
- * A tier change touches every league, so filing one row per league would fill a
- * manager's log with entries about people who never worked it, and give N rows
- * for one act. One row per action, shown apart, says the same thing once.
- *
- * `heading` differs by surface: on a league's audit page this is context a
- * manager cannot act on; in League Office it is that page's own log.
- */
+// A distinct band, one row per action: a tier change touches every league, and a row per league is noise.
 export function OfficeAuditNotice({
   entries,
   heading,

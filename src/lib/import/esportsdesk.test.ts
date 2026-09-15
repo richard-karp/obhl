@@ -2,14 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchEsportsdeskLeague } from "@/lib/import/esportsdesk";
 
 /**
- * Roster parsing against the esportsdesk page shape, transcribed from a live
- * rosters.cfm page (clientID=5727, leagueID=23014). The cell layout below is
- * the real one: a status flag, the jersey, the name, then six columns of "-".
- *
- * The nav and legend rows are real too, and they are the reason the jersey
- * COLUMN still has to anchor a player row even when the number is missing —
- * "Statistics" and "Injured" are name-shaped cells sitting in <td>s on the same
- * page, and a parser that just looks for a name finds them.
+ * The cell layout of a live rosters.cfm page. Its nav and legend rows are real, name-shaped cells,
+ * which is why the jersey column must anchor a player row even when the number is missing.
  */
 
 const NAV_ROW =
@@ -90,9 +84,8 @@ describe("esportsdesk roster parsing", () => {
     ]);
   });
 
-  // The live page renders an unnumbered player's jersey as "-". Requiring
-  // digits there dropped 9 of 127 players from the league above without
-  // reporting anything.
+  // The live page renders an unnumbered player's jersey as "-"; requiring digits
+  // there drops those players without reporting anything.
   it("keeps unnumbered players in a partly numbered roster", async () => {
     const players = await parseRoster(
       row("", "4", "Jake Meltzer") +
@@ -106,8 +99,8 @@ describe("esportsdesk roster parsing", () => {
     ]);
   });
 
-  // A league that assigns no numbers at all: the whole roster used to vanish,
-  // and because the teams still parsed the import reported success.
+  // A league that assigns no numbers at all: the teams still parse, so a lost roster
+  // would look like a successful import.
   it("imports a roster where no player has a number", async () => {
     const players = await parseRoster(
       row("", "-", "Jake Meltzer") +
@@ -137,12 +130,8 @@ describe("esportsdesk roster parsing", () => {
     ]);
   });
 
-  // These four are the shapes that a name-shaped cell alone would admit. They
-  // are NOT hypothetical: the first two exist verbatim on every rosters.cfm
-  // page, and an earlier cut of this parser imported all four as players
-  // because an empty jersey cell is legal and nothing required a stat column
-  // after the name. A league whose sidebar renders a short heading in a
-  // two-cell row would have had phantom people written to `players`.
+  // Shapes a name-shaped cell alone would admit, the first two verbatim from every rosters.cfm
+  // page: an empty jersey cell is legal, so only the stat column after the name rules them out.
   it.each([
     ["a two-cell row, empty cell then a short word", "<td></td><td>Roster</td>"],
     ["a two-cell row holding a nav label", "<td></td><td>Standings</td>"],

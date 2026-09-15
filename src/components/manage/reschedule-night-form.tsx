@@ -16,17 +16,8 @@ export type MovableNight = { date: string; games: number };
 const SELECT =
   "border-input bg-background h-9 w-full rounded-md border px-2 text-sm";
 
-/**
- * Move a whole game night to another date.
- *
- * Deliberately available on a season that has already started: this is an
- * in-place update of the games' `scheduled_at`, so it takes the write path that
- * survives `season_is_started` — see `rescheduleNight` for why that matters.
- *
- * Only unlocked nights are offered. A locked one would be refused by the action
- * with a message naming the game that locked it, but offering a night that
- * cannot move and explaining afterwards is the worse of the two.
- */
+// Works on a started season: an in-place `scheduled_at` update that survives `season_is_started`
+// (`rescheduleNight`). Only unlocked nights are offered, rather than refused afterwards.
 export function RescheduleNightForm({
   seasonId,
   nights,
@@ -35,12 +26,8 @@ export function RescheduleNightForm({
 }: {
   seasonId: string;
   nights: MovableNight[];
-  /**
-   * The earliest date the picker offers: today in the LEAGUE's zone, computed
-   * on the server. Not `new Date()` in the browser — that is the viewer's zone,
-   * which disagrees by a day for anyone travelling, and this bound is the
-   * browser half of a guard whose other half is `checkNightMove`.
-   */
+  // Today in the league's zone, computed on the server: the browser's zone is a day off for anyone
+  // travelling. The browser half of `checkNightMove`.
   minDate: string;
   /** The season's last day, when it has one. */
   maxDate: string | null;
@@ -65,19 +52,8 @@ export function RescheduleNightForm({
     );
   }
 
-  /**
-   * ⛔ DISPATCHED HERE, NOT VIA `<form action={…}>` — the same React 19 reset
-   * that this branch fixed on the generate form, and it bites harder here.
-   * Every refusal this action returns is one the manager is expected to correct
-   * and resubmit ("that date already runs 3 games"), and the auto-reset emptied
-   * both fields on the way out — so the correction went in against a blank
-   * night picker and came back "Pick a night to move." Measured 2026-09-06: the
-   * refusal landed, the form cleared, and the retry refused for a different
-   * reason than the one on screen.
-   *
-   * `startTransition` is required, not decorative: `useActionState`'s dispatcher
-   * only raises `isPending` when called inside one.
-   */
+  // ⛔ Dispatched here, not via `<form action>`: React 19's reset would empty the fields a manager corrects
+  // and resubmits after a refusal. `startTransition` is what raises `isPending`.
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const body = new FormData(e.currentTarget);
@@ -115,17 +91,8 @@ export function RescheduleNightForm({
             name="to_date"
             type="date"
             required
-            /*
-              ⛔ The browser half of the one-way-door guard, and it is only the
-              half: a client can drop the attribute, so `checkNightMove` refuses
-              the same date server-side. Moving live games into the past trips
-              `season_is_started` permanently and cannot be undone through this
-              form, because the night then reads as locked.
-
-              Today, in the LEAGUE's zone — not the browser's, which would
-              disagree by a day for anyone travelling. Same call the generate
-              form's first-game-night field makes.
-            */
+            /* ⛔ Only the browser half: `checkNightMove` refuses server-side, since live games moved into the
+               past trip `season_is_started` for good. Today in the league's zone, not the browser's. */
             min={minDate}
             max={maxDate ?? undefined}
           />

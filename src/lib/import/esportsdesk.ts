@@ -2,15 +2,8 @@ import "server-only";
 import * as cheerio from "cheerio";
 
 /**
- * esportsdesk.com importer (read-only scraping). esportsdesk has no API; pages
- * are server-rendered ColdFusion HTML behind a browser-UA gate. We fetch with a
- * browser User-Agent and parse with cheerio. Scrapes rosters (teams + players)
- * only — the starting draft for a new OBHL season.
- *
- * The roster page has no per-row class, so players are matched structurally by
- * cell shape rather than a text heuristic. A multi-season league is handled via
- * the `childSeasonID` query param (the value behind each `sel_ChildSeason`
- * option).
+ * esportsdesk has no API: server-rendered HTML behind a browser-UA gate, scraped with cheerio for
+ * rosters only. Players are matched by cell shape; `childSeasonID` picks a season.
  */
 
 const BASE = "https://www.esportsdesk.com/leagues";
@@ -116,18 +109,14 @@ function splitName(full: string): { firstName: string; lastName: string } {
 }
 
 /**
- * A jersey number as the platform prints it. Deliberately shared by the cell
- * test below and by the number that gets stored: the two have to agree, or a
- * cell that counts as a jersey but does not parse as one would import the
- * player with a null number and no indication anything was lost.
+ * Shared by the cell test and the stored number: if they disagree, a jersey cell that does not
+ * parse imports a null number with no sign anything was lost.
  */
 const JERSEY_NUMBER = /^\d{1,3}$/;
 
 /**
- * A roster row's jersey cell: either a number, or the placeholder the platform
- * renders when a player has none — "-" on the standard template, an empty cell
- * on some leagues. Anchoring a player row on the CELL rather than on a number
- * is what lets unnumbered players import at all.
+ * A number, or the no-number placeholder ("-", or empty on some leagues): anchoring a row on the
+ * cell rather than a number is what lets unnumbered players import at all.
  */
 const isJerseyCell = (s: string) =>
   JERSEY_NUMBER.test(s) || /^[-\u2013\u2014]*$/.test(s);
@@ -148,18 +137,8 @@ async function fetchTeamRoster(
     }),
   );
 
-  // The current team's name is the single word immediately before its W-L-T
-  // record (e.g. "Black  19w-10l-8t"). The roster table has no per-row class, so
-  // players are matched by cell shape: a jersey cell followed by a name cell; a
-  // "C" cell before it marks the captain; a lone G/D cell after the name is the
-  // position (most leagues leave it blank → Forward).
-  //
-  // The jersey cell anchors the row, but its CONTENTS are optional. esportsdesk
-  // renders an unnumbered player's number as "-", so requiring digits there
-  // dropped those players silently: 9 of 127 in the league this was first
-  // written against, and every single player in a league that assigns no
-  // numbers at all — which reads as "teams imported, rosters empty". They come
-  // through with a null jersey, which `team_players` already allows.
+  // The team name is the word before its W-L-T record ("Black  19w-10l-8t"). A player is a jersey
+  // cell then a name; a "C" before marks the captain, a lone G/D after is the position.
   const text = $("body").text().replace(/\s+/g, " ");
   const name =
     text
@@ -168,21 +147,8 @@ async function fetchTeamRoster(
 
   const players: ParsedPlayer[] = [];
   $("tr").each((_, tr) => {
-    // Use children() not find() — the page uses a nested two-column table
-    // layout; find() descends into nested tables and the outer layout rows
-    // accumulate all player cells as descendants, producing false duplicates.
-    // Empty cells are KEPT — no .filter(Boolean). The jersey column is what
-    // marks a row as a player's, and collapsing blanks would reduce an
-    // unnumbered player to a bare name, which this page's nav row
-    // ("Statistics", "Schedule", "Roster"…) and status legend ("Injured",
-    // "Suspended"…) also look like. Keeping the column in place is what tells
-    // those apart.
-    //
-    // A player row is therefore a name BETWEEN two cells: a jersey cell before
-    // it and at least one stat column after it. The trailing half carries as
-    // much weight as the leading one, because an EMPTY jersey cell is legal —
-    // without it a bare two-cell layout row (["", "Roster"], ["", "Standings"])
-    // parses as a player and invents people who do not exist.
+    // `children()`, not `find()`, which descends into nested layout tables and duplicates players.
+    // Empty cells are kept and a name needs a cell on each side, or nav and layout rows parse as people.
     const cells = $(tr)
       .children("td")
       .map((_, td) => $(td).text().replace(/\s+/g, " ").trim())

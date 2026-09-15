@@ -1,17 +1,6 @@
 /**
- * Who the scoresheet offers as a team's goalie, before anyone picks.
- *
- * ⛔ THIS REPLACED A TABLE AND A FLAG, AND IT REPRODUCES BOTH. Until 2026-09-11
- * a team had `team_players.is_default_goalie` (the fallback) and
- * `team_goalie_days` (a per-weekday override). Measured against production the
- * day they went: every `is_default_goalie` in both live leagues sat on a team
- * with exactly ONE goalie, which rule 1 below covers — so the flag converted to
- * nothing on purpose rather than by omission. The weekday table became
- * `team_players.night_of_week`, which any player may carry, not just a goalie.
- *
- * ⚠️ A SUGGESTION, NOT A DECISION. `setGoalie` still writes whoever the
- * scorekeeper picks; this only decides what is pre-selected. Nothing here
- * should grow a write.
+ * ⚠️ A suggestion, not a decision: `setGoalie` writes whoever the scorekeeper picks, and this
+ * only decides what is pre-selected. Nothing here should grow a write.
  */
 export type RosterGoalie = {
   playerId: string;
@@ -22,10 +11,8 @@ export type RosterGoalie = {
 };
 
 /**
- * @param goalies  The team's rostered goalies — active rows only; a departed
- *                 player is history, not somebody to start.
- * @param gameWeekday  `leagueWeekday(game.scheduled_at)`: 0-6, or -1 when the
- *                 game has no usable date, which must match no assignment.
+ * @param goalies  Active roster rows only: a departed player is history, not somebody to start.
+ * @param gameWeekday  `leagueWeekday(game.scheduled_at)`; -1 (no usable date) must match nobody.
  */
 export function suggestGoalie(
   goalies: RosterGoalie[],
@@ -33,26 +20,15 @@ export function suggestGoalie(
 ): string | null {
   if (goalies.length === 0) return null;
 
-  // 1. One goalie is the goalie, whatever night it is. ⚠️ THIS OUTRANKS THE
-  //    NIGHT ON PURPOSE: a team with a single netminder who happens to be
-  //    marked "Tuesday" still plays them on Thursday, and asking their manager
-  //    to assign a night to state the obvious is the tax this avoids.
+  // 1. One goalie is the goalie, whatever night it is. ⚠️ This outranks the night on
+  //    purpose: a single netminder marked "Tuesday" still plays on Thursday.
   if (goalies.length === 1) return goalies[0].playerId;
 
   // 2. Otherwise the one whose night this is.
   const onNight = goalies
     .filter((x) => x.night === gameWeekday)
-    // ⛔ DETERMINISTIC, BECAUSE THE DATA PERMITS A TIE. Nothing stops two
-    //    goalies sharing a night — deliberately, so a team that alternates can
-    //    be represented — and a suggestion that changed between two reads of
-    //    the same roster would look like the page losing the scorekeeper's
-    //    pick. Lowest jersey wins; a goalie with no number sorts last rather
-    //    than winning as 0.
-    // ⛔ NOT `(a.number ?? Infinity) - (b.number ?? Infinity)`. Two goalies who
-    // both lack a number make that `Infinity - Infinity`, which is `NaN`, and a
-    // comparator returning NaN leaves the order engine-defined — the one thing
-    // this sort exists to prevent. Unnumbered players are not hypothetical: the
-    // esportsdesk roster parser produced a whole league of them.
+    // ⛔ Deterministic, since two goalies may share a night: lowest jersey wins, unnumbered last.
+    // ⛔ Never `?? Infinity`: two unnumbered goalies give `Infinity - Infinity`, NaN, and no order.
     .sort((a, b) => {
       const an = a.number ?? Number.MAX_SAFE_INTEGER;
       const bn = b.number ?? Number.MAX_SAFE_INTEGER;
@@ -60,8 +36,7 @@ export function suggestGoalie(
       return an - bn || a.playerId.localeCompare(b.playerId);
     });
 
-  // 3. Two or more goalies and none owns this night: nobody. Guessing here is
-  //    how a scorekeeper ends up crediting a shutout to someone who did not
-  //    play, and the pick is one tap away.
+  // 3. Two or more goalies and none owns this night: nobody. A guess can credit a
+  //    shutout to someone who did not play, and the pick is one tap away.
   return onNight[0]?.playerId ?? null;
 }

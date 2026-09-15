@@ -1,14 +1,6 @@
 "use client";
 
-// ⛔ `"use client"` STAYS THE FIRST LINE — a directive prologue may be preceded
-// only by comments, and this file's notes are below it for that reason.
-//
-// The staff link row. Once half of a second header — `ManageNav`, a whole brand
-// bar with its own account cluster and league switcher — now only the content,
-// because there is one header for the whole site and this sits beneath it. The
-// file moved out of `components/manage/` with the rest of that header: it is
-// drawn by `[league]/layout.tsx` on every page, public ones included, so it is
-// no longer a manage-only component.
+// ⛔ `"use client"` stays the first line: a directive prologue may be preceded only by comments.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -22,51 +14,22 @@ const LINKS: Record<AppRole, { path: string; label: string }[]> = {
   league_manager: [
     { path: "/dashboard", label: "Dashboard" },
     { path: "/people", label: "People & Roles" },
+    // ⛔ No "/schedule-builder": building a schedule is reached from a season's setup page.
     { path: "/seasons", label: "Seasons" },
-    // ⛔ NO "/teams", "/schedule" OR "/rules" HERE, AND THAT IS THE POINT —
-    // 2026-09-11, on the user's observation that "the manager row does not need
-    // duplicates of the tabs from the main row". Each named a URL `NavLinks`
-    // already names, so a manager saw the same three destinations twice. See
-    // the ⚠️ on `StaffLinks` below for what that cost and why the labels
-    // differing did not make them different links.
-    //
-    // ⛔ AND NO "/schedule-builder". Building a schedule is part of creating a
-    // season, so it is reached from that season's setup page; the bare URL now
-    // redirects there. This supersedes the 2026-09-07 note that used to sit
-    // here about ordering `/schedule` before the builder — both entries are
-    // gone, and its reasoning ("in-season editing shouldn't be hidden in the
-    // Schedule Builder tab") is carried further by that move, not dropped.
+    // ⛔ No "/teams", "/schedule" or "/rules": `NavLinks` names those URLs, and a different label still leads to
+    // the same page. The page guards are pinned by `PAGE_REFUSALS` (`e2e/09-access.spec.ts`, Path 17).
     { path: "/announcements", label: "Announcements" },
-    // ⛔ NO "/import" HERE ANY MORE. It never belonged to a league — it creates
-    // one — so it moved to `/manage/leagues/new` and is added as an absolute
-    // link in `staffLinks()` below, beside the League Office.
+    // ⛔ No "/import": it creates a league, so it is the absolute "New league" link in `staffLinks()`.
     { path: "/audit", label: "Audit Log" },
   ],
-  // ⛔ EMPTY, AND THIS WHOLE ROW IS NOT DRAWN FOR THEM ANY MORE. `[league]/layout`
-  // gives a scorekeeper `ScorekeeperChrome` instead of the site header and this
-  // row — their only navigation is the Tonight button there. The key stays
-  // because the type is `Record<AppRole, ...>`; deleting it does not compile.
+  // ⛔ Empty, and the row is never drawn for a scorekeeper (`ScorekeeperChrome` replaces it). The key stays
+  // because the type is `Record<AppRole, ...>`.
   scorekeeper: [],
   captain: [{ path: "/dashboard", label: "Dashboard" }],
 };
 
-// ⚠️ WHERE `MAX_INLINE_LINKS = 5` WENT, and why nothing replaced it. Written as
-// line comments rather than a docblock deliberately: it documents a deletion,
-// and as a `/** */` block it bound itself to whatever declaration came next.
-//
-// It decided whether `ManageNav`'s links sat inline in that header's brand bar
-// or took a full-width row beneath it, and it was measured: capped at
-// `max-w-6xl` (1152px), the inline nav's share was what remained after the brand
-// and the account controls took ~594px — about 526px, five links of the
-// manager's average width. The manager's ten never fitted at any viewport, so
-// they always took the row.
-//
-// That bar is gone. This row is now the only shape the staff links have, at
-// every width, so there is no threshold left to cross and no number to keep
-// true. ⛔ Do not reintroduce an inline variant of these links without measuring
-// again: the number above described a bar that no longer exists, and the one bar
-// that does — `site-header.tsx`'s — carries its own measurement, which this row
-// sits BELOW and therefore does not disturb.
+// ⛔ No inline variant of these links without measuring again: this row sits below `site-header.tsx`'s
+// measured bar, outside its budget.
 
 type NavLink = { path: string; label: string; absolute?: boolean };
 
@@ -99,62 +62,8 @@ function Links({ links, base }: { links: NavLink[]; base: string }) {
   );
 }
 
-/**
- * The staff link row — on EVERY page under `/<league>`, for anyone who belongs
- * to the league.
- *
- * ⛔ A ROW BENEATH THE ONE HEADER, NOT A SECOND HEADER. It began life as the
- * answer for three shared pages (`/rules`, `/teams/<slug>`, `/schedule` — one
- * URL each, serving the public and the people who run the league), where
- * swapping in the whole `ManageNav` was the obvious move and was wrong: its
- * "View site" link would have pointed at a page that drew `ManageNav` again.
- * `[league]/layout.tsx` now draws this for everything, which is that same answer
- * generalised — a staff page is a public page with more on it, and this is the
- * more. There is no mode to be in or out of, and nothing to toggle.
- *
- * ⚠️ `aria-label` IS LOAD-BEARING. This and `NavLinks` ("League") are two
- * `navigation` landmarks on every page now rather than on three, and two unnamed
- * ones are indistinguishable to a screen reader.
- *
- * ✅ THE DUPLICATION IS GONE — REMOVED 2026-09-11, NOT MERELY TOLERATED. This
- * block used to say it was "known and accepted": a manager saw this row's
- * Teams, Rules and Schedule beside the public nav's Teams, Rules and Schedule —
- * three links naming URLs the header already named. `99f44d1` recorded that
- * cost when the row served three shared pages, and it grew to every page when
- * the row did. On `/<league>/schedule` it also put `aria-current="page"` on TWO
- * links at once, which is valid and reads as a fault.
- *
- * ⛔ THE OLD DEFENCE WAS THAT THE LABELS DIFFERED, AND IT DID NOT HOLD. It
- * argued the staff view of a URL is not the public view of it — but the pages
- * had already merged (a staff page is a public page with more on it), so both
- * links led somewhere identical. `e2e/09-access.spec.ts` once compared the two
- * rows BY HREF for exactly that reason; a label-based check would have gone on
- * passing. That comparison test was since cut as duplicate UI coverage — what
- * remains enforced is the page guard itself, in the same file's "One chrome
- * everywhere" tests.
- *
- * ⚠️ What is left here is what the public nav does NOT name: Dashboard, People
- * & Roles, Seasons, Announcements, Audit Log. Adding a path that `NavLinks`
- * already carries turns that spec red. The alternative offered and not chosen
- * was per-page inline staff controls instead of a row (see the design doc's
- * *Out of scope*).
- *
- * ⚠️ THIS ROW DOES NOT STICK, AND THAT IS A KNOWN LOSS RATHER THAN AN OVERSIGHT.
- * `ManageNav`'s deleted shell was `sticky top-0 z-40`, so a manager's links
- * stayed pinned down a long audit or season page; they now scroll away.
- * Restoring it as `sticky top-14` was measured on 2026-09-06 and does NOT work:
- * the header is 57px tall at `lg` and above (the `h-14` bar plus its 1px border)
- * but 98px at `md` and below, where a signed-in viewer's league links take their
- * own row inside the header — so a row pinned at 56px slides underneath the
- * header and, being 41px tall, disappears entirely after ~42px of scroll. An
- * `lg:`-only sticky measures correctly, but pinning a `bg-muted/30` band over
- * scrolling content needs a background-opacity decision this change did not have
- * a mandate for. Recorded in the plan; do not re-derive the numbers.
- *
- * ⚠️ The CALLER gates this on membership, never on `user.role` — the role is
- * instance-wide, so a manager of another league would otherwise be offered tools
- * that every page behind them refuses.
- */
+// ⛔ A row beneath the one header, not a second header; the caller gates it on membership, never `user.role`.
+// ⚠️ It does not stick: `sticky top-14` was measured and slides under the taller header below `lg`.
 export function StaffLinks({
   role,
   currentSlug,
@@ -164,34 +73,16 @@ export function StaffLinks({
   role: AppRole | null;
   currentSlug: string;
   officeTier: string | null;
-  /**
-   * The leagues this account belongs to, for the switcher. It lived in
-   * `ManageNav`'s brand bar until that header was deleted, and it is HERE rather
-   * than in the one remaining bar for two reasons: the bar's overflow budget is
-   * measured and full (`site-header.tsx`), and the switcher is a staff control —
-   * putting it in `AccountCluster`'s `children` slot would render it for
-   * anonymous visitors, since that slot is outside the `user` branch.
-   */
+  // For the switcher, here and not in the header: that bar's budget is full, and `AccountCluster`'s `children`
+  // slot would render it for anonymous visitors.
   leagues: LeagueOption[];
 }) {
   return (
     <div className="bg-muted/30 border-b">
       <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-1">
         {/*
-          ⛔ `flex-1`, NOT JUST `min-w-0`, AND THE DIFFERENCE WAS MEASURED. With
-          `min-w-0` alone both children shrink in proportion to their content, so
-          at 390px the switcher's wrapper was handed 55px — and `LeagueSwitcher`
-          puts its `min-w-[5rem]` floor on the SELECT, not on that wrapper, so the
-          select painted 80px inside a 55px box and pushed the document 9px past
-          the viewport. Watched 2026-09-06: `documentElement` 399/390 signed in,
-          399 traced to the select's right edge; 390/390 for an anonymous visitor,
-          who has no row.
-
-          `flex-1` gives this scroller a flex-basis of 0, so the switcher is
-          served its content width first and the nav absorbs whatever is left,
-          scrolling its links. That is also what `LeagueSwitcher`'s own docblock
-          asks for — it documents a horizontal-scroll incident from being pinned
-          at its cap — and it is why nothing here overrides its `min-w-0`.
+          ⛔ `flex-1`, not only `min-w-0`, which let the switcher's floor push the page past a 390px screen.
+          ⚠️ `aria-label` is load-bearing: two unnamed `navigation` landmarks are indistinguishable.
         */}
         <nav
           aria-label="Staff tools"
@@ -203,20 +94,8 @@ export function StaffLinks({
           />
         </nav>
         {/*
-          Outside the `nav`, so the "Staff tools" landmark stays a list of links.
-          Renders nothing for an account with fewer than two leagues.
-
-          Still lands on `/<slug>/dashboard` rather than the league home: it is a
-          staff control, and the equivalent sub-path never survives the crossing
-          — `/obhl/seasons/<uuid>` names a season that belongs to Oceanview.
-
-          ⛔ NO `className` OVERRIDES HERE. No `shrink-0` — `LeagueSwitcher`'s own
-          `min-w-0` is what lets it give way, and its docblock names the incident:
-          pinned at its capped 11rem it pushed a header past the screen and put
-          the whole page into horizontal scrolling. And no `ml-auto` either: the
-          `flex-1` scroller above already fills the row, so this sits at the right
-          end by construction. `ml-auto` on a flex item whose sibling has flex
-          grow does nothing, and it read as though something depended on it.
+          Outside the `nav`, landing on `/dashboard`: a sub-path never survives the crossing. ⛔ No `className`
+          overrides: its own `min-w-0` lets it give way, and pinned it pushed the page into horizontal scroll.
         */}
         <LeagueSwitcher
           leagues={leagues}
@@ -228,37 +107,19 @@ export function StaffLinks({
   );
 }
 
-/**
- * The links a role gets, plus the League Office when a tier says so.
- *
- * A null role still gets the Dashboard: that is the one page that explains to an
- * account with no role yet why nothing else works, and it is reachable from
- * nowhere else.
- */
+/** A null role still gets the Dashboard: the one page telling a roleless account why nothing else works. */
 function staffLinks(
   role: AppRole | null,
   officeTier: string | null,
 ): NavLink[] {
   return [
     ...(role ? LINKS[role] : [{ path: "/dashboard", label: "Dashboard" }]),
-    // Creating a league. Absolute for the same reason as the office below —
-    // `LINKS` paths are relative to `/<league>` and this one belongs to none.
-    //
-    // ⚠️ GATED ON THE ROLE, NOT ON A TIER. Every manager may create a league;
-    // that is what the page's own `requireManager()` says and what both
-    // importers have always enforced. A scorekeeper or captain must not see it,
-    // which `LINKS[role]` cannot express for an absolute path — hence the check.
-    //
-    // ⚠️ This row is drawn only for members of the league in the URL, so a
-    // manager who belongs to NO league never sees this link. For them the root
-    // page's own link is the only way in — which is the case the move exists to
-    // serve, so the two are not redundant.
+    // ⚠️ Gated on the role, not a tier, matching `requireManager()`. A manager in no league never sees this
+    // row, so the root page's own link is not redundant.
     ...(role === "league_manager"
       ? [{ path: "/manage/leagues/new", label: "New league", absolute: true }]
       : []),
-    // Without this the page is reachable only by typing the URL. It is not in
-    // `LINKS` because that map is keyed on role and its paths are
-    // league-relative, and the office is neither.
+    // Not in `LINKS`: that map is role-keyed and league-relative, and the office is neither.
     ...(officeTier
       ? [{ path: "/manage/office", label: "League Office", absolute: true }]
       : []),

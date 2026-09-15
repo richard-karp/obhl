@@ -2,10 +2,8 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
- * Refreshes the Supabase auth session on each request and forwards the updated
- * cookies to both the request (for downstream Server Components) and the
- * response (for the browser). Called from `src/proxy.ts` (Next 16's renamed
- * middleware).
+ * Refreshes the auth session and forwards the updated cookies to both the request
+ * (for downstream Server Components) and the response (for the browser).
  */
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });

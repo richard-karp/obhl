@@ -7,24 +7,17 @@ import { exportFilename } from "@/lib/export/filename";
 import { isUuid } from "@/lib/db/uuid";
 import { publicLeagueOfSeason } from "@/lib/league/current";
 
-/**
- * The season's fixtures as a spreadsheet, or one team's if `?team=<slug>` names
- * an enrolled one. One-time download, not a feed.
- */
+/** One-time spreadsheet download of a season, or of one team's games with `?team=<slug>`. */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ seasonId: string }> },
 ) {
   const { seasonId } = await params;
-  // Without this a malformed id makes Postgres reject the comparison,
-  // `getSchedule` logs and returns [], and the caller downloads a header-only
-  // file that looks like a real but empty season.
+  // A malformed id would otherwise download a header-only file that looks like an empty season.
   if (!isUuid(seasonId)) return new Response("Not found", { status: 404 });
 
-  // ⛔ AN UNRESOLVED SLUG IS A 404, NOT "no filter" — see the sibling `.ics`
-  // route, including why this tests `=== null` rather than falsiness. A
-  // fallback to the season would hand six teams' games to a caller who asked
-  // for one, which is the whole defect this parameter closes.
+  // ⛔ An unresolved slug is a 404, never "no filter", tested `=== null` since a bare `?team=` is `""`
+  // (`RUNBOOK.md` → Schedule edits and exports). The sibling `.ics` route does the same.
   const teamSlug = request.nextUrl.searchParams.get("team");
   const team =
     teamSlug === null ? null : await getEnrolledTeamBySlug(seasonId, teamSlug);
@@ -35,11 +28,8 @@ export async function GET(
     getSchedule(seasonId, { teamId: team?.id }),
     publicLeagueOfSeason(seasonId),
   ]);
-  // ⚠️ The comment above describes a header-only file that "looks like a real
-  // but empty season" and calls it worth a 404 — and an unknown-but-well-formed
-  // id produced exactly that, with a 200 on it, until this line. Same guard,
-  // same reason, one case later. See the sibling `.ics` route for why a null
-  // league covers both "no such season" and "not yours to read".
+  // ⚠️ A well-formed unknown id is a 404 too. A null league covers both "no such season" and "not
+  // yours to read"; see the sibling `.ics` route.
   if (!league) return new Response("Not found", { status: 404 });
   const csv = buildScheduleCsv(
     games
@@ -54,9 +44,7 @@ export async function GET(
   return new Response(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      // The CSV has no header row naming the team — four columns, none of them
-      // a scope — so the filename is the only place a filtered file can say
-      // whose games it holds.
+      // No CSV column names the team, so the filename is the only place a filtered file says whose.
       "Content-Disposition": `attachment; filename="${exportFilename(league.slug, team?.slug, "csv")}"`,
     },
   });

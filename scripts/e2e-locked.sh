@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run Playwright while holding the shared-database lock.
 #
-#   scripts/e2e-locked.sh e2e/29-schedule-repair.spec.ts
+#   scripts/e2e-locked.sh e2e/14-schedule-changes.spec.ts
 #   PORT=3101 scripts/e2e-locked.sh          # whole suite, explicit port
 #
 # ⚠️ WHY THIS EXISTS. Parallel worktrees each get their own dev server (see the

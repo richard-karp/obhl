@@ -1,7 +1,4 @@
-/**
- * The calendars the schedule tests build over and over, named by shape.
- * Imported by tests only; `vitest.config.ts` collects `*.test.ts`, not this.
- */
+/** Shared test calendars; not a `*.test.ts`, so Vitest doesn't collect it as a suite. */
 import type { Night } from "./assignNights";
 import { enumerateNights } from "./capacity";
 

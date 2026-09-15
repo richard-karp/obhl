@@ -1,42 +1,14 @@
 /**
- * Slugs a league may not take.
- *
- * A league lives at `/<slug>`, matched by the `[league]` dynamic segment. Next
- * resolves static segments before dynamic ones, so a league whose slug equals a
- * top-level route is unreachable: `/login` would always be the sign-in page,
- * never the league. There is no error for this — the league simply never
- * resolves, and the manage tools under it go with it.
- *
- * `manage` IS a top-level route: the League Office lives at `/manage/office`,
- * outside `[league]` because it belongs to no league. So the reservation is
- * load-bearing for the same reason as the rest — and it stays load-bearing even
- * though `manage` is no longer a segment inside a league's own URLs.
- *
- * Kept free of server imports so it can be tested directly.
- *
- * Mirrored by the `leagues_slug_not_reserved` constraint in
- * supabase/migrations/0030_league_slug_reserved.sql — leagues are created by
- * hand-written SQL as often as by the importer, so the database is the only
- * place that catches every path. Change both together.
- *
- * ⚠️ 0030's own COMMENT predates the flatten and still says `manage` is not a
- * top-level route. Its constraint is correct and migrations are frozen history,
- * so it is left alone — but the reasoning above, not that comment, is why
- * `manage` is reserved today.
+ * A slug equal to a top-level route never resolves, with no error. Mirrored by the
+ * `leagues_slug_not_reserved` constraint, where hand-written SQL is caught too: change both.
  */
 export const RESERVED_LEAGUE_SLUGS = [
   "api",
   "auth",
   "login",
+  // ⚠️ A top-level route (`/manage/office`): `0030`'s header saying otherwise is stale.
   "manage",
-  // ⚠️ MISSING UNTIL 2026-09-08, and it is a top-level route like the rest —
-  // `src/app/set-password/`. A league named "Set password" was created at an
-  // address that never resolves, with no UI to delete it. Widened in the DB by
-  // `0047_reserve_set_password_slug.sql`; the two lists must match.
   "set-password",
-  // The scorekeeper's page, `src/app/tonight/`. Moved out of /manage/ because
-  // that segment names the role which cannot manage anything. Reserved in the DB
-  // by `0048_reserve_tonight_slug.sql`; the two lists must match.
   "tonight",
   "_next",
 ] as const;

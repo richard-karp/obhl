@@ -2,72 +2,21 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-/**
- * Convention guard, not a bug detector.
- *
- * Every route the actions revalidate now lives under `/[league]`, and there are
- * ~60 of these calls across 11 files. This catches the one that gets missed in a
- * sweep — a stale `/seasons` would fail silently, since a path that matches no
- * route simply revalidates nothing.
- *
- * It also enforces the `type` argument: Next requires it whenever the path
- * contains a dynamic segment, which every league-scoped path now does.
- */
-/**
- * Every directory holding `revalidatePath` calls — NOT just the actions.
- *
- * ⚠️ `src/lib/games/shared.ts` was outside this scan, and it carries the score
- * pages' calls, two of which the `/manage/` flatten rewrote. So the guard written
- * to catch a missed rewrite did not cover the file most likely to have one. A
- * review caught it; the fix is the second entry.
- *
- * A file added elsewhere is still invisible here. The `calls.length` sentinel
- * below is what stops that going unnoticed for long — it is a floor on the total,
- * so a new call site outside these directories does not lower it, but a
- * directory disappearing from the scan does.
- */
+// ⚠️ Every directory holding `revalidatePath` calls, not only the actions. A call elsewhere is
+// invisible here; the `calls.length` floor catches a directory dropping out of the scan.
 const CALL_DIRS = ["src/lib/actions", "src/lib/games"].map((d) =>
   join(process.cwd(), d),
 );
 
-/**
- * Paths that are legitimately outside a league: the root landing page, and the
- * League Office. The office is instance-wide staff — it belongs to no league by
- * design, and lives outside `[league]` for that reason — so a league-scoped path
- * would revalidate the wrong thing, or nothing at all.
- */
+// Paths legitimately outside a league: the landing page, and the League Office, which belongs to
+// no league.
 const ROOT_ALLOWLIST = new Set(["/", "/manage/office"]);
 
-/**
- * Every URL a route file in `src/app` actually serves.
- *
- * ⛔ THE ASSERTION THE REST OF THIS FILE WAS MISSING. Every check above is about
- * the SHAPE of a path — that it is league-scoped, typed, not interpolated, not
- * under the dead `/manage/` prefix. A path can satisfy all of them and still
- * name no route at all, which is precisely how a stale path fails: silently,
- * revalidating nothing. A rename anywhere in `src/app` leaves exactly that
- * behind, and until this walk existed nothing here would have reported it.
- *
- * Route groups — `(public)`, `(manage)` — and parallel-route slots (`@modal`)
- * are directories that contribute no URL segment, so they are traversed and
- * dropped rather than joined; an intercepting route's `(.)` marker is stripped.
- * Dynamic segments are kept verbatim, because a `revalidatePath` names the
- * PATTERN (`/[league]/games/[gameId]`) and not a filled-in URL.
- *
- * The root is a parameter so the walk's own edge cases can be exercised
- * against a fixture instead of only against the real `src/app`.
- */
+// Every URL pattern a route file in `src/app` serves. Route groups and `@slots` add no segment;
+// dynamic segments stay verbatim, since `revalidatePath` names the pattern.
 function appRoutes(appDir = join(process.cwd(), "src/app")): Set<string> {
-  // ⚠️ `layout` IS DELIBERATELY NOT HERE. A directory holding only a layout
-  // serves no URL, so counting it would let the assertion below accept a path
-  // that names nothing — the one direction that makes this test weaker rather
-  // than noisier.
-  // ⛔ AND LAYOUT-ONLY DIRECTORIES DO EXIST — an earlier revision of this
-  // comment claimed none did. `src/app/[league]` and `src/app/[league]/(manage)`
-  // both hold a `layout.tsx` and no `page.tsx`. Dropping `layout` is still a
-  // measured no-op (30 routes either way, identical sets), but for a different
-  // reason than "there are none": `/[league]` is contributed by
-  // `(public)/page.tsx`, and `(manage)` is a group contributing no segment.
+  // ⚠️ `layout` is not a route file: a layout-only directory serves no URL, and counting one would
+  // let a path naming nothing pass.
   const isRouteFile = (f: string) => /^(page|route)\.(tsx?|jsx?)$/.test(f);
   const routes = new Set<string>();
   if (readdirSync(appDir).some(isRouteFile)) routes.add("/");
@@ -77,15 +26,8 @@ function appRoutes(appDir = join(process.cwd(), "src/app")): Set<string> {
       if (!statSync(full).isDirectory()) continue;
       // `_private` opts its whole subtree out, so it is skipped, not descended.
       if (entry.startsWith("_")) continue;
-      // ⛔ AN INTERCEPTING ROUTE CONTRIBUTES NO URL, so it is skipped whole. It
-      // is an alternative render of a path some OTHER directory already
-      // registers — `feed/(.)photo` intercepts `/feed/photo`, which must exist
-      // as a real route for a hard navigation — so emitting anything here can
-      // only ADD a path nothing serves. An earlier revision stripped the marker
-      // and joined the segment, which got `(.)` right by luck and `(..)` wrong:
-      // `feed/(..)photo` intercepts `/photo`, one level up, not `/feed/photo`.
-      // Over-matching is the direction that weakens this test — the same reason
-      // `layout` is not in `isRouteFile`.
+      // ⛔ An intercepting route is skipped whole: it re-renders a path another directory registers,
+      // and `(..)` points up a level, so joining its segment adds paths nothing serves.
       if (/^\(\.{1,3}\)/.test(entry)) continue;
       // Route groups `(marketing)` and parallel-route slots `@modal` contribute
       // no segment, but their children ARE routes, so both are traversed.
@@ -123,6 +65,8 @@ function revalidateCalls(): Call[] {
   return calls;
 }
 
+// A `revalidatePath` naming no route fails silently, so every call is checked for league scope, a
+// `type` beside dynamic segments, and a real route.
 describe("revalidatePath conventions", () => {
   const calls = revalidateCalls();
 
@@ -138,12 +82,8 @@ describe("revalidatePath conventions", () => {
   });
 
   it("names no route under the removed /manage/ prefix", () => {
-    // The failure mode this file exists to catch, made catchable. The prefix was
-    // flattened away in one sweep of ~240 strings; a `revalidatePath` the sweep
-    // missed still starts with "/[league]" and so satisfied every other
-    // assertion here, while silently revalidating nothing — which is exactly how
-    // a stale path fails. There are none today; this is what keeps that true.
-    // Segment-anchored: a future `/[league]/managers` route is not a stale path.
+    // A missed `/[league]/manage` still passes the league-scope check while revalidating nothing.
+    // Segment-anchored: a future `/[league]/managers` route is not stale.
     const stale = calls.filter(
       (c) =>
         c.path === "/[league]/manage" || c.path.startsWith("/[league]/manage/"),
@@ -169,20 +109,16 @@ describe("revalidatePath conventions", () => {
     const routes = appRoutes();
 
     it("finds the routes at all, and is not merely permissive", () => {
-      // ⛔ BOTH HALVES MATTER. A walk that silently returned an empty set would
-      // make the next test vacuous in one direction; one that matched anything
-      // would make it vacuous in the other. So: it found a real tree, it holds
-      // a path we know exists, and it REJECTS one we know does not.
+      // ⛔ Both halves: an empty walk makes the next test vacuous one way, a permissive one the
+      // other, so it must hold a known route and reject a missing one.
       expect(routes.size).toBeGreaterThan(20);
       expect(routes.has("/[league]/schedule")).toBe(true);
       expect(routes.has("/[league]/no-such-route")).toBe(false);
     });
 
     it("revalidates a path that names a real route", () => {
-      // The failure this catches: a route is renamed, the `revalidatePath` that
-      // pointed at it is missed, and the call now refreshes nothing. Every other
-      // assertion in this file still passes — the string is league-scoped, typed
-      // and uninterpolated. Only this one looks at whether the route is there.
+      // The only check that the route exists: a renamed route leaves a league-scoped, typed,
+      // uninterpolated call that refreshes nothing.
       const unresolved = calls
         .filter((c) => !routes.has(c.path))
         .map((c) => `${c.path} (${c.file})`);

@@ -31,24 +31,12 @@ export type SectionGoalie = SectionSkater & {
   gaa: number | null;
 };
 
-/**
- * A team's roster the way a hockey roster reads: forwards, defence, goalies.
- *
- * ⛔ EVERY PLAYER APPEARS EXACTLY ONCE. This replaced one flat points-sorted
- * table plus a separate "Goaltending" block, which listed each goalie twice —
- * once near the bottom of the skater list with 0 points, once with their real
- * numbers. The Goalies section below carries BOTH sets of columns so nothing
- * is lost by the merge.
- *
- * ⚠️ `GoalieStatsTable` IS NOT THIS AND WAS NOT TOUCHED. `/stats` still uses
- * it for the league-wide, sortable goalie table; this one is team-scoped,
- * unsorted, and zero-fills.
- */
+// ⛔ Every player appears exactly once: the Goalies section carries both column sets. ⚠️ `GoalieStatsTable` is
+// the separate league-wide `/stats` table.
 function sortRows<T extends { pts: number; number: number | null }>(
   rows: T[],
 ): T[] {
-  // Points first, jersey second — the order the maintainer asked for, applied
-  // per section rather than across the whole roster.
+  // Points first, then jersey, per section: the order the maintainer asked for.
   return [...rows].sort(
     (a, b) => b.pts - a.pts || (a.number ?? 999) - (b.number ?? 999),
   );
@@ -166,12 +154,8 @@ export function TeamRosterSections({
               <TableHead className="w-12 text-center">#</TableHead>
               <TableHead>Goalie</TableHead>
               <TableHead className="text-center">GP</TableHead>
-              {/* ⚠️ SIX COLUMNS DROP BELOW `sm`. Twelve will not fit 390px,
-                  and the ones kept are the ones a reader scans for: games,
-                  goals against, average, and the scoring line. Twelve and not
-                  thirteen since the night became a pill in the name cell — it
-                  no longer costs a column, and it no longer drops below `sm`
-                  the way a hidden column would have. */}
+              {/* ⚠️ Six columns drop below `sm`: twelve can't fit 390px, and the kept ones are
+                  games, goals against, average and the scoring line. */}
               <TableHead className="hidden text-center sm:table-cell">
                 W
               </TableHead>

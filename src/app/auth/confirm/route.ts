@@ -13,10 +13,7 @@ function withAuditSession(response: NextResponse): NextResponse {
   return response;
 }
 
-/**
- * Completes a magic-link sign-in. Handles both the PKCE code flow
- * (?code=...) and the token_hash flow (?token_hash=...&type=...).
- */
+/** Completes a magic-link sign-in: the PKCE flow (`?code=`) and the `?token_hash=&type=` flow. */
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   // No league-agnostic dashboard exists and a magic link cannot know which

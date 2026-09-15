@@ -1,4 +1,3 @@
-/** Changing a roster mid-season — transfers, moves, archives, renames, numbers — and what each leaves in the stats. */
 import { test, expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
@@ -65,15 +64,8 @@ async function playerName(playerId: string) {
   return `${data!.first_name} ${data!.last_name}`;
 }
 
-/**
- * Open a team's roster editor by name, from the teams index.
- *
- * ⚠️ `/teams`, NOT `/manage/rosters`. The roster editor is not a page any more —
- * it is a section of the team's own public page, shown to whoever
- * `canManageLeague` admits. Both old URLs still 308 to the new ones, but a test
- * that follows a redirect is testing the redirect as much as the page, so this
- * goes to the real address.
- */
+// ⚠️ `/teams`, not `/manage/rosters`: the editor is a section of the team page, and following the
+// 308 would test the redirect as much as the page.
 async function openRoster(page: Page, slug: string, team: string) {
   await page.goto(`/${slug}/teams`);
   await page.getByText(team, { exact: true }).first().click();
@@ -86,15 +78,8 @@ function manageRoster(page: Page) {
   return page.getByRole("region", { name: "Manage roster" });
 }
 
-/** The row for one player on the open roster editor. */
-/**
- * Open a row's editor and return the dialog.
- *
- * ⛔ THE DIALOG IS A PORTAL AND IS NOT INSIDE THE `<tr>`. Everything the row
- * used to carry — the name fields, Number, Save, Transfer, `role="status"` —
- * renders at the end of the document now, so `row.getByLabel(...)` and
- * `row.getByRole("status")` find nothing. Scope to the dialog instead.
- */
+// ⛔ The dialog is a portal, not inside the `<tr>`: `row.getByLabel(...)` finds nothing, so scope to
+// the dialog.
 async function openDialogFor(page: Page, row: Locator) {
   await row.getByRole("button", { name: "Edit" }).click();
   const dialog = page.getByRole("dialog");
@@ -113,21 +98,8 @@ async function search(page: Page, name: string) {
   await field.fill(name);
 }
 
-/**
- * A person who exists only for the test that asked for them, rostered onto one
- * named team.
- *
- * ⛔ DERIVED-AT-RUN-TIME WAS NOT ENOUGH. The header above is right that a
- * hard-coded name cannot survive 04 and 19 — but "pick whatever the database
- * happens to hold" does not survive them either, and fails more confusingly:
- * these two tests passed 6/6 alone and 4/6 in the suite, because `.limit(1)`
- * picked a different person once earlier specs had moved people around, and one
- * of them looked for a Harbor-only player after another spec had put every
- * Harbor player into Oceanview too.
- *
- * Owning the fixture is the fix. The subject is created here, so no earlier
- * spec can change who it is or what has already happened to them.
- */
+// ⛔ A person owned by the test that asked for them: a hard-coded name, or a `.limit(1)` pick, changes
+// once other specs move people, and passes alone but fails in the suite.
 async function scratchSkater(opts: {
   seasonId: string;
   teamId: string;
@@ -153,24 +125,8 @@ async function scratchSkater(opts: {
   return { playerId: player!.id as string, name: `${first} ${last}` };
 }
 
-/**
- * The second cell, not the first: the first is the jersey number.
- *
- * ⛔ BADGES STRIPPED, NOT `.split("\n")[0]`. Captain, rookie, suspended and
- * injury render as inline badges inside this cell with no newline before them,
- * so the old form returned "Taylor GauthierC" for any row that had one.
- */
-/**
- * The row these tests move, and it must not be the captain's.
- *
- * ⛔ NOT `rosterRows(page).first()`. The editor is three sections now and
- * Forwards come first, so the first row on Sharks is jersey #6 — who is the
- * seeded CAPTAIN, and the account `05-scoring-night`'s Path 21 signs in as.
- * Transferring them clears `is_captain` (`movePlayerToTeam` does it
- * deliberately), so this spec silently broke that one whenever it ran first.
- * It passed alone and failed in the suite, which is the worst shape for it.
- * Defence carries no captain in the seed.
- */
+// ⛔ Not the first row: that is Sharks' seeded captain, whose account `05-scoring-night` signs in as,
+// and a transfer clears `is_captain`. Defence carries no captain in the seed.
 function subjectRow(page: Page) {
   return manageRoster(page)
     .getByRole("region", { name: "Manage Defence" })
@@ -178,6 +134,8 @@ function subjectRow(page: Page) {
     .first();
 }
 
+// ⛔ Badges stripped, not `.split("\n")[0]`: captain, rookie, suspended and injury badges sit inline in
+// the name cell with no newline, so a split returns "Taylor GauthierC".
 async function subjectName(page: Page) {
   const cell = subjectRow(page).locator("td").nth(1);
   const badges = await cell.locator('[data-slot="badge"]').allInnerTexts();
@@ -186,10 +144,8 @@ async function subjectName(page: Page) {
   return name;
 }
 
-/**
- * A scheduled regular game in this season with nobody dressed yet, with every
- * column a test here writes, so `restoreGame` can put it back exactly.
- */
+// A scheduled regular game with nobody dressed, read with every column a test writes, so
+// `restoreGame` can put it back exactly.
 async function emptyScoresheetGame(seasonId: string) {
   const db = admin();
   const { data: games } = await db
@@ -231,7 +187,6 @@ async function restoreGame(g: Awaited<ReturnType<typeof emptyScoresheetGame>>) {
     .eq("id", g.id);
 }
 
-/** Mid-season transfer. */
 test.describe("Transfers", () => {
   test("a transferred player leaves one roster and joins the other", async ({
     page,
@@ -252,11 +207,8 @@ test.describe("Transfers", () => {
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
 
-    // ⚠️ Scoped to the EDITOR, and it has to be. The public table above it lists
-    // anyone with stats for this team whether or not they are still on the roster
-    // — which is the whole point of 0036's soft departures — so the transferred
-    // player is legitimately still named up there. The claim being tested is that
-    // they left the ROSTER, and only the editor's table answers that.
+    // ⚠️ Scoped to the editor: the public table lists anyone with stats for the team (0036's soft
+    // departures), so the transferred player is legitimately still named there.
     await expect(manageRoster(page).getByRole("cell", { name })).toHaveCount(0);
 
     await openRoster(page, "obhl", "Bears");
@@ -264,30 +216,11 @@ test.describe("Transfers", () => {
   });
 });
 
-/**
- * Path 22: roster editing — number and position, the global name, the
- * league-scoped archive, and adding somebody who is already on another team.
- *
- * ⚠️ EVERY FIXTURE HERE IS DERIVED AT RUN TIME, never named. This file runs
- * last, after 04 and 19 have added, removed and transferred players, so any
- * hard-coded name or jersey number is a test that passes alone and fails in the
- * suite — the failure mode 19's own header records.
- *
- * Two of these need BOTH seeded leagues (`obhl` and `harbor`) and the two people
- * the seed rosters in each, because the questions they ask — "does archiving in
- * one league touch the other" and "may a one-league manager rename someone who
- * plays elsewhere" — are unanswerable inside a single league.
- */
+// ⚠️ Every fixture is derived at run time: other specs add, remove and transfer players. Two tests
+// need both seeded leagues, since their questions are unanswerable inside one.
 test.describe("Path 22 — Roster editing", () => {
-  /**
-   * The regression 0036 exists to prevent, reached through the app's own move.
-   *
-   * ⛔ ON A GOALIE WITH NO PICK, AND THAT IS THE FIXTURE'S WHOLE POINT. The seed
-   * names a goalie of record on every game it finalizes, and `v_goalie_stats`'
-   * explicit-pick branch joins no roster row, so a seeded goalie's record
-   * survives even a move that DELETES the old row. Only the dressed-goalie
-   * fallback inner-joins `team_players`. (Ported from verify-transfers #2.)
-   */
+  // ⛔ A goalie with NO pick, the fixture's point: `v_goalie_stats`' explicit-pick branch joins no
+  // roster row, so only the dressed-goalie fallback inner-joins `team_players`.
   test("moving a goalie who has dressed leaves the old team's record intact", async ({
     page,
   }) => {
@@ -365,8 +298,7 @@ test.describe("Path 22 — Roster editing", () => {
         `${fromTeam}'s goalie record for ${who} must survive the move`,
       ).toEqual(before);
 
-      // ── Ported from verify-transfers #5: the season totals roll the teams up
-      // into one row, under the team the goalie is on NOW.
+      // The season totals roll the teams into one row, under the goalie's current team.
       const { data: totals } = await db
         .from("v_goalie_season_totals")
         .select("gp, gaa, team_id")
@@ -386,9 +318,8 @@ test.describe("Path 22 — Roster editing", () => {
   });
 
   test("the goalie of record is credited, and empty-net goals are not charged to him", async () => {
-    // Ported from scripts/verify-transfers.mjs (#1). Two goalies dressed, so
-    // crediting either would be a guess: the pick decides. Both are created
-    // here, because earlier specs move the seed's one goalie per team.
+    // Two goalies dressed, so the pick decides. Both created here, because other specs move the
+    // seed's one goalie per team.
     const db = admin();
     const { seasonId } = await activeSeason("obhl");
     const game = await emptyScoresheetGame(seasonId);
@@ -450,11 +381,8 @@ test.describe("Path 22 — Roster editing", () => {
     }
   });
 
-  /**
-   * The add form is the second door onto the same move, and it must go through
-   * the same code. Before this, adding somebody already rostered elsewhere hit
-   * `team_players_one_active_team` and came back as a bare 23505.
-   */
+  // The add form must go through the same move: otherwise adding someone rostered elsewhere hits
+  // `team_players_one_active_team` as a bare 23505.
   test("adding someone already on another team moves them off it", async ({
     page,
   }) => {
@@ -472,9 +400,8 @@ test.describe("Path 22 — Roster editing", () => {
       })),
     );
 
-    // Our own skater on our own chosen team — see `scratchSkater`. Picking
-    // "the first active row" made this test order-dependent: 04 and 19 move
-    // people, so the row it landed on changed once the whole suite ran.
+    // Our own skater on our own team (`scratchSkater`): other specs move people, so "the first
+    // active row" changes under a full run.
     const from = teams[0];
     const to = teams[1];
     const { playerId, name: who } = await scratchSkater({
@@ -494,11 +421,8 @@ test.describe("Path 22 — Roster editing", () => {
     await expect(
       page.getByText(/already on another team this season/i),
     ).toBeVisible();
-    // ⚠️ Scoped to the editor, like the `Transfers` test in this file. The public
-    // roster table sits above it on the same page and lists anyone with stats for
-    // the team, so an unscoped `cell` matches twice on arrival and once after a
-    // removal — which is a strict-mode error on the way in and a false negative
-    // on the way out.
+    // ⚠️ Scoped to the editor: the public table above also lists anyone with stats for the team, so an
+    // unscoped `cell` is a strict-mode error on arrival and a false negative after a removal.
     await expect(
       manageRoster(page).getByRole("cell", { name: who }),
     ).toBeVisible();
@@ -519,15 +443,8 @@ test.describe("Path 22 — Roster editing", () => {
     expect(stillActive![0].team_id).toBe(to.id);
   });
 
-  /**
-   * ⛔ THE TWO-LEAGUE CASE, and the reason `player_league_archive` is a table
-   * rather than a `players.archived_at` column.
-   *
-   * `players` is global — one human is one row — so a global flag would remove
-   * an archived person from every OTHER league's picker too, silently, for
-   * leagues that never touched them. A single-league test cannot see that: it
-   * passes identically whichever shape the archive has.
-   */
+  // ⛔ THE TWO-LEAGUE CASE: `players` is global, so a global archive flag would remove the person from
+  // every other league's picker too. A single-league test passes whichever shape the archive has.
   test("archiving in one league leaves the person in the other league's picker", async ({
     page,
   }) => {
@@ -535,14 +452,8 @@ test.describe("Path 22 — Roster editing", () => {
     const obhl = await activeSeason("obhl");
     const harbor = await activeSeason("harbor");
 
-    // Somebody who plays ONLY in Harbor. Archiving them out of Oceanview is
-    // therefore a statement about a league they have never appeared in, which
-    // is the sharpest version of the question.
-    //
-    // ⛔ CREATED, NOT FOUND. This used to search for a Harbor player absent from
-    // Oceanview, and that search comes back empty once an earlier spec has put
-    // the seeded Harbor people into Oceanview too — a non-null assertion on
-    // `undefined`, and a test that passed alone and failed in the suite.
+    // Somebody who plays ONLY in Harbor. ⛔ Created, not found: other specs put the seeded Harbor
+    // people into Oceanview too, and the search then comes back empty.
     const { data: harborTeams } = await db
       .from("season_teams")
       .select("team_id")
@@ -608,13 +519,8 @@ test.describe("Path 22 — Roster editing", () => {
     ).toBeVisible();
   });
 
-  /**
-   * The accepted cost of a global `players` row, stated as a test.
-   *
-   * A one-league manager cannot rename somebody who also plays a league they do
-   * not work, because there is one name and it would land in both. The refusal
-   * has to SAY that and name the route out, or it reads as a broken button.
-   */
+  // One global name: a one-league manager cannot rename someone who also plays elsewhere, and the
+  // refusal must say so and name the route out, or it reads as a broken button.
   test("a cross-league rename is refused, and the refusal names the League Office", async ({
     page,
   }) => {
@@ -665,15 +571,13 @@ test.describe("Path 22 — Roster editing", () => {
     // Nothing was written.
     expect(await playerName(shared.player_id)).toBe(sharedName);
 
-    // ⛔ SHUT THE FIRST DIALOG BEFORE REACHING FOR THE SECOND ROW. Radix marks
-    // the document behind a modal `aria-hidden`, so the roster is unreachable
-    // while it is open and the next `Edit` click simply times out.
+    // ⛔ SHUT THE FIRST DIALOG FIRST: Radix marks the document behind a modal `aria-hidden`, so the
+    // next `Edit` click times out.
     await page.keyboard.press("Escape");
     await expect(sharedDialog).toBeHidden();
 
-    // And the same manager CAN rename somebody who only plays their league —
-    // so the refusal above is containment doing its job, not the button being
-    // broken for everyone. This is the POSITIVE control for the refusal.
+    // The POSITIVE control: the same manager CAN rename someone who plays only their league, so the
+    // refusal above is containment, not a broken button.
     const localRow = rowFor(page, localName);
     const localDialog = await openDialogFor(page, localRow);
     await localDialog.getByLabel("First name").fill("Renamed");
