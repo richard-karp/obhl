@@ -104,6 +104,7 @@ export async function getGamesOnDate(
   const { data, error } = await supabase
     .from("games")
     .select(GAME_SELECT_WITH_LEAGUE)
+    // Keyed on league and date, never season: tonight's game may belong to an inactive season.
     .in("season.league_id", leagueIds)
     // Explicit, not left to RLS: a caller may pass the admin client, which bypasses the policy.
     .eq("is_draft", false)

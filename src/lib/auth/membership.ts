@@ -80,6 +80,7 @@ export async function mayWriteProfileOf(
   if (mineTier !== null) return decideProfileWrite(mineTier, theirTier, false);
   if (theirTier !== null) return decideProfileWrite(null, theirTier, false);
 
+  // An account in no league passes vacuously, which keeps "removed by mistake, add them back" working.
   const [mine, theirs] = await Promise.all([
     memberLeagueIds(actorId),
     memberLeagueIds(profileId),

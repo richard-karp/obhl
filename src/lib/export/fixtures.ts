@@ -6,7 +6,10 @@ import type { GameWithTeams } from "@/lib/queries/schedule";
  */
 const WITHHELD = new Set<GameWithTeams["status"]>(["cancelled"]);
 
-/** A denylist on purpose: a new status appearing in an export is noticed; one vanishing is not. */
+/**
+ * A denylist on purpose: a new status appearing in an export is noticed; one vanishing is not.
+ * Not in `getSchedule`: the schedule page shows these games, with a status badge.
+ */
 export function isExportableFixture(status: GameWithTeams["status"]): boolean {
   return !WITHHELD.has(status);
 }

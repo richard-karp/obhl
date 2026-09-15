@@ -61,6 +61,7 @@ export async function getEnrolledTeamBySlug(
   slug: string,
   opts: { client?: DbClient } = {},
 ): Promise<TeamSummary | null> {
+  // Enrolled teams only, so a team of another season or league is null rather than a slug match.
   const teams = await getEnrolledTeams(seasonId, opts);
   // Slugs are lower-case in the database; `?team=Sharks` should still resolve,
   // the same allowance `resolveLeagueBySlug` makes for the league in the path.
