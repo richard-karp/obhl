@@ -36,6 +36,8 @@ schedule building and rules. One instance serves several leagues. Production is
   exactly one list in `.github/workflows/ci.yml`,** or it silently stops running.
 - `14-schedule-changes` stays off `05-scoring-night`'s machine. CI tests the merge
   with `main`, so a green run on a stale base proves nothing.
+- ⛔ **A code comment is at most 2 lines:** the rule and its reason, or a pointer to
+  the RUNBOOK section that holds the reasoning. History and narrative go in the commit.
 
 ## Access control
 
