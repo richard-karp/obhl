@@ -37,7 +37,7 @@ export default async function PlayerProfilePage({
 }) {
   const { league: leagueParam, playerId } = await params;
   const ctx = await getActiveContext(leagueParam);
-  if (!ctx.season) return <NoSeason />;
+  if (!ctx.season) return <NoSeason readFailed={ctx.seasonReadFailed} />;
   const league = ctx.league.slug;
 
   const bio = await getPlayerBio(playerId, ctx.season.id);

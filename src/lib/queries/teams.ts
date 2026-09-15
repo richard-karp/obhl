@@ -1,5 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { getSchedule, readWithOneRetry } from "./schedule";
+import type { GameWithTeams } from "./schedule";
 import type { DbClient, Tables, Views } from "@/lib/db/helpers";
 
 export type TeamRow = Tables<"teams">;
@@ -29,10 +30,23 @@ export type RosterEntry = {
  * ⚠️ A failed read looks like no teams enrolled, and the exports answer it with a 404 for a
  * team that exists: hence the retry (a GET) and the log.
  */
-export async function getEnrolledTeams(
+export type EnrolledTeamsRead = { teams: TeamSummary[]; readFailed: boolean };
+
+/**
+ * ⛔ THE PAIR EXISTS FOR ONE CALLER, and the reason is a silent wrong answer rather than a
+ * cosmetic one. The public schedule page resolves `?team=<slug>` against this list; when the
+ * read fails the list is empty, the slug resolves to nothing, and the page renders EVERY team's
+ * games to someone who asked for one — the exact thing the export routes refuse with a 404
+ * (`RUNBOOK.md` → Schedule edits and exports: "an unresolved slug is a 404, never no filter").
+ *
+ * ⚠️ Deliberately not the default shape. Eight other call sites read this list to populate a
+ * picker or validate a team, where an empty list is already handled; converting them is its own
+ * change, not a side effect of fixing the filter.
+ */
+export async function getEnrolledTeamsRead(
   seasonId: string,
   opts: { client?: DbClient } = {},
-): Promise<TeamSummary[]> {
+): Promise<EnrolledTeamsRead> {
   const supabase = opts.client ?? (await createClient());
   // ⛔ A factory, not a builder: an awaited PostgREST builder is spent, so the retry builds anew.
   const { data, error } = await readWithOneRetry(
@@ -45,11 +59,25 @@ export async function getEnrolledTeams(
         .eq("season_id", seasonId),
     "enrolled teams read",
   );
-  if (error) console.error("enrolled teams query failed:", error.message);
+  if (error) {
+    console.error("enrolled teams read failed:", error.message);
+    return { teams: [], readFailed: true };
+  }
   const teams = (data ?? [])
     .map((r) => r.team)
     .filter(Boolean) as unknown as TeamSummary[];
-  return teams.sort((a, b) => a.name.localeCompare(b.name));
+  return {
+    teams: teams.sort((a, b) => a.name.localeCompare(b.name)),
+    readFailed: false,
+  };
+}
+
+/** The list alone, for callers an empty one already serves correctly. */
+export async function getEnrolledTeams(
+  seasonId: string,
+  opts: { client?: DbClient } = {},
+): Promise<TeamSummary[]> {
+  return (await getEnrolledTeamsRead(seasonId, opts)).teams;
 }
 
 /**
@@ -74,7 +102,19 @@ export type TeamDetail = {
   roster: RosterEntry[];
   skaters: Views<"v_skater_stats">[];
   goalies: Views<"v_goalie_stats">[];
-  games: Awaited<ReturnType<typeof getSchedule>>;
+  /**
+   * ⛔ NAMED, not `Awaited<ReturnType<typeof getSchedule>>`. Deriving it meant a change to one
+   * query helper silently reshaped a public type consumed by a page in another directory — which
+   * is why this fan-out was invisible until someone went looking. It also keeps `games` a bare
+   * array, like its three siblings above.
+   */
+  games: GameWithTeams[];
+  /**
+   * ⚠️ NOT "the team page failed to load": the roster and both stats views are independent reads
+   * that can succeed while this one fails. It scopes the schedule tab and the W-L-T record, and
+   * nothing else.
+   */
+  gamesReadFailed: boolean;
 };
 
 /**
@@ -140,6 +180,7 @@ export async function getTeamBySlug(
     roster: rosterEntries,
     skaters: skaters ?? [],
     goalies: goalies ?? [],
-    games,
+    games: games.games,
+    gamesReadFailed: games.readFailed,
   };
 }

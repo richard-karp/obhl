@@ -151,10 +151,29 @@ async function OpenGamesCard({
   leagueSlug: string;
 }) {
   if (!seasonId) return null;
-  const games = openPastGames(
-    await getSchedule(seasonId, { client: createAdminClient() }),
-    leagueToday(),
-  );
+  const schedule = await getSchedule(seasonId, { client: createAdminClient() });
+  // ⚠️ This card's NORMAL state is absent, which is what makes a swallowed failure here so quiet:
+  // a manager reading a missing card as "every game is closed" is the same mistake in a place
+  // nobody would look for it. So a failed read says so rather than rendering nothing.
+  if (schedule.readFailed) {
+    return (
+      <section aria-label="Games still open">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Games still open</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* ⚠️ No "tell a manager": this card renders only for one. */}
+            <p className="text-muted-foreground text-sm">
+              Couldn&apos;t check for open games — this isn&apos;t the same as
+              there being none. Reload, and try again.
+            </p>
+          </CardContent>
+        </Card>
+      </section>
+    );
+  }
+  const games = openPastGames(schedule.games, leagueToday());
   if (games.length === 0) return null;
 
   return (
@@ -250,7 +269,8 @@ async function CaptainPanel({
     ) : null;
   }
 
-  const games = (await getSchedule(seasonId!, { teamId: team.id })).filter(
+  const schedule = await getSchedule(seasonId!, { teamId: team.id });
+  const games = schedule.games.filter(
     (g) => g.status !== "final" && g.status !== "cancelled",
   );
 
@@ -274,7 +294,14 @@ async function CaptainPanel({
           Open a game to set your dressed lineup. Rosters lock once the game is
           finalized.
         </p>
-        {games.length === 0 ? (
+        {/* ⚠️ Stays a plain `<p>`, like the empty state it replaces: `EmptyState` is a dashed box
+            that would sit oddly inside this `CardContent`. */}
+        {schedule.readFailed ? (
+          <p className="text-muted-foreground text-sm">
+            Couldn&apos;t load your games — this isn&apos;t the same as having
+            none. Reload, and tell a manager if it keeps happening.
+          </p>
+        ) : games.length === 0 ? (
           <p className="text-muted-foreground text-sm">No upcoming games.</p>
         ) : (
           <div className="divide-y rounded-lg border">

@@ -44,30 +44,64 @@ export type GameWithTeams = {
 };
 
 /**
+ * ⛔ THE SAME RULE AS `GamesOnDate`, WHICH SEE: a failed read and an empty season must not
+ * be the same value. The page that renders these games says "The schedule hasn't been built
+ * yet" on an empty list — as a fact, about a league that may have built one.
+ *
+ * ⚠️ `readFailed` means BOTH attempts failed. A blip absorbed by `readWithOneRetry` returns
+ * false here and logs `… read retried`, which CI greps for.
+ */
+export type ScheduleRead = { games: GameWithTeams[]; readFailed: boolean };
+
+/**
+ * Retry, log and shape, in one call.
+ *
+ * ⚠️ `label` IS TAKEN ONCE ON PURPOSE. It spells both lines — "<label> retried" from the retry
+ * and "<label> failed" here — and CI's diagnostics step greps for that pair, so a label that
+ * ends in "read" keeps both visible. Passing it separately to each let them drift.
+ */
+async function gamesRead(
+  run: () => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+  label: string,
+): Promise<ScheduleRead> {
+  const { data, error } = await readWithOneRetry(run, label);
+  if (error) {
+    console.error(`${label} failed:`, error.message);
+    return { games: [], readFailed: true };
+  }
+  return {
+    games: (data ?? []) as unknown as GameWithTeams[],
+    readFailed: false,
+  };
+}
+
+/**
  * `client` defaults to the RLS client. Pass the admin client only from a manager-gated
  * caller; anything a merely signed-in user can reach must leave the default.
  */
 export async function getSchedule(
   seasonId: string,
   opts: { teamId?: string; client?: DbClient } = {},
-): Promise<GameWithTeams[]> {
+): Promise<ScheduleRead> {
   const { teamId, client } = opts;
   const supabase = client ?? (await createClient());
-  let q = supabase
-    .from("games")
-    .select(GAME_SELECT)
-    .eq("season_id", seasonId)
-    .eq("is_draft", false)
-    .order("scheduled_at", { ascending: true });
-  if (teamId) {
-    // `.or()` interpolates the id unparameterised, unlike `.eq()`: every team filter in this file
-    // checks `isUuid` itself rather than trusting its caller.
-    if (!isUuid(teamId)) return [];
-    q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
-  }
-  const { data, error } = await q;
-  if (error) console.error("schedule query failed:", error.message);
-  return (data ?? []) as unknown as GameWithTeams[];
+  // ⛔ Not a failed look: a caller asking for an id no team can have has genuinely no games.
+  // `.or()` below interpolates the id unparameterised, unlike `.eq()`, so every team filter in
+  // this file checks `isUuid` itself rather than trusting its caller.
+  if (teamId && !isUuid(teamId)) return { games: [], readFailed: false };
+  // ⛔ A FACTORY, NOT A BUILDER: a PostgREST builder fires on await and is then spent, so the
+  // retry has to rebuild the whole query — the conditional team filter included.
+  return gamesRead(() => {
+    const q = supabase
+      .from("games")
+      .select(GAME_SELECT)
+      .eq("season_id", seasonId)
+      .eq("is_draft", false)
+      .order("scheduled_at", { ascending: true });
+    return teamId
+      ? q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+      : q;
+  }, "schedule read");
 }
 
 export type GameWithLeague = GameWithTeams & { league_id: string };
@@ -113,7 +147,7 @@ export async function getGamesOnDate(
     .order("scheduled_at", { ascending: true });
 
   if (error) {
-    console.error("games-on-date query failed:", error.message);
+    console.error("games-on-date read failed:", error.message);
     return { games: [], readFailed: true };
   }
   const games = (
@@ -132,65 +166,86 @@ export async function getGamesOnDate(
 export async function getTeamFeedGames(
   teamId: string,
   opts: { client?: DbClient } = {},
-): Promise<GameWithTeams[]> {
-  if (!isUuid(teamId)) return [];
+): Promise<ScheduleRead> {
+  if (!isUuid(teamId)) return { games: [], readFailed: false };
   const supabase = opts.client ?? (await createClient());
-  const { data, error } = await supabase
-    .from("games")
-    .select(GAME_SELECT)
-    .eq("is_draft", false)
-    .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
-    .order("scheduled_at", { ascending: true });
-  if (error) console.error("team feed query failed:", error.message);
-  return (data ?? []) as unknown as GameWithTeams[];
+  return gamesRead(
+    () =>
+      supabase
+        .from("games")
+        .select(GAME_SELECT)
+        .eq("is_draft", false)
+        .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+        .order("scheduled_at", { ascending: true }),
+    "team feed read",
+  );
 }
 
 export async function getUpcoming(
   seasonId: string,
   opts: { limit?: number; teamId?: string; client?: DbClient } = {},
-): Promise<GameWithTeams[]> {
+): Promise<ScheduleRead> {
   const { limit = 5, teamId, client } = opts;
   const supabase = client ?? (await createClient());
-  let q = supabase
-    .from("games")
-    .select(GAME_SELECT)
-    .eq("season_id", seasonId)
-    .eq("is_draft", false)
-    .eq("status", "scheduled")
-    .gte("scheduled_at", new Date().toISOString())
-    .order("scheduled_at", { ascending: true })
-    .limit(limit);
-  if (teamId) {
-    if (!isUuid(teamId)) return [];
-    q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
-  }
-  const { data, error } = await q;
-  if (error) console.error("schedule query failed:", error.message);
-  return (data ?? []) as unknown as GameWithTeams[];
+  if (teamId && !isUuid(teamId)) return { games: [], readFailed: false };
+  // Sampled once, outside the factory: a retry must re-run the same query, not a later one.
+  const from = new Date().toISOString();
+  return gamesRead(() => {
+    const q = supabase
+      .from("games")
+      .select(GAME_SELECT)
+      .eq("season_id", seasonId)
+      .eq("is_draft", false)
+      .eq("status", "scheduled")
+      .gte("scheduled_at", from)
+      .order("scheduled_at", { ascending: true })
+      .limit(limit);
+    return teamId
+      ? q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+      : q;
+  }, "upcoming read");
 }
 
 export type { SeasonNight, SeasonNightGame } from "@/lib/schedule/nights";
+
+/**
+ * ⛔ `readFailed` matters MORE here than on the pages, because two server actions validate
+ * against this list. Flattened to `[]`, a failed read makes every date "not a game night", so
+ * `moveGameNight` and the one-off planner refuse the write with a message about the schedule —
+ * fail-closed by accident, and telling the manager something untrue about their season.
+ */
+export type SeasonNightsRead = { nights: SeasonNight[]; readFailed: boolean };
 
 /** Grouping and locking rules live in `groupIntoNights`; this only fetches the rows. */
 export async function getSeasonNights(
   seasonId: string,
   opts: { client?: DbClient } = {},
-): Promise<SeasonNight[]> {
+): Promise<SeasonNightsRead> {
   const supabase = opts.client ?? (await createClient());
-  const { data, error } = await supabase
-    .from("games")
-    .select(
-      "id, scheduled_at, postponed_from, status, label, home_team_id, away_team_id",
-    )
-    .eq("season_id", seasonId)
-    .eq("is_draft", false)
-    .order("scheduled_at", { ascending: true });
+  const { data, error } = await readWithOneRetry(
+    () =>
+      supabase
+        .from("games")
+        .select(
+          "id, scheduled_at, postponed_from, status, label, home_team_id, away_team_id",
+        )
+        .eq("season_id", seasonId)
+        .eq("is_draft", false)
+        .order("scheduled_at", { ascending: true }),
+    "season nights read",
+  );
   if (error) {
-    console.error("season nights query failed:", error.message);
-    return [];
+    console.error("season nights read failed:", error.message);
+    return { nights: [], readFailed: true };
   }
 
-  return groupIntoNights(data ?? [], leagueDateKey(new Date().toISOString()));
+  return {
+    nights: groupIntoNights(
+      data ?? [],
+      leagueDateKey(new Date().toISOString()),
+    ),
+    readFailed: false,
+  };
 }
 
 /**
@@ -211,7 +266,7 @@ export async function getScheduleConstraints(
     .eq("season_id", seasonId)
     .order("created_at", { ascending: true });
   if (error) {
-    console.error("schedule constraints query failed:", error.message);
+    console.error("schedule constraints read failed:", error.message);
     return [];
   }
   return (data ?? []).flatMap((r) =>
@@ -231,26 +286,25 @@ export async function getScheduleConstraints(
 export async function getRecentResults(
   seasonId: string,
   opts: { limit?: number; teamId?: string; client?: DbClient } = {},
-): Promise<GameWithTeams[]> {
+): Promise<ScheduleRead> {
   const { limit = 5, teamId, client } = opts;
   const supabase = client ?? (await createClient());
-  let q = supabase
-    .from("games")
-    .select(GAME_SELECT)
-    // Explicit rather than relying on `public read games` to exclude drafts:
-    // an admin client bypasses that policy.
-    .eq("is_draft", false)
-    .eq("season_id", seasonId)
-    .eq("status", "final")
-    .order("scheduled_at", { ascending: false })
-    .limit(limit);
-  if (teamId) {
-    if (!isUuid(teamId)) return [];
-    q = q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`);
-  }
-  const { data, error } = await q;
-  if (error) console.error("schedule query failed:", error.message);
-  return (data ?? []) as unknown as GameWithTeams[];
+  if (teamId && !isUuid(teamId)) return { games: [], readFailed: false };
+  return gamesRead(() => {
+    const q = supabase
+      .from("games")
+      .select(GAME_SELECT)
+      // Explicit rather than relying on `public read games` to exclude drafts:
+      // an admin client bypasses that policy.
+      .eq("is_draft", false)
+      .eq("season_id", seasonId)
+      .eq("status", "final")
+      .order("scheduled_at", { ascending: false })
+      .limit(limit);
+    return teamId
+      ? q.or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+      : q;
+  }, "recent results read");
 }
 
 /**

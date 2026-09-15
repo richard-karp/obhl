@@ -30,7 +30,14 @@ export default async function TeamsPage({
     ? await getManageContext(leagueParam, seasonParam)
     : null;
   const ctx = manageCtx ?? (await getActiveContext(leagueParam));
-  if (!ctx.season) return <NoSeason />;
+  // ⚠️ `ctx` is either context here. Only the public one can report a failed read; a manager
+  // arriving through `getManageContext` gets the plain message, which is all that context knows.
+  if (!ctx.season)
+    return (
+      <NoSeason
+        readFailed={"seasonReadFailed" in ctx && ctx.seasonReadFailed}
+      />
+    );
   const slug = ctx.league.slug;
   // No admin client needed: 0032's `manages_league` policies let a manager read their own staged league's
   // teams, which `e2e/09-access.spec.ts` asserts.

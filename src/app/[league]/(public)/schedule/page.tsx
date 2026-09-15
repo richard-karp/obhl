@@ -7,7 +7,7 @@ import {
   getSeasonNights,
   type GameWithTeams,
 } from "@/lib/queries/schedule";
-import { getEnrolledTeams } from "@/lib/queries/teams";
+import { getEnrolledTeamsRead } from "@/lib/queries/teams";
 import { canManageLeague, canScoreLeague } from "@/lib/auth/guards";
 import { isPastGame } from "@/lib/games/open-past";
 import Link from "next/link";
@@ -134,11 +134,44 @@ export default async function SchedulePage({
     ? await getManageContext(leagueParam, seasonParam)
     : null;
   const ctx = manageCtx ?? (await getActiveContext(leagueParam));
-  if (!ctx.season) return <NoSeason />;
+  // ⚠️ `ctx` is either context here. Only the public one can report a failed read; a manager
+  // arriving through `getManageContext` gets the plain message, which is all that context knows.
+  if (!ctx.season)
+    return (
+      <NoSeason
+        readFailed={"seasonReadFailed" in ctx && ctx.seasonReadFailed}
+      />
+    );
   const slug = ctx.league.slug;
-  const teams = await getEnrolledTeams(ctx.season.id);
+  // ⛔ The pair, not the bare list. A failed teams read leaves `selected` undefined, and this page
+  // treats an unresolved slug as "no filter" — so someone who asked for one team would silently
+  // get every team's games. The export routes refuse that case outright with a 404; this page has
+  // a valid season and real games to show, so it shows them and says the filter is unavailable.
+  const teamsRead = await getEnrolledTeamsRead(ctx.season.id);
+  const teams = teamsRead.teams;
   const selected = team ? teams.find((t) => t.slug === team) : undefined;
-  const games = await getSchedule(ctx.season.id, { teamId: selected?.id });
+  const schedule = await getSchedule(ctx.season.id, { teamId: selected?.id });
+
+  // ⛔ AN EARLY RETURN, not another branch in the JSX below: on a failed read every control under
+  // the header is either wrong (a team filter over games nobody has) or broken (a download whose
+  // route now answers 503). This is the page the reported bug was seen on — it rendered "The
+  // schedule hasn't been built yet" at a league that had built one.
+  if (schedule.readFailed) {
+    return (
+      <div className="space-y-8">
+        <PageHeader title="Schedule" description={ctx.season.name}>
+          {/* ⚠️ KEPT, and alone: staff-only, independent of the games read, and the one control
+              that can carry a manager out of a season whose read is failing. */}
+          {manageCtx ? <SeasonSwitcher ctx={manageCtx} /> : null}
+        </PageHeader>
+        <EmptyState
+          title="Couldn't load the schedule"
+          description="Something went wrong reading this season's games — this is not the same as there being none. Reload, and tell a manager if it keeps happening."
+        />
+      </div>
+    );
+  }
+  const games = schedule.games;
 
   // Built from `selected`, not the raw `team` param: an unknown slug leaves the list unfiltered, and must
   // not make the export buttons ask for a team the season lacks and turn a download into a 404.
@@ -183,9 +216,13 @@ export default async function SchedulePage({
   // would offer them a control their own guard refuses.
   const canManage = await canManageLeague(resolved.id);
   // ⛔ The await is gated, not just the JSX: most traffic is anonymous and must not pay for this read.
-  const openNights = canManage
-    ? (await getSeasonNights(ctx.season.id)).filter((n) => !n.locked)
-    : [];
+  const seasonNights = canManage
+    ? await getSeasonNights(ctx.season.id)
+    : { nights: [], readFailed: false };
+  // ⚠️ Empty on a failed read too, since `getSeasonNights` returns no nights then — which is why
+  // the card below is gated on `readFailed` rather than on this being empty. The two are not the
+  // same thing, and only the card can tell the manager which one it is.
+  const openNights = seasonNights.nights.filter((n) => !n.locked);
   const editable: EditableGame[] = canManage
     ? games
         // ⛔ `=== "scheduled"`, not `!== "final"`: cancelled games keep their date, and the write path
@@ -208,7 +245,15 @@ export default async function SchedulePage({
       <PageHeader title="Schedule" description={ctx.season.name}>
         {/* Staff only — a visitor has one season and nothing to switch to. */}
         {manageCtx ? <SeasonSwitcher ctx={manageCtx} /> : null}
-        <ScheduleFilter teams={teams} value={selected?.slug} />
+        {teamsRead.readFailed ? (
+          <p className="text-muted-foreground text-sm">
+            {team
+              ? "Couldn't load the team filter, so every team's games are shown."
+              : "Couldn't load the team filter."}
+          </p>
+        ) : (
+          <ScheduleFilter teams={teams} value={selected?.slug} />
+        )}
         {/*
           No one-off button here: `canScore` admits scorekeepers, who cannot reach the builder.
         */}
@@ -250,19 +295,31 @@ export default async function SchedulePage({
               {/*
                 ⛔ Moving a night belongs here: once `season_is_started`, this page is a manager's whole surface.
                 ⚠️ Gated on the season having games, not movable ones: the form explains when none are left.
+                ⛔ AND on the nights read having succeeded. `RescheduleNightForm` answers an empty list
+                with "Every remaining game night has already been played or is in the past" — a claim
+                about the season, which a failed read has no standing to make. The builder panel's copy
+                of this card is gated the same way.
               */}
               <div className="space-y-2 rounded-lg border p-3">
                 <h3 className="text-sm font-semibold">Move a game night</h3>
-                <RescheduleNightForm
-                  seasonId={ctx.season.id}
-                  nights={openNights.map((n) => ({
-                    date: n.date,
-                    games: n.games.length,
-                  }))}
-                  // Server-side in the league's zone: the browser's clock is a day off for anyone travelling.
-                  minDate={today}
-                  maxDate={ctx.season.ends_on ?? null}
-                />
+                {seasonNights.readFailed ? (
+                  <p className="text-muted-foreground text-sm">
+                    Couldn&apos;t read this season&apos;s game nights, so there
+                    is nothing to offer here — this isn&apos;t the same as
+                    having no night left to move. Reload, and try again.
+                  </p>
+                ) : (
+                  <RescheduleNightForm
+                    seasonId={ctx.season.id}
+                    nights={openNights.map((n) => ({
+                      date: n.date,
+                      games: n.games.length,
+                    }))}
+                    // Server-side in the league's zone: the browser's clock is a day off for anyone travelling.
+                    minDate={today}
+                    maxDate={ctx.season.ends_on ?? null}
+                  />
+                )}
               </div>
 
               {/*

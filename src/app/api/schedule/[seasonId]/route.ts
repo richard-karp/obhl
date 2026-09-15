@@ -23,15 +23,26 @@ export async function GET(
   if (teamSlug !== null && !team)
     return new Response("Not found", { status: 404 });
 
-  const [games, league] = await Promise.all([
+  const [schedule, league] = await Promise.all([
     getSchedule(seasonId, { teamId: team?.id }),
     publicLeagueOfSeason(seasonId),
   ]);
+  // ⛔ BEFORE the `!league` check: `publicLeagueOfSeason` is null for a failed read too, so a
+  // league-first order would report 404 whenever both reads fail — exactly the case this exists
+  // for. The games read is the PAYLOAD, and a payload that failed must not serialise as a valid
+  // empty file; the league read is an identity lookup, where 404 already means three things
+  // (`RUNBOOK.md` → Schedule edits and exports).
+  if (schedule.readFailed) {
+    return new Response("Schedule temporarily unavailable", {
+      status: 503,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
   // ⚠️ Null for both "no such season" and "not yours to read", on purpose: through the RLS client a
   // staged league's own members still get their export (0042/0043).
   if (!league) return new Response("Not found", { status: 404 });
   const ics = buildIcs(
-    games
+    schedule.games
       .filter((g) => isExportableFixture(g.status))
       .map((g): IcsGame => ({
         id: g.id,

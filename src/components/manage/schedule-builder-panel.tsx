@@ -119,7 +119,7 @@ export async function ScheduleBuilderPanel({
     getScheduleConstraints(seasonId, { client: admin }),
     getSeasonNights(seasonId, { client: admin }),
   ]);
-  const openNights = seasonNights.filter((n) => !n.locked);
+  const openNights = seasonNights.nights.filter((n) => !n.locked);
 
   // The draft read fails closed like getPublishState's: an errored read coerces to [], which reads as "no
   // draft" and offers a generate that throws away a draft the manager can't see.
@@ -498,6 +498,11 @@ export async function ScheduleBuilderPanel({
       {/*
         In every mode with published games, `locked` above all. Hidden on `readFailed`: an empty picker would
         read as "nothing to move" rather than "we couldn't look".
+        ⛔ `readFailed` is NOT the read that fills this picker — it covers the publish and draft reads,
+        so the one failure that empties the picker went straight through the line above. That case is
+        handled inside the card rather than by hiding it: `seasonNights.readFailed` says so in words,
+        because a card that vanishes is itself a kind of silent empty. Same wording on the public
+        schedule page, which hosts the other copy of this control.
       */}
       {publish.liveCount > 0 && !readFailed ? (
         <Card>
@@ -505,16 +510,24 @@ export async function ScheduleBuilderPanel({
             <CardTitle className="text-base">Move a game night</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <RescheduleNightForm
-              seasonId={seasonId}
-              nights={openNights.map((n) => ({
-                date: n.date,
-                games: n.games.length,
-              }))}
-              // Server-side in the league's zone: the browser's clock is a day off for anyone travelling.
-              minDate={today}
-              maxDate={season?.ends_on ?? null}
-            />
+            {seasonNights.readFailed ? (
+              <p className="text-muted-foreground text-sm">
+                Couldn&apos;t read this season&apos;s game nights, so there is
+                nothing to offer here — this isn&apos;t the same as having no
+                night left to move. Reload, and try again.
+              </p>
+            ) : (
+              <RescheduleNightForm
+                seasonId={seasonId}
+                nights={openNights.map((n) => ({
+                  date: n.date,
+                  games: n.games.length,
+                }))}
+                // Server-side in the league's zone: the browser's clock is a day off for anyone travelling.
+                minDate={today}
+                maxDate={season?.ends_on ?? null}
+              />
+            )}
             {/*
               ⚠️ Not in locked mode, whose card already carries this link: two identical links read as a seam.
             */}

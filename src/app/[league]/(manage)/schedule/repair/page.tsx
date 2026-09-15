@@ -55,7 +55,7 @@ export default async function ScheduleRepairPage({
     getSeasonNights(ctx.season.id, { client: admin }),
   ]);
 
-  const openNights = nights.filter((n) => !n.locked);
+  const openNights = nights.nights.filter((n) => !n.locked);
 
   return (
     <div className="space-y-6">
@@ -69,7 +69,14 @@ export default async function ScheduleRepairPage({
         </Button>
       </PageHeader>
 
-      {nights.length === 0 ? (
+      {/* ⛔ Before the "no published schedule" arm, which is what a failed read would otherwise
+          render — telling a manager their season has no schedule because we could not read it. */}
+      {nights.readFailed ? (
+        <EmptyState
+          title="Couldn't load this season's schedule"
+          description="Something went wrong reading its game nights — this is not the same as there being none. Reload, and try again."
+        />
+      ) : nights.nights.length === 0 ? (
         <EmptyState
           title="No published schedule"
           description="Generate and publish a schedule first — a repair rearranges games that already exist."

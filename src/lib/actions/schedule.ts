@@ -1077,6 +1077,16 @@ export async function rescheduleNight(
         "Couldn't read this season's dates, so the move wasn't attempted. Reload and try again.",
     };
   }
+  // ⛔ The same guard the read beside it has always had. Without it a failed nights read reaches
+  // `checkNightMove` as a season with no game nights, which refuses with "that isn't a game
+  // night" — fail-closed by accident, and a lie about a schedule nobody could read.
+  if (nights.readFailed) {
+    return {
+      ok: false,
+      message:
+        "Couldn't read this season's schedule, so the move wasn't attempted. Reload and try again.",
+    };
+  }
 
   const nameOf = (id: string) =>
     teams.find((t) => t.id === id)?.name ?? "a removed team";
@@ -1084,7 +1094,7 @@ export async function rescheduleNight(
   // Re-checked here rather than trusted from the form: a stale tab's picker and a client-side `min`
   // guarantee nothing.
   const refusal = checkNightMove({
-    nights,
+    nights: nights.nights,
     from,
     to,
     // The league's zone, not the server's — see `checkNightMove`'s note.
@@ -1097,7 +1107,7 @@ export async function rescheduleNight(
   });
   if (refusal) return { ok: false, message: refusal };
 
-  const source = nights.find((n) => n.date === from)!;
+  const source = nights.nights.find((n) => n.date === from)!;
   const moves = moveNightTo(source.games, to);
   if (moves.length !== source.games.length) {
     // ⚠️ Unreachable: only a postponed game lacks a time, and its night is locked. Fail closed rather
@@ -1207,7 +1217,14 @@ async function loadContext(seasonId: string, admin: Admin) {
   ]);
   const teams = enrolled.map((t) => ({ id: t.id, name: t.name }));
   const indexOf = new Map(teams.map((t, i) => [t.id, i]));
-  return { teams, indexOf, nights };
+  // ⚠️ Carried, not swallowed: an empty night list plans a one-off into a season that looks like
+  // it has no games, and every caller below must refuse rather than act on that picture.
+  return {
+    teams,
+    indexOf,
+    nights: nights.nights,
+    nightsReadFailed: nights.readFailed,
+  };
 }
 
 /** The planner's index-based view of the season, or null if a team is unknown. */
@@ -1254,7 +1271,20 @@ export async function previewOneOffGame(
   if (!target) return { ok: false, message: "No season selected." };
   const { seasonId } = target;
 
-  const { teams, indexOf, nights } = await loadContext(seasonId, admin);
+  const { teams, indexOf, nights, nightsReadFailed } = await loadContext(
+    seasonId,
+    admin,
+  );
+  // ⛔ Fails closed WITH THE TRUE REASON, the same discipline as `moveGameNight`'s season-bounds
+  // guard: an unread schedule reads as a season with no game nights, and every message below
+  // would then tell the manager something false about their own season.
+  if (nightsReadFailed) {
+    return {
+      ok: false,
+      message:
+        "Couldn't read this season's schedule, so nothing was attempted. Reload and try again.",
+    };
+  }
   const bad = readInput(input, indexOf);
   if (bad) return { ok: false, message: bad };
 
@@ -1333,7 +1363,20 @@ export async function applyOneOffGame(
   if (!target) return { ok: false, message: "No season selected." };
   const { seasonId, manager } = target;
 
-  const { teams, indexOf, nights } = await loadContext(seasonId, admin);
+  const { teams, indexOf, nights, nightsReadFailed } = await loadContext(
+    seasonId,
+    admin,
+  );
+  // ⛔ Fails closed WITH THE TRUE REASON, the same discipline as `moveGameNight`'s season-bounds
+  // guard: an unread schedule reads as a season with no game nights, and every message below
+  // would then tell the manager something false about their own season.
+  if (nightsReadFailed) {
+    return {
+      ok: false,
+      message:
+        "Couldn't read this season's schedule, so nothing was attempted. Reload and try again.",
+    };
+  }
   const bad = readInput(input, indexOf);
   if (bad) return { ok: false, message: bad };
 
@@ -1472,7 +1515,20 @@ function publishedSlots(nights: SeasonNight[]) {
 
 /** Everything the planner needs, or a message saying why it can't be had. */
 async function repairContext(seasonId: string, admin: Admin) {
-  const { teams, indexOf, nights } = await loadContext(seasonId, admin);
+  const { teams, indexOf, nights, nightsReadFailed } = await loadContext(
+    seasonId,
+    admin,
+  );
+  // ⛔ Fails closed WITH THE TRUE REASON, the same discipline as `moveGameNight`'s season-bounds
+  // guard: an unread schedule reads as a season with no game nights, and every message below
+  // would then tell the manager something false about their own season.
+  if (nightsReadFailed) {
+    return {
+      ok: false as const,
+      message:
+        "Couldn't read this season's schedule, so nothing was attempted. Reload and try again.",
+    };
+  }
   if (nights.length === 0) {
     return {
       ok: false as const,
@@ -1592,7 +1648,17 @@ export async function applyScheduleRepair(input: {
     return { ok: false, message: "That plan changes nothing." };
   }
 
-  const { teams, nights } = await loadContext(seasonId, admin);
+  const { teams, nights, nightsReadFailed } = await loadContext(seasonId, admin);
+  // ⛔ Fails closed WITH THE TRUE REASON, the same discipline as `moveGameNight`'s season-bounds
+  // guard: an unread schedule reads as a season with no game nights, and every message below
+  // would then tell the manager something false about their own season.
+  if (nightsReadFailed) {
+    return {
+      ok: false,
+      message:
+        "Couldn't read this season's schedule, so nothing was attempted. Reload and try again.",
+    };
+  }
   const teamIds = teams.map((t) => t.id);
 
   const rejected = checkOneOffWrite({

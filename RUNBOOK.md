@@ -216,6 +216,23 @@ and `.../schedule.csv`, take `?team=<slug>`, resolved by `getEnrolledTeamBySlug`
 - ⛔ **An unresolved slug is a 404, never "no filter"**, or a caller who asked for
   one team silently gets all. Test `=== null` (a bare `?team=` is `""`).
 
+**404 or 503: the split is deliberate.** All three export routes answer **404**
+when the league or team read comes back null, and **503 with
+`Cache-Control: no-store`** when the *games* read failed.
+- The games read is the **payload**. A payload that failed must not be serialised
+  as an empty-but-valid file: a subscriber's calendar app cannot tell that apart
+  from a season whose games were all deleted, and `feed.ics` caches success for
+  an hour, so one bad second becomes an hour of empty calendar.
+- The league and team reads are **identity lookups**, where 404 already conflates
+  "no such thing", "not yours" and "the read failed" by design — a staged league's
+  own members still get their export (0042/0043), which is why null cannot be
+  split there.
+- ⛔ **The `readFailed` check goes BEFORE the `!league` check** in all three
+  routes. League-first means a request where both reads fail reports 404, and the
+  503 is unreachable in exactly the case it exists for.
+- ⚠️ A team with genuinely no games is still a **200 with an empty calendar**.
+  That is what stops the 503 from being satisfiable by 503-ing every empty feed.
+
 **The one-off planner and repair** (`planOneOff`, `planRepair`,
 `checkOneOffWrite` in `src/lib/schedule/oneOff.ts`; `/<league>/schedule/one-off`
 and `/repair`). A night locks by date or by holding a non-`scheduled` game, and

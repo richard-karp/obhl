@@ -1,4 +1,5 @@
 import { createClient } from "@/utils/supabase/server";
+import { readWithOneRetry } from "@/lib/queries/schedule";
 import type { DbClient, Views } from "@/lib/db/helpers";
 
 /**
@@ -17,38 +18,55 @@ export type GoalieTotals = Views<"v_goalie_season_totals">;
 export type SkaterRow = SkaterStat | SkaterTotals;
 export type GoalieRow = GoalieStat | GoalieTotals;
 
+/**
+ * ⛔ An empty leaderboard is "nobody has been scored yet" — which is TRUE at the start of every
+ * season, and so is exactly the message a failed read hides behind.
+ */
+export type SkaterLeadersRead = { rows: SkaterTotals[]; readFailed: boolean };
+export type GoalieLeadersRead = { rows: GoalieTotals[]; readFailed: boolean };
+
 export async function getSkaterLeaders(
   seasonId: string,
   opts: { limit?: number; client?: DbClient } = {},
-): Promise<SkaterTotals[]> {
+): Promise<SkaterLeadersRead> {
   const { limit, client } = opts;
   const supabase = client ?? (await createClient());
-  let q = supabase
-    .from("v_skater_season_totals")
-    .select("*")
-    .eq("season_id", seasonId)
-    .order("pts", { ascending: false })
-    .order("g", { ascending: false });
-  if (limit) q = q.limit(limit);
-  const { data, error } = await q;
-  if (error) console.error("getSkaterLeaders failed:", error.message);
-  return data ?? [];
+  // ⛔ A factory, not a builder: an awaited PostgREST builder is spent, so the retry builds anew —
+  // the conditional `.limit()` included.
+  const { data, error } = await readWithOneRetry(() => {
+    const q = supabase
+      .from("v_skater_season_totals")
+      .select("*")
+      .eq("season_id", seasonId)
+      .order("pts", { ascending: false })
+      .order("g", { ascending: false });
+    return limit ? q.limit(limit) : q;
+  }, "skater leaders read");
+  if (error) {
+    console.error("skater leaders read failed:", error.message);
+    return { rows: [], readFailed: true };
+  }
+  return { rows: data ?? [], readFailed: false };
 }
 
 /** Goalie leaderboard for a season, ordered by GAA (min 1 GP). */
 export async function getGoalieLeaders(
   seasonId: string,
   opts: { limit?: number; client?: DbClient } = {},
-): Promise<GoalieTotals[]> {
+): Promise<GoalieLeadersRead> {
   const { limit, client } = opts;
   const supabase = client ?? (await createClient());
-  let q = supabase
-    .from("v_goalie_season_totals")
-    .select("*")
-    .eq("season_id", seasonId)
-    .order("gaa", { ascending: true });
-  if (limit) q = q.limit(limit);
-  const { data, error } = await q;
-  if (error) console.error("getGoalieLeaders failed:", error.message);
-  return data ?? [];
+  const { data, error } = await readWithOneRetry(() => {
+    const q = supabase
+      .from("v_goalie_season_totals")
+      .select("*")
+      .eq("season_id", seasonId)
+      .order("gaa", { ascending: true });
+    return limit ? q.limit(limit) : q;
+  }, "goalie leaders read");
+  if (error) {
+    console.error("goalie leaders read failed:", error.message);
+    return { rows: [], readFailed: true };
+  }
+  return { rows: data ?? [], readFailed: false };
 }

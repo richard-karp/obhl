@@ -81,7 +81,7 @@ export default async function SeasonSetupPage({
   const [
     { data: enrolled },
     { data: captains },
-    { count: publishedCount },
+    { count: publishedCount, error: publishedError },
     { data: leagueActive, error: leagueActiveError },
   ] = await Promise.all([
     admin
@@ -134,6 +134,12 @@ export default async function SeasonSetupPage({
     .filter(Boolean)
     .sort((a: any, b: any) => a.name.localeCompare(b.name));
   const teamCount = teams.length;
+  // ⚠️ A `count` read reports failure only through `error`: `publishedCount` is null either way,
+  // so without this the chip below states "No schedule yet" as a fact about a season whose games
+  // it could not count.
+  if (publishedError) {
+    console.error("published count read failed:", publishedError.message);
+  }
   const published = publishedCount ?? 0;
 
   return (
@@ -170,13 +176,16 @@ export default async function SeasonSetupPage({
           n={3}
           label="Schedule"
           detail={
-            published
-              ? `${published} games scheduled`
-              : teamCount < 2
-                ? "Add teams first"
-                : "Build it below"
+            publishedError
+              ? "Couldn't check"
+              : published
+                ? `${published} games scheduled`
+                : teamCount < 2
+                  ? "Add teams first"
+                  : "Build it below"
           }
-          done={published > 0}
+          // ⛔ Not `published > 0`, which is a claim of "not done" built from a count nobody has.
+          done={!publishedError && published > 0}
         />
       </div>
 

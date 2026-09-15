@@ -15,15 +15,27 @@ export async function GET(
   if (!isUuid(teamId)) return new Response("Not found", { status: 404 });
 
   // Named for the league; the event UIDs stay untouched, since they are subscription identity.
-  const [games, league] = await Promise.all([
+  const [schedule, league] = await Promise.all([
     getTeamFeedGames(teamId),
     publicLeagueOfTeam(teamId),
   ]);
+  // ⛔ BEFORE the `!league` check, not after. `publicLeagueOfTeam` returns null for "no such
+  // team", "not yours" AND "the read failed", so a league-first order reports 404 whenever both
+  // reads fail — and the 503 would be unreachable in the case it exists for.
+  //
+  // ⛔ AND `no-store`. The success path below caches for an hour; serving a blip under that
+  // header is what turns one bad second into an hour of empty calendar in a subscriber's client.
+  if (schedule.readFailed) {
+    return new Response("Schedule temporarily unavailable", {
+      status: 503,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
   // ⚠️ A subscription, and still a 404: a permanently empty calendar looks like a season with no games
   // left. Null covers "not yours to read" too; staged leagues' members keep their feed (0042/0043).
   if (!league) return new Response("Not found", { status: 404 });
   const ics = buildIcs(
-    games
+    schedule.games
       .filter((g) => isExportableFixture(g.status))
       .map((g): IcsGame => ({
         id: g.id,
