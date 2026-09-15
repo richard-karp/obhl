@@ -563,10 +563,12 @@ test.describe("The scorekeeper's night", () => {
       has: page.locator('input[name="player_ids"]'),
     });
     // Dress the skaters so the goalie section appears.
+    let skaters = 0;
     for (const form of [lineupForms.first(), lineupForms.last()]) {
       const boxes = form.locator('input[type="checkbox"]');
       for (let i = 0; i < (await boxes.count()); i++)
         await boxes.nth(i).check();
+      skaters += await boxes.count();
       await form.getByRole("button", { name: "Save lineup" }).click();
       await page.waitForLoadState("networkidle");
     }
@@ -577,17 +579,20 @@ test.describe("The scorekeeper's night", () => {
       .filter({ has: page.locator('input[name="goalie_id"]') })
       .first()
       .getByRole("button");
+    const dressed = page.getByTestId("dressed-line");
+    await expect(dressed).toHaveCount(skaters);
+    const dressedBefore = await dressed.count();
     await goalieButtons.first().click();
     await page.waitForLoadState("networkidle");
 
     // ⛔ Count dressed lines (`game_rosters` rows), not lineup checkboxes: those exclude goalies and
     // never change. A lineup save that deletes the goalie's row drops this count.
-    const dressed = page.getByTestId("dressed-line");
+    await expect
+      .poll(() => dressed.count(), {
+        message: "picking a goalie should dress them",
+      })
+      .toBe(dressedBefore + 1);
     const dressedAfterGoalie = await dressed.count();
-    expect(
-      dressedAfterGoalie,
-      "picking a goalie should dress them",
-    ).toBeGreaterThan(0);
 
     // Save the lineup again: the form does not submit goalies, so this must not delete their row.
     await lineupForms
