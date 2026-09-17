@@ -91,8 +91,13 @@ must stay in the league zone: the 9:40pm Eastern slot is tomorrow in UTC.
 ⛔ **It has no RLS half, on purpose:** `0032` is date-blind and `0046` limits
 columns, not games. Accepted; closing it takes policies on `games` and `game_rosters`, not a guard.
 
-⛔ **Only the page checks the date;** `finalizeGame`, `bumpStat` and `setLineup`
-don't. Day-rollover sign-out and _Closing the night_ cover it; add no grace period.
+⛔ **Only the page checks the date;** `finalizeGame`, `bumpStat`, `setLineup` and
+`setGoalie` don't. Day-rollover sign-out and _Closing the night_ cover it; add no grace period.
+
+⚠️ **`setGoalie` is the one that deletes,** not just writes: changing the goalie of
+record undresses the outgoing one. It is bounded to `scheduled_at` in the future, so the
+only row it can remove is a pre-game pick — never an appearance in a game that was played
+(`c64ed0a`). Widen that bound and this gap stops being additive.
 
 ### Closing the night
 

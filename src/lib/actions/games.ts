@@ -205,14 +205,24 @@ export async function setGoalie(formData: FormData) {
   const side = String(formData.get("side"));
   if (side !== "home" && side !== "away") return;
 
+  // ⛔ One read, above the captain check: it also carries the OUTGOING goalie, which the update
+  // below overwrites — read it after and the swap has nothing to undress.
+  const { data: g, error: gError } = await supabase
+    .from("games")
+    .select(
+      "home_team_id, away_team_id, home_goalie_id, away_goalie_id, scheduled_at, finalized_at, season_id",
+    )
+    .eq("id", game_id)
+    .maybeSingle();
+  check(gError, "Set goalie");
+  // ⛔ Fails closed as `setLineup` does: an unread game must not dress nobody and undress someone.
+  if (!g) throw new Error("Set goalie failed: game not found");
+  const goalieTeamId = side === "home" ? g.home_team_id : g.away_team_id;
+  const outgoingId = side === "home" ? g.home_goalie_id : g.away_goalie_id;
+
   // Captains may only set the goalie for their own team's side.
   if (user.role === "captain") {
-    const { data: game } = await supabase
-      .from("games")
-      .select("home_team_id, away_team_id, finalized_at, season_id")
-      .eq("id", game_id)
-      .maybeSingle();
-    if (!game || game.finalized_at) return;
+    if (g.finalized_at) return;
     const { data: prof } = await supabase
       .from("profiles")
       .select("player_id")
@@ -224,11 +234,9 @@ export async function setGoalie(formData: FormData) {
       .select("team_id")
       .eq("player_id", prof.player_id)
       .eq("is_captain", true)
-      .eq("season_id", game.season_id)
+      .eq("season_id", g.season_id)
       .maybeSingle();
-    const captainTeamId = tp?.team_id;
-    const sideTeamId = side === "home" ? game.home_team_id : game.away_team_id;
-    if (captainTeamId !== sideTeamId) return;
+    if (tp?.team_id !== goalieTeamId) return;
   }
 
   // "sub" = substitute goalie (no individual record); "" = clear (fallback to
@@ -241,25 +249,20 @@ export async function setGoalie(formData: FormData) {
     side === "home"
       ? { home_goalie_id: goalie_id, home_goalie_is_sub: isSub }
       : { away_goalie_id: goalie_id, away_goalie_is_sub: isSub };
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("games")
     .update(patch)
-    .eq("id", game_id);
+    .eq("id", game_id)
+    // ⛔ `.select("id")` proves the write: an RLS-refused UPDATE matches no rows with `error: null`
+    // (`RUNBOOK.md` → Access control → Traps). A captain has no `games` policy, so theirs is refused.
+    .select("id");
   check(error, "Set goalie");
+  // ⛔ Whole action or nothing: dressing or undressing after a refused update deletes a row the
+  // goalie of record still names, leaving the sheet disagreeing with itself and nothing raised.
+  if (!updated?.length) return;
 
   // ⛔ Choosing a goalie dresses them: the lineup checkboxes are skaters only, so this is the only
   // write that gives a goalie of record a roster row to carry their stats.
-  const { data: g, error: gError } = await supabase
-    .from("games")
-    .select("home_team_id, away_team_id, season_id")
-    .eq("id", game_id)
-    .maybeSingle();
-  check(gError, "Set goalie");
-  const goalieTeamId = side === "home" ? g?.home_team_id : g?.away_team_id;
-
-  // ⛔ Never auto-undress the previous goalie: a pulled starter and a mis-tap are identical
-  // all-zero rows, so a delete erases a real appearance. The mis-tap needs a UI control.
-
   if (goalie_id && goalieTeamId) {
     // Idempotent via `ignoreDuplicates`. ⚠️ The error is checked: a refused insert (42501) or a
     // bad `onConflict` (42P10) otherwise leaves a named goalie silently undressed.
@@ -273,6 +276,32 @@ export async function setGoalie(formData: FormData) {
       { onConflict: "game_id,player_id", ignoreDuplicates: true },
     );
     check(dressError, "Set goalie");
+  }
+
+  // ⛔ The clock, never `status`: a game played off a paper sheet is still `scheduled` when its
+  // goalie is tapped (`open-past.ts`), and deleting then costs a pulled starter their game (`c64ed0a`).
+  const beforePuckDrop =
+    !!g.scheduled_at && new Date(g.scheduled_at).getTime() > Date.now();
+  if (
+    outgoingId &&
+    outgoingId !== goalie_id &&
+    goalieTeamId &&
+    beforePuckDrop
+  ) {
+    // One conditional delete, never read-then-delete: ⛔ a stat landing on the row in between is
+    // destroyed anyway, and `game_rosters.goals` sums into the final score (`syncFinalScore`).
+    const { error: undressError } = await supabase
+      .from("game_rosters")
+      .delete()
+      .eq("game_id", game_id)
+      .eq("team_id", goalieTeamId)
+      .eq("player_id", outgoingId)
+      .eq("goals", 0)
+      .eq("assists", 0)
+      .eq("pim", 0);
+    check(undressError, "Set goalie");
+    // ⚠️ No read-back for the RLS trap (unlike the update above): an empty result means refused, OR
+    // stats on the row, OR no row — indistinguishable, and every one of them is a safe non-deletion.
   }
   revalidateAfterScore(game_id, true);
 }
