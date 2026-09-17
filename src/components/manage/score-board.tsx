@@ -182,9 +182,9 @@ function GoalieAndEmptyNet({
   data: ScoreBoardData;
   board: TeamBoard;
 }) {
-  // ⛔ A suggestion is not a selection: only a tap on `setGoalie` creates the goalie's `game_rosters` row, so a
-  // suggestion drawn as set leaves them with no GP, GAA or W/L.
-  const isSet = board.goalieId != null;
+  // ⛔ A suggestion is not a selection: only a tap on `setGoalie` creates the `game_rosters` row, so a
+  // suggestion drawn as set costs the goalie their GP, GAA and W/L. A sub IS set, with a null id (`0015`).
+  const isSet = board.goalieId != null || board.goalieIsSub;
   const activeValue = isSet
     ? board.goalieIsSub
       ? "sub"
