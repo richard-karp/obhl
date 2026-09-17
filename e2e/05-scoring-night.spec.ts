@@ -486,6 +486,48 @@ async function anOldGameId(page: Page): Promise<string> {
   return game!.id;
 }
 
+/**
+ * A past `scheduled` obhl game, plus the side whose team carries two goalies. ⛔ Past AND
+ * `scheduled`: that pair is the trap, and a fixture of only `final` past games cannot show it.
+ */
+async function aPlayedGameWithTwoGoalies(
+  page: Page,
+): Promise<{ gameId: string; side: "home" | "away" }> {
+  await signInAs(page, "Manager");
+  const db = admin();
+  const { data: league } = await db
+    .from("leagues")
+    .select("id")
+    .eq("slug", "obhl")
+    .single();
+  const { data: games } = await db
+    .from("games")
+    .select(
+      "id, season_id, home_team_id, away_team_id, seasons!inner(league_id)",
+    )
+    .eq("seasons.league_id", league!.id)
+    .eq("is_draft", false)
+    .eq("status", "scheduled")
+    .lt("scheduled_at", new Date().toISOString())
+    .order("scheduled_at", { ascending: false });
+
+  for (const game of games ?? []) {
+    for (const side of ["home", "away"] as const) {
+      const { count } = await db
+        .from("team_players")
+        .select("player_id", { count: "exact", head: true })
+        .eq("season_id", game.season_id)
+        .eq("team_id", side === "home" ? game.home_team_id : game.away_team_id)
+        .eq("position", "G")
+        .is("left_on", null);
+      if ((count ?? 0) >= 2) return { gameId: game.id, side };
+    }
+  }
+  throw new Error(
+    "no past `scheduled` obhl game whose team has two goalies — the fixture changed",
+  );
+}
+
 test.describe("The scorekeeper's night", () => {
   test("lists tonight's games, each with a way into its scoresheet", async ({
     page,
@@ -607,6 +649,45 @@ test.describe("The scorekeeper's night", () => {
     ).toHaveCount(dressedAfterGoalie);
   });
 
+  test("changing the goalie on a game already played keeps the starter dressed", async ({
+    page,
+  }) => {
+    // ⛔ THE TRAP (`c64ed0a`): a game played off a paper sheet is still `scheduled` when its goalie
+    // is tapped, so undressing the outgoing goalie there deletes the game a pulled starter played.
+    const { gameId, side } = await aPlayedGameWithTwoGoalies(page);
+    await page.goto(`/obhl/games/${gameId}/score`);
+    await expect(page).toHaveURL(`/obhl/games/${gameId}/score`);
+
+    const goalieButtons = page
+      .locator("form")
+      .filter({ has: page.locator('input[name="goalie_id"]') })
+      .filter({ has: page.locator(`input[name="side"][value="${side}"]`) })
+      .getByRole("button");
+    // The premise, asserted: two goalies plus "Sub", or `nth(1)` below is the Sub button and the
+    // test would assert a swap that never happened.
+    await expect(
+      goalieButtons,
+      "that side should offer two goalies and Sub",
+    ).toHaveCount(3);
+
+    const dressed = page.getByTestId("dressed-line");
+    const before = await dressed.count();
+
+    await goalieButtons.nth(0).click();
+    await page.waitForLoadState("networkidle");
+    await expect
+      .poll(() => dressed.count(), { message: "picking a goalie dresses them" })
+      .toBe(before + 1);
+
+    // The starter is pulled and the replacement takes the record.
+    await goalieButtons.nth(1).click();
+    await page.waitForLoadState("networkidle");
+    await expect(
+      dressed,
+      "the starter must stay dressed — deleting their row destroys a real appearance (`c64ed0a`)",
+    ).toHaveCount(before + 2);
+  });
+
   test("a scoresheet gives the scorekeeper the minimal chrome and a way back", async ({
     page,
   }) => {
@@ -656,9 +737,7 @@ test.describe("Closing the night", () => {
   async function sweep(request: APIRequestContext, opts?: { auth?: boolean }) {
     return request.get("/api/cron/close-night", {
       headers:
-        opts?.auth === false
-          ? {}
-          : { authorization: `Bearer ${CRON_SECRET}` },
+        opts?.auth === false ? {} : { authorization: `Bearer ${CRON_SECRET}` },
       failOnStatusCode: false,
     });
   }
@@ -686,7 +765,9 @@ test.describe("Closing the night", () => {
   }
 
   /** A finished past game, borrowed and put back. Never one of tonight's. */
-  async function borrowGame(before: string): Promise<GameState & { home_team_id: string }> {
+  async function borrowGame(
+    before: string,
+  ): Promise<GameState & { home_team_id: string }> {
     const db = admin();
     const { data } = await db
       .from("games")
@@ -745,10 +826,9 @@ test.describe("Closing the night", () => {
       .select("status")
       .eq("id", game.id)
       .single();
-    expect(
-      after!.status,
-      "a refused request still closed the game",
-    ).toBe("in_progress");
+    expect(after!.status, "a refused request still closed the game").toBe(
+      "in_progress",
+    );
   });
 
   test("closes a game left open last night, with the roster's score and no actor", async ({
@@ -776,10 +856,7 @@ test.describe("Closing the night", () => {
       .from("games")
       .update({ status: "in_progress", scheduled_at: hoursInto(from, 19) })
       .eq("id", game.id);
-    await db
-      .from("game_rosters")
-      .update({ goals: 3 })
-      .eq("id", roster![0].id);
+    await db.from("game_rosters").update({ goals: 3 }).eq("id", roster![0].id);
 
     const res = await sweep(request);
     expect(res.status()).toBe(200);
