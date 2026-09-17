@@ -655,37 +655,54 @@ test.describe("The scorekeeper's night", () => {
     // ⛔ THE TRAP (`c64ed0a`): a game played off a paper sheet is still `scheduled` when its goalie
     // is tapped, so undressing the outgoing goalie there deletes the game a pulled starter played.
     const { gameId, side } = await aPlayedGameWithTwoGoalies(page);
-    await page.goto(`/obhl/games/${gameId}/score`);
-    await expect(page).toHaveURL(`/obhl/games/${gameId}/score`);
+    const db = admin();
+    const { data: goalieBefore } = await db
+      .from("games")
+      .select(
+        "home_goalie_id, away_goalie_id, home_goalie_is_sub, away_goalie_is_sub",
+      )
+      .eq("id", gameId)
+      .single();
+    try {
+      await page.goto(`/obhl/games/${gameId}/score`);
+      await expect(page).toHaveURL(`/obhl/games/${gameId}/score`);
 
-    const goalieButtons = page
-      .locator("form")
-      .filter({ has: page.locator('input[name="goalie_id"]') })
-      .filter({ has: page.locator(`input[name="side"][value="${side}"]`) })
-      .getByRole("button");
-    // The premise, asserted: two goalies plus "Sub", or `nth(1)` below is the Sub button and the
-    // test would assert a swap that never happened.
-    await expect(
-      goalieButtons,
-      "that side should offer two goalies and Sub",
-    ).toHaveCount(3);
+      const goalieButtons = page
+        .locator("form")
+        .filter({ has: page.locator('input[name="goalie_id"]') })
+        .filter({ has: page.locator(`input[name="side"][value="${side}"]`) })
+        .getByRole("button");
+      // The premise, asserted: two goalies plus "Sub", or `nth(1)` below is the Sub button and the
+      // test would assert a swap that never happened.
+      await expect(
+        goalieButtons,
+        "that side should offer two goalies and Sub",
+      ).toHaveCount(3);
 
-    const dressed = page.getByTestId("dressed-line");
-    const before = await dressed.count();
+      const dressed = page.getByTestId("dressed-line");
+      const before = await dressed.count();
 
-    await goalieButtons.nth(0).click();
-    await page.waitForLoadState("networkidle");
-    await expect
-      .poll(() => dressed.count(), { message: "picking a goalie dresses them" })
-      .toBe(before + 1);
+      await goalieButtons.nth(0).click();
+      await page.waitForLoadState("networkidle");
+      await expect
+        .poll(() => dressed.count(), {
+          message: "picking a goalie dresses them",
+        })
+        .toBe(before + 1);
 
-    // The starter is pulled and the replacement takes the record.
-    await goalieButtons.nth(1).click();
-    await page.waitForLoadState("networkidle");
-    await expect(
-      dressed,
-      "the starter must stay dressed — deleting their row destroys a real appearance (`c64ed0a`)",
-    ).toHaveCount(before + 2);
+      // The starter is pulled and the replacement takes the record.
+      await goalieButtons.nth(1).click();
+      await page.waitForLoadState("networkidle");
+      await expect(
+        dressed,
+        "the starter must stay dressed — deleting their row destroys a real appearance (`c64ed0a`)",
+      ).toHaveCount(before + 2);
+    } finally {
+      // ⛔ Leave the fixture as found, in a `finally` so a red run cleans up too: `09-access` runs
+      // later on this machine and needs a `scheduled` game whose scoresheet is EMPTY (`ci.yml`).
+      await db.from("game_rosters").delete().eq("game_id", gameId);
+      await db.from("games").update(goalieBefore!).eq("id", gameId);
+    }
   });
 
   test("a scoresheet gives the scorekeeper the minimal chrome and a way back", async ({
